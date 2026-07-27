@@ -50,7 +50,13 @@ fn run() -> Result<(), String> {
     } else {
         match serde_json::from_slice(&raw) {
             Ok(value) => value,
-            Err(error) => return permission_fallback(&provider, requested_permission, &format!("invalid stdin JSON: {error}")),
+            Err(error) => {
+                return permission_fallback(
+                    &provider,
+                    requested_permission,
+                    &format!("invalid stdin JSON: {error}"),
+                )
+            }
         }
     };
     if pretool {
@@ -59,18 +65,25 @@ fn run() -> Result<(), String> {
 
     let mut body = normalize_provider_body(&provider, positional_event.as_deref(), body)?;
     let object = body.as_object_mut().ok_or("stdin JSON must be an object")?;
-    object
-        .entry("source_pid")
-        .or_insert(Value::from(parent_process_id().unwrap_or_else(std::process::id)));
+    object.entry("source_pid").or_insert(Value::from(
+        parent_process_id().unwrap_or_else(std::process::id),
+    ));
 
     let event = object
         .get("hook_event_name")
         .or_else(|| object.get("event"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    let permission = force_permission || event == "PermissionRequest" || (provider == "codewhale" && event == "PreToolUse");
-    let path = if permission && provider == "codewhale" { "/codewhale-permission" }
-        else if permission { "/permission" } else { "/state" };
+    let permission = force_permission
+        || event == "PermissionRequest"
+        || (provider == "codewhale" && event == "PreToolUse");
+    let path = if permission && provider == "codewhale" {
+        "/codewhale-permission"
+    } else if permission {
+        "/permission"
+    } else {
+        "/state"
+    };
 
     let runtime = match read_runtime() {
         Ok(runtime) => runtime,
@@ -81,8 +94,12 @@ fn run() -> Result<(), String> {
         Err(error) => return permission_fallback(&provider, permission, &error),
     };
     if permission && !response.is_empty() {
-        std::io::stdout().write_all(&response).map_err(|e| e.to_string())?;
-        std::io::stdout().write_all(b"\n").map_err(|e| e.to_string())?;
+        std::io::stdout()
+            .write_all(&response)
+            .map_err(|e| e.to_string())?;
+        std::io::stdout()
+            .write_all(b"\n")
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -100,9 +117,16 @@ fn parent_process_id() -> Option<u32> {
     }
     #[cfg(windows)]
     {
-        let script = "(Get-CimInstance Win32_Process -Filter ('ProcessId=' + $args[0])).ParentProcessId";
+        let script =
+            "(Get-CimInstance Win32_Process -Filter ('ProcessId=' + $args[0])).ParentProcessId";
         let output = std::process::Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", script, &std::process::id().to_string()])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                script,
+                &std::process::id().to_string(),
+            ])
             .output()
             .ok()?;
         if output.status.success() {
@@ -120,14 +144,22 @@ fn permission_fallback(provider: &str, permission: bool, reason: &str) -> Result
             "decision":"ask",
             "reason":format!("Octopus unavailable; use CodeWhale prompt ({})", reason.chars().take(160).collect::<String>())
         })).map_err(|e| e.to_string())?;
-        std::io::stdout().write_all(&payload).map_err(|e| e.to_string())?;
-        std::io::stdout().write_all(b"\n").map_err(|e| e.to_string())?;
+        std::io::stdout()
+            .write_all(&payload)
+            .map_err(|e| e.to_string())?;
+        std::io::stdout()
+            .write_all(b"\n")
+            .map_err(|e| e.to_string())?;
         return Ok(());
     }
     Err(reason.into())
 }
 
-fn normalize_provider_body(provider: &str, event_arg: Option<&str>, mut body: Value) -> Result<Value, String> {
+fn normalize_provider_body(
+    provider: &str,
+    event_arg: Option<&str>,
+    mut body: Value,
+) -> Result<Value, String> {
     let object = body.as_object_mut().ok_or("stdin JSON must be an object")?;
     // CodeWhale's native payload uses `provider` for the actual billing route
     // (for example deepseek/openai). Preserve it before normalizing the source
@@ -185,11 +217,18 @@ fn normalize_provider_body(provider: &str, event_arg: Option<&str>, mut body: Va
             normalize_codewhale_turn_end(object);
         }
     } else if provider == "aider" {
-        let cwd = std::env::current_dir().ok().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+        let cwd = std::env::current_dir()
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
         object.entry("cwd").or_insert(Value::String(cwd.clone()));
-        object.entry("session_id").or_insert(Value::String(stable_session("aider", &cwd)));
+        object
+            .entry("session_id")
+            .or_insert(Value::String(stable_session("aider", &cwd)));
         object.insert("hook_event_name".into(), Value::String("Stop".into()));
-        object.entry("state").or_insert(Value::String("attention".into()));
+        object
+            .entry("state")
+            .or_insert(Value::String("attention".into()));
     } else {
         if !object.contains_key("hook_event_name") && !native_event.is_empty() {
             object.insert("hook_event_name".into(), Value::String(native_event));
@@ -238,7 +277,10 @@ fn normalize_codewhale_turn_end(object: &mut Map<String, Value>) {
         .map(|status| matches!(status, "failed" | "interrupted"))
         .unwrap_or(false);
     if failed {
-        object.insert("hook_event_name".into(), Value::String("StopFailure".into()));
+        object.insert(
+            "hook_event_name".into(),
+            Value::String("StopFailure".into()),
+        );
         object.insert("state".into(), Value::String("error".into()));
         if let Some(error) = object.get("error").cloned() {
             object.entry("api_error_type").or_insert(error);
@@ -261,15 +303,30 @@ fn json_u64(value: &Value) -> Option<u64> {
 
 fn apply_codewhale_env_fallback(object: &mut Map<String, Value>) {
     for (key, names) in [
-        ("session_id", ["DEEPSEEK_SESSION_ID", "CODEWHALE_SESSION_ID"]),
+        (
+            "session_id",
+            ["DEEPSEEK_SESSION_ID", "CODEWHALE_SESSION_ID"],
+        ),
         ("workspace", ["DEEPSEEK_WORKSPACE", "CODEWHALE_WORKSPACE"]),
         ("mode", ["DEEPSEEK_MODE", "CODEWHALE_MODE"]),
         ("model", ["DEEPSEEK_MODEL", "CODEWHALE_MODEL"]),
         ("tool_name", ["DEEPSEEK_TOOL_NAME", "CODEWHALE_TOOL_NAME"]),
-        ("tool_input_json", ["DEEPSEEK_TOOL_ARGS", "CODEWHALE_TOOL_ARGS"]),
+        (
+            "tool_input_json",
+            ["DEEPSEEK_TOOL_ARGS", "CODEWHALE_TOOL_ARGS"],
+        ),
     ] {
-        if object.get(key).and_then(Value::as_str).map(str::is_empty).unwrap_or(true) {
-            if let Some(value) = names.iter().find_map(|name| std::env::var(name).ok()).filter(|value| !value.is_empty()) {
+        if object
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::is_empty)
+            .unwrap_or(true)
+        {
+            if let Some(value) = names
+                .iter()
+                .find_map(|name| std::env::var(name).ok())
+                .filter(|value| !value.is_empty())
+            {
                 object.insert(key.into(), Value::String(value));
             }
         }
@@ -278,17 +335,21 @@ fn apply_codewhale_env_fallback(object: &mut Map<String, Value>) {
 
 fn alias(object: &mut Map<String, Value>, from: &str, to: &str) {
     if !object.contains_key(to) {
-        if let Some(value) = object.get(from).cloned() { object.insert(to.into(), value); }
+        if let Some(value) = object.get(from).cloned() {
+            object.insert(to.into(), value);
+        }
     }
 }
 
 fn stable_session(prefix: &str, value: &str) -> String {
     // FNV-1a is stable across processes and requires no extra dependency.
     let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in value.as_bytes() { hash ^= u64::from(*byte); hash = hash.wrapping_mul(0x100000001b3); }
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
     format!("{prefix}:{hash:016x}")
 }
-
 
 fn run_pretool(provider: &str, body: &Value) -> Result<(), String> {
     let object = body.as_object().ok_or("stdin JSON must be an object")?;
@@ -310,7 +371,9 @@ fn run_pretool(provider: &str, body: &Value) -> Result<(), String> {
             .as_object_mut()
             .ok_or("stdin JSON must be an object")?
             .entry("source_pid")
-            .or_insert(Value::from(parent_process_id().unwrap_or_else(std::process::id)));
+            .or_insert(Value::from(
+                parent_process_id().unwrap_or_else(std::process::id),
+            ));
         let runtime = match read_runtime() {
             Ok(runtime) => runtime,
             Err(_) => return Ok(()),
@@ -320,8 +383,12 @@ fn run_pretool(provider: &str, body: &Value) -> Result<(), String> {
             Err(_) => return Ok(()),
         };
         let output = translate_claude_permission_to_pretool(&response)?;
-        std::io::stdout().write_all(&output).map_err(|e| e.to_string())?;
-        std::io::stdout().write_all(b"\n").map_err(|e| e.to_string())?;
+        std::io::stdout()
+            .write_all(&output)
+            .map_err(|e| e.to_string())?;
+        std::io::stdout()
+            .write_all(b"\n")
+            .map_err(|e| e.to_string())?;
         return Ok(());
     }
 
@@ -344,7 +411,9 @@ fn run_pretool(provider: &str, body: &Value) -> Result<(), String> {
             }
         }))
         .map_err(|e| e.to_string())?;
-        std::io::stdout().write_all(&output).map_err(|e| e.to_string())?;
+        std::io::stdout()
+            .write_all(&output)
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -371,7 +440,13 @@ fn translate_claude_permission_to_pretool(response: &[u8]) -> Result<Vec<u8>, St
         if let Some(message) = decision.get("message").and_then(Value::as_str) {
             hook.insert(
                 "permissionDecisionReason".into(),
-                Value::String(message.chars().filter(|c| !c.is_control()).take(4_000).collect()),
+                Value::String(
+                    message
+                        .chars()
+                        .filter(|c| !c.is_control())
+                        .take(4_000)
+                        .collect(),
+                ),
             );
         }
     }
@@ -385,8 +460,15 @@ fn pretool_decision(tool: &str, input: Option<&Map<String, Value>>) -> Option<&'
     // Keep this list intentionally narrow. TaskCreate/TaskUpdate/TaskStop,
     // TodoWrite and Skill can mutate state or execute arbitrary workflows.
     const READ_ONLY: [&str; 9] = [
-        "TaskGet", "TaskList", "TaskOutput", "Read", "Glob", "Grep", "LS",
-        "WebSearch", "NotebookRead",
+        "TaskGet",
+        "TaskList",
+        "TaskOutput",
+        "Read",
+        "Glob",
+        "Grep",
+        "LS",
+        "WebSearch",
+        "NotebookRead",
     ];
     if READ_ONLY.contains(&tool) {
         return Some("allow");
@@ -424,7 +506,10 @@ fn bash_is_read_only(command: &str) -> bool {
         return false;
     }
     // Refuse compound shell expressions even when their first token is safe.
-    if [";", "&&", "||", "|", ">", "<", "`", "$("].iter().any(|part| command.contains(part)) {
+    if [";", "&&", "||", "|", ">", "<", "`", "$("]
+        .iter()
+        .any(|part| command.contains(part))
+    {
         return false;
     }
     let mut words = command.split_whitespace();
@@ -432,8 +517,8 @@ fn bash_is_read_only(command: &str) -> bool {
     // Shell commands are riskier than first-class read tools. Avoid commands such
     // as find -exec, less shell escapes, environment dumps and arbitrary file reads.
     const SAFE: [&str; 13] = [
-        "ls", "wc", "pwd", "date", "whoami", "uname", "which", "type", "du", "df",
-        "arch", "hostname", "tree",
+        "ls", "wc", "pwd", "date", "whoami", "uname", "which", "type", "du", "df", "arch",
+        "hostname", "tree",
     ];
     if SAFE.contains(&first) {
         return true;
@@ -441,7 +526,15 @@ fn bash_is_read_only(command: &str) -> bool {
     if first == "git" {
         return matches!(
             words.next().unwrap_or(""),
-            "status" | "log" | "diff" | "show" | "branch" | "remote" | "describe" | "rev-parse" | "help"
+            "status"
+                | "log"
+                | "diff"
+                | "show"
+                | "branch"
+                | "remote"
+                | "describe"
+                | "rev-parse"
+                | "help"
         );
     }
     false
@@ -485,10 +578,8 @@ fn read_runtime() -> Result<RuntimeFile, String> {
     if meta.len() > 16 * 1024 {
         return Err("runtime file too large".into());
     }
-    let runtime: RuntimeFile = serde_json::from_slice(
-        &fs::read(path).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    let runtime: RuntimeFile = serde_json::from_slice(&fs::read(path).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
     if runtime.app != "octopus" || !(41330..=41334).contains(&runtime.port) {
         return Err("invalid runtime file".into());
     }
@@ -511,8 +602,7 @@ fn post_json(
     blocking: bool,
 ) -> Result<Vec<u8>, String> {
     let payload = serde_json::to_vec(body).map_err(|e| e.to_string())?;
-    let mut stream =
-        TcpStream::connect(("127.0.0.1", runtime.port)).map_err(|e| e.to_string())?;
+    let mut stream = TcpStream::connect(("127.0.0.1", runtime.port)).map_err(|e| e.to_string())?;
     let timeout = if blocking {
         Duration::from_secs(9 * 60)
     } else {
@@ -606,13 +696,23 @@ mod tests {
                     }
                 }
             }
-        })).unwrap();
-        let translated: Value = serde_json::from_slice(
-            &translate_claude_permission_to_pretool(&response).unwrap()
-        ).unwrap();
-        assert_eq!(translated["hookSpecificOutput"]["hookEventName"], "PreToolUse");
-        assert_eq!(translated["hookSpecificOutput"]["permissionDecision"], "allow");
-        assert_eq!(translated["hookSpecificOutput"]["updatedInput"]["answers"]["Framework?"], "Rust");
+        }))
+        .unwrap();
+        let translated: Value =
+            serde_json::from_slice(&translate_claude_permission_to_pretool(&response).unwrap())
+                .unwrap();
+        assert_eq!(
+            translated["hookSpecificOutput"]["hookEventName"],
+            "PreToolUse"
+        );
+        assert_eq!(
+            translated["hookSpecificOutput"]["permissionDecision"],
+            "allow"
+        );
+        assert_eq!(
+            translated["hookSpecificOutput"]["updatedInput"]["answers"]["Framework?"],
+            "Rust"
+        );
     }
 
     #[test]
@@ -622,12 +722,21 @@ mod tests {
                 "hookEventName": "PermissionRequest",
                 "decision": {"behavior":"deny","message":"Add rollback steps"}
             }
-        })).unwrap();
-        let translated: Value = serde_json::from_slice(
-            &translate_claude_permission_to_pretool(&response).unwrap()
-        ).unwrap();
-        assert_eq!(translated["hookSpecificOutput"]["permissionDecision"], "deny");
-        assert_eq!(translated["hookSpecificOutput"]["permissionDecisionReason"], "Add rollback steps");
-        assert!(translated["hookSpecificOutput"].get("updatedInput").is_none());
+        }))
+        .unwrap();
+        let translated: Value =
+            serde_json::from_slice(&translate_claude_permission_to_pretool(&response).unwrap())
+                .unwrap();
+        assert_eq!(
+            translated["hookSpecificOutput"]["permissionDecision"],
+            "deny"
+        );
+        assert_eq!(
+            translated["hookSpecificOutput"]["permissionDecisionReason"],
+            "Add rollback steps"
+        );
+        assert!(translated["hookSpecificOutput"]
+            .get("updatedInput")
+            .is_none());
     }
 }

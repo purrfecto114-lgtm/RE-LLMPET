@@ -125,10 +125,11 @@ assert.match(panel, /String\(s\.sessionId \|\| ''\)\.slice\(0, 8\)/);
 assert.match(server, /fn permission_payload\(provider: &str/);
 assert.match(server, /"claude" =>/);
 assert.match(server, /"codex" =>/);
-assert.match(server, /map\.insert\("updatedInput"/);
-assert.match(server, /map\.insert\("updatedPermissions"/);
+// cargo fmt may wrap map.insert() across lines; match the key on its own.
+assert.match(server, /map\.insert\([\s\S]*?"updatedInput"/);
+assert.match(server, /map\.insert\([\s\S]*?"updatedPermissions"/);
 const codexPayload = server.slice(server.indexOf('"codex" =>'), server.indexOf('_ => json!'));
-assert.doesNotMatch(codexPayload, /map\.insert\("(?:updatedInput|updatedPermissions)"/, 'Codex PermissionRequest must remain minimal/fail-closed');
+assert.doesNotMatch(codexPayload, /map\.insert\([\s\S]*?"(?:updatedInput|updatedPermissions)"/, 'Codex PermissionRequest must remain minimal/fail-closed');
 assert.match(server, /"codewhale" =>/);
 assert.match(model, /pending-permissions\.json/);
 assert.match(model, /pub fn cancel_all_pending/);

@@ -1,4 +1,6 @@
-use crate::model::{now_ms, permission_signature, PendingPermission, PermissionDecision, Runtime, Session};
+use crate::model::{
+    now_ms, permission_signature, PendingPermission, PermissionDecision, Runtime, Session,
+};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
@@ -78,7 +80,8 @@ pub fn start(runtime: Arc<Runtime>, app: AppHandle) -> Result<ServerInfo, String
                         if let Err(error) = spawn {
                             // `guard` is dropped with the failed closure, so the
                             // active-client counter is decremented exactly once.
-                            runtime_for_error.write_log("server", &format!("client thread failed: {error}"));
+                            runtime_for_error
+                                .write_log("server", &format!("client thread failed: {error}"));
                         }
                     }
                     Err(err) => runtime.write_log("server", &format!("accept failed: {err}")),
@@ -101,7 +104,8 @@ fn bind_first_free() -> Result<(TcpListener, u16), String> {
         "ports {}-{} unavailable: {}",
         BASE_PORT,
         BASE_PORT + PORT_COUNT - 1,
-        last.map(|e| e.to_string()).unwrap_or_else(|| "unknown".into())
+        last.map(|e| e.to_string())
+            .unwrap_or_else(|| "unknown".into())
     ))
 }
 
@@ -129,7 +133,13 @@ fn write_runtime_file(runtime: &Runtime, port: u16, token: &str) -> Result<(), S
     fs::rename(tmp, &runtime.runtime_path).map_err(|e| e.to_string())
 }
 
-fn handle_client(mut stream: TcpStream, runtime: Arc<Runtime>, app: AppHandle, token: &str, port: u16) {
+fn handle_client(
+    mut stream: TcpStream,
+    runtime: Arc<Runtime>,
+    app: AppHandle,
+    token: &str,
+    port: u16,
+) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
     let peer_ok = stream
@@ -156,7 +166,8 @@ fn handle_client(mut stream: TcpStream, runtime: Arc<Runtime>, app: AppHandle, t
     }
 
     if request.method == "GET" && request.path == "/state" {
-        let body = serde_json::to_vec(&json!({"ok":true,"app":SERVER_ID,"port":port})).unwrap_or_default();
+        let body =
+            serde_json::to_vec(&json!({"ok":true,"app":SERVER_ID,"port":port})).unwrap_or_default();
         let _ = respond(&mut stream, 200, "application/json", &body);
         return;
     }
@@ -237,27 +248,40 @@ fn handle_permission(
         .get("permission_suggestions")
         .or_else(|| body.get("permissionSuggestions"))
         .and_then(Value::as_array)
-        .map(|items| items.iter().filter(|item| item.is_object()).take(16).cloned().collect::<Vec<_>>())
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| item.is_object())
+                .take(16)
+                .cloned()
+                .collect::<Vec<_>>()
+        })
         .unwrap_or_default();
 
     if let Some(decision) = automatic_decision(&tool_name, &tool_input) {
-        let payload = permission_payload(&provider, &PermissionDecision {
-            behavior: decision.into(),
-            message: None,
-            updated_input: None,
-            updated_permissions: Vec::new(),
-        });
+        let payload = permission_payload(
+            &provider,
+            &PermissionDecision {
+                behavior: decision.into(),
+                message: None,
+                updated_input: None,
+                updated_permissions: Vec::new(),
+            },
+        );
         let body = serde_json::to_vec(&payload).unwrap_or_default();
         let _ = respond(&mut stream, 200, "application/json", &body);
         return;
     }
     if codewhale && runtime.matching_batch_rule(&session_id, &tool_name) {
-        let payload = permission_payload("codewhale", &PermissionDecision {
-            behavior: "allow".into(),
-            message: None,
-            updated_input: None,
-            updated_permissions: Vec::new(),
-        });
+        let payload = permission_payload(
+            "codewhale",
+            &PermissionDecision {
+                behavior: "allow".into(),
+                message: None,
+                updated_input: None,
+                updated_permissions: Vec::new(),
+            },
+        );
         let body = serde_json::to_vec(&payload).unwrap_or_default();
         let _ = respond(&mut stream, 200, "application/json", &body);
         return;
@@ -323,14 +347,25 @@ fn handle_permission(
 fn automatic_decision(tool: &str, input: &Value) -> Option<&'static str> {
     // Only operations that are unambiguously read-only are auto-approved.
     const PASS: &[&str] = &[
-        "TaskGet", "TaskList", "TaskOutput", "Read", "Glob", "Grep", "LS",
-        "WebSearch", "NotebookRead",
+        "TaskGet",
+        "TaskList",
+        "TaskOutput",
+        "Read",
+        "Glob",
+        "Grep",
+        "LS",
+        "WebSearch",
+        "NotebookRead",
     ];
     if PASS.contains(&tool) {
         return Some("allow");
     }
     if tool == "WebFetch" {
-        let url = input.get("url").and_then(Value::as_str).unwrap_or("").trim();
+        let url = input
+            .get("url")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         if !url.is_empty() {
             return Some(if url.starts_with("https://") {
                 "allow"
@@ -343,7 +378,11 @@ fn automatic_decision(tool: &str, input: &Value) -> Option<&'static str> {
 }
 
 fn permission_payload(provider: &str, decision: &PermissionDecision) -> Value {
-    let safe = if decision.behavior == "deny" { "deny" } else { "allow" };
+    let safe = if decision.behavior == "deny" {
+        "deny"
+    } else {
+        "allow"
+    };
     match provider {
         "codewhale" => {
             let mut obj = json!({"decision":safe});
@@ -365,7 +404,10 @@ fn permission_payload(provider: &str, decision: &PermissionDecision) -> Value {
                         map.insert("updatedInput".into(), updated_input);
                     }
                     if !decision.updated_permissions.is_empty() {
-                        map.insert("updatedPermissions".into(), json!(decision.updated_permissions));
+                        map.insert(
+                            "updatedPermissions".into(),
+                            json!(decision.updated_permissions),
+                        );
                     }
                 }
             }
@@ -376,13 +418,17 @@ fn permission_payload(provider: &str, decision: &PermissionDecision) -> Value {
             // updatedInput/updatedPermissions, so keep the envelope minimal.
             let mut native = json!({"behavior":safe});
             if safe == "deny" {
-                if let (Some(map), Some(message)) = (native.as_object_mut(), decision.message.as_deref()) {
+                if let (Some(map), Some(message)) =
+                    (native.as_object_mut(), decision.message.as_deref())
+                {
                     map.insert("message".into(), json!(message));
                 }
             }
             json!({"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":native}})
         }
-        _ => json!({"decision":"native","reason":"This provider keeps permission decisions in its native terminal UI"}),
+        _ => {
+            json!({"decision":"native","reason":"This provider keeps permission decisions in its native terminal UI"})
+        }
     }
 }
 
@@ -404,7 +450,11 @@ fn emit_hook_event(app: &AppHandle, body: &Value, session: &Session) {
         .and_then(Value::as_str)
         .unwrap_or("");
     if event == "Stop" {
-        if let Some(text) = session.assistant_last_output.as_deref().filter(|value| !value.is_empty()) {
+        if let Some(text) = session
+            .assistant_last_output
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
             let _ = app.emit(
                 "pet:event",
                 json!({"kind":"say","text":text,"sessionId":session.id.clone(),"provider":session.provider.clone()}),
@@ -423,8 +473,12 @@ fn emit_hook_event(app: &AppHandle, body: &Value, session: &Session) {
         }),
         "StopFailure" | "PostToolUseFailure" => json!({"kind":"error","text":"Agent 执行失败"}),
         "Notification" | "PermissionDenied" | "Elicitation" => json!({"kind":"needsinput"}),
-        "TaskCreated" => json!({"kind":"operation","tool":"Task","icon":"🤹","detail":"已创建并行任务"}),
-        "TaskCompleted" => json!({"kind":"operation","tool":"Task","icon":"✅","detail":"并行任务已完成"}),
+        "TaskCreated" => {
+            json!({"kind":"operation","tool":"Task","icon":"🤹","detail":"已创建并行任务"})
+        }
+        "TaskCompleted" => {
+            json!({"kind":"operation","tool":"Task","icon":"✅","detail":"并行任务已完成"})
+        }
         "TeammateIdle" => json!({"kind":"state","state":"loafing"}),
         _ => json!({"kind":"state","state":session.state.clone()}),
     };
@@ -478,7 +532,9 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, (u16, String)> {
     let mut raw = Vec::with_capacity(4096);
     let mut chunk = [0u8; 4096];
     let header_end = loop {
-        let n = stream.read(&mut chunk).map_err(|_| (400, "read failed".into()))?;
+        let n = stream
+            .read(&mut chunk)
+            .map_err(|_| (400, "read failed".into()))?;
         if n == 0 {
             return Err((400, "empty request".into()));
         }
@@ -490,7 +546,8 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, (u16, String)> {
             break pos + 4;
         }
     };
-    let header_text = std::str::from_utf8(&raw[..header_end]).map_err(|_| (400, "invalid headers".into()))?;
+    let header_text =
+        std::str::from_utf8(&raw[..header_end]).map_err(|_| (400, "invalid headers".into()))?;
     let mut lines = header_text.split("\r\n");
     let request_line = lines.next().ok_or((400, "missing request line".into()))?;
     let mut parts = request_line.split_whitespace();
@@ -511,7 +568,12 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, (u16, String)> {
         if name.len() > 128 || value.chars().any(|c| matches!(c, '\r' | '\n' | '\0')) {
             return Err((400, "bad header".into()));
         }
-        if headers.contains_key(&name) && matches!(name.as_str(), "host" | "content-length" | "transfer-encoding") {
+        if headers.contains_key(&name)
+            && matches!(
+                name.as_str(),
+                "host" | "content-length" | "transfer-encoding"
+            )
+        {
             return Err((400, "duplicate critical header".into()));
         }
         headers.insert(name, value.trim().to_string());
@@ -521,11 +583,19 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, (u16, String)> {
     }
     let length = headers
         .get("content-length")
-        .map(|value| value.parse::<usize>().map_err(|_| (400, "bad content-length".into())))
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .map_err(|_| (400, "bad content-length".into()))
+        })
         .transpose()?
         .unwrap_or(0);
     let path_only = target.split('?').next().unwrap_or("/");
-    let cap = if path_only == "/state" { MAX_STATE_BYTES } else { MAX_PERMISSION_BYTES };
+    let cap = if path_only == "/state" {
+        MAX_STATE_BYTES
+    } else {
+        MAX_PERMISSION_BYTES
+    };
     if length > cap {
         return Err((413, "payload too large".into()));
     }
@@ -535,11 +605,19 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, (u16, String)> {
     }
     if body.len() < length {
         let mut rest = vec![0u8; length - body.len()];
-        stream.read_exact(&mut rest).map_err(|_| (400, "body read failed".into()))?;
+        stream
+            .read_exact(&mut rest)
+            .map_err(|_| (400, "body read failed".into()))?;
         body.extend_from_slice(&rest);
     }
     let (path, query) = parse_target(&target);
-    Ok(Request { method, path, query, headers, body })
+    Ok(Request {
+        method,
+        path,
+        query,
+        headers,
+        body,
+    })
 }
 
 fn parse_target(target: &str) -> (String, HashMap<String, String>) {
@@ -580,10 +658,17 @@ fn hex(value: u8) -> Option<u8> {
 }
 
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|window| window == needle)
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
-fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8]) -> std::io::Result<()> {
+fn respond(
+    stream: &mut TcpStream,
+    status: u16,
+    content_type: &str,
+    body: &[u8],
+) -> std::io::Result<()> {
     let reason = match status {
         200 => "OK",
         400 => "Bad Request",

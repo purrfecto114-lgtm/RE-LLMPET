@@ -33,9 +33,16 @@ impl PlatformState {
             });
     }
 
-    pub fn recover_windows(&self, app: &AppHandle, runtime: &Runtime, force: bool) -> Result<bool, String> {
+    pub fn recover_windows(
+        &self,
+        app: &AppHandle,
+        runtime: &Runtime,
+        force: bool,
+    ) -> Result<bool, String> {
         let pet = app.get_webview_window("pet").ok_or("pet window missing")?;
-        let monitors = pet.available_monitors().map_err(|error| error.to_string())?;
+        let monitors = pet
+            .available_monitors()
+            .map_err(|error| error.to_string())?;
         if monitors.is_empty() {
             return Err("no monitor information available".into());
         }
@@ -55,7 +62,10 @@ impl PlatformState {
         signatures.sort();
         let signature = signatures.join("|");
         let changed = {
-            let mut previous = self.display_signature.lock().unwrap_or_else(|error| error.into_inner());
+            let mut previous = self
+                .display_signature
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
             let changed = *previous != signature;
             *previous = signature;
             changed
@@ -72,7 +82,10 @@ impl PlatformState {
                     if label == "pet" {
                         if let Ok(position) = window.outer_position() {
                             let _ = runtime.update_config(|config| {
-                                config.pet_position = Some(crate::model::Point { x: position.x, y: position.y });
+                                config.pet_position = Some(crate::model::Point {
+                                    x: position.x,
+                                    y: position.y,
+                                });
                             });
                         }
                     }
@@ -80,7 +93,10 @@ impl PlatformState {
             }
         }
         if moved {
-            runtime.write_log("display", "recovered off-screen window after display topology/resume event");
+            runtime.write_log(
+                "display",
+                "recovered off-screen window after display topology/resume event",
+            );
         }
         Ok(moved)
     }
@@ -113,10 +129,16 @@ fn ensure_window_visible(
         .or_else(|| monitors.first().cloned())
         .ok_or("no target monitor")?;
     let area = target.work_area();
-    let max_x = i64::from(area.position.x) + i64::from(area.size.width) - i64::from(size.width) - 24;
-    let max_y = i64::from(area.position.y) + i64::from(area.size.height) - i64::from(size.height) - 24;
-    let x = max_x.max(i64::from(area.position.x) + 24).clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
-    let y = max_y.max(i64::from(area.position.y) + 24).clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+    let max_x =
+        i64::from(area.position.x) + i64::from(area.size.width) - i64::from(size.width) - 24;
+    let max_y =
+        i64::from(area.position.y) + i64::from(area.size.height) - i64::from(size.height) - 24;
+    let x = max_x
+        .max(i64::from(area.position.x) + 24)
+        .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+    let y = max_y
+        .max(i64::from(area.position.y) + 24)
+        .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
     window
         .set_position(Position::Physical(PhysicalPosition::new(x, y)))
         .map_err(|error| error.to_string())?;
@@ -124,11 +146,16 @@ fn ensure_window_visible(
 }
 
 pub fn focus_session(app: &AppHandle, state: &AppState, session_id: &str) -> Result<(), String> {
-    let session = state.runtime.session(session_id).ok_or("session no longer exists")?;
+    let session = state
+        .runtime
+        .session(session_id)
+        .ok_or("session no longer exists")?;
     if session.headless {
         return Err("headless sessions have no terminal window".into());
     }
-    let source_pid = session.source_pid.ok_or("session did not report a source process")?;
+    let source_pid = session
+        .source_pid
+        .ok_or("session did not report a source process")?;
     let chain = process_chain(source_pid);
     if chain.is_empty() {
         return Err("source process is no longer available".into());
@@ -136,7 +163,11 @@ pub fn focus_session(app: &AppHandle, state: &AppState, session_id: &str) -> Res
     focus_process_chain(&chain)?;
     state.runtime.write_log(
         "focus",
-        &format!("focused session {} from pid chain {:?}", session_id.chars().take(64).collect::<String>(), chain),
+        &format!(
+            "focused session {} from pid chain {:?}",
+            session_id.chars().take(64).collect::<String>(),
+            chain
+        ),
     );
     if let Some(pet) = app.get_webview_window("pet") {
         let _ = pet.set_always_on_top(true);
@@ -153,7 +184,9 @@ fn process_chain(start: u32) -> Vec<u32> {
             break;
         }
         chain.push(current);
-        let Some(parent) = parent_pid(current) else { break };
+        let Some(parent) = parent_pid(current) else {
+            break;
+        };
         current = parent;
     }
     chain
@@ -173,9 +206,16 @@ fn parent_pid(pid: u32) -> Option<u32> {
 
 #[cfg(windows)]
 fn parent_pid(pid: u32) -> Option<u32> {
-    let script = "(Get-CimInstance Win32_Process -Filter ('ProcessId=' + $args[0])).ParentProcessId";
+    let script =
+        "(Get-CimInstance Win32_Process -Filter ('ProcessId=' + $args[0])).ParentProcessId";
     let output = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script, &pid.to_string()])
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script,
+            &pid.to_string(),
+        ])
         .output()
         .ok()?;
     if !output.status.success() {
@@ -191,7 +231,12 @@ fn focus_process_chain(chain: &[u32]) -> Result<(), String> {
             "tell application \"System Events\" to set frontmost of first application process whose unix id is {} to true",
             pid
         );
-        if Command::new("osascript").args(["-e", &script]).status().map(|status| status.success()).unwrap_or(false) {
+        if Command::new("osascript")
+            .args(["-e", &script])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+        {
             return Ok(());
         }
     }
@@ -200,7 +245,11 @@ fn focus_process_chain(chain: &[u32]) -> Result<(), String> {
 
 #[cfg(windows)]
 fn focus_process_chain(chain: &[u32]) -> Result<(), String> {
-    let pids = chain.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+    let pids = chain
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
     let script = r#"
 $ids = $args[0].Split(',') | ForEach-Object { [uint32]$_ }
 Add-Type @'
@@ -228,7 +277,15 @@ $found = $false
 if ($found) { exit 0 } else { exit 3 }
 "#;
     let status = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script, &pids])
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+            &pids,
+        ])
         .status()
         .map_err(|error| error.to_string())?;
     if status.success() {
@@ -244,10 +301,23 @@ fn focus_process_chain(chain: &[u32]) -> Result<(), String> {
         return Err("terminal focus is unsupported on pure Wayland sessions; use the details panel or native terminal UI".into());
     }
     for pid in chain {
-        if let Ok(output) = Command::new("xdotool").args(["search", "--pid", &pid.to_string()]).output() {
+        if let Ok(output) = Command::new("xdotool")
+            .args(["search", "--pid", &pid.to_string()])
+            .output()
+        {
             if output.status.success() {
-                if let Some(window_id) = String::from_utf8_lossy(&output.stdout).lines().next().map(str::trim).filter(|value| !value.is_empty()) {
-                    if Command::new("xdotool").args(["windowactivate", "--sync", window_id]).status().map(|status| status.success()).unwrap_or(false) {
+                if let Some(window_id) = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .next()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    if Command::new("xdotool")
+                        .args(["windowactivate", "--sync", window_id])
+                        .status()
+                        .map(|status| status.success())
+                        .unwrap_or(false)
+                    {
                         return Ok(());
                     }
                 }

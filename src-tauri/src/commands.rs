@@ -92,40 +92,65 @@ pub fn set_skin(app: AppHandle, state: State<'_, AppState>, skin: String) -> Res
 
 #[tauri::command]
 pub fn set_budget(app: AppHandle, state: State<'_, AppState>, value: f64) -> Result<(), String> {
-    state.runtime.update_config(|config| config.budget5h = value)?;
+    state
+        .runtime
+        .update_config(|config| config.budget5h = value)?;
     emit_config(&app, &state);
     Ok(())
 }
 
 #[tauri::command]
-pub fn set_currency(app: AppHandle, state: State<'_, AppState>, currency: String) -> Result<(), String> {
-    state.runtime.update_config(|config| config.currency = currency)?;
+pub fn set_currency(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    currency: String,
+) -> Result<(), String> {
+    state
+        .runtime
+        .update_config(|config| config.currency = currency)?;
     emit_config(&app, &state);
     Ok(())
 }
 
 #[tauri::command]
 pub fn toggle_mute(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    state.runtime.update_config(|config| config.muted = !config.muted)?;
+    state
+        .runtime
+        .update_config(|config| config.muted = !config.muted)?;
     emit_config(&app, &state);
     Ok(())
 }
 
 #[tauri::command]
-pub fn set_providers(app: AppHandle, state: State<'_, AppState>, ids: Vec<String>) -> Result<(), String> {
-    state.runtime.update_config(|config| config.providers = ids)?;
+pub fn set_providers(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    state
+        .runtime
+        .update_config(|config| config.providers = ids)?;
     let statuses = hook_install::resync_current(&state.runtime)?;
     emit_config(&app, &state);
-    let errors: Vec<String> = statuses.into_iter().filter(|s| s.state == "error").map(|s| format!("{}: {}", s.id, s.message)).collect();
+    let errors: Vec<String> = statuses
+        .into_iter()
+        .filter(|s| s.state == "error")
+        .map(|s| format!("{}: {}", s.id, s.message))
+        .collect();
     if !errors.is_empty() {
-        let _ = app.emit("pet:event", json!({"kind":"error","text":errors.join("；")}));
+        let _ = app.emit(
+            "pet:event",
+            json!({"kind":"error","text":errors.join("；")}),
+        );
     }
     Ok(())
 }
 
 #[tauri::command]
 pub fn territory_toggle_auto(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let config = state.runtime.update_config(|config| config.territory = !config.territory)?;
+    let config = state
+        .runtime
+        .update_config(|config| config.territory = !config.territory)?;
     emit_config(&app, &state);
     let message = if config.territory {
         "领地模式已开启；第一阶段只保留开关，原生窗口推动适配仍按平台逐项迁移。"
@@ -146,14 +171,18 @@ pub fn territory_run_now(app: AppHandle) {
 
 #[tauri::command]
 pub fn open_panel(app: AppHandle) -> Result<(), String> {
-    let window = app.get_webview_window("panel").ok_or("panel window missing")?;
+    let window = app
+        .get_webview_window("panel")
+        .ok_or("panel window missing")?;
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn close_panel(app: AppHandle) -> Result<(), String> {
-    let window = app.get_webview_window("panel").ok_or("panel window missing")?;
+    let window = app
+        .get_webview_window("panel")
+        .ok_or("panel window missing")?;
     window.hide().map_err(|e| e.to_string())
 }
 
@@ -166,12 +195,19 @@ pub fn get_win_pos(app: AppHandle) -> Result<[i32; 2], String> {
 }
 
 #[tauri::command]
-pub fn set_win_pos(app: AppHandle, state: State<'_, AppState>, x: i32, y: i32) -> Result<(), String> {
+pub fn set_win_pos(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    x: i32,
+    y: i32,
+) -> Result<(), String> {
     let window = app.get_webview_window("pet").ok_or("pet window missing")?;
     window
         .set_position(Position::Physical(PhysicalPosition::new(x, y)))
         .map_err(|e| e.to_string())?;
-    state.runtime.update_config(|config| config.pet_position = Some(Point { x, y }))?;
+    state
+        .runtime
+        .update_config(|config| config.pet_position = Some(Point { x, y }))?;
     emit_config(&app, &state);
     Ok(())
 }
@@ -191,7 +227,11 @@ pub fn set_pet_tall(app: AppHandle, tall: bool) -> Result<(), String> {
 
 #[tauri::command]
 pub fn set_pet_big(app: AppHandle, on: bool) -> Result<(), String> {
-    set_pet_size(app, if on { 520.0 } else { 320.0 }, if on { 700.0 } else { 340.0 })
+    set_pet_size(
+        app,
+        if on { 520.0 } else { 320.0 },
+        if on { 700.0 } else { 340.0 },
+    )
 }
 
 #[tauri::command]
@@ -203,17 +243,29 @@ pub fn set_pet_size(app: AppHandle, width: f64, height: f64) -> Result<(), Strin
     };
     app.get_webview_window("pet")
         .ok_or("pet window missing")?
-        .set_size(Size::Physical(PhysicalSize::new(width.round() as u32, height.round() as u32)))
+        .set_size(Size::Physical(PhysicalSize::new(
+            width.round() as u32,
+            height.round() as u32,
+        )))
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn set_panel_height(app: AppHandle, height: f64) -> Result<(), String> {
-    let window = app.get_webview_window("panel").ok_or("panel window missing")?;
+    let window = app
+        .get_webview_window("panel")
+        .ok_or("panel window missing")?;
     let current = window.outer_size().map_err(|e| e.to_string())?;
-    let height = if height <= 0.0 { 720 } else { height.round().clamp(480.0, 1200.0) as u32 };
+    let height = if height <= 0.0 {
+        720
+    } else {
+        height.round().clamp(480.0, 1200.0) as u32
+    };
     window
-        .set_size(Size::Physical(PhysicalSize::new(current.width.max(560), height)))
+        .set_size(Size::Physical(PhysicalSize::new(
+            current.width.max(560),
+            height,
+        )))
         .map_err(|e| e.to_string())
 }
 
@@ -273,11 +325,18 @@ pub fn launch_agent(provider: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn focus_session(app: AppHandle, state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+pub fn focus_session(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
     match platform::focus_session(&app, &state, &session_id) {
         Ok(()) => Ok(()),
         Err(error) => {
-            state.runtime.write_log("focus", &format!("native focus unavailable for {session_id}: {error}"));
+            state.runtime.write_log(
+                "focus",
+                &format!("native focus unavailable for {session_id}: {error}"),
+            );
             let _ = app.emit("pet:event", json!({"kind":"say","text":format!("无法直接聚焦该终端：{error}；已打开详情面板。") }));
             open_panel(app)
         }
@@ -290,15 +349,26 @@ pub fn primary_action(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
     let active_session = stats
         .get("sessions")
         .and_then(Value::as_array)
-        .and_then(|sessions| sessions.iter().find(|session| {
-            session.get("status").and_then(Value::as_str).is_some_and(|status| !matches!(status, "ended" | "idle"))
-        }))
+        .and_then(|sessions| {
+            sessions.iter().find(|session| {
+                session
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .is_some_and(|status| !matches!(status, "ended" | "idle"))
+            })
+        })
         .and_then(|session| session.get("id").and_then(Value::as_str))
         .map(str::to_owned);
     if let Some(session_id) = active_session {
         focus_session(app, state, session_id)
     } else {
-        let provider = state.runtime.config().providers.into_iter().next().unwrap_or_else(|| "claude".into());
+        let provider = state
+            .runtime
+            .config()
+            .providers
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| "claude".into());
         launch_agent(provider)
     }
 }
@@ -324,7 +394,9 @@ pub fn pet_visual_bounds(_rect: Value) {}
 
 #[tauri::command]
 pub fn quit_app(app: AppHandle, state: State<'_, AppState>) {
-    state.runtime.cancel_all_pending("Octopus is shutting down; permission denied");
+    state
+        .runtime
+        .cancel_all_pending("Octopus is shutting down; permission denied");
     app.exit(0);
 }
 
@@ -360,7 +432,10 @@ fn launch_terminal(command: &str) -> Result<(), String> {
                 return Ok(());
             }
         }
-        Command::new(command).spawn().map(|_| ()).map_err(|e| e.to_string())
+        Command::new(command)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -376,10 +451,18 @@ fn open_path(path: &Path) -> Result<(), String> {
     }
     #[cfg(target_os = "macos")]
     {
-        Command::new("open").arg(path).spawn().map(|_| ()).map_err(|e| e.to_string())
+        Command::new("open")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        Command::new("xdg-open").arg(path).spawn().map(|_| ()).map_err(|e| e.to_string())
+        Command::new("xdg-open")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 }

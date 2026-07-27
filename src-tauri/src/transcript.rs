@@ -74,7 +74,13 @@ impl TranscriptScanner {
         let Some(path) = path else {
             return TranscriptScanResult::default();
         };
-        match self.scan_path(Path::new(path), session_id, ledger, observed_at, reply_limit) {
+        match self.scan_path(
+            Path::new(path),
+            session_id,
+            ledger,
+            observed_at,
+            reply_limit,
+        ) {
             Ok(result) => result,
             Err(_) => TranscriptScanResult::default(),
         }
@@ -208,8 +214,10 @@ fn validate_transcript_path(root: &Path, requested: &Path) -> Result<PathBuf, St
     if requested.extension().and_then(|value| value.to_str()) != Some("jsonl") {
         return Err("transcript must be a .jsonl file".into());
     }
-    let root = fs::canonicalize(root).map_err(|error| format!("transcript root unavailable: {error}"))?;
-    let path = fs::canonicalize(requested).map_err(|error| format!("transcript unavailable: {error}"))?;
+    let root =
+        fs::canonicalize(root).map_err(|error| format!("transcript root unavailable: {error}"))?;
+    let path =
+        fs::canonicalize(requested).map_err(|error| format!("transcript unavailable: {error}"))?;
     if !path.starts_with(&root) {
         return Err("transcript path escapes ~/.claude/projects".into());
     }
@@ -247,7 +255,9 @@ fn safe_assistant_text(line: &Value, max_chars: usize) -> Option<String> {
         Value::String(value) => text.push_str(value),
         Value::Array(blocks) => {
             for block in blocks.iter().take(128) {
-                let Some(object) = block.as_object() else { continue };
+                let Some(object) = block.as_object() else {
+                    continue;
+                };
                 let kind = object.get("type").and_then(Value::as_str).unwrap_or("");
                 if kind != "text" && kind != "output_text" {
                     continue;
@@ -329,11 +339,16 @@ fn merge_usage(target: &mut UsageIngest, source: UsageIngest) {
 fn load_cursors(path: &Path) -> (HashMap<String, u64>, Option<String>) {
     let metadata = match fs::metadata(path) {
         Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return (HashMap::new(), None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return (HashMap::new(), None)
+        }
         Err(error) => return (HashMap::new(), Some(error.to_string())),
     };
     if metadata.len() > MAX_CURSOR_FILE_BYTES {
-        return (HashMap::new(), Some("transcript cursor file is oversized".into()));
+        return (
+            HashMap::new(),
+            Some("transcript cursor file is oversized".into()),
+        );
     }
     let file = match File::open(path) {
         Ok(file) => file,
@@ -341,7 +356,9 @@ fn load_cursors(path: &Path) -> (HashMap<String, u64>, Option<String>) {
     };
     match serde_json::from_reader::<_, CursorState>(file) {
         Ok(mut state) => {
-            state.cursors.retain(|path, _| path.len() <= 4096 && path.ends_with(".jsonl"));
+            state
+                .cursors
+                .retain(|path, _| path.len() <= 4096 && path.ends_with(".jsonl"));
             trim_cursors(&mut state.cursors);
             (state.cursors, None)
         }
@@ -367,8 +384,13 @@ fn save_cursors(path: &Path, cursors: &HashMap<String, u64>) -> Result<(), Strin
             fs::set_permissions(&temp, fs::Permissions::from_mode(0o600))
                 .map_err(|error| error.to_string())?;
         }
-        serde_json::to_writer(&mut file, &CursorState { cursors: cursors.clone() })
-            .map_err(|error| error.to_string())?;
+        serde_json::to_writer(
+            &mut file,
+            &CursorState {
+                cursors: cursors.clone(),
+            },
+        )
+        .map_err(|error| error.to_string())?;
         file.flush().map_err(|error| error.to_string())?;
         let _ = file.sync_all();
     }
@@ -460,18 +482,29 @@ mod tests {
         let line = assistant_line("msg-1", 20, "完成了。不会保存整段对话。");
         fs::write(
             &transcript,
-            format!("{}\n{}\n", serde_json::to_string(&line).unwrap(), serde_json::to_string(&line).unwrap()),
+            format!(
+                "{}\n{}\n",
+                serde_json::to_string(&line).unwrap(),
+                serde_json::to_string(&line).unwrap()
+            ),
         )
         .unwrap();
         let now = crate::model::now_ms();
         let mut ledger = UsageLedger::open(&app, now);
         let mut scanner = TranscriptScanner::open(&app, root.clone());
-        let result = scanner.scan_path(&transcript, "session-1", &mut ledger, now, Some(800)).unwrap();
+        let result = scanner
+            .scan_path(&transcript, "session-1", &mut ledger, now, Some(800))
+            .unwrap();
         assert!(result.usage.inserted);
         assert!(result.usage.duplicate);
-        assert_eq!(result.assistant_text.as_deref(), Some("完成了。不会保存整段对话。"));
+        assert_eq!(
+            result.assistant_text.as_deref(),
+            Some("完成了。不会保存整段对话。")
+        );
         assert_eq!(ledger.snapshot(now)["today"]["messages"], 1);
-        let second = scanner.scan_path(&transcript, "session-1", &mut ledger, now + 1, Some(800)).unwrap();
+        let second = scanner
+            .scan_path(&transcript, "session-1", &mut ledger, now + 1, Some(800))
+            .unwrap();
         assert!(!second.usage.inserted);
         assert_eq!(ledger.snapshot(now + 1)["today"]["messages"], 1);
         let _ = fs::remove_dir_all(root);
@@ -487,7 +520,9 @@ mod tests {
         let now = crate::model::now_ms();
         let mut ledger = UsageLedger::open(&app, now);
         let mut scanner = TranscriptScanner::open(&app, root.clone());
-        assert!(scanner.scan_path(&outside, "session-1", &mut ledger, now, Some(800)).is_err());
+        assert!(scanner
+            .scan_path(&outside, "session-1", &mut ledger, now, Some(800))
+            .is_err());
         let secret = assistant_line("msg-secret", 1, "Authorization: Bearer secret-token");
         assert!(safe_assistant_text(&secret, 800).is_none());
         let long = format!("prefix-{}-tail", "x".repeat(300));

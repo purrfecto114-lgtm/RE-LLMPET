@@ -88,120 +88,128 @@ pub fn start(runtime: Arc<Runtime>, app: AppHandle) {
 
     let mut initial = load_sync_state(&runtime.app_dir).unwrap_or_default();
     if initial.entry_count == 0 {
-        initial.entry_count = cache_entry_count(&runtime.app_dir.join(PRICE_CACHE_FILE_NAME)).unwrap_or(0);
+        initial.entry_count =
+            cache_entry_count(&runtime.app_dir.join(PRICE_CACHE_FILE_NAME)).unwrap_or(0);
     }
     publish_status(&runtime, &app, &initial, false, "idle");
 
     let worker_runtime = runtime.clone();
     let worker_app = app.clone();
-    let spawn_result = thread::Builder::new()
-        .name("octopus-pricing-sync".into())
-        .spawn(move || {
-            let runtime = worker_runtime;
-            let app = worker_app;
-            let mut state = initial;
-            let mut forced = matches!(wake_rx.recv_timeout(STARTUP_DELAY), Ok(()));
+    let spawn_result =
+        thread::Builder::new()
+            .name("octopus-pricing-sync".into())
+            .spawn(move || {
+                let runtime = worker_runtime;
+                let app = worker_app;
+                let mut state = initial;
+                let mut forced = matches!(wake_rx.recv_timeout(STARTUP_DELAY), Ok(()));
 
-            loop {
-                let config = runtime.config();
-                let disabled_by_env = fetch_disabled_by_env();
-                let now = now_ms();
-                let due = cache_due(
-                    &runtime.app_dir.join(PRICE_CACHE_FILE_NAME),
-                    &state,
-                    config.price_refresh_hours,
-                    now,
-                );
+                loop {
+                    let config = runtime.config();
+                    let disabled_by_env = fetch_disabled_by_env();
+                    let now = now_ms();
+                    let due = cache_due(
+                        &runtime.app_dir.join(PRICE_CACHE_FILE_NAME),
+                        &state,
+                        config.price_refresh_hours,
+                        now,
+                    );
 
-                if disabled_by_env {
-                    forced = false;
-                    publish_status(&runtime, &app, &state, false, "network-disabled");
-                } else if forced || (config.price_auto_update && due) {
-                    forced = false;
-                    publish_status(&runtime, &app, &state, true, "refreshing");
-                    let checked_at = now_ms();
-                    match refresh_once(&runtime.app_dir, &state) {
-                        Ok(RefreshOutcome::Updated {
-                            count,
-                            etag,
-                            last_modified,
-                        }) => {
-                            state.etag = etag.or_else(|| state.etag.clone());
-                            state.last_modified = last_modified.or_else(|| state.last_modified.clone());
-                            state.last_checked_ms = Some(checked_at);
-                            state.last_updated_ms = Some(checked_at);
-                            state.next_check_ms = Some(
-                                checked_at.saturating_add(refresh_interval_ms(config.price_refresh_hours)),
-                            );
-                            state.consecutive_failures = 0;
-                            state.last_error = None;
-                            state.last_result = "updated".into();
-                            state.last_http_status = Some(200);
-                            state.entry_count = count;
-                            runtime.reload_price_catalog();
+                    if disabled_by_env {
+                        forced = false;
+                        publish_status(&runtime, &app, &state, false, "network-disabled");
+                    } else if forced || (config.price_auto_update && due) {
+                        forced = false;
+                        publish_status(&runtime, &app, &state, true, "refreshing");
+                        let checked_at = now_ms();
+                        match refresh_once(&runtime.app_dir, &state) {
+                            Ok(RefreshOutcome::Updated {
+                                count,
+                                etag,
+                                last_modified,
+                            }) => {
+                                state.etag = etag.or_else(|| state.etag.clone());
+                                state.last_modified =
+                                    last_modified.or_else(|| state.last_modified.clone());
+                                state.last_checked_ms = Some(checked_at);
+                                state.last_updated_ms = Some(checked_at);
+                                state.next_check_ms = Some(checked_at.saturating_add(
+                                    refresh_interval_ms(config.price_refresh_hours),
+                                ));
+                                state.consecutive_failures = 0;
+                                state.last_error = None;
+                                state.last_result = "updated".into();
+                                state.last_http_status = Some(200);
+                                state.entry_count = count;
+                                runtime.reload_price_catalog();
+                                runtime.write_log(
+                                    "pricing",
+                                    &format!("models.dev cache updated ({count} entries)"),
+                                );
+                                publish_after_catalog_change(&runtime, &app, &state, "updated");
+                            }
+                            Ok(RefreshOutcome::NotModified {
+                                count,
+                                etag,
+                                last_modified,
+                            }) => {
+                                state.etag = etag.or_else(|| state.etag.clone());
+                                state.last_modified =
+                                    last_modified.or_else(|| state.last_modified.clone());
+                                state.last_checked_ms = Some(checked_at);
+                                state.next_check_ms = Some(checked_at.saturating_add(
+                                    refresh_interval_ms(config.price_refresh_hours),
+                                ));
+                                state.consecutive_failures = 0;
+                                state.last_error = None;
+                                state.last_result = "not-modified".into();
+                                state.last_http_status = Some(304);
+                                state.entry_count = count;
+                                runtime.write_log(
+                                    "pricing",
+                                    &format!("models.dev catalog unchanged ({count} entries)"),
+                                );
+                                publish_status(&runtime, &app, &state, false, "not-modified");
+                            }
+                            Err(error) => {
+                                state.last_checked_ms = Some(checked_at);
+                                state.consecutive_failures =
+                                    state.consecutive_failures.saturating_add(1);
+                                state.last_error = Some(error.chars().take(500).collect());
+                                state.last_result = "error".into();
+                                state.last_http_status = None;
+                                state.next_check_ms = Some(checked_at.saturating_add(
+                                    failure_backoff_ms(state.consecutive_failures),
+                                ));
+                                runtime.write_log(
+                                    "pricing",
+                                    &format!(
+                                        "automatic refresh failed (attempt {}): {}",
+                                        state.consecutive_failures,
+                                        state.last_error.as_deref().unwrap_or("unknown error")
+                                    ),
+                                );
+                                publish_status(&runtime, &app, &state, false, "error");
+                            }
+                        }
+                        if let Err(error) = persist_sync_state(&runtime.app_dir, &state) {
                             runtime.write_log(
                                 "pricing",
-                                &format!("models.dev cache updated ({count} entries)"),
+                                &format!("sync state persistence failed: {error}"),
                             );
-                            publish_after_catalog_change(&runtime, &app, &state, "updated");
                         }
-                        Ok(RefreshOutcome::NotModified {
-                            count,
-                            etag,
-                            last_modified,
-                        }) => {
-                            state.etag = etag.or_else(|| state.etag.clone());
-                            state.last_modified = last_modified.or_else(|| state.last_modified.clone());
-                            state.last_checked_ms = Some(checked_at);
-                            state.next_check_ms = Some(
-                                checked_at.saturating_add(refresh_interval_ms(config.price_refresh_hours)),
-                            );
-                            state.consecutive_failures = 0;
-                            state.last_error = None;
-                            state.last_result = "not-modified".into();
-                            state.last_http_status = Some(304);
-                            state.entry_count = count;
-                            runtime.write_log(
-                                "pricing",
-                                &format!("models.dev catalog unchanged ({count} entries)"),
-                            );
-                            publish_status(&runtime, &app, &state, false, "not-modified");
-                        }
-                        Err(error) => {
-                            state.last_checked_ms = Some(checked_at);
-                            state.consecutive_failures = state.consecutive_failures.saturating_add(1);
-                            state.last_error = Some(error.chars().take(500).collect());
-                            state.last_result = "error".into();
-                            state.last_http_status = None;
-                            state.next_check_ms = Some(
-                                checked_at.saturating_add(failure_backoff_ms(state.consecutive_failures)),
-                            );
-                            runtime.write_log(
-                                "pricing",
-                                &format!(
-                                    "automatic refresh failed (attempt {}): {}",
-                                    state.consecutive_failures,
-                                    state.last_error.as_deref().unwrap_or("unknown error")
-                                ),
-                            );
-                            publish_status(&runtime, &app, &state, false, "error");
-                        }
+                    } else if !config.price_auto_update {
+                        publish_status(&runtime, &app, &state, false, "auto-disabled");
                     }
-                    if let Err(error) = persist_sync_state(&runtime.app_dir, &state) {
-                        runtime.write_log("pricing", &format!("sync state persistence failed: {error}"));
-                    }
-                } else if !config.price_auto_update {
-                    publish_status(&runtime, &app, &state, false, "auto-disabled");
-                }
 
-                let wait = next_wait(&state, &runtime, disabled_by_env);
-                match wake_rx.recv_timeout(wait) {
-                    Ok(()) => forced = true,
-                    Err(mpsc::RecvTimeoutError::Timeout) => {}
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    let wait = next_wait(&state, &runtime, disabled_by_env);
+                    match wake_rx.recv_timeout(wait) {
+                        Ok(()) => forced = true,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
                 }
-            }
-        });
+            });
     if let Err(error) = spawn_result {
         let message = format!("price synchronization worker failed to start: {error}");
         runtime.write_log("pricing", &message);
@@ -268,7 +276,9 @@ fn next_wait(state: &PersistedSyncState, runtime: &Runtime, disabled_by_env: boo
     }
     let now = now_ms();
     let due = state.next_check_ms.unwrap_or(now);
-    let millis = due.saturating_sub(now).min(MAX_IDLE_WAIT.as_millis() as u64);
+    let millis = due
+        .saturating_sub(now)
+        .min(MAX_IDLE_WAIT.as_millis() as u64);
     Duration::from_millis(millis.max(250))
 }
 
@@ -356,12 +366,17 @@ fn refresh_once(app_dir: &Path, previous: &PersistedSyncState) -> Result<Refresh
             .map(Map::len)
             .unwrap_or(0);
         if count < 10 {
-            return Err(format!("models.dev extraction produced only {count} entries"));
+            return Err(format!(
+                "models.dev extraction produced only {count} entries"
+            ));
         }
         if let Some(object) = document.as_object_mut() {
             object.insert("ttl_secs".into(), json!(24 * 60 * 60));
             object.insert("upstream_etag".into(), json!(response.etag.clone()));
-            object.insert("upstream_last_modified".into(), json!(response.last_modified.clone()));
+            object.insert(
+                "upstream_last_modified".into(),
+                json!(response.last_modified.clone()),
+            );
         }
         {
             let mut file = File::create(&normalized_path).map_err(|error| error.to_string())?;
@@ -416,7 +431,9 @@ fn download_with_curl(
     command.arg("--output").arg(output);
     command.arg("--write-out").arg("%{http_code}");
     if let Some(value) = safe_header_value(etag) {
-        command.arg("--header").arg(format!("If-None-Match: {value}"));
+        command
+            .arg("--header")
+            .arg(format!("If-None-Match: {value}"));
     }
     if let Some(value) = safe_header_value(last_modified) {
         command
@@ -515,7 +532,9 @@ fn trusted_curl_path() -> Option<PathBuf> {
 }
 
 fn normalize_models_dev(value: &Value) -> Result<Value, String> {
-    let root = value.as_object().ok_or("models.dev root is not an object")?;
+    let root = value
+        .as_object()
+        .ok_or("models.dev root is not an object")?;
     let providers = root
         .get("providers")
         .and_then(Value::as_object)
@@ -656,9 +675,9 @@ fn is_official_provider(provider: &str) -> bool {
 }
 
 fn finite_rate(value: Option<&Value>) -> Option<f64> {
-    value.and_then(Value::as_f64).filter(|value| {
-        value.is_finite() && *value >= 0.0 && *value <= MAX_PRICE_USD_PER_MILLION
-    })
+    value
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite() && *value >= 0.0 && *value <= MAX_PRICE_USD_PER_MILLION)
 }
 
 fn finite_u64(value: Option<&Value>) -> Option<u64> {
@@ -672,8 +691,9 @@ fn cache_entry_count(path: &Path) -> Result<usize, String> {
     if metadata.len() > MAX_DOWNLOAD_BYTES {
         return Err("price cache exceeds size limit".into());
     }
-    let value: Value = serde_json::from_reader(File::open(path).map_err(|error| error.to_string())?)
-        .map_err(|error| error.to_string())?;
+    let value: Value =
+        serde_json::from_reader(File::open(path).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
     Ok(value
         .get("entries")
         .and_then(Value::as_object)
@@ -699,7 +719,10 @@ fn load_sync_state(app_dir: &Path) -> Result<PersistedSyncState, String> {
     if state.schema_version != 1 || state.source_url != MODELS_DEV_URL {
         state = PersistedSyncState::default();
     }
-    state.etag = state.etag.as_deref().and_then(|value| safe_header_value(Some(value)));
+    state.etag = state
+        .etag
+        .as_deref()
+        .and_then(|value| safe_header_value(Some(value)));
     state.last_modified = state
         .last_modified
         .as_deref()
@@ -766,7 +789,12 @@ fn fetch_disabled_by_env() -> bool {
 fn env_flag(name: &str) -> bool {
     std::env::var(name)
         .ok()
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
 
@@ -810,9 +838,18 @@ mod tests {
         let normalized = normalize_models_dev(&raw).unwrap();
         let entries = normalized["entries"].as_object().unwrap();
         assert_eq!(entries["claude-sample"]["provider_id"], json!("anthropic"));
-        assert_eq!(entries["claude-sample"]["input_usd_per_million"], json!(3.0));
-        assert_eq!(entries["claude-sample"]["cache_read_usd_per_million"], json!(0.3));
-        assert_eq!(entries["anthropic/claude-sample"]["context_window"], json!(200000));
+        assert_eq!(
+            entries["claude-sample"]["input_usd_per_million"],
+            json!(3.0)
+        );
+        assert_eq!(
+            entries["claude-sample"]["cache_read_usd_per_million"],
+            json!(0.3)
+        );
+        assert_eq!(
+            entries["anthropic/claude-sample"]["context_window"],
+            json!(200000)
+        );
         assert!(entries.contains_key("openrouter/anthropic/claude-sample"));
     }
 
@@ -825,7 +862,10 @@ mod tests {
         let normalized = normalize_models_dev(&raw).unwrap();
         let entries = normalized["entries"].as_object().unwrap();
         assert_eq!(entries["same-model"]["input_usd_per_million"], json!(3.0));
-        assert_eq!(entries["anthropic/same-model"]["provider_id"], json!("anthropic"));
+        assert_eq!(
+            entries["anthropic/same-model"]["provider_id"],
+            json!("anthropic")
+        );
     }
 
     #[test]
@@ -855,10 +895,7 @@ mod tests {
         .unwrap();
         let parsed = parse_response_headers(&path).unwrap();
         assert_eq!(parsed.0.as_deref(), Some("\"new\""));
-        assert_eq!(
-            parsed.1.as_deref(),
-            Some("Wed, 01 Jul 2026 00:00:00 GMT")
-        );
+        assert_eq!(parsed.1.as_deref(), Some("Wed, 01 Jul 2026 00:00:00 GMT"));
         assert!(safe_header_value(Some("ok\r\nInjected: yes")).is_none());
         let _ = fs::remove_dir_all(dir);
     }

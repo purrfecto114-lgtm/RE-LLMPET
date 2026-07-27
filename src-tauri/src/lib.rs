@@ -1,19 +1,19 @@
 mod commands;
+pub mod hook_client;
 mod hook_install;
 mod http_server;
-pub mod hook_client;
 mod metering;
 mod model;
-mod pricing_sync;
 mod platform;
+mod pricing_sync;
 mod transcript;
 
 use commands::*;
 use model::AppState;
 use serde_json::json;
+use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use std::sync::Arc;
 use tauri::{Emitter, Manager, PhysicalPosition, Position, RunEvent};
 
 pub fn run() {
@@ -29,11 +29,17 @@ pub fn run() {
             let state = app.state::<AppState>();
             if let Some(position) = state.runtime.config().pet_position {
                 if let Some(window) = app.get_webview_window("pet") {
-                    let _ = window.set_position(Position::Physical(PhysicalPosition::new(position.x, position.y)));
+                    let _ = window.set_position(Position::Physical(PhysicalPosition::new(
+                        position.x, position.y,
+                    )));
                 }
             }
-            if let Err(error) = platform_for_setup.recover_windows(app.handle(), &state.runtime, true) {
-                state.runtime.write_log("display", &format!("startup recovery skipped: {error}"));
+            if let Err(error) =
+                platform_for_setup.recover_windows(app.handle(), &state.runtime, true)
+            {
+                state
+                    .runtime
+                    .write_log("display", &format!("startup recovery skipped: {error}"));
             }
             platform_for_setup.start_health_check(app.handle().clone(), state.runtime.clone());
             match http_server::start(state.runtime.clone(), app.handle().clone()) {
@@ -51,11 +57,16 @@ pub fn run() {
                         &config.providers,
                     );
                     for status in statuses.iter().filter(|status| status.state == "error") {
-                        state.runtime.write_log("hooks", &format!("{} hook sync failed: {}", status.id, status.message));
+                        state.runtime.write_log(
+                            "hooks",
+                            &format!("{} hook sync failed: {}", status.id, status.message),
+                        );
                     }
                 }
                 Err(error) => {
-                    state.runtime.write_log("startup", &format!("HTTP server disabled: {error}"));
+                    state
+                        .runtime
+                        .write_log("startup", &format!("HTTP server disabled: {error}"));
                     let _ = app.emit(
                         "pet:event",
                         json!({"kind":"error","text":format!("本地 Agent 服务启动失败：{error}")}),
@@ -114,8 +125,12 @@ pub fn run() {
     app.run(move |app_handle, event| {
         if let RunEvent::Resumed = event {
             let state = app_handle.state::<AppState>();
-            if let Err(error) = platform_for_events.recover_windows(app_handle, &state.runtime, true) {
-                state.runtime.write_log("display", &format!("resume recovery failed: {error}"));
+            if let Err(error) =
+                platform_for_events.recover_windows(app_handle, &state.runtime, true)
+            {
+                state
+                    .runtime
+                    .write_log("display", &format!("resume recovery failed: {error}"));
             }
         }
     });
@@ -151,9 +166,11 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             }
             "quit" => {
                 let state = app.state::<AppState>();
-                state.runtime.cancel_all_pending("Octopus is shutting down; permission denied");
+                state
+                    .runtime
+                    .cancel_all_pending("Octopus is shutting down; permission denied");
                 app.exit(0);
-            },
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {

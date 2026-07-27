@@ -5,7 +5,10 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc::{SyncSender, TrySendError}, Arc, Condvar, Mutex};
+use std::sync::{
+    mpsc::{SyncSender, TrySendError},
+    Arc, Condvar, Mutex,
+};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const APP_DIR_NAME: &str = ".octopus";
@@ -242,7 +245,10 @@ impl AppState {
 
 impl Runtime {
     pub fn config(&self) -> AppConfig {
-        self.config.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn set_provider_status(&self, status: ProviderStatus) {
@@ -396,8 +402,11 @@ impl Runtime {
     }
 
     pub fn ingest(&self, body: &Value) -> Session {
-        let event = clean_text(body.get("hook_event_name").or_else(|| body.get("event")), 96)
-            .unwrap_or_default();
+        let event = clean_text(
+            body.get("hook_event_name").or_else(|| body.get("event")),
+            96,
+        )
+        .unwrap_or_default();
         let explicit_state = clean_text(body.get("state"), 32).unwrap_or_default();
         let id = clean_text(
             body.get("session_id")
@@ -430,7 +439,10 @@ impl Runtime {
             .or_else(|| body.get("sourcePid"))
             .and_then(Value::as_u64)
             .and_then(|n| u32::try_from(n).ok());
-        let headless = body.get("headless").and_then(Value::as_bool).unwrap_or(false);
+        let headless = body
+            .get("headless")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let state = normalize_state(&explicit_state, &event);
         let now = now_ms();
         let event_at = incoming_event_time(body, now);
@@ -484,20 +496,18 @@ impl Runtime {
                 source_pid,
                 context_used: usage_result.context_used,
                 context_limit: usage_result.context_limit,
-                context_percent: context_percent(usage_result.context_used, usage_result.context_limit),
+                context_percent: context_percent(
+                    usage_result.context_used,
+                    usage_result.context_limit,
+                ),
                 last_event_at: 0,
                 last_event_seq: None,
                 last_event_rank: 0,
                 last_event_key: None,
                 ended_at: None,
             });
-            let accepted = should_accept_event(
-                entry,
-                event_at,
-                event_seq,
-                event_rank,
-                event_key.as_deref(),
-            );
+            let accepted =
+                should_accept_event(entry, event_at, event_seq, event_rank, event_key.as_deref());
             if accepted {
                 entry.provider = provider;
                 entry.state = state;
@@ -521,7 +531,11 @@ impl Runtime {
                 entry.last_event_seq = event_seq.or(entry.last_event_seq);
                 entry.last_event_rank = event_rank;
                 entry.last_event_key = event_key;
-                entry.ended_at = if event == "SessionEnd" { Some(event_at) } else { None };
+                entry.ended_at = if event == "SessionEnd" {
+                    Some(event_at)
+                } else {
+                    None
+                };
                 entry.updated_at = now;
             }
             // Usage/context is monotonic data and remains eligible even when a stale
@@ -572,12 +586,13 @@ impl Runtime {
                     if let Some(entry) = pending.remove(&oldest) {
                         evicted_session = Some(entry.session_id.clone());
                         let (lock, cv) = &*entry.response;
-                        *lock.lock().unwrap_or_else(|e| e.into_inner()) = Some(PermissionDecision {
-                            behavior: "deny".into(),
-                            message: Some("Octopus permission queue is full".into()),
-                            updated_input: None,
-                            updated_permissions: Vec::new(),
-                        });
+                        *lock.lock().unwrap_or_else(|e| e.into_inner()) =
+                            Some(PermissionDecision {
+                                behavior: "deny".into(),
+                                message: Some("Octopus permission queue is full".into()),
+                                updated_input: None,
+                                updated_permissions: Vec::new(),
+                            });
                         cv.notify_all();
                     }
                 }
@@ -618,22 +633,26 @@ impl Runtime {
         let Some(entry) = entry else { return Ok(false) };
 
         let decision = match value {
-            Value::String(behavior) if behavior == "allow" || behavior == "deny" => PermissionDecision {
-                behavior: behavior.clone(),
-                message: None,
-                updated_input: if behavior == "allow"
-                    && entry.provider == "claude"
-                    && entry.tool_name == "ExitPlanMode"
-                {
-                    Some(entry.tool_input.clone())
-                } else {
-                    None
-                },
-                updated_permissions: Vec::new(),
-            },
+            Value::String(behavior) if behavior == "allow" || behavior == "deny" => {
+                PermissionDecision {
+                    behavior: behavior.clone(),
+                    message: None,
+                    updated_input: if behavior == "allow"
+                        && entry.provider == "claude"
+                        && entry.tool_name == "ExitPlanMode"
+                    {
+                        Some(entry.tool_input.clone())
+                    } else {
+                        None
+                    },
+                    updated_permissions: Vec::new(),
+                }
+            }
             Value::String(behavior) if behavior.starts_with("suggestion:") => {
                 if entry.provider != "claude" {
-                    return Err("persistent permission suggestions are only supported by Claude".into());
+                    return Err(
+                        "persistent permission suggestions are only supported by Claude".into(),
+                    );
                 }
                 let index = behavior
                     .trim_start_matches("suggestion:")
@@ -651,21 +670,32 @@ impl Runtime {
                     updated_permissions: vec![normalize_permission_suggestion(suggestion)],
                 }
             }
-            Value::Object(object) if object.get("type").and_then(Value::as_str) == Some("elicitation-submit") => {
+            Value::Object(object)
+                if object.get("type").and_then(Value::as_str) == Some("elicitation-submit") =>
+            {
                 if entry.provider != "claude" || entry.tool_name != "AskUserQuestion" {
-                    return Err("structured elicitation is not supported for this provider/tool".into());
+                    return Err(
+                        "structured elicitation is not supported for this provider/tool".into(),
+                    );
                 }
                 let answers = object.get("answers").cloned().unwrap_or_else(|| json!({}));
                 PermissionDecision {
                     behavior: "allow".into(),
                     message: None,
-                    updated_input: Some(build_elicitation_updated_input(&entry.tool_input, &answers)),
+                    updated_input: Some(build_elicitation_updated_input(
+                        &entry.tool_input,
+                        &answers,
+                    )),
                     updated_permissions: Vec::new(),
                 }
             }
-            Value::Object(object) if object.get("type").and_then(Value::as_str) == Some("plan-feedback") => {
+            Value::Object(object)
+                if object.get("type").and_then(Value::as_str) == Some("plan-feedback") =>
+            {
                 if entry.provider != "claude" || entry.tool_name != "ExitPlanMode" {
-                    return Err("plan-review feedback is not supported for this provider/tool".into());
+                    return Err(
+                        "plan-review feedback is not supported for this provider/tool".into(),
+                    );
                 }
                 let feedback = object
                     .get("feedback")
@@ -686,7 +716,11 @@ impl Runtime {
     }
 
     fn finish_permission(&self, id: &str, decision: PermissionDecision) -> bool {
-        let entry = self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        let entry = self
+            .pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id);
         let Some(entry) = entry else { return false };
         let (lock, cv) = &*entry.response;
         *lock.lock().unwrap_or_else(|e| e.into_inner()) = Some(decision);
@@ -715,21 +749,30 @@ impl Runtime {
             .unwrap_or_else(|e| e.into_inner())
             .get(id)
             .map(|p| (p.session_id.clone(), p.tool_name.clone()));
-        let Some((session_id, tool_name)) = meta else { return false };
+        let Some((session_id, tool_name)) = meta else {
+            return false;
+        };
         let tool = match mode {
             "tool" | "cw-allow-tool" => Some(tool_name),
             _ => None,
         };
-        self.batch_rules.lock().unwrap_or_else(|e| e.into_inner()).push(BatchRule {
-            session_id,
-            tool_name: tool,
-            expires_at: now_ms() + 30 * 60 * 1000,
-        });
+        self.batch_rules
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(BatchRule {
+                session_id,
+                tool_name: tool,
+                expires_at: now_ms() + 30 * 60 * 1000,
+            });
         self.decide(id, "allow", None)
     }
 
     pub fn remove_pending(&self, id: &str) -> Option<PendingPermission> {
-        let entry = self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        let entry = self
+            .pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id);
         if let Some(entry) = &entry {
             self.mark_session_after_permission(&entry.session_id);
         }
@@ -809,8 +852,12 @@ impl Runtime {
                 })
             })
             .collect::<Vec<_>>();
-        if let Err(error) = write_private_json_atomic(&self.pending_path, &json!({"pending":rows})) {
-            self.write_log("permission", &format!("pending metadata persistence failed: {error}"));
+        if let Err(error) = write_private_json_atomic(&self.pending_path, &json!({"pending":rows}))
+        {
+            self.write_log(
+                "permission",
+                &format!("pending metadata persistence failed: {error}"),
+            );
         }
     }
 
@@ -820,7 +867,10 @@ impl Runtime {
         rules.retain(|r| r.expires_at > now);
         rules.iter().any(|r| {
             r.session_id == session_id
-                && r.tool_name.as_ref().map(|tool| tool == tool_name).unwrap_or(true)
+                && r.tool_name
+                    .as_ref()
+                    .map(|tool| tool == tool_name)
+                    .unwrap_or(true)
         })
     }
 
@@ -836,30 +886,38 @@ impl Runtime {
             .values()
             .filter(|entry| entry.session_id == session_id)
             .min_by_key(|entry| (entry.created_at, entry.id.clone()))
-            .map(|entry| (entry.provider.clone(), entry.tool_name.clone(), entry.id.clone()));
+            .map(|entry| {
+                (
+                    entry.provider.clone(),
+                    entry.tool_name.clone(),
+                    entry.id.clone(),
+                )
+            });
         let still_waiting = pending_meta.is_some();
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let now = now_ms();
-        let entry = sessions.entry(session_id.to_string()).or_insert_with(|| Session {
-            id: session_id.to_string(),
-            provider: "claude".into(),
-            state: "idle".into(),
-            cwd: String::new(),
-            tool_name: None,
-            model: None,
-            assistant_last_output: None,
-            headless: false,
-            updated_at: now,
-            source_pid: None,
-            context_used: None,
-            context_limit: None,
-            context_percent: None,
-            last_event_at: 0,
-            last_event_seq: None,
-            last_event_rank: 0,
-            last_event_key: None,
-            ended_at: None,
-        });
+        let entry = sessions
+            .entry(session_id.to_string())
+            .or_insert_with(|| Session {
+                id: session_id.to_string(),
+                provider: "claude".into(),
+                state: "idle".into(),
+                cwd: String::new(),
+                tool_name: None,
+                model: None,
+                assistant_last_output: None,
+                headless: false,
+                updated_at: now,
+                source_pid: None,
+                context_used: None,
+                context_limit: None,
+                context_percent: None,
+                last_event_at: 0,
+                last_event_seq: None,
+                last_event_rank: 0,
+                last_event_key: None,
+                ended_at: None,
+            });
         if let Some((provider, tool_name, permission_id)) = pending_meta {
             entry.provider = provider;
             entry.tool_name = Some(tool_name);
@@ -1009,22 +1067,25 @@ impl Runtime {
                 })
         });
 
-        let active = sessions.iter().min_by(|a, b| {
-            session_state_priority(&a.state)
-                .cmp(&session_state_priority(&b.state))
-                .then_with(|| b.updated_at.cmp(&a.updated_at))
-                .then_with(|| a.provider.cmp(&b.provider))
-                .then_with(|| a.id.cmp(&b.id))
-        }).map(|s| {
-            json!({
-                "sessionId":s.id,
-                "project":project_name(&s.cwd, &s.id),
-                "state":s.state,
-                "model":s.model,
-                "provider":if s.provider == "claude" { Value::Null } else { json!(s.provider) },
-                "providerId":s.provider
+        let active = sessions
+            .iter()
+            .min_by(|a, b| {
+                session_state_priority(&a.state)
+                    .cmp(&session_state_priority(&b.state))
+                    .then_with(|| b.updated_at.cmp(&a.updated_at))
+                    .then_with(|| a.provider.cmp(&b.provider))
+                    .then_with(|| a.id.cmp(&b.id))
             })
-        });
+            .map(|s| {
+                json!({
+                    "sessionId":s.id,
+                    "project":project_name(&s.cwd, &s.id),
+                    "state":s.state,
+                    "model":s.model,
+                    "provider":if s.provider == "claude" { Value::Null } else { json!(s.provider) },
+                    "providerId":s.provider
+                })
+            });
         let usage = self
             .usage
             .lock()
@@ -1071,12 +1132,20 @@ impl Runtime {
         let safe_tag: String = tag.chars().filter(|c| !c.is_control()).take(64).collect();
         let safe_message: String = message.chars().filter(|c| *c != '\0').take(4096).collect();
         let line = format!("{} [{}] {}\n", now_ms(), safe_tag, safe_message);
-        let _ = fs::OpenOptions::new().create(true).append(true).open(&self.log_path)
+        let _ = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.log_path)
             .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
     }
 }
 
-pub fn permission_signature(provider: &str, session_id: &str, tool_name: &str, tool_input: &Value) -> String {
+pub fn permission_signature(
+    provider: &str,
+    session_id: &str,
+    tool_name: &str,
+    tool_input: &Value,
+) -> String {
     let input = serde_json::to_string(tool_input).unwrap_or_default();
     format!("{provider}\u{1f}{session_id}\u{1f}{tool_name}\u{1f}{input}")
 }
@@ -1142,7 +1211,13 @@ fn permission_choice(permission: &PendingPermission, project: &str) -> Value {
 fn clean_control_text(value: &str, max: usize) -> String {
     value
         .chars()
-        .map(|character| if character.is_control() { ' ' } else { character })
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
         .collect::<String>()
         .trim()
         .chars()
@@ -1198,8 +1273,15 @@ fn build_elicitation_updated_input(input: &Value, answers: &Value) -> Value {
     let answer_map = answers.as_object();
     if let Some(questions) = updated.get("questions").and_then(Value::as_array) {
         for question in questions.iter().take(10) {
-            let Some(text) = question.get("question").and_then(Value::as_str) else { continue };
-            let Some(answer) = answer_map.and_then(|map| map.get(text)).and_then(Value::as_str) else { continue };
+            let Some(text) = question.get("question").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(answer) = answer_map
+                .and_then(|map| map.get(text))
+                .and_then(Value::as_str)
+            else {
+                continue;
+            };
             let answer = clean_control_text(answer, 4_000);
             if !answer.is_empty() {
                 normalized.insert(text.chars().take(1_000).collect(), Value::String(answer));
@@ -1212,19 +1294,35 @@ fn build_elicitation_updated_input(input: &Value, answers: &Value) -> Value {
 
 fn normalize_permission_suggestion(mut suggestion: Value) -> Value {
     if let Some(object) = suggestion.as_object_mut() {
-        object.entry("destination".into()).or_insert_with(|| json!("localSettings"));
-        object.entry("behavior".into()).or_insert_with(|| json!("allow"));
+        object
+            .entry("destination".into())
+            .or_insert_with(|| json!("localSettings"));
+        object
+            .entry("behavior".into())
+            .or_insert_with(|| json!("allow"));
     }
     suggestion
 }
 
 fn permission_suggestion_label(suggestion: &Value, index: usize) -> String {
-    if let Some(rule) = suggestion.get("rules").and_then(Value::as_array).and_then(|rules| rules.first()) {
-        if let Some(tool) = rule.get("toolName").or_else(|| rule.get("tool_name")).and_then(Value::as_str) {
+    if let Some(rule) = suggestion
+        .get("rules")
+        .and_then(Value::as_array)
+        .and_then(|rules| rules.first())
+    {
+        if let Some(tool) = rule
+            .get("toolName")
+            .or_else(|| rule.get("tool_name"))
+            .and_then(Value::as_str)
+        {
             return format!("🔓 始终允许 {tool}");
         }
     }
-    if let Some(tool) = suggestion.get("toolName").or_else(|| suggestion.get("tool_name")).and_then(Value::as_str) {
+    if let Some(tool) = suggestion
+        .get("toolName")
+        .or_else(|| suggestion.get("tool_name"))
+        .and_then(Value::as_str)
+    {
         return format!("🔓 始终允许 {tool}");
     }
     format!("🔓 采用允许规则 {}", index + 1)
@@ -1305,7 +1403,8 @@ fn write_private_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)).map_err(|error| error.to_string())?;
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))
+            .map_err(|error| error.to_string())?;
     }
     #[cfg(windows)]
     if path.exists() {
@@ -1315,7 +1414,9 @@ fn write_private_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
 }
 
 pub fn load_config(path: &Path) -> AppConfig {
-    let Ok(meta) = fs::metadata(path) else { return AppConfig::default() };
+    let Ok(meta) = fs::metadata(path) else {
+        return AppConfig::default();
+    };
     if meta.len() > 1024 * 1024 {
         return AppConfig::default();
     }
@@ -1349,7 +1450,13 @@ fn clean_text(value: Option<&Value>, max: usize) -> Option<String> {
     let text = value?.as_str()?;
     let clean: String = text
         .chars()
-        .map(|c| if c.is_control() && c != '\n' && c != '\t' { ' ' } else { c })
+        .map(|c| {
+            if c.is_control() && c != '\n' && c != '\t' {
+                ' '
+            } else {
+                c
+            }
+        })
         .collect();
     let clean = clean.trim();
     if clean.is_empty() {
@@ -1406,7 +1513,11 @@ fn incoming_event_key(body: &Value, event: &str) -> Option<String> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())?;
-    Some(format!("{}:{}", event.chars().take(64).collect::<String>(), id.chars().take(256).collect::<String>()))
+    Some(format!(
+        "{}:{}",
+        event.chars().take(64).collect::<String>(),
+        id.chars().take(256).collect::<String>()
+    ))
 }
 
 fn event_rank(event: &str, state: &str) -> u8 {
@@ -1454,15 +1565,28 @@ fn should_accept_event(
 
 fn normalize_state(explicit: &str, event: &str) -> String {
     let valid = [
-        "idle", "thinking", "working", "juggling", "sweeping", "carrying", "loafing",
-        "notification", "waiting", "needsinput", "attention", "error", "sleeping",
+        "idle",
+        "thinking",
+        "working",
+        "juggling",
+        "sweeping",
+        "carrying",
+        "loafing",
+        "notification",
+        "waiting",
+        "needsinput",
+        "attention",
+        "error",
+        "sleeping",
     ];
     if valid.contains(&explicit) {
         return explicit.into();
     }
     match event {
         "UserPromptSubmit" => "thinking",
-        "PreToolUse" | "PostToolUse" | "SubagentStop" | "ElicitationResult" | "TaskCompleted" => "working",
+        "PreToolUse" | "PostToolUse" | "SubagentStop" | "ElicitationResult" | "TaskCompleted" => {
+            "working"
+        }
         "SubagentStart" | "TaskCreated" => "juggling",
         "PreCompact" | "Compact" | "SessionEnd" => "sweeping",
         "Notification" => "notification",
@@ -1503,13 +1627,31 @@ fn project_name(cwd: &str, id: &str) -> String {
 
 fn humanize_tool(tool: &str, input: &Value) -> String {
     match tool {
-        "Bash" => input.get("command").and_then(Value::as_str).unwrap_or("运行命令").chars().take(300).collect(),
-        "Write" | "Edit" => input.get("file_path").or_else(|| input.get("path")).and_then(Value::as_str).unwrap_or("修改文件").chars().take(300).collect(),
-        "WebFetch" => input.get("url").and_then(Value::as_str).unwrap_or("访问网页").chars().take(300).collect(),
+        "Bash" => input
+            .get("command")
+            .and_then(Value::as_str)
+            .unwrap_or("运行命令")
+            .chars()
+            .take(300)
+            .collect(),
+        "Write" | "Edit" => input
+            .get("file_path")
+            .or_else(|| input.get("path"))
+            .and_then(Value::as_str)
+            .unwrap_or("修改文件")
+            .chars()
+            .take(300)
+            .collect(),
+        "WebFetch" => input
+            .get("url")
+            .and_then(Value::as_str)
+            .unwrap_or("访问网页")
+            .chars()
+            .take(300)
+            .collect(),
         _ => format!("允许执行 {tool}？"),
     }
 }
-
 
 #[cfg(test)]
 mod session_order_tests {
@@ -1541,33 +1683,66 @@ mod session_order_tests {
     #[test]
     fn lower_sequence_is_rejected_even_if_delivered_later() {
         let current = session(10_000, Some(8), 90, Some("Stop:done"));
-        assert!(!should_accept_event(&current, 11_000, Some(7), 60, Some("PreToolUse:old")));
+        assert!(!should_accept_event(
+            &current,
+            11_000,
+            Some(7),
+            60,
+            Some("PreToolUse:old")
+        ));
     }
 
     #[test]
     fn terminal_event_wins_same_sequence_and_time() {
         let current = session(10_000, Some(8), 60, Some("PreToolUse:a"));
-        assert!(should_accept_event(&current, 10_000, Some(8), 90, Some("Stop:b")));
+        assert!(should_accept_event(
+            &current,
+            10_000,
+            Some(8),
+            90,
+            Some("Stop:b")
+        ));
     }
 
     #[test]
     fn stale_clock_event_is_rejected_without_sequence() {
         let current = session(20_000, None, 90, Some("Stop:done"));
-        assert!(!should_accept_event(&current, 17_999, None, 60, Some("PreToolUse:old")));
-        assert!(should_accept_event(&current, 18_000, None, 100, Some("PermissionRequest:new")));
+        assert!(!should_accept_event(
+            &current,
+            17_999,
+            None,
+            60,
+            Some("PreToolUse:old")
+        ));
+        assert!(should_accept_event(
+            &current,
+            18_000,
+            None,
+            100,
+            Some("PermissionRequest:new")
+        ));
     }
 
     #[test]
     fn duplicate_event_key_is_rejected() {
         let current = session(20_000, None, 60, Some("PreToolUse:same"));
-        assert!(!should_accept_event(&current, 21_000, None, 60, Some("PreToolUse:same")));
+        assert!(!should_accept_event(
+            &current,
+            21_000,
+            None,
+            60,
+            Some("PreToolUse:same")
+        ));
     }
 
     #[test]
     fn ended_session_expires_after_ttl() {
         let mut current = session(20_000, None, 90, Some("SessionEnd:done"));
         current.ended_at = Some(20_000);
-        assert!(!session_is_expired(&current, 20_000 + ENDED_SESSION_TTL_MS - 1));
+        assert!(!session_is_expired(
+            &current,
+            20_000 + ENDED_SESSION_TTL_MS - 1
+        ));
         assert!(session_is_expired(&current, 20_000 + ENDED_SESSION_TTL_MS));
     }
 
@@ -1577,7 +1752,6 @@ mod session_order_tests {
         assert!(session_state_priority("working") < session_state_priority("idle"));
         assert_eq!(session_state_priority("unknown"), 11);
     }
-
 
     #[test]
     fn elicitation_updated_input_echoes_questions_and_maps_answers() {
@@ -1589,10 +1763,7 @@ mod session_order_tests {
                 "multiSelect":false
             }]
         });
-        let updated = build_elicitation_updated_input(
-            &input,
-            &json!({"Which framework?":"Rust"}),
-        );
+        let updated = build_elicitation_updated_input(&input, &json!({"Which framework?":"Rust"}));
         assert_eq!(updated["questions"], input["questions"]);
         assert_eq!(updated["answers"]["Which framework?"], "Rust");
     }

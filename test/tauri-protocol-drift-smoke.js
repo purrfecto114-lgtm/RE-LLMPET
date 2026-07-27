@@ -7,6 +7,9 @@ const { spawnSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
+// Collapse whitespace so assertions survive `cargo fmt` reflow (which wraps long
+// match arms / if-blocks across lines). Matches on token sequence, not layout.
+const compact = (s) => s.replace(/\s+/g, ' ');
 const baseline = JSON.parse(read('protocol-baseline.json'));
 const installer = read('src-tauri/src/hook_install.rs');
 const model = read('src-tauri/src/model.rs');
@@ -28,10 +31,10 @@ for (const intentionallyExcluded of ['MessageDisplay', 'PostToolBatch', 'Worktre
   const array = installer.match(/const CLAUDE_EVENTS:[\s\S]*?\];/)[0];
   assert(!array.includes(`"${intentionallyExcluded}"`), `unsafe/high-volume event installed: ${intentionallyExcluded}`);
 }
-assert(model.includes('"PermissionDenied" | "Elicitation" => "needsinput"'));
-assert(model.includes('"TeammateIdle" => "loafing"'));
-assert(server.includes('"TaskCreated" => json!'));
-assert(server.includes('"TaskCompleted" => json!'));
+assert(compact(model).includes('"PermissionDenied" | "Elicitation" => "needsinput"'));
+assert(compact(model).includes('"TeammateIdle" => "loafing"'));
+assert(compact(server).includes('"TaskCreated" =>'));
+assert(compact(server).includes('"TaskCompleted" =>'));
 
 assert(workflow.includes("cron: '17 5 * * 1'"));
 assert(workflow.includes('check-protocol-drift.js --remote'));

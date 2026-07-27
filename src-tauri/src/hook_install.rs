@@ -14,21 +14,53 @@ const MARKER: &str = "--octopus-hook";
 // may contain rendered conversation/tool payloads that are unnecessary for pet
 // state and expand the privacy/size surface.
 const CLAUDE_EVENTS: [&str; 19] = [
-    "SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-    "PostToolUseFailure", "Stop", "StopFailure", "SubagentStart", "SubagentStop",
-    "PreCompact", "PostCompact", "Notification", "Elicitation", "ElicitationResult",
-    "PermissionDenied", "TaskCreated", "TaskCompleted", "TeammateIdle",
+    "SessionStart",
+    "SessionEnd",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "Stop",
+    "StopFailure",
+    "SubagentStart",
+    "SubagentStop",
+    "PreCompact",
+    "PostCompact",
+    "Notification",
+    "Elicitation",
+    "ElicitationResult",
+    "PermissionDenied",
+    "TaskCreated",
+    "TaskCompleted",
+    "TeammateIdle",
 ];
 const CODEX_EVENTS: [&str; 11] = [
-    "SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-    "PermissionRequest", "Stop", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact",
+    "SessionStart",
+    "SessionEnd",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "PermissionRequest",
+    "Stop",
+    "SubagentStart",
+    "SubagentStop",
+    "PreCompact",
+    "PostCompact",
 ];
 // Current maintained CodeWhale events used by the fork. shell_env is
 // intentionally excluded: it is a credential/environment mutation contract,
 // not a lifecycle observer, and invoking the pet there would add shell latency.
 const CODEWHALE_EVENTS: [&str; 10] = [
-    "session_start", "session_end", "message_submit", "tool_call_before", "tool_call_after",
-    "turn_end", "on_error", "mode_change", "subagent_spawn", "subagent_complete",
+    "session_start",
+    "session_end",
+    "message_submit",
+    "tool_call_before",
+    "tool_call_after",
+    "turn_end",
+    "on_error",
+    "mode_change",
+    "subagent_spawn",
+    "subagent_complete",
 ];
 const CW_BEGIN: &str = "# >>> octopus:codewhale-hooks:v2 >>>";
 const CW_END: &str = "# <<< octopus:codewhale-hooks:v2 <<<";
@@ -72,16 +104,35 @@ pub fn sync_enabled(
 }
 
 pub fn resync_current(runtime: &Runtime) -> Result<Vec<ProviderStatus>, String> {
-    let raw = fs::read(&runtime.runtime_path).map_err(|e| format!("runtime metadata unavailable: {e}"))?;
+    let raw = fs::read(&runtime.runtime_path)
+        .map_err(|e| format!("runtime metadata unavailable: {e}"))?;
     let value: Value = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
-    let port = value.get("port").and_then(Value::as_u64).and_then(|p| u16::try_from(p).ok())
+    let port = value
+        .get("port")
+        .and_then(Value::as_u64)
+        .and_then(|p| u16::try_from(p).ok())
         .ok_or("runtime port unavailable")?;
-    let token = value.get("token").and_then(Value::as_str).ok_or("runtime token unavailable")?;
+    let token = value
+        .get("token")
+        .and_then(Value::as_str)
+        .ok_or("runtime token unavailable")?;
     let config = runtime.config();
-    Ok(sync_enabled(runtime, port, token, config.perm_hook, &config.providers))
+    Ok(sync_enabled(
+        runtime,
+        port,
+        token,
+        config.perm_hook,
+        &config.providers,
+    ))
 }
 
-fn install_provider(runtime: &Runtime, id: &str, port: u16, token: &str, permission: bool) -> Result<InstallResult, String> {
+fn install_provider(
+    runtime: &Runtime,
+    id: &str,
+    port: u16,
+    token: &str,
+    permission: bool,
+) -> Result<InstallResult, String> {
     match id {
         "claude" => install_claude(runtime, port, token, permission),
         "codewhale" => install_codewhale(runtime),
@@ -98,12 +149,18 @@ fn uninstall_provider(id: &str) -> Result<PathBuf, String> {
         "codewhale" => uninstall_marker_file(&codewhale_config_path(), CW_BEGIN, CW_END),
         "codex" => uninstall_codex(),
         "opencode" => uninstall_opencode(),
-        "aider" => uninstall_marker_file(&home_dir().join(".aider.conf.yml"), AIDER_BEGIN, AIDER_END),
+        "aider" => {
+            uninstall_marker_file(&home_dir().join(".aider.conf.yml"), AIDER_BEGIN, AIDER_END)
+        }
         _ => Err(format!("unknown provider: {id}")),
     }
 }
 
-fn status_from_result(id: &str, enabled: bool, result: Result<InstallResult, String>) -> ProviderStatus {
+fn status_from_result(
+    id: &str,
+    enabled: bool,
+    result: Result<InstallResult, String>,
+) -> ProviderStatus {
     let (permission_mode, capabilities) = provider_capabilities(id);
     match result {
         Ok(result) => ProviderStatus {
@@ -111,38 +168,77 @@ fn status_from_result(id: &str, enabled: bool, result: Result<InstallResult, Str
             installed: enabled,
             state: if enabled { "installed" } else { "disabled" }.into(),
             message: if result.message.is_empty() {
-                if enabled { "Hook 已同步".into() } else { "未启用".into() }
-            } else { result.message },
-            path: if result.path.as_os_str().is_empty() { None } else { Some(result.path.to_string_lossy().into_owned()) },
+                if enabled {
+                    "Hook 已同步".into()
+                } else {
+                    "未启用".into()
+                }
+            } else {
+                result.message
+            },
+            path: if result.path.as_os_str().is_empty() {
+                None
+            } else {
+                Some(result.path.to_string_lossy().into_owned())
+            },
             permission_mode: permission_mode.into(),
             capabilities,
         },
         Err(error) => ProviderStatus {
-            id: id.into(), installed: false, state: "error".into(), message: error,
-            path: None, permission_mode: permission_mode.into(), capabilities,
+            id: id.into(),
+            installed: false,
+            state: "error".into(),
+            message: error,
+            path: None,
+            permission_mode: permission_mode.into(),
+            capabilities,
         },
     }
 }
 
 fn provider_capabilities(id: &str) -> (&'static str, Value) {
     match id {
-        "claude" => ("external", json!({"lifecycle":true,"permissionBubble":true,"metering":"transcript-ledger","trustReview":false,"bypassWarning":"bypassPermissions/--dangerously-skip-permissions can bypass approval prompts"})),
-        "codewhale" => ("external", json!({"lifecycle":true,"permissionBubble":true,"metering":"rust-ledger","trustReview":false,"bypassWarning":"Full Access does not open approval prompts; hook ask cannot downgrade it"})),
-        "codex" => ("external-after-trust", json!({"lifecycle":true,"permissionBubble":true,"metering":"pending","trustReview":true,"bypassWarning":"Hook changes require /hooks trust review before decisions take effect"})),
-        "opencode" => ("observe-native", json!({"lifecycle":true,"permissionBubble":false,"metering":"pending","trustReview":false,"bypassWarning":"Permission decisions stay in OpenCode native UI"})),
-        "aider" => ("terminal-native", json!({"lifecycle":"turn-end-only","permissionBubble":false,"metering":false,"trustReview":false,"bypassWarning":"Aider exposes completion notifications, not an external permission contract"})),
+        "claude" => (
+            "external",
+            json!({"lifecycle":true,"permissionBubble":true,"metering":"transcript-ledger","trustReview":false,"bypassWarning":"bypassPermissions/--dangerously-skip-permissions can bypass approval prompts"}),
+        ),
+        "codewhale" => (
+            "external",
+            json!({"lifecycle":true,"permissionBubble":true,"metering":"rust-ledger","trustReview":false,"bypassWarning":"Full Access does not open approval prompts; hook ask cannot downgrade it"}),
+        ),
+        "codex" => (
+            "external-after-trust",
+            json!({"lifecycle":true,"permissionBubble":true,"metering":"pending","trustReview":true,"bypassWarning":"Hook changes require /hooks trust review before decisions take effect"}),
+        ),
+        "opencode" => (
+            "observe-native",
+            json!({"lifecycle":true,"permissionBubble":false,"metering":"pending","trustReview":false,"bypassWarning":"Permission decisions stay in OpenCode native UI"}),
+        ),
+        "aider" => (
+            "terminal-native",
+            json!({"lifecycle":"turn-end-only","permissionBubble":false,"metering":false,"trustReview":false,"bypassWarning":"Aider exposes completion notifications, not an external permission contract"}),
+        ),
         _ => ("none", json!({})),
     }
 }
 
 /// Merge-safe Claude hook installation. Unrelated user hooks are retained.
-pub fn install_claude(runtime: &Runtime, _port: u16, _token: &str, permission_enabled: bool) -> Result<InstallResult, String> {
+pub fn install_claude(
+    runtime: &Runtime,
+    _port: u16,
+    _token: &str,
+    permission_enabled: bool,
+) -> Result<InstallResult, String> {
     let settings_path = home_dir().join(".claude").join("settings.json");
     let mut settings = read_json_object(&settings_path, "Claude settings")?;
     let hooks = ensure_object(&mut settings, "hooks")?;
     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
     let command = hook_command(&executable, "claude", None, false);
-    let mut result = InstallResult { path: settings_path.clone(), message: "Claude 生命周期与权限 Hook 已同步".into(), ..InstallResult::default() };
+    let mut result = InstallResult {
+        path: settings_path.clone(),
+        message: "Claude 生命周期与权限 Hook 已同步".into(),
+        ..InstallResult::default()
+    };
     remove_all_ours(hooks);
     for event in CLAUDE_EVENTS {
         add_group(hooks, event, command_hook(format!("{command} {event}"), 5));
@@ -164,7 +260,9 @@ pub fn install_claude(runtime: &Runtime, _port: u16, _token: &str, permission_en
 
 fn uninstall_claude() -> Result<PathBuf, String> {
     let path = home_dir().join(".claude").join("settings.json");
-    if !path.exists() { return Ok(path); }
+    if !path.exists() {
+        return Ok(path);
+    }
     let mut settings = read_json_object(&path, "Claude settings")?;
     if let Some(hooks) = settings.get_mut("hooks").and_then(Value::as_object_mut) {
         remove_all_ours(hooks);
@@ -182,68 +280,111 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
         let permission = event == "tool_call_before";
         let command = hook_command(&executable, "codewhale", Some(event), permission);
         block.push_str("\n[[hooks.hooks]]\n");
-        block.push_str(&format!("name = \"octopus-{event}\"\nevent = \"{event}\"\n"));
+        block.push_str(&format!(
+            "name = \"octopus-{event}\"\nevent = \"{event}\"\n"
+        ));
         block.push_str(&format!("command = {}\n", toml_string(&command)));
-        block.push_str(&format!("timeout_secs = {}\n", if permission { 600 } else { 5 }));
+        block.push_str(&format!(
+            "timeout_secs = {}\n",
+            if permission { 600 } else { 5 }
+        ));
         // A stale/missing binary must not turn a permission hook into an allow.
         // Observer hooks remain best-effort; the permission hook fails closed.
-        block.push_str(&format!("continue_on_error = {}\n", if permission { "false" } else { "true" }));
-        if !permission { block.push_str("background = true\n"); }
+        block.push_str(&format!(
+            "continue_on_error = {}\n",
+            if permission { "false" } else { "true" }
+        ));
+        if !permission {
+            block.push_str("background = true\n");
+        }
     }
     block.push_str(CW_END);
     replace_marker_block(&path, CW_BEGIN, CW_END, &block)?;
     runtime.write_log("hooks", "CodeWhale hooks synced");
-    Ok(InstallResult { added: CODEWHALE_EVENTS.len(), path, message: "CodeWhale 原生 TOML Hook 已同步；权限失败时回退到 ask".into(), ..InstallResult::default() })
+    Ok(InstallResult {
+        added: CODEWHALE_EVENTS.len(),
+        path,
+        message: "CodeWhale 原生 TOML Hook 已同步；权限失败时回退到 ask".into(),
+        ..InstallResult::default()
+    })
 }
 
 fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
     let path = home_dir().join(".codex").join("hooks.json");
     let mut root = read_json_object(&path, "Codex hooks")?;
-    root.entry("description").or_insert(json!("Octopus multi-agent desktop integration"));
+    root.entry("description")
+        .or_insert(json!("Octopus multi-agent desktop integration"));
     let hooks = ensure_object(&mut root, "hooks")?;
     remove_all_ours(hooks);
     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
     for event in CODEX_EVENTS {
         let permission = event == "PermissionRequest";
         let command = hook_command(&executable, "codex", Some(event), permission);
-        let timeout = if event == "SessionEnd" { 3 } else if permission { 600 } else { 5 };
+        let timeout = if event == "SessionEnd" {
+            3
+        } else if permission {
+            600
+        } else {
+            5
+        };
         add_group(hooks, event, command_hook(command, timeout));
     }
     write_json_atomic(&path, &Value::Object(root))?;
     runtime.write_log("hooks", "Codex hooks synced; /hooks trust review required");
-    Ok(InstallResult { added: CODEX_EVENTS.len(), path, message: "Codex Hook 已写入；首次或变更后必须在 Codex 中运行 /hooks 审查并信任".into(), ..InstallResult::default() })
+    Ok(InstallResult {
+        added: CODEX_EVENTS.len(),
+        path,
+        message: "Codex Hook 已写入；首次或变更后必须在 Codex 中运行 /hooks 审查并信任".into(),
+        ..InstallResult::default()
+    })
 }
 
 fn uninstall_codex() -> Result<PathBuf, String> {
     let path = home_dir().join(".codex").join("hooks.json");
-    if !path.exists() { return Ok(path); }
+    if !path.exists() {
+        return Ok(path);
+    }
     let mut root = read_json_object(&path, "Codex hooks")?;
-    if let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) { remove_all_ours(hooks); }
+    if let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) {
+        remove_all_ours(hooks);
+    }
     write_json_atomic(&path, &Value::Object(root))?;
     Ok(path)
 }
 
 fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
-    let base = std::env::var_os("OPENCODE_CONFIG_DIR").map(PathBuf::from)
+    let base = std::env::var_os("OPENCODE_CONFIG_DIR")
+        .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
     let path = base.join("plugins").join("llmpet-octopus.js");
     let source = opencode_plugin_source();
     if let Ok(existing) = fs::read_to_string(&path) {
         if !existing.contains(OPENCODE_MARKER) {
-            return Err(format!("OpenCode plugin path already belongs to another plugin: {}", path.display()));
+            return Err(format!(
+                "OpenCode plugin path already belongs to another plugin: {}",
+                path.display()
+            ));
         }
     }
     write_text_atomic(&path, source.as_bytes())?;
     runtime.write_log("hooks", "OpenCode ESM plugin synced");
-    Ok(InstallResult { added: 1, path, message: "OpenCode ESM 插件已安装；权限事件仅观察，决策仍由 OpenCode 原生界面完成".into(), ..InstallResult::default() })
+    Ok(InstallResult {
+        added: 1,
+        path,
+        message: "OpenCode ESM 插件已安装；权限事件仅观察，决策仍由 OpenCode 原生界面完成".into(),
+        ..InstallResult::default()
+    })
 }
 
 fn uninstall_opencode() -> Result<PathBuf, String> {
-    let base = std::env::var_os("OPENCODE_CONFIG_DIR").map(PathBuf::from)
+    let base = std::env::var_os("OPENCODE_CONFIG_DIR")
+        .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
     let path = base.join("plugins").join("llmpet-octopus.js");
     if let Ok(raw) = fs::read_to_string(&path) {
-        if raw.contains(OPENCODE_MARKER) { fs::remove_file(&path).map_err(|e| e.to_string())?; }
+        if raw.contains(OPENCODE_MARKER) {
+            fs::remove_file(&path).map_err(|e| e.to_string())?;
+        }
     }
     Ok(path)
 }
@@ -257,23 +398,40 @@ fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
         t.starts_with("notifications-command:") && !t.contains(MARKER)
     });
     if let Some(line) = foreign {
-        return Err(format!("Aider 已配置其他 notifications-command，未覆盖：{}", line.trim()));
+        return Err(format!(
+            "Aider 已配置其他 notifications-command，未覆盖：{}",
+            line.trim()
+        ));
     }
     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
     let command = hook_command(&executable, "aider", Some("turn_end"), false);
-    let block = format!("{AIDER_BEGIN}\nnotifications: true\nnotifications-command: {}\n{AIDER_END}", yaml_string(&command));
+    let block = format!(
+        "{AIDER_BEGIN}\nnotifications: true\nnotifications-command: {}\n{AIDER_END}",
+        yaml_string(&command)
+    );
     replace_marker_block(&path, AIDER_BEGIN, AIDER_END, &block)?;
     runtime.write_log("hooks", "Aider notification bridge synced");
-    Ok(InstallResult { added: 1, path, message: "Aider 通知桥已安装；仅可靠提供回复完成事件，不接管终端内权限".into(), ..InstallResult::default() })
+    Ok(InstallResult {
+        added: 1,
+        path,
+        message: "Aider 通知桥已安装；仅可靠提供回复完成事件，不接管终端内权限".into(),
+        ..InstallResult::default()
+    })
 }
 
 fn codewhale_config_path() -> PathBuf {
-    let base = std::env::var_os("CODEWHALE_HOME").map(PathBuf::from)
+    let base = std::env::var_os("CODEWHALE_HOME")
+        .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".codewhale"));
     base.join("config.toml")
 }
 
-fn hook_command(executable: &Path, provider: &str, event: Option<&str>, permission: bool) -> String {
+fn hook_command(
+    executable: &Path,
+    provider: &str,
+    event: Option<&str>,
+    permission: bool,
+) -> String {
     hook_command_with_flags(executable, provider, event, permission, false)
 }
 
@@ -285,10 +443,17 @@ fn hook_command_with_flags(
     pretool: bool,
 ) -> String {
     let mut args = MARKER.to_string();
-    if pretool { args.push_str(" --pretool"); }
+    if pretool {
+        args.push_str(" --pretool");
+    }
     args.push_str(&format!(" --provider {provider}"));
-    if permission { args.push_str(" --permission"); }
-    if let Some(event) = event { args.push(' '); args.push_str(event); }
+    if permission {
+        args.push_str(" --permission");
+    }
+    if let Some(event) = event {
+        args.push(' ');
+        args.push_str(event);
+    }
 
     #[cfg(target_os = "windows")]
     {
@@ -318,31 +483,50 @@ fn command_hook(command: String, timeout: u64) -> Value {
 fn quote_command_path(path: &Path) -> String {
     let text = path.to_string_lossy();
     #[cfg(target_os = "windows")]
-    { return format!("\"{}\"", text.replace('\"', "\\\"")); }
+    {
+        return format!("\"{}\"", text.replace('\"', "\\\""));
+    }
     #[cfg(not(target_os = "windows"))]
-    { format!("'{}'", text.replace('\'', "'\"'\"'")) }
+    {
+        format!("'{}'", text.replace('\'', "'\"'\"'"))
+    }
 }
 
 fn add_group(hooks: &mut Map<String, Value>, event: &str, desired: Value) {
     let groups = hooks.entry(event.to_string()).or_insert_with(|| json!([]));
-    if let Some(groups) = groups.as_array_mut() { groups.push(json!({"matcher":"","hooks":[desired]})); }
+    if let Some(groups) = groups.as_array_mut() {
+        groups.push(json!({"matcher":"","hooks":[desired]}));
+    }
 }
 
 fn remove_all_ours(hooks: &mut Map<String, Value>) {
     let events: Vec<String> = hooks.keys().cloned().collect();
     for event in events {
-        let Some(groups) = hooks.get_mut(&event).and_then(Value::as_array_mut) else { continue };
+        let Some(groups) = hooks.get_mut(&event).and_then(Value::as_array_mut) else {
+            continue;
+        };
         groups.retain_mut(|group| {
-            let Some(entries) = group.as_object_mut().and_then(|o| o.get_mut("hooks")).and_then(Value::as_array_mut) else { return true };
+            let Some(entries) = group
+                .as_object_mut()
+                .and_then(|o| o.get_mut("hooks"))
+                .and_then(Value::as_array_mut)
+            else {
+                return true;
+            };
             entries.retain(|entry| {
                 let command = entry.get("command").and_then(Value::as_str).unwrap_or("");
                 let url = entry.get("url").and_then(Value::as_str).unwrap_or("");
-                !command.contains(MARKER) && !["octopus-hook.js", "pretool-hook.js", "llmpet-hook.js"].iter().any(|m| command.contains(m))
+                !command.contains(MARKER)
+                    && !["octopus-hook.js", "pretool-hook.js", "llmpet-hook.js"]
+                        .iter()
+                        .any(|m| command.contains(m))
                     && !(url.starts_with("http://127.0.0.1:413") && url.contains("/permission"))
             });
             !entries.is_empty()
         });
-        if groups.is_empty() { hooks.remove(&event); }
+        if groups.is_empty() {
+            hooks.remove(&event);
+        }
     }
 }
 
@@ -355,25 +539,41 @@ fn read_json_object(path: &Path, label: &str) -> Result<Map<String, Value>, Stri
     }
     let value: Value = serde_json::from_slice(&fs::read(path).map_err(|e| e.to_string())?)
         .map_err(|e| format!("invalid {label}: {e}"))?;
-    value.as_object().cloned().ok_or_else(|| format!("{label} root must be an object"))
+    value
+        .as_object()
+        .cloned()
+        .ok_or_else(|| format!("{label} root must be an object"))
 }
 
-fn ensure_object<'a>(root: &'a mut Map<String, Value>, key: &str) -> Result<&'a mut Map<String, Value>, String> {
-    if !root.contains_key(key) { root.insert(key.into(), Value::Object(Map::new())); }
-    root.get_mut(key).and_then(Value::as_object_mut).ok_or_else(|| format!("{key} must be an object"))
+fn ensure_object<'a>(
+    root: &'a mut Map<String, Value>,
+    key: &str,
+) -> Result<&'a mut Map<String, Value>, String> {
+    if !root.contains_key(key) {
+        root.insert(key.into(), Value::Object(Map::new()));
+    }
+    root.get_mut(key)
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| format!("{key} must be an object"))
 }
 
 fn replace_marker_block(path: &Path, begin: &str, end: &str, block: &str) -> Result<(), String> {
     let existing = fs::read_to_string(path).unwrap_or_default();
-    let mut clean = strip_marker_block(&existing, begin, end)?.trim_end().to_string();
-    if !clean.is_empty() { clean.push_str("\n\n"); }
+    let mut clean = strip_marker_block(&existing, begin, end)?
+        .trim_end()
+        .to_string();
+    if !clean.is_empty() {
+        clean.push_str("\n\n");
+    }
     clean.push_str(block);
     clean.push('\n');
     write_text_atomic(path, clean.as_bytes())
 }
 
 fn uninstall_marker_file(path: &Path, begin: &str, end: &str) -> Result<PathBuf, String> {
-    if !path.exists() { return Ok(path.to_path_buf()); }
+    if !path.exists() {
+        return Ok(path.to_path_buf());
+    }
     let existing = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let clean = strip_marker_block(&existing, begin, end)?;
     write_text_atomic(path, clean.as_bytes())?;
@@ -385,47 +585,76 @@ fn strip_marker_block(input: &str, begin: &str, end: &str) -> Result<String, Str
     let mut inside = false;
     for (index, line) in input.lines().enumerate() {
         if line.trim() == begin {
-            if inside { return Err(format!("nested Octopus marker at line {}", index + 1)); }
+            if inside {
+                return Err(format!("nested Octopus marker at line {}", index + 1));
+            }
             inside = true;
             continue;
         }
         if line.trim() == end {
-            if !inside { return Err(format!("unmatched Octopus marker end at line {}", index + 1)); }
+            if !inside {
+                return Err(format!(
+                    "unmatched Octopus marker end at line {}",
+                    index + 1
+                ));
+            }
             inside = false;
             continue;
         }
-        if !inside { output.push_str(line); output.push('\n'); }
+        if !inside {
+            output.push_str(line);
+            output.push('\n');
+        }
     }
-    if inside { return Err("unterminated Octopus marker block; configuration was not modified".into()); }
+    if inside {
+        return Err("unterminated Octopus marker block; configuration was not modified".into());
+    }
     Ok(output)
 }
 
-fn toml_string(value: &str) -> String { serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into()) }
-fn yaml_string(value: &str) -> String { format!("'{}'", value.replace('\'', "''")) }
+fn toml_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into())
+}
+fn yaml_string(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
 
 fn write_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
-    write_text_atomic(path, &serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?)
+    write_text_atomic(
+        path,
+        &serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?,
+    )
 }
 
 fn write_text_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("config path has no parent")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    #[cfg(unix)] {
+    #[cfg(unix)]
+    {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(parent, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+            .map_err(|e| e.to_string())?;
     }
-    let temp = parent.join(format!(".octopus.{}.{}.tmp", std::process::id(), crate::model::now_ms()));
+    let temp = parent.join(format!(
+        ".octopus.{}.{}.tmp",
+        std::process::id(),
+        crate::model::now_ms()
+    ));
     fs::write(&temp, bytes).map_err(|e| e.to_string())?;
-    #[cfg(unix)] {
+    #[cfg(unix)]
+    {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&temp, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
     }
-    #[cfg(windows)] if path.exists() { fs::remove_file(path).map_err(|e| e.to_string())?; }
+    #[cfg(windows)]
+    if path.exists() {
+        fs::remove_file(path).map_err(|e| e.to_string())?;
+    }
     fs::rename(&temp, path).map_err(|e| e.to_string())
 }
 
 fn opencode_plugin_source() -> &'static str {
-r#"// octopus-opencode-plugin-v2
+    r#"// octopus-opencode-plugin-v2
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";

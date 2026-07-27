@@ -251,10 +251,12 @@ impl UsageLedger {
                     .add(event);
                 let hour = local_hour(event.timestamp_ms);
                 hourly[hour] += event.cost_usd.unwrap_or(0.0);
-                hourly_tok[hour] = hourly_tok[hour]
-                    .saturating_add(event.input.saturating_add(event.output));
+                hourly_tok[hour] =
+                    hourly_tok[hour].saturating_add(event.input.saturating_add(event.output));
             }
-            if event.timestamp_ms >= window_start && event.timestamp_ms <= now_ms.saturating_add(5 * 60 * 1000) {
+            if event.timestamp_ms >= window_start
+                && event.timestamp_ms <= now_ms.saturating_add(5 * 60 * 1000)
+            {
                 window.add(event);
                 window_oldest = Some(
                     window_oldest
@@ -463,7 +465,9 @@ impl UsageLedger {
         }
         let model = text(message, &["model"], 256).unwrap_or_else(|| "unknown".into());
         let session_id = text(object, &["sessionId", "session_id"], 256)
-            .or_else(|| (!session_hint.is_empty()).then(|| session_hint.chars().take(256).collect()))
+            .or_else(|| {
+                (!session_hint.is_empty()).then(|| session_hint.chars().take(256).collect())
+            })
             .unwrap_or_else(|| "claude:unknown".into());
         let message_id = text(message, &["id"], 256);
         let request_id = text(object, &["requestId", "request_id"], 256).unwrap_or_default();
@@ -486,7 +490,13 @@ impl UsageLedger {
         let context_limit = self
             .find_price(&model, Some("anthropic"))
             .and_then(|entry| entry.context_window)
-            .or_else(|| Some(if context_used > 200_000 { 1_000_000 } else { 200_000 }));
+            .or_else(|| {
+                Some(if context_used > 200_000 {
+                    1_000_000
+                } else {
+                    200_000
+                })
+            });
         let quote = self.cost_for(
             &model,
             Some("anthropic"),
@@ -571,8 +581,15 @@ impl UsageLedger {
     }
 
     fn find_price(&self, model: &str, billing_provider: Option<&str>) -> Option<&PriceEntry> {
-        if let Some(provider) = billing_provider.map(str::trim).filter(|value| !value.is_empty()) {
-            let qualified = format!("{}/{}", provider.to_ascii_lowercase(), model.to_ascii_lowercase());
+        if let Some(provider) = billing_provider
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let qualified = format!(
+                "{}/{}",
+                provider.to_ascii_lowercase(),
+                model.to_ascii_lowercase()
+            );
             if let Some(entry) = self.catalog.entries.get(&qualified) {
                 return Some(entry);
             }
@@ -593,7 +610,9 @@ impl UsageLedger {
             .entries
             .iter()
             .filter(|(key, _)| {
-                if key.contains('/') { return false; }
+                if key.contains('/') {
+                    return false;
+                }
                 let key = key.to_ascii_lowercase();
                 lower.starts_with(&key) || key.starts_with(&lower)
             })
@@ -721,10 +740,7 @@ impl UsageLedger {
         let parent = self.path.parent().ok_or("ledger path has no parent")?;
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         secure_dir(parent)?;
-        let temp = parent.join(format!(
-            ".usage-events.{}.tmp",
-            std::process::id()
-        ));
+        let temp = parent.join(format!(".usage-events.{}.tmp", std::process::id()));
         {
             let mut file = File::create(&temp).map_err(|error| error.to_string())?;
             secure_file(&temp)?;
@@ -762,12 +778,19 @@ fn load_catalog(app_dir: &Path) -> PriceCatalog {
     match read_json_bounded(&override_path, MAX_PRICE_FILE_BYTES) {
         Ok(Some(value)) => merge_catalog_document(&mut catalog, &value, "user-override", true),
         Ok(None) => {}
-        Err(error) => append_catalog_message(&mut catalog, format!("price override ignored: {error}")),
+        Err(error) => {
+            append_catalog_message(&mut catalog, format!("price override ignored: {error}"))
+        }
     }
     catalog
 }
 
-fn merge_catalog_document(catalog: &mut PriceCatalog, value: &Value, fallback_source: &str, live: bool) {
+fn merge_catalog_document(
+    catalog: &mut PriceCatalog,
+    value: &Value,
+    fallback_source: &str,
+    live: bool,
+) {
     let source = value
         .get("source")
         .and_then(Value::as_str)
@@ -789,7 +812,9 @@ fn merge_catalog_document(catalog: &mut PriceCatalog, value: &Value, fallback_so
         if id.is_empty() || id.len() > 512 {
             continue;
         }
-        let Some(object) = raw.as_object() else { continue };
+        let Some(object) = raw.as_object() else {
+            continue;
+        };
         let entry = PriceEntry {
             input: finite_rate(
                 object
@@ -823,11 +848,15 @@ fn merge_catalog_document(catalog: &mut PriceCatalog, value: &Value, fallback_so
         if entry.input.is_none() && entry.output.is_none() && entry.context_window.is_none() {
             continue;
         }
-        catalog.entries.insert(id.to_ascii_lowercase(), entry.clone());
+        catalog
+            .entries
+            .insert(id.to_ascii_lowercase(), entry.clone());
         if let Some(alias) = object.get("provider_model_id").and_then(Value::as_str) {
             let alias = alias.trim();
             if !alias.is_empty() && alias.len() <= 512 {
-                catalog.entries.insert(alias.to_ascii_lowercase(), entry.clone());
+                catalog
+                    .entries
+                    .insert(alias.to_ascii_lowercase(), entry.clone());
             }
         }
         inserted += 1;
@@ -901,7 +930,6 @@ fn text(object: &Map<String, Value>, names: &[&str], limit: usize) -> Option<Str
     })
 }
 
-
 fn quote_parts(quote: Option<CostQuote>) -> (Option<f64>, Option<String>, Option<String>) {
     match quote {
         Some(quote) => (Some(quote.cost_usd), Some(quote.source), quote.updated_at),
@@ -924,8 +952,7 @@ fn token_priced_surface(surface: Option<&str>) -> bool {
         return true;
     };
     let lower = surface.to_ascii_lowercase();
-    matches!(lower.as_str(), "api" | "payg" | "token" | "token-priced")
-        || lower.ends_with("-payg")
+    matches!(lower.as_str(), "api" | "payg" | "token" | "token-priced") || lower.ends_with("-payg")
 }
 
 fn stable_event_id(value: &str) -> String {
@@ -1079,7 +1106,12 @@ mod tests {
         }
         let mut reloaded = UsageLedger::open(&dir, now + 1000);
         assert_eq!(reloaded.snapshot(now + 1000)["today"]["messages"], 1);
-        assert!(reloaded.record_hook(&payload, now + 1001).unwrap().duplicate);
+        assert!(
+            reloaded
+                .record_hook(&payload, now + 1001)
+                .unwrap()
+                .duplicate
+        );
         assert_eq!(reloaded.snapshot(now + 1001)["today"]["messages"], 1);
         let _ = fs::remove_dir_all(dir);
     }
@@ -1089,7 +1121,10 @@ mod tests {
         let dir = temp_dir();
         let now = crate::model::now_ms();
         let mut payload = fixture_at(now);
-        let created = chrono::Local.timestamp_millis_opt(i64::try_from(now).unwrap()).single().unwrap();
+        let created = chrono::Local
+            .timestamp_millis_opt(i64::try_from(now).unwrap())
+            .single()
+            .unwrap();
         payload["created_at"] = Value::String(created.to_rfc3339());
         payload["turn_id"] = Value::String("turn_rfc3339".into());
         let mut ledger = UsageLedger::open(&dir, now);
@@ -1140,8 +1175,18 @@ mod tests {
         .unwrap();
         line["timestamp"] = Value::String(chrono::Utc::now().to_rfc3339());
         let mut ledger = UsageLedger::open(&dir, now);
-        assert!(ledger.record_claude_assistant(&line, "claude-session", now).unwrap().inserted);
-        assert!(ledger.record_claude_assistant(&line, "claude-session", now + 1).unwrap().duplicate);
+        assert!(
+            ledger
+                .record_claude_assistant(&line, "claude-session", now)
+                .unwrap()
+                .inserted
+        );
+        assert!(
+            ledger
+                .record_claude_assistant(&line, "claude-session", now + 1)
+                .unwrap()
+                .duplicate
+        );
         let snapshot = ledger.snapshot(now + 1);
         assert_eq!(snapshot["today"]["tokens"], 180);
         assert_eq!(snapshot["today"]["estimatedPrice"], 1);
@@ -1163,8 +1208,10 @@ mod tests {
                     "anthropic/test-model":{"input":1.0,"output":2.0,"context":1234},
                     "test-model":{"input":9.0,"output":9.0}
                 }
-            })).unwrap(),
-        ).unwrap();
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         fs::write(
             dir.join(PRICE_OVERRIDE_FILE_NAME),
             serde_json::to_vec(&json!({
@@ -1173,18 +1220,27 @@ mod tests {
                 "entries":{
                     "anthropic/test-model":{"input":3.0,"output":4.0,"context":4321}
                 }
-            })).unwrap(),
-        ).unwrap();
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         let now = crate::model::now_ms();
         let ledger = UsageLedger::open(&dir, now);
         let qualified = ledger.find_price("test-model", Some("anthropic")).unwrap();
         assert_eq!(qualified.input, Some(3.0));
         assert_eq!(qualified.context_window, Some(4321));
         assert_eq!(qualified.source, "user-override");
-        assert_eq!(qualified.updated_at.as_deref(), Some("2026-07-26T01:00:00Z"));
-        let bundled = ledger.find_price("claude-sonnet-4-6", Some("anthropic")).unwrap();
+        assert_eq!(
+            qualified.updated_at.as_deref(),
+            Some("2026-07-26T01:00:00Z")
+        );
+        let bundled = ledger
+            .find_price("claude-sonnet-4-6", Some("anthropic"))
+            .unwrap();
         assert_eq!(bundled.source, "bundled");
-        let quote = ledger.cost_for("test-model", Some("anthropic"), 1_000_000, 0, 0, 0, false).unwrap();
+        let quote = ledger
+            .cost_for("test-model", Some("anthropic"), 1_000_000, 0, 0, 0, false)
+            .unwrap();
         assert_eq!(quote.source, "user-override");
         assert_eq!(quote.cost_usd, 3.0);
         let info = ledger.price_info();
@@ -1215,11 +1271,11 @@ mod tests {
             "contextLimit":null,
             "costUsd":null,
             "schemaKeys":[]
-        })).unwrap();
+        }))
+        .unwrap();
         assert!(event.input_includes_cache);
         let mut aggregate = Aggregate::default();
         aggregate.add(&event);
         assert_eq!(aggregate.tokens, 12);
     }
-
 }

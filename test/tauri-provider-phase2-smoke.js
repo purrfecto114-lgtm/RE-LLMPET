@@ -8,7 +8,10 @@ const { spawnSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
+// Collapse whitespace so assertions survive `cargo fmt` reflow.
+const compact = (s) => s.replace(/\s+/g, ' ');
 const installer = read('src-tauri/src/hook_install.rs');
+const installerC = compact(installer);
 const client = read('src-tauri/src/hook_client.rs');
 const model = read('src-tauri/src/model.rs');
 const commands = read('src-tauri/src/commands.rs');
@@ -35,13 +38,13 @@ for (const obsolete of ['subagent_start", "subagent_stop', 'plan_start', 'shell_
 assert(client.includes('"decision":"ask"'));
 assert(client.includes('DEEPSEEK_TOOL_ARGS'));
 assert(client.includes('CODEWHALE_TOOL_ARGS'));
-assert(installer.includes('hook_command_with_flags(&executable, "claude", Some("PreToolUse"), false, true)'));
-assert(installer.includes('if pretool { args.push_str(" --pretool"); }'));
-assert(installer.includes('cmd.exe /D /S /C')); // Windows quoted-path invocation
-assert(installer.includes('unterminated Octopus marker block'));
-assert(installer.includes('unmatched Octopus marker end'));
+assert(installerC.includes('hook_command_with_flags(&executable, "claude", Some("PreToolUse"), false, true)'));
+assert(installerC.includes('if pretool { args.push_str(" --pretool"); }'));
+assert(installerC.includes('cmd.exe /D /S /C')); // Windows quoted-path invocation
+assert(installerC.includes('unterminated Octopus marker block'));
+assert(installerC.includes('unmatched Octopus marker end'));
 assert(client.includes('native_event'));
-assert(installer.includes('if permission { "false" } else { "true" }'));
+assert(installerC.includes('if permission { "false" } else { "true" }'));
 
 // Codex: current hooks.json nested group schema and explicit trust state.
 for (const needle of [
