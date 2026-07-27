@@ -607,6 +607,7 @@ impl Runtime {
         (permission, false)
     }
 
+    #[allow(dead_code)] // retained as public Runtime API for future callers/tests
     pub fn add_permission(&self, permission: PendingPermission) {
         let _ = self.register_permission(permission);
     }
@@ -767,6 +768,7 @@ impl Runtime {
         self.decide(id, "allow", None)
     }
 
+    #[allow(dead_code)] // retained as public Runtime API for future callers/tests
     pub fn remove_pending(&self, id: &str) -> Option<PendingPermission> {
         let entry = self
             .pending
@@ -874,6 +876,7 @@ impl Runtime {
         })
     }
 
+    #[allow(dead_code)] // retained as public Runtime API for future callers/tests
     pub fn mark_session_idle(&self, session_id: &str) {
         self.mark_session_after_permission(session_id);
     }
@@ -938,6 +941,7 @@ impl Runtime {
         sessions.retain(|_, session| !session_is_expired(session, now));
     }
 
+    #[allow(dead_code)] // retained as public Runtime API for future callers/tests
     pub fn pending_count(&self) -> usize {
         self.pending.lock().unwrap_or_else(|e| e.into_inner()).len()
     }

@@ -25,6 +25,7 @@ const PERMISSION_WAIT: Duration = Duration::from_secs(8 * 60);
 const MAX_CLIENT_THREADS: usize = 32;
 
 #[derive(Debug)]
+#[allow(dead_code)] // `query` parsed for completeness/validation; not all fields read by handlers
 struct Request {
     method: String,
     path: String,

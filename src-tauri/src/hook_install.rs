@@ -69,6 +69,7 @@ const AIDER_END: &str = "# <<< octopus:aider-notification:v2 <<<";
 const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v2";
 
 #[derive(Debug, Default)]
+#[allow(dead_code)] // `updated`/`removed_legacy` retained for API completeness/future installers
 pub struct InstallResult {
     pub added: usize,
     pub updated: usize,
@@ -472,6 +473,9 @@ fn hook_command_with_flags(
 fn command_hook(command: String, timeout: u64) -> Value {
     #[cfg(target_os = "windows")]
     let windows_command = command.clone();
+    // `mut` is only used on Windows (to insert commandWindows); on other
+    // platforms the value is never mutated, hence the allow.
+    #[allow(unused_mut)]
     let mut value = json!({"type":"command","command":command,"timeout":timeout,"statusMessage":"Updating Octopus"});
     #[cfg(target_os = "windows")]
     if let Some(object) = value.as_object_mut() {
@@ -480,6 +484,7 @@ fn command_hook(command: String, timeout: u64) -> Value {
     value
 }
 
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 fn quote_command_path(path: &Path) -> String {
     let text = path.to_string_lossy();
     #[cfg(target_os = "windows")]

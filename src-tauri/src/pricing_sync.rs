@@ -822,6 +822,7 @@ fn iso_time(value: Option<u64>) -> Option<String> {
         .map(|time| time.to_rfc3339())
 }
 
+#[cfg_attr(not(unix), allow(unused_variables))]
 fn secure_dir(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
@@ -832,6 +833,7 @@ fn secure_dir(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg_attr(not(unix), allow(unused_variables))]
 fn secure_file(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {

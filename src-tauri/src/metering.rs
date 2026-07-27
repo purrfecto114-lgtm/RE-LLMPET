@@ -1011,6 +1011,7 @@ fn consume_line_remainder(reader: &mut BufReader<File>) -> Result<(), String> {
     }
 }
 
+#[cfg_attr(not(unix), allow(unused_variables))]
 fn secure_dir(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
@@ -1021,6 +1022,7 @@ fn secure_dir(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg_attr(not(unix), allow(unused_variables))]
 fn secure_file(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
