@@ -1,0 +1,42 @@
+{
+  "anthropic": {
+    "id": "anthropic",
+    "name": "Anthropic",
+    "models": {
+      "claude-sample": {
+        "id": "claude-sample",
+        "name": "Claude Sample",
+        "reasoning": true,
+        "last_updated": "2026-07-01",
+        "cost": {
+          "input": 3,
+          "output": 15,
+          "cache_read": 0.3,
+          "cache_write": 3.75
+        },
+        "limit": {
+          "context": 200000,
+          "output": 64000
+        }
+      }
+    }
+  },
+  "openrouter": {
+    "id": "openrouter",
+    "name": "OpenRouter",
+    "models": {
+      "anthropic/claude-sample": {
+        "id": "anthropic/claude-sample",
+        "name": "Claude Sample via OpenRouter",
+        "cost": {
+          "input": 3.2,
+          "output": 15.5
+        },
+        "limit": {
+          "context": 200000,
+          "output": 64000
+        }
+      }
+    }
+  }
+}

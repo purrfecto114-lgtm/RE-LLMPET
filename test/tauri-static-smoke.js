@@ -1,0 +1,65 @@
+'use strict';
+
+const assert = require('assert');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.resolve(__dirname, '..');
+const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
+const hash = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+
+const pkg = JSON.parse(read('package.json'));
+assert(!pkg.dependencies.electron && !pkg.devDependencies.electron, 'Electron must not be a runtime/dev dependency of the rewrite');
+assert(pkg.scripts.start.includes('cargo tauri dev'));
+assert(pkg.scripts.build.includes('cargo tauri build'));
+
+const config = JSON.parse(read('src-tauri/tauri.conf.json'));
+assert.strictEqual(config.app.withGlobalTauri, true);
+assert.strictEqual(config.build.frontendDist, '../frontend');
+assert(config.app.windows.some((window) => window.label === 'pet' && window.transparent && window.decorations === false));
+assert(config.app.windows.some((window) => window.label === 'panel' && window.visible === false));
+
+for (const htmlFile of ['frontend/renderer/pet.html', 'frontend/renderer/panel.html']) {
+  const html = read(htmlFile);
+  const bridge = html.indexOf('tauri-bridge.js');
+  const appScript = htmlFile.endsWith('pet.html') ? html.indexOf('pet.js') : html.indexOf('panel.js');
+  assert(bridge >= 0 && bridge < appScript, `${htmlFile}: bridge must load before renderer application`);
+  assert(html.includes("connect-src ipc: http://ipc.localhost"));
+}
+
+function walk(dir) {
+  const result = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) result.push(...walk(full));
+    else result.push(full);
+  }
+  return result;
+}
+const sourceAssets = walk(path.join(ROOT, 'assets'));
+const copiedAssets = walk(path.join(ROOT, 'frontend', 'assets'));
+assert.strictEqual(copiedAssets.length, sourceAssets.length, 'frontend asset count changed');
+for (const source of sourceAssets) {
+  const relative = path.relative(path.join(ROOT, 'assets'), source);
+  const copy = path.join(ROOT, 'frontend', 'assets', relative);
+  assert(fs.existsSync(copy), `missing copied asset ${relative}`);
+  assert.strictEqual(hash(copy), hash(source), `asset bytes changed unexpectedly: ${relative}`);
+}
+
+const bridge = read('frontend/renderer/tauri-bridge.js');
+const commands = new Set([...bridge.matchAll(/(?:call|send)\('([a-z0-9_]+)'/g)].map((match) => match[1]));
+const lib = read('src-tauri/src/lib.rs');
+const handlerBody = lib.match(/generate_handler!\[([\s\S]*?)\]\)/);
+assert(handlerBody, 'Rust invoke handler list missing');
+for (const command of commands) {
+  assert(new RegExp(`\\b${command}\\b`).test(handlerBody[1]), `bridge command not registered in Rust: ${command}`);
+}
+
+const cargo = read('src-tauri/Cargo.toml');
+assert(/\btauri\s*=\s*\{\s*version\s*=\s*"=?2(?:\.[0-9]+)*"/.test(cargo));
+assert(!/electron/i.test(cargo));
+assert(fs.existsSync(path.join(ROOT, 'src-tauri', 'icons', 'icon.ico')));
+assert(fs.existsSync(path.join(ROOT, 'src-tauri', 'icons', 'icon.icns')));
+
+console.log(`tauri-static-smoke: ok (${sourceAssets.length} assets byte-identical, ${commands.size} bridge commands registered)`);

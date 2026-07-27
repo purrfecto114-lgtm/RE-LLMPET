@@ -1,0 +1,40 @@
+name: Real Provider CLI Contract Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Provider CLI installed on the self-hosted runner
+        required: true
+        type: choice
+        options: [claude, codewhale, codex, opencode, aider]
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: [self-hosted, provider-cli]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+      - name: Locked native build
+        run: cargo build --manifest-path src-tauri/Cargo.toml --release --bins --locked
+      - name: Run isolated real-provider contract harness
+        env:
+          OCTOPUS_PROVIDER_SMOKE_COMMAND: ${{ secrets.OCTOPUS_PROVIDER_SMOKE_COMMAND }}
+        run: node scripts/real-provider-smoke.js --provider '${{ inputs.provider }}'
+      - name: Upload provider evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: provider-${{ inputs.provider }}-evidence
+          path: reports/provider-real-*.json
+          if-no-files-found: error

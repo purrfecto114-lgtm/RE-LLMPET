@@ -1,0 +1,90 @@
+'use strict';
+
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+const calls = [];
+const listeners = new Map();
+const context = {
+  console,
+  Promise,
+  setTimeout,
+  clearTimeout,
+  window: {
+    __TAURI__: {
+      core: {
+        invoke(command, args) {
+          calls.push({ command, args: args || {} });
+          if (command === 'get_config') return Promise.resolve({ mode: 'pet' });
+          if (command === 'get_stats') return Promise.resolve({ sessions: [] });
+          if (command === 'get_price_info') return Promise.resolve({ autoUpdate: true, refreshHours: 24 });
+          if (command === 'get_win_pos') return Promise.resolve({ x: 1, y: 2 });
+          return Promise.resolve(null);
+        },
+      },
+      event: {
+        listen(channel, callback) {
+          listeners.set(channel, callback);
+          return Promise.resolve(() => listeners.delete(channel));
+        },
+      },
+    },
+  },
+};
+context.globalThis = context.window;
+vm.createContext(context);
+const source = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'renderer', 'tauri-bridge.js'), 'utf8');
+vm.runInContext(source, context, { filename: 'tauri-bridge.js' });
+
+const api = context.window.pet;
+const expected = [
+  'onEvent', 'onStats', 'onPanelStats', 'onConfig', 'onPrice',
+  'getConfig', 'getStats', 'getPriceInfo', 'refreshModelPrices', 'setPriceAutoUpdate', 'openPanel', 'closePanel', 'setMode', 'setSkin',
+  'setBudget', 'setCurrency', 'toggleMute', 'setProviders', 'territoryRunNow',
+  'territoryToggleAuto', 'quit', 'getWinPos', 'setWinPos', 'launchClaude',
+  'launchCodeWhale', 'decidePermission', 'decideCwPermission',
+  'decideCwPermissionBatch', 'focusSession', 'primaryAction', 'setIgnoreMouse',
+  'setPetTall', 'setPetBig', 'setPetSize', 'setPanelHeight', 'focusPet',
+  'blurPet', 'openLog', 'petLog', 'uiBusy', 'petVisualBounds',
+].sort();
+assert(api && typeof api === 'object');
+assert(Object.isFrozen(api), 'compatibility API must be frozen');
+assert.deepStrictEqual(Object.keys(api).sort(), expected, 'bridge API drifted from preload contract');
+assert(Object.values(api).every((value) => typeof value === 'function'));
+
+(async () => {
+  assert.deepStrictEqual(await api.getConfig(), { mode: 'pet' });
+  assert.deepStrictEqual(await api.getStats(), { sessions: [] });
+  assert.deepStrictEqual(await api.getPriceInfo(), { autoUpdate: true, refreshHours: 24 });
+  assert.deepStrictEqual(Array.from(await api.getWinPos()), [1, 2]);
+
+  api.setMode('panel');
+  api.setWinPos(11, 22);
+  api.decidePermission('perm-1', 'deny');
+  api.launchCodeWhale();
+  await api.refreshModelPrices();
+  api.setPriceAutoUpdate(false, 48);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert(calls.some((call) => call.command === 'set_mode' && call.args.mode === 'panel'));
+  assert(calls.some((call) => call.command === 'set_win_pos' && call.args.x === 11 && call.args.y === 22));
+  assert(calls.some((call) => call.command === 'decide_permission' && call.args.permId === 'perm-1' && call.args.behavior === 'deny'));
+  assert(calls.some((call) => call.command === 'launch_agent' && call.args.provider === 'codewhale'));
+  assert(calls.some((call) => call.command === 'refresh_model_prices'));
+  assert(calls.some((call) => call.command === 'set_price_auto_update' && call.args.enabled === false && call.args.refreshHours === 48));
+
+  let payload = null;
+  const off = api.onStats((value) => { payload = value; });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  listeners.get('pet:stats')({ payload: { sessions: [{ sessionId: 's1' }] } });
+  assert.strictEqual(payload.sessions[0].sessionId, 's1');
+  off();
+  assert(!listeners.has('pet:stats'), 'unsubscribe must detach Tauri event listener');
+
+  console.log('tauri-bridge-smoke: ok');
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

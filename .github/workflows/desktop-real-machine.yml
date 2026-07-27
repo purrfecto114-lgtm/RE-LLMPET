@@ -1,0 +1,70 @@
+name: Real Desktop GUI and Performance Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: Idle benchmark duration (use 28800 for the release 8-hour gate)
+        required: true
+        default: '300'
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    name: ${{ matrix.label }} real desktop
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux
+            runner: linux-desktop
+          - label: windows
+            runner: windows-desktop
+          - label: macos
+            runner: macos-desktop
+    runs-on:
+      - self-hosted
+      - desktop
+      - ${{ matrix.runner }}
+    timeout-minutes: 600
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+      - name: Install Tauri CLI with a locked installer build
+        run: cargo install tauri-cli --version '^2.11.0' --locked
+      - name: Source gates
+        run: |
+          npm ci --ignore-scripts
+          npm test
+          npm run gate:assets
+          node scripts/check-release-gates.js --ci
+      - name: Resolve the committed lock without mutation
+        run: cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+      - name: Locked offline native and Tauri build
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          cargo check --manifest-path src-tauri/Cargo.toml --all-targets --locked
+          cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
+          cargo build --manifest-path src-tauri/Cargo.toml --release --bins --locked
+          cargo tauri build --no-bundle
+      - name: Launch, interact and collect evidence
+        env:
+          OCTOPUS_GUI_GATE_COMMAND: ${{ secrets.OCTOPUS_GUI_GATE_COMMAND }}
+          OCTOPUS_BENCHMARK_DURATION: ${{ inputs.duration_seconds }}
+        run: node scripts/real-desktop-gate.js --platform '${{ matrix.label }}'
+      - name: Upload desktop evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: desktop-${{ matrix.label }}-evidence
+          path: reports/desktop-real-*.json
+          if-no-files-found: error

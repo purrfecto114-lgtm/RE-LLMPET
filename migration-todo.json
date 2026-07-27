@@ -1,0 +1,838 @@
+{
+  "schemaVersion": 1,
+  "project": "LLMPET / Octopus Tauri migration",
+  "release": "0.5.0-phase4",
+  "updatedAt": "2026-07-27",
+  "statusDefinitions": {
+    "done": "Acceptance evidence exists and the stated verification gate passed.",
+    "implemented-uncompiled": "Code is present and static/smoke checks pass, but Rust compilation or real-provider execution is still missing.",
+    "blocked": "Cannot be completed in the current environment or depends on an external prerequisite.",
+    "todo": "Not yet implemented.",
+    "deferred": "Intentionally postponed because the cost/risk is currently greater than the value."
+  },
+  "releaseGates": [
+    "G0_SOURCE_AND_PROTOCOL_TRUTH",
+    "G1_THREE_PLATFORM_CARGO_CHECK",
+    "G2_PROVIDER_REAL_CLI_SMOKE",
+    "G3_STATE_AND_PERMISSION_PARITY",
+    "G4_METERING_PARITY",
+    "G5_PACKAGING_SECURITY_PERFORMANCE"
+  ],
+  "tasks": [
+    {
+      "id": "P0-001",
+      "phase": "P0 baseline",
+      "priority": "P0",
+      "title": "Freeze fork baseline and preserve assets",
+      "status": "done",
+      "risk": "low",
+      "dependencies": [],
+      "acceptance": [
+        "Original fork remains available as behavior reference",
+        "All 35 shipped image assets are byte-identical in the Tauri tree"
+      ],
+      "evidence": [
+        "test/tauri-static-smoke.js",
+        "scripts/asset-visual-regression.js",
+        "reports/asset-visual-baseline.json",
+        "test/reference-contract-smoke.js",
+        "FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md"
+      ],
+      "nextAction": "Use the immutable fork/tag and byte-pinned data fixtures as the rollback/reference source; do not restore a second runtime inside this tree."
+    },
+    {
+      "id": "P0-002",
+      "phase": "P0 baseline",
+      "priority": "P0",
+      "title": "Cross-check provider protocols against maintained official documentation",
+      "status": "done",
+      "risk": "medium",
+      "dependencies": [
+        "P0-001"
+      ],
+      "acceptance": [
+        "Claude, CodeWhale, Codex, OpenCode and Aider contracts are recorded separately",
+        "Unsupported symmetry assumptions are explicitly rejected"
+      ],
+      "evidence": [
+        "protocol-baseline.json",
+        "PROVIDER_CAPABILITY_MATRIX.md",
+        "FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md",
+        "test/tauri-protocol-drift-smoke.js"
+      ],
+      "nextAction": "Re-run the scheduled drift gate whenever a provider CLI or Tauri/GitHub action contract changes."
+    },
+    {
+      "id": "P0-003",
+      "phase": "P0 baseline",
+      "priority": "P0",
+      "title": "Compile and type-check all Rust targets on Linux, Windows and macOS",
+      "status": "blocked",
+      "risk": "critical",
+      "dependencies": [
+        "P0-001"
+      ],
+      "acceptance": [
+        "cargo check --all-targets passes on all three operating systems",
+        "Both native binaries build in release mode"
+      ],
+      "evidence": [
+        ".github/workflows/ci.yml",
+        "scripts/check-release-gates.js"
+      ],
+      "blockedBy": [
+        "Rust/Cargo are absent and the build container cannot resolve external hosts",
+        "Windows and macOS compilation require their native runners"
+      ],
+      "nextAction": "Run Tauri CI with the committed lock on Linux, Windows and macOS; fix compiler errors before treating any Rust path as verified."
+    },
+    {
+      "id": "P0-004",
+      "phase": "P0 baseline",
+      "priority": "P0",
+      "title": "Commit a resolved Cargo.lock",
+      "status": "blocked",
+      "risk": "high",
+      "dependencies": [
+        "P0-003"
+      ],
+      "acceptance": [
+        "Cargo.lock is produced by a successful supported-platform build",
+        "CI and release builds use --locked"
+      ],
+      "evidence": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/release.yml",
+        "scripts/check-release-gates.js"
+      ],
+      "nextAction": "Generate src-tauri/Cargo.lock from the first successful supported-platform dependency resolution, commit it, then rerun all --locked gates.",
+      "blockedBy": [
+        "Cargo is unavailable and dependency resolution cannot run without DNS/network access",
+        "A synthetic lock file would not be valid acceptance evidence"
+      ]
+    },
+    {
+      "id": "P0-005",
+      "phase": "P0 baseline",
+      "priority": "P0",
+      "title": "Real GUI launch smoke on three platforms",
+      "status": "blocked",
+      "risk": "critical",
+      "dependencies": [
+        "P0-003"
+      ],
+      "acceptance": [
+        "Transparent pet window appears",
+        "Tray menu opens",
+        "Details panel opens",
+        "App exits without orphan processes"
+      ],
+      "evidence": [
+        ".github/workflows/desktop-real-machine.yml",
+        "scripts/real-desktop-gate.js"
+      ],
+      "blockedBy": [
+        "No desktop session is available in the current container",
+        "Compiled platform binaries do not exist until P0-003/P0-004 pass"
+      ],
+      "nextAction": "Run the self-hosted real desktop workflow on Linux, Windows and macOS and retain screenshots plus clean-exit/orphan-process evidence."
+    },
+    {
+      "id": "P0-006",
+      "phase": "P0 baseline",
+      "priority": "P1",
+      "title": "Pin and monitor fork/provider protocol drift",
+      "status": "implemented-uncompiled",
+      "risk": "high",
+      "dependencies": [
+        "P0-002"
+      ],
+      "acceptance": [
+        "The source fork revision and tested CLI versions are recorded in every release candidate",
+        "Changes to provider, hook, metering and installer files reopen the relevant protocol gates",
+        "Drift detection never auto-merges upstream behavior into the Rust adapter"
+      ],
+      "evidence": [
+        "protocol-baseline.json",
+        "scripts/check-protocol-drift.js",
+        ".github/workflows/protocol-drift.yml",
+        ".github/workflows/provider-real-cli.yml",
+        "scripts/real-provider-smoke.js",
+        "test/tauri-protocol-drift-smoke.js",
+        "reports/protocol-drift.json"
+      ],
+      "nextAction": "Run the weekly remote contract job and opt-in real-provider gate; detected drift remains review-required and is never auto-merged."
+    },
+    {
+      "id": "P1-001",
+      "phase": "P1 provider adapter",
+      "priority": "P0",
+      "title": "Introduce provider capability/status model and renderer contract",
+      "status": "implemented-uncompiled",
+      "risk": "high",
+      "dependencies": [
+        "P0-002"
+      ],
+      "acceptance": [
+        "Renderer receives active/all/statuses/capabilities",
+        "Provider enable/disable triggers immediate resynchronization"
+      ],
+      "evidence": [
+        "src-tauri/src/model.rs",
+        "src-tauri/src/commands.rs",
+        "frontend/renderer/panel.js",
+        "test/tauri-provider-phase2-smoke.js"
+      ],
+      "nextAction": "Confirm serialization and UI rendering in a compiled desktop build."
+    },
+    {
+      "id": "P1-002",
+      "phase": "P1 provider adapter",
+      "priority": "P0",
+      "title": "Claude merge-safe lifecycle and permission hooks",
+      "status": "implemented-uncompiled",
+      "risk": "high",
+      "dependencies": [
+        "P1-001"
+      ],
+      "acceptance": [
+        "Unrelated user hooks remain intact",
+        "PreToolUse emits current hookSpecificOutput schema",
+        "PermissionRequest can use the local approval service"
+      ],
+      "evidence": [
+        "src-tauri/src/hook_install.rs",
+        "src-tauri/src/hook_client.rs",
+        "src-tauri/src/http_server.rs",
+        "src-tauri/src/model.rs",
+        "frontend/renderer/pet.js",
+        "test/native-hook-installer-smoke.js",
+        "test/tauri-phase4-cutover-smoke.js"
+      ],
+      "nextAction": "Compile, then verify Claude PreToolUse AskUserQuestion/ExitPlanMode updatedInput and PermissionRequest updatedPermissions against a current real CLI."
+    },
+    {
+      "id": "P1-003",
+      "phase": "P1 provider adapter",
+      "priority": "P0",
+      "title": "CodeWhale first-class TOML hooks with fail-safe ask",
+      "status": "implemented-uncompiled",
+      "risk": "high",
+      "dependencies": [
+        "P1-001"
+      ],
+      "acceptance": [
+        "Current maintained lifecycle/subagent events are installed",
+        "tool_call_before runs foreground",
+        "Local service failure returns explicit ask instead of empty stdout"
+      ],
+      "evidence": [
+        "src-tauri/src/hook_install.rs",
+        "src-tauri/src/hook_client.rs",
+        "test/tauri-provider-phase2-smoke.js"
+      ],
+      "nextAction": "Validate with the exact CodeWhale fork CLI, including Standard and Full Access modes."
+    },
+    {
+      "id": "P1-004",
+      "phase": "P1 provider adapter",
+      "priority": "P0",
+      "title": "Codex hooks.json integration and trust-review status",
+      "status": "implemented-uncompiled",
+      "risk": "high",
+      "dependencies": [
+        "P1-001"
+      ],
+      "acceptance": [
+        "Nested hooks.json schema is used",
+        "PermissionRequest is blocking",
+        "UI tells the user to review with /hooks",
+        "Windows command path is shell-safe"
+      ],
+      "evidence": [
+        "src-tauri/src/hook_install.rs",
+        "test/tauri-provider-phase2-smoke.js"
+      ],
+      "nextAction": "Compile and run /hooks trust review; verify Codex allow/deny envelopes remain minimal and never return reserved updatedInput/updatedPermissions."
+    },
+    {
+      "id": "P1-005",
+      "phase": "P1 provider adapter",
+      "priority": "P1",
+      "title": "OpenCode official ESM observation plugin",
+      "status": "implemented-uncompiled",
+      "risk": "medium",
+      "dependencies": [
+        "P1-001"
+      ],
+      "acceptance": [
+        "Plugin exports an ESM plugin function",
+        "Lifecycle/tool events reach the local state endpoint",
+        "Permission events are observed but not externally overridden"
+      ],
+      "evidence": [
+        "src-tauri/src/hook_install.rs",
+        "test/tauri-provider-phase2-smoke.js"
+      ],
+      "nextAction": "Run in OpenCode with plugin loading diagnostics and confirm event payload shapes."
+    },
+    {
+      "id": "P1-006",
+      "phase": "P1 provider adapter",
+      "priority": "P1",
+      "title": "Aider turn-completion notification bridge",
+      "status": "implemented-uncompiled",
+      "risk": "medium",
+      "dependencies": [
+        "P1-001"
+      ],
+      "acceptance": [
+        "Canonical notifications-command key is used",
+        "Foreign user command is not overwritten",
+        "Only turn completion is promised"
+      ],
+      "evidence": [
+        "src-tauri/src/hook_install.rs",
+        "src-tauri/src/hook_client.rs",
+        "test/tauri-provider-phase2-smoke.js"
+      ],
+      "nextAction": "Test notification stdin/arguments on current Aider versions across shells."
+    },
+    {
+      "id": "P1-007",
+      "phase": "P1 provider adapter",
+      "priority": "P0",
+      "title": "Provider install/uninstall idempotence and ownership boundaries",
+      "status": "implemented-uncompiled",
+      "risk": "high",
+      "dependencies": [
+        "P1-002",
+        "P1-003",
+        "P1-004",
+        "P1-005",
+        "P1-006"
+      ],
+      "acceptance": [
+        "Two installs produce no duplicate owned hooks",
+        "Uninstall removes only Octopus-owned entries",
+        "Malformed marker blocks fail without data loss"
+      ],
+      "evidence": [
+        "test/native-hook-installer-smoke.js",
+        "src-tauri/src/hook_install.rs"
+      ],
+      "nextAction": "Add Rust unit tests for malformed TOML/YAML markers and JSON hook group ownership."
+    },
+    {
+      "id": "P1-008",
+      "phase": "P1 provider adapter",
+      "priority": "P0",
+      "title": "Real-provider CLI contract suite",
+      "status": "blocked",
+      "risk": "critical",
+      "dependencies": [
+        "P0-003",
+        "P1-007"
+      ],
+      "acceptance": [
+        "Every installed provider emits at least session-start/tool/turn-end events as supported",
+        "Permission decisions are verified with allow/deny/ask",
+        "CLI version is recorded in evidence"
+      ],
+      "evidence": [
+        ".github/workflows/provider-real-cli.yml",
+        "scripts/real-provider-smoke.js",
+        "protocol-baseline.json"
+      ],
+      "blockedBy": [
+        "Provider CLIs are not installed in the current container",
+        "Real credentials and interactive/native terminal contexts are external prerequisites"
+      ],
+      "nextAction": "Run the isolated self-hosted provider matrix with installed CLIs and record versions, redacted transcripts, events and native permission outcomes."
+    },
+    {
+      "id": "P2-001",
+      "phase": "P2 metering",
+      "priority": "P0",
+      "title": "Provider-neutral usage event model with deduplication",
+      "status": "implemented-uncompiled",
+      "risk": "critical",
+      "dependencies": [
+        "P1-008"
+      ],
+      "acceptance": [
+        "Usage events carry provider/model/session/turn identifiers and recorded price provenance",
+        "Duplicate hook delivery is idempotent across restart",
+        "Unknown field names are preserved for schema-drift diagnostics without persisting raw prompt or tool values"
+      ],
+      "evidence": [
+        "src-tauri/src/metering.rs",
+        "src-tauri/src/model.rs",
+        "test/tauri-metering-phase2-smoke.js"
+      ],
+      "nextAction": "Compile and execute the Rust ledger tests on all three OSes; retain JSONL unless measured concurrency or volume justifies SQLite."
+    },
+    {
+      "id": "P2-002",
+      "phase": "P2 metering",
+      "priority": "P0",
+      "title": "CodeWhale turn_end token ingestion",
+      "status": "implemented-uncompiled",
+      "risk": "high",
+      "dependencies": [
+        "P2-001",
+        "P1-003"
+      ],
+      "acceptance": [
+        "Input/output/cache hit/cache miss values are recorded",
+        "Totals reconcile with sample CodeWhale payloads",
+        "Missing usage fields do not corrupt prior totals"
+      ],
+      "evidence": [
+        "src-tauri/src/hook_client.rs",
+        "src-tauri/src/metering.rs",
+        "test/fixtures/codewhale-turn-end.json",
+        "test/tauri-metering-phase2-smoke.js"
+      ],
+      "nextAction": "Run the fixture and live CodeWhale turn_end payload through compiled binaries; reconcile token/cache/cost totals against CodeWhale scorecard output."
+    },
+    {
+      "id": "P2-003",
+      "phase": "P2 metering",
+      "priority": "P0",
+      "title": "Claude transcript incremental scanner parity",
+      "status": "implemented-uncompiled",
+      "risk": "high",
+      "dependencies": [
+        "P2-001",
+        "P1-002"
+      ],
+      "acceptance": [
+        "Only appended bytes are parsed",
+        "File truncation/rotation recovers safely",
+        "Legacy fork fixtures produce equivalent totals"
+      ],
+      "evidence": [
+        "src-tauri/src/transcript.rs",
+        "src-tauri/src/metering.rs",
+        "src-tauri/src/model.rs",
+        "test/fixtures/claude-transcript-assistant.jsonl",
+        "test/tauri-transcript-pricing-phase2-smoke.js"
+      ],
+      "nextAction": "Compile and run the Rust scanner against anonymized real Claude transcripts on all three platforms; compare totals and truncation recovery with the fork reference fixtures."
+    },
+    {
+      "id": "P2-004",
+      "phase": "P2 metering",
+      "priority": "P1",
+      "title": "Price catalog cache and historical pricing",
+      "status": "implemented-uncompiled",
+      "risk": "high",
+      "dependencies": [
+        "P2-001"
+      ],
+      "acceptance": [
+        "Bundled fallback prices work offline",
+        "Remote updates are signed or validated and cached atomically",
+        "Historical sessions retain the price version used"
+      ],
+      "evidence": [
+        "src-tauri/src/pricing_sync.rs",
+        "src-tauri/src/metering.rs",
+        "test/fixtures/models-dev-api-sample.json",
+        "frontend/renderer/panel.js",
+        "test/tauri-transcript-pricing-phase2-smoke.js",
+        "test/tauri-price-auto-update-smoke.js",
+        "src-tauri/tauri.linux.conf.json"
+      ],
+      "nextAction": "Compile and exercise 200/304/timeout/offline flows on Linux, Windows and macOS; compare provider-qualified estimates with actual invoices before calling historical pricing verified."
+    },
+    {
+      "id": "P3-001",
+      "phase": "P3 session and bubbles",
+      "priority": "P0",
+      "title": "Canonical session state machine and stale-event ordering",
+      "status": "implemented-uncompiled",
+      "risk": "critical",
+      "dependencies": [
+        "P1-008"
+      ],
+      "acceptance": [
+        "Provider events map through one documented transition table",
+        "Late events cannot overwrite newer state",
+        "Session end expires cleanly"
+      ],
+      "evidence": [
+        "src-tauri/src/model.rs",
+        "test/tauri-transcript-pricing-phase2-smoke.js"
+      ],
+      "nextAction": "Compile and replay out-of-order/duplicate lifecycle fixtures on all three platforms; verify sequence, timestamp, terminal-rank and 30-minute SessionEnd expiry behavior."
+    },
+    {
+      "id": "P3-002",
+      "phase": "P3 session and bubbles",
+      "priority": "P1",
+      "title": "Reply bubble extraction with privacy limits",
+      "status": "implemented-uncompiled",
+      "risk": "high",
+      "dependencies": [
+        "P2-003"
+      ],
+      "acceptance": [
+        "Only the configured tail of assistant output is shown",
+        "Secrets/tool output are not surfaced by default",
+        "Bubble rendering is event-driven"
+      ],
+      "evidence": [
+        "src-tauri/src/transcript.rs",
+        "src-tauri/src/model.rs",
+        "src-tauri/src/http_server.rs",
+        "frontend/renderer/pet.js",
+        "test/tauri-transcript-pricing-phase2-smoke.js"
+      ],
+      "nextAction": "Compile and verify replyBubbles/replyBubbleChars on real Claude sessions, including secret-bearing, tool-result and long Unicode outputs."
+    },
+    {
+      "id": "P3-003",
+      "phase": "P3 session and bubbles",
+      "priority": "P1",
+      "title": "Multi-provider concurrent-session UX",
+      "status": "implemented-uncompiled",
+      "risk": "medium",
+      "dependencies": [
+        "P3-001"
+      ],
+      "acceptance": [
+        "Multiple active sessions are distinguishable",
+        "Aggregate pet state has deterministic precedence",
+        "Panel can filter by provider/session"
+      ],
+      "evidence": [
+        "src-tauri/src/model.rs",
+        "frontend/renderer/panel.html",
+        "frontend/renderer/panel.js",
+        "frontend/renderer/panel.css",
+        "test/tauri-transcript-pricing-phase2-smoke.js"
+      ],
+      "nextAction": "Compile and run concurrent Claude/CodeWhale/Codex sessions; verify deterministic active-state priority and provider/project/session filtering under live updates."
+    },
+    {
+      "id": "P4-001",
+      "phase": "P4 permissions",
+      "priority": "P0",
+      "title": "Provider-specific permission semantics without false equivalence",
+      "status": "implemented-uncompiled",
+      "risk": "critical",
+      "dependencies": [
+        "P1-008",
+        "P3-001"
+      ],
+      "acceptance": [
+        "Claude/CodeWhale/Codex each use their native decision contract",
+        "OpenCode and Aider remain honest about unsupported external steering",
+        "Full-access modes are displayed as bypassing ask where applicable"
+      ],
+      "evidence": [
+        "src-tauri/src/http_server.rs",
+        "src-tauri/src/hook_install.rs",
+        "src-tauri/src/hook_client.rs",
+        "frontend/renderer/panel.js",
+        "test/tauri-transcript-pricing-phase2-smoke.js"
+      ],
+      "nextAction": "Run real Claude, CodeWhale and trusted Codex permission prompts; verify byte-exact native envelopes and visible bypass/trust warnings. Confirm OpenCode/Aider remain native-only."
+    },
+    {
+      "id": "P4-002",
+      "phase": "P4 permissions",
+      "priority": "P0",
+      "title": "Approval queue durability, timeout and cancellation",
+      "status": "implemented-uncompiled",
+      "risk": "critical",
+      "dependencies": [
+        "P4-001"
+      ],
+      "acceptance": [
+        "Pending prompts have provider/session/tool identity",
+        "Timeout resolves conservatively",
+        "App shutdown does not silently allow blocked actions"
+      ],
+      "evidence": [
+        "src-tauri/src/model.rs",
+        "src-tauri/src/http_server.rs",
+        "src-tauri/src/commands.rs",
+        "src-tauri/src/lib.rs",
+        "test/tauri-transcript-pricing-phase2-smoke.js",
+        "test/tauri-permission-concurrency-smoke.js",
+        "frontend/renderer/pet.js"
+      ],
+      "nextAction": "Compile and stress exact-retry deduplication plus distinct parallel requests on all three operating systems; verify one resolved card never idles a session with another card pending."
+    },
+    {
+      "id": "P4-003",
+      "phase": "P4 permissions",
+      "priority": "P1",
+      "title": "Structured elicitation and plan-review parity",
+      "status": "implemented-uncompiled",
+      "risk": "high",
+      "dependencies": [
+        "P4-001"
+      ],
+      "acceptance": [
+        "Supported providers render structured options",
+        "Unsupported providers fall back to their native terminal UI",
+        "No fake success is shown"
+      ],
+      "evidence": [
+        "src-tauri/src/hook_install.rs",
+        "src-tauri/src/hook_client.rs",
+        "src-tauri/src/http_server.rs",
+        "src-tauri/src/model.rs",
+        "frontend/renderer/pet.js",
+        "test/tauri-transcript-pricing-phase2-smoke.js",
+        "test/tauri-phase4-cutover-smoke.js"
+      ],
+      "nextAction": "Compile and run real Claude AskUserQuestion and ExitPlanMode flows; verify fallback to native terminal UI when the local service is unavailable."
+    },
+    {
+      "id": "P4-004",
+      "phase": "P4 permissions",
+      "priority": "P0",
+      "title": "Preserve parallel permission cards and exact-retry deduplication",
+      "status": "implemented-uncompiled",
+      "risk": "critical",
+      "dependencies": [
+        "P4-002"
+      ],
+      "acceptance": [
+        "Distinct permission requests sharing one session remain separate cards",
+        "Only identical provider/session/tool/input retry connections share one decision",
+        "Resolving one card keeps the session waiting while another card remains"
+      ],
+      "evidence": [
+        "src-tauri/src/model.rs",
+        "src-tauri/src/http_server.rs",
+        "frontend/renderer/pet.js",
+        "test/tauri-permission-concurrency-smoke.js",
+        "FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md"
+      ],
+      "nextAction": "Compile and execute concurrent real Claude permission requests, including parallel/background agents that share a session id."
+    },
+    {
+      "id": "P5-001",
+      "phase": "P5 platform",
+      "priority": "P0",
+      "title": "Session process discovery and terminal focus abstraction",
+      "status": "implemented-uncompiled",
+      "risk": "critical",
+      "dependencies": [
+        "P3-001",
+        "P0-005"
+      ],
+      "acceptance": [
+        "macOS, Windows and X11 adapters are isolated",
+        "Wayland degradation is explicit",
+        "Focus never targets an unrelated terminal"
+      ],
+      "evidence": [
+        "src-tauri/src/platform.rs",
+        "src-tauri/src/commands.rs",
+        "src-tauri/src/hook_client.rs",
+        ".github/workflows/desktop-real-machine.yml",
+        "test/tauri-phase4-cutover-smoke.js"
+      ],
+      "nextAction": "Compile and test source-PID ancestry focus on macOS, Windows and X11; record the explicit unsupported result on pure Wayland."
+    },
+    {
+      "id": "P5-002",
+      "phase": "P5 platform",
+      "priority": "P2",
+      "title": "Territory/window-push feature by platform capability",
+      "status": "deferred",
+      "risk": "critical",
+      "dependencies": [
+        "P5-001"
+      ],
+      "acceptance": [
+        "macOS/Windows/X11 implementations are permission-aware",
+        "Wayland reports unsupported instead of pretending success",
+        "Feature is isolated from core release readiness"
+      ],
+      "evidence": [],
+      "nextAction": "Resume only after core hooks, metering and focus parity pass."
+    },
+    {
+      "id": "P5-003",
+      "phase": "P5 platform",
+      "priority": "P0",
+      "title": "Suspend/resume, display-change and multi-monitor recovery",
+      "status": "implemented-uncompiled",
+      "risk": "high",
+      "dependencies": [
+        "P0-005"
+      ],
+      "acceptance": [
+        "Pet returns to a visible monitor after topology change",
+        "No duplicate polling timers appear after resume",
+        "Window scale is stable on mixed DPI"
+      ],
+      "evidence": [
+        "src-tauri/src/platform.rs",
+        "src-tauri/src/lib.rs",
+        ".github/workflows/desktop-real-machine.yml",
+        "scripts/real-desktop-gate.js",
+        "test/tauri-phase4-cutover-smoke.js"
+      ],
+      "nextAction": "Run suspend/resume, monitor unplug/replug and mixed-DPI checks on each real desktop runner; verify only one 30-second health thread exists."
+    },
+    {
+      "id": "P6-001",
+      "phase": "P6 release quality",
+      "priority": "P0",
+      "title": "Idle CPU, RSS, startup and long-run benchmark",
+      "status": "implemented-uncompiled",
+      "risk": "critical",
+      "dependencies": [
+        "P0-005",
+        "P3-001"
+      ],
+      "acceptance": [
+        "Idle CPU <0.5% of one logical core in defined test conditions",
+        "Idle RSS target is measured per OS",
+        "8-hour growth and wakeups are recorded",
+        "Cold-start P50/P95 are reported"
+      ],
+      "evidence": [
+        "scripts/benchmark-desktop.js",
+        "scripts/real-desktop-gate.js",
+        ".github/workflows/desktop-real-machine.yml",
+        "test/tauri-phase4-cutover-smoke.js"
+      ],
+      "nextAction": "Run 5-minute smoke and 8-hour release benchmarks on real desktop runners; publish raw CPU/RSS/startup/wakeup samples before accepting targets."
+    },
+    {
+      "id": "P6-002",
+      "phase": "P6 release quality",
+      "priority": "P1",
+      "title": "Asset delivery optimization with visual regression",
+      "status": "implemented-uncompiled",
+      "risk": "medium",
+      "dependencies": [
+        "P0-005"
+      ],
+      "acceptance": [
+        "Original assets remain archived",
+        "Optimized copies are visually compared",
+        "Animation CPU/GPU cost is measured"
+      ],
+      "evidence": [
+        "scripts/asset-visual-regression.js",
+        "reports/asset-visual-baseline.json",
+        "test/tauri-static-smoke.js",
+        "test/tauri-phase4-cutover-smoke.js"
+      ],
+      "nextAction": "Capture compiled GUI pixel/animation snapshots per OS before converting any image; current active assets intentionally remain byte-identical originals."
+    },
+    {
+      "id": "P6-003",
+      "phase": "P6 release quality",
+      "priority": "P0",
+      "title": "Signed and reproducible Windows/macOS/Linux packages",
+      "status": "implemented-uncompiled",
+      "risk": "critical",
+      "dependencies": [
+        "P0-004",
+        "P6-001"
+      ],
+      "acceptance": [
+        "Windows package is signed",
+        "macOS package is signed and notarized",
+        "Linux packages run on the documented baseline",
+        "SBOM/checksums are published"
+      ],
+      "evidence": [
+        ".github/workflows/release.yml",
+        "src-tauri/tauri.conf.json",
+        "scripts/check-release-gates.js",
+        "scripts/generate-release-config.js",
+        "scripts/generate-checksums.js",
+        "scripts/generate-sbom.js",
+        "test/tauri-phase4-cutover-smoke.js"
+      ],
+      "nextAction": "Provide protected updater, Windows and Apple signing/notarization secrets, commit Cargo.lock, run the release workflow and verify installed artifacts plus attestations."
+    },
+    {
+      "id": "P6-004",
+      "phase": "P6 release quality",
+      "priority": "P0",
+      "title": "Security review of local HTTP and hook command surface",
+      "status": "implemented-uncompiled",
+      "risk": "critical",
+      "dependencies": [
+        "P1-008",
+        "P4-002"
+      ],
+      "acceptance": [
+        "Loopback binding/token checks are fuzzed",
+        "Request sizes and timeouts are bounded",
+        "Command strings resist spaces and shell metacharacters",
+        "Sensitive payloads are redacted in logs"
+      ],
+      "evidence": [
+        "src-tauri/src/http_server.rs",
+        "src-tauri/src/hook_client.rs",
+        "src-tauri/src/hook_install.rs",
+        "scripts/install-native-hooks.js",
+        "test/tauri-local-http-hardening-smoke.js",
+        "test/native-hook-installer-smoke.js",
+        "test/tauri-phase4-cutover-smoke.js"
+      ],
+      "nextAction": "Compile and fuzz the raw HTTP parser on all three OSes, then execute real shell/path-metacharacter provider tests."
+    },
+    {
+      "id": "P7-001",
+      "phase": "P7 cutover",
+      "priority": "P0",
+      "title": "Data-only fork behavior fixture pack",
+      "status": "done",
+      "risk": "high",
+      "dependencies": [
+        "P2-003",
+        "P3-001",
+        "P4-003"
+      ],
+      "acceptance": [
+        "Representative fork payload fixtures are anonymized and checked in independently of any retired runtime",
+        "Fixture hashes are pinned and verified by the active test chain",
+        "Known intentional differences are documented"
+      ],
+      "evidence": [
+        "test/fixtures",
+        "test/reference-contract-smoke.js",
+        "FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md"
+      ],
+      "nextAction": "Add new fixtures only through explicit provider or upstream contract review."
+    },
+    {
+      "id": "P7-002",
+      "phase": "P7 cutover",
+      "priority": "P0",
+      "title": "Remove retired Electron/Node runtime from the source tree",
+      "status": "done",
+      "risk": "critical",
+      "dependencies": [
+        "P7-001"
+      ],
+      "acceptance": [
+        "The source tree contains no archived Electron runtime, Chromium payload, main/preload/backend/provider Node runtime, or obsolete Node hook path",
+        "No active source or test imports an archived runtime",
+        "Rollback is external through immutable repository/tag archives rather than a second shipped runtime"
+      ],
+      "evidence": [
+        "scripts/check-release-gates.js",
+        "test/reference-contract-smoke.js",
+        "FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md"
+      ],
+      "nextAction": "Keep package-content checks in the signed release gate; do not reintroduce a second runtime."
+    }
+  ]
+}

@@ -1,0 +1,161 @@
+name: Signed Tauri Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  build:
+    name: ${{ matrix.id }} signed bundle
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: linux-x64
+            platform: ubuntu-22.04
+            target: ''
+            args: '--bundles deb,appimage'
+          - id: windows-x64
+            platform: windows-latest
+            target: ''
+            args: '--bundles nsis --config src-tauri/tauri.release.generated.json'
+          - id: macos-arm64
+            platform: macos-latest
+            target: aarch64-apple-darwin
+            args: '--target aarch64-apple-darwin --bundles app,dmg --config src-tauri/tauri.release.generated.json'
+          - id: macos-x64
+            platform: macos-latest
+            target: x86_64-apple-darwin
+            args: '--target x86_64-apple-darwin --bundles app,dmg --config src-tauri/tauri.release.generated.json'
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 90
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux desktop dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf \
+            xdg-utils
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add macOS target
+        if: matrix.target != ''
+        run: rustup target add '${{ matrix.target }}'
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          key: ${{ matrix.id }}
+
+      - name: Import Windows signing certificate
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) { throw 'Windows signing secrets are required' }
+          $pfx = Join-Path $env:RUNNER_TEMP 'octopus-signing.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          if (-not $cert.Thumbprint) { throw 'Certificate import did not return a thumbprint' }
+          "WINDOWS_CERTIFICATE_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install JavaScript metadata exactly
+        run: npm ci --ignore-scripts
+
+      - name: Release preflight and static regression
+        run: |
+          npm test
+          npm run gate:assets
+          node scripts/check-release-gates.js --release
+          node scripts/generate-release-config.js
+
+      - name: Resolve the committed lock without mutation
+        run: cargo fetch --manifest-path src-tauri/Cargo.toml --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+
+      - name: Build Rust entry points offline with the committed lock
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: cargo build --manifest-path src-tauri/Cargo.toml --release --bins --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+
+      - name: Build signed bundles and create draft release
+        id: tauri
+        uses: tauri-apps/tauri-action@v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_NET_OFFLINE: 'true'
+        with:
+          tagName: v__VERSION__
+          releaseName: 'Octopus v__VERSION__'
+          releaseBody: 'Signed Tauri 2 / Rust Phase 3 release candidate. Checksums, SBOM and GitHub artifact attestations are attached by the release workflow.'
+          releaseDraft: true
+          prerelease: true
+          args: ${{ matrix.args }}
+
+      - name: Generate checksums and SPDX SBOM
+        run: |
+          node scripts/generate-checksums.js src-tauri/target reports/SHA256SUMS-${{ matrix.id }}
+          node scripts/generate-sbom.js reports/octopus-${{ matrix.id }}.spdx.json
+
+      - name: Attest build artifacts
+        uses: actions/attest@v4
+        with:
+          subject-path: 'src-tauri/target/**/release/bundle/**/*'
+
+      - name: Attest SBOM against build artifacts
+        uses: actions/attest@v4
+        with:
+          subject-path: 'src-tauri/target/**/release/bundle/**/*'
+          sbom-path: reports/octopus-${{ matrix.id }}.spdx.json
+
+      - name: Attach checksums and SBOM to draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          gh release upload "v$VERSION" reports/SHA256SUMS-${{ matrix.id }} reports/octopus-${{ matrix.id }}.spdx.json --clobber
+
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-evidence-${{ matrix.id }}
+          path: |
+            reports/
+            src-tauri/tauri.release.generated.json
+          if-no-files-found: warn

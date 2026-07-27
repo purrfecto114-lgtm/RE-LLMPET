@@ -1,0 +1,47 @@
+{
+  "provider": "codewhale",
+  "native_event": "turn_end",
+  "hook_event_name": "Stop",
+  "state": "attention",
+  "session_id": "sess_12345678",
+  "workspace": "/tmp/octopus-project",
+  "cwd": "/tmp/octopus-project",
+  "created_at": "2026-07-26T10:30:00+00:00",
+  "billing_provider": "deepseek",
+  "model": "deepseek-chat",
+  "billing_surface": "deepseek-payg",
+  "turn_id": "turn_12345678",
+  "status": "completed",
+  "duration_ms": 1834,
+  "turn_duration_ms": 1834,
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 180,
+    "prompt_cache_hit_tokens": 900,
+    "prompt_cache_miss_tokens": 300,
+    "reasoning_tokens": null,
+    "reasoning_replay_tokens": null
+  },
+  "turn_usage": {
+    "input": 1200,
+    "output": 180,
+    "cache_read": 900,
+    "cache_create": 300,
+    "cache_write": 0,
+    "reasoning": 0,
+    "reasoning_replay": 0
+  },
+  "totals": {
+    "session_tokens": 1380,
+    "conversation_tokens": 1380,
+    "input_tokens": 1200,
+    "output_tokens": 180
+  },
+  "context_usage": {
+    "used": 1380,
+    "limit": null,
+    "percent": null,
+    "source": "codewhale"
+  },
+  "tool_count": 2
+}
