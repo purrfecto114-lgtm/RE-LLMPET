@@ -594,6 +594,12 @@ fn normalize_model_entry(provider_id: &str, model_id: &str, model: &Value) -> Op
     let cache_write = finite_rate(cost.and_then(|cost| cost.get("cache_write")));
     let context = finite_u64(limit.and_then(|limit| limit.get("context")));
     let max_output = finite_u64(limit.and_then(|limit| limit.get("output")));
+    // Reject the whole entry if a present price field is absurd (out of the
+    // finite_rate bounds). A missing field is fine; a present-but-garbage field
+    // means the catalog row is unreliable and must not be kept with a null price.
+    if present_but_absurd(cost, "input") || present_but_absurd(cost, "output") {
+        return None;
+    }
     if input.is_none() && output.is_none() && context.is_none() {
         return None;
     }
@@ -678,6 +684,17 @@ fn finite_rate(value: Option<&Value>) -> Option<f64> {
     value
         .and_then(Value::as_f64)
         .filter(|value| value.is_finite() && *value >= 0.0 && *value <= MAX_PRICE_USD_PER_MILLION)
+}
+
+/// True when the named cost field is present as a number but falls outside the
+/// finite_rate bounds (absurd/garbage). Used to reject the whole catalog row
+/// rather than keep it with a null price.
+fn present_but_absurd(cost: Option<&Map<String, Value>>, field: &str) -> bool {
+    let Some(cost) = cost else { return false };
+    match cost.get(field).and_then(Value::as_f64) {
+        Some(value) => finite_rate(Some(&json!(value))).is_none(),
+        None => false,
+    }
 }
 
 fn finite_u64(value: Option<&Value>) -> Option<u64> {
