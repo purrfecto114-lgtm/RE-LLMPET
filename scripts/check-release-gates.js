@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 const fs=require('fs'), path=require('path');
-const ROOT=path.resolve(__dirname,'..'); const mode=process.argv.includes('--release')?'release':process.argv.includes('--ci')?'ci':'source';
+const ROOT=path.resolve(__dirname,'..'); const mode=process.argv.includes('--release')?'release':process.argv.includes('--release-draft')?'release-draft':process.argv.includes('--ci')?'ci':'source';
 const failures=[], blocked=[], ok=[];
 const readJson=p=>JSON.parse(fs.readFileSync(path.join(ROOT,p),'utf8'));
 const pkg=readJson('package.json'), tauri=readJson('src-tauri/tauri.conf.json');
@@ -30,6 +30,8 @@ if(mode==='release'){
  if(platform==='win32') required.push('WINDOWS_CERTIFICATE','WINDOWS_CERTIFICATE_PASSWORD');
  for(const name of required) check(Boolean(process.env[name]),`release secret present: ${name}`);
 }
+// 'release-draft' mode: build unsigned draft artifacts (no signing secrets).
+// Used for pre-release/testing builds. production signed releases use --release.
 for(const item of ok) console.log(`OK      ${item}`);
 for(const item of blocked) console.log(`BLOCKED ${item}`);
 for(const item of failures) console.error(`FAIL    ${item}`);

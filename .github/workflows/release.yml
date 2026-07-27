@@ -83,16 +83,30 @@ jobs:
           key: ${{ matrix.id }}
 
       - name: Import Windows signing certificate
-        if: matrix.platform == 'windows-latest'
+        if: matrix.platform == 'windows-latest' && env.WINDOWS_CERTIFICATE != '' && env.WINDOWS_CERTIFICATE_PASSWORD != ''
         shell: pwsh
         run: |
-          if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) { throw 'Windows signing secrets are required' }
           $pfx = Join-Path $env:RUNNER_TEMP 'octopus-signing.pfx'
           [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
           $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
           $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
           if (-not $cert.Thumbprint) { throw 'Certificate import did not return a thumbprint' }
           "WINDOWS_CERTIFICATE_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Detect signing mode
+        id: mode
+        shell: bash
+        run: |
+          if [ -n "${{ env.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "gate=--release" >> "$GITHUB_OUTPUT"
+            echo "genflag=" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "gate=--release-draft" >> "$GITHUB_OUTPUT"
+            echo "genflag=--draft" >> "$GITHUB_OUTPUT"
+            echo "::notice::Building UNSIGNED draft (TAURI_SIGNING_PRIVATE_KEY not set). Add the secret for signed releases."
+          fi
 
       - name: Install JavaScript metadata exactly
         run: npm ci --ignore-scripts
@@ -101,8 +115,8 @@ jobs:
         run: |
           npm test
           npm run gate:assets
-          node scripts/check-release-gates.js --release
-          node scripts/generate-release-config.js
+          node scripts/check-release-gates.js ${{ steps.mode.outputs.gate }}
+          node scripts/generate-release-config.js ${{ steps.mode.outputs.genflag }}
 
       - name: Resolve the committed lock without mutation
         run: cargo fetch --manifest-path src-tauri/Cargo.toml --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
