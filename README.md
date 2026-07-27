@@ -1,36 +1,99 @@
-# LLMPET / Octopus Tauri
+# RE-LLMPET / Octopus — Tauri 2 桌面宠物
 
-`0.5.0-phase4` 是 LLMPET fork 的 Tauri 2 / Rust 迁移候选源码。活动运行路径只包含 `src-tauri/`、`frontend/`、`resources/` 与安装/门禁脚本；旧 Electron 主进程、preload、Node backend/provider/hook 和归档运行时已从源码树完整删除。
+> **低占用多 Agent 桌面宠物**：Tauri 2 + Rust 原生 provider 适配层，保留原有 Web UI 与图片资源。
+>
+> 盯着 **Claude Code / CodeWhale / Codex / OpenCode / Aider** 五个 coding agent，随状态变表情、弹消息气泡、一键授权，并统计 token 用量与花费。本地优先、MIT。
+
+[简体中文](README.md) | [English](README_EN.md) | [日本語](README_JA.md)
+
+---
+
+## 仓库关系
+
+本仓库 `purrfecto114-lgtm/RE-LLMPET` 是 LLMPET 项目的 **Tauri 2 / Rust 重写分支**，走独立主线。
+
+| 仓库 | 角色 | 运行时 |
+|---|---|---|
+| **[myunwang/LLMPET](https://github.com/myunwang/LLMPET)** | 原始上游（v1.1.1） | Electron + Node |
+| **[purrfecto114-lgtm/LLMPET](https://github.com/purrfecto114-lgtm/LLMPET)** | 早期 Electron fork（R1–R20，5-provider hook 系统） | Electron + Node |
+| **purrfecto114-lgtm/RE-LLMPET**（本仓库） | Tauri 2 / Rust 重写，独立新分支 | Tauri 2 + Rust |
+
+本分支从 Electron/Node 运行时完整迁移到 Tauri 2 + Rust：旧主进程、preload、Node backend/provider/hook 和归档运行时已从源码树删除；活动运行路径只包含 `src-tauri/`、`frontend/`、`resources/` 与安装/门禁脚本。完整迁移历史见 [`MIGRATION_STATUS.md`](MIGRATION_STATUS.md) 与 [`FORK_UPSTREAM_CUTOVER_REPORT_2026-07-27.md`](FORK_UPSTREAM_CUTOVER_REPORT_2026-07-27.md)。
+
+---
 
 ## 当前能力
 
-- Claude Code、CodeWhale、Codex、OpenCode、Aider 的 provider-specific 安装与事件适配。
-- Claude 结构化提问、方案评审和 `updatedPermissions` 建议回传；Codex 不伪造 Claude 专属字段。
-- 并行权限请求：只合并相同 provider + session + tool + input 的重试；同一会话内不同请求分别显示、分别决策。
-- provider-neutral 会话状态、JSONL 用量账本、Claude transcript 增量扫描和离线价格目录。
-- 会话源 PID 到真实终端窗口的聚焦；Windows、macOS、X11 分平台实现，纯 Wayland 明确降级。
-- 休眠/恢复、显示器变化和离屏窗口恢复。
+- **五 provider 适配**：Claude Code、CodeWhale、Codex、OpenCode、Aider 的 provider-specific 安装与事件适配
+- **权限流**：Claude 结构化提问、方案评审和 `updatedPermissions` 建议回传；Codex 不伪造 Claude 专属字段
+- **并行权限请求**：只合并相同 provider + session + tool + input 的重试；同一会话内不同请求分别显示、分别决策
+- **计量**：provider-neutral 会话状态、JSONL 用量账本、Claude transcript 增量扫描和离线价格目录
+- **会话聚焦**：会话源 PID 到真实终端窗口的聚焦；Windows、macOS、X11 分平台实现，纯 Wayland 明确降级
+- **平台恢复**：休眠/恢复、显示器变化和离屏窗口恢复
+- **安全**：contextIsolation + sandbox、loopback-only HTTP server、token 仅 header、constant-time 比较、沙箱 curl 强制 HTTPS
+
+---
 
 ## 源码运行
 
-前置：Node.js 24、Rust stable、Tauri 2 系统依赖。
+前置：Node.js 24、Rust 1.85+（`edition2024` 依赖要求）、Tauri 2 系统依赖。
 
 ```bash
 npm ci --ignore-scripts
-npm test
+npm test                              # 15/15 结构/协议/fixture 回归
 cargo install tauri-cli --version '^2.11.0' --locked
-cargo tauri dev
+cargo tauri dev                       # 启动桌宠
 ```
 
-当前源码包没有伪造 `src-tauri/Cargo.lock`。首次在受支持平台成功解析并编译后，必须提交真实 lockfile，此后 CI/发布统一使用 `--locked`。
+Linux 系统依赖：
+
+```bash
+sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+  librsvg2-dev libxdo-dev libssl-dev patchelf xdg-utils
+```
+
+`src-tauri/Cargo.lock` 已提交（424 包），CI/发布统一使用 `--locked` 可复现构建。
+
+---
+
+## CI / 自动构建
+
+| Workflow | 触发 | 作用 |
+|---|---|---|
+| [`ci.yml`](.github/workflows/ci.yml) | push `main` / PR / 手动 | 3 平台 smoke + locked Rust gates + `cargo check/test/build` |
+| [`release.yml`](.github/workflows/release.yml) | push tag `v*.*.*` / 手动 | 4 矩阵签名 bundle（deb/appimage/nsis/dmg）+ checksums + SBOM + 证明 |
+| [`protocol-drift.yml`](.github/workflows/protocol-drift.yml) | 每周一 05:17 UTC / 手动 | 上游 provider 协议漂移检查 |
+| `provider-real-cli.yml` | 手动（self-hosted） | 真实 CLI 契约门 |
+| `desktop-real-machine.yml` | 手动（self-hosted） | 真实 GUI + 性能基准 |
+
+**push 到 `main` 即自动触发 CI**（3 平台并行）。**打 tag 触发 release**：
+
+```bash
+git tag v0.5.0
+git push origin v0.5.0
+```
+
+Release 需在仓库 Settings → Secrets 配置：`TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（更新签名）、`WINDOWS_CERTIFICATE` + `WINDOWS_CERTIFICATE_PASSWORD`（Windows 签名）、`APPLE_*`（macOS 公证）。无这些 secret 时 release job 在 cert-import 步快速失败。
+
+---
 
 ## 验证层级
 
-`npm test` 是结构、协议和离线 fixture 回归，不等同于 Rust 编译或真机验收。发布前仍必须通过：
+`npm test`（15/15 PASS）是结构、协议和离线 fixture 回归，不等同于 Rust 编译或真机验收。发布前仍必须通过：
 
-1. Linux / Windows / macOS `cargo check --all-targets --locked`、Rust tests 和 release binaries；
-2. 五个 Provider 的隔离 HOME 真实 CLI smoke；
-3. 三平台 GUI、托盘、终端聚焦、休眠/多显示器和性能门禁；
-4. Windows 签名、macOS 签名/公证、Linux 基线运行、更新包签名、SBOM 与校验和。
+1. Linux / Windows / macOS `cargo check --all-targets --locked`、Rust tests 和 release binaries
+2. 五个 Provider 的隔离 HOME 真实 CLI smoke
+3. 三平台 GUI、托盘、终端聚焦、休眠/多显示器和性能门禁
+4. Windows 签名、macOS 签名/公证、Linux 基线运行、更新包签名、SBOM 与校验和
 
-详见 `FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md`、`MIGRATION_STATUS.md` 和 `docs/RELEASE.md`。
+详见 [`FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md`](FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md)、[`MIGRATION_STATUS.md`](MIGRATION_STATUS.md) 和 [`docs/RELEASE.md`](docs/RELEASE.md)。
+
+---
+
+## 三款皮肤
+
+章鱼 🐙、像素怪兽 👾、月薪喵 🐱（猫 meme 表情包，素材来自抖音 @月薪喵，见 [`assets/cat/CREDITS.md`](assets/cat/CREDITS.md)）。
+
+## License
+
+MIT — 见 [`LICENSE`](LICENSE)。状态机、计量、权限流、进程对账和桌面 UI 均为本仓库自有实现；各 provider 通过其公开 hook/plugin 接口接入，不注入 agent 进程。
