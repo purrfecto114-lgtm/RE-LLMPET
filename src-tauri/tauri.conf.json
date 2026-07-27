@@ -61,6 +61,6 @@
       "icons/icon.ico"
     ],
     "resources": [],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": false
   }
 }

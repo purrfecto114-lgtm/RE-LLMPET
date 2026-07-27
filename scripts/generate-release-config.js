@@ -5,7 +5,10 @@ const path = require('path');
 const args = process.argv.slice(2);
 const draft = args.includes('--draft');
 const output = path.resolve(args.find((a) => !a.startsWith('-')) || 'src-tauri/tauri.release.generated.json');
-const config = { bundle: { createUpdaterArtifacts: !draft } };
+// We don't ship the tauri updater plugin, so createUpdaterArtifacts stays
+// false in all modes (the action's updater JSON/signature upload is also
+// disabled in release.yml). Add the updater plugin + signing key to enable.
+const config = { bundle: { createUpdaterArtifacts: false } };
 if (process.platform === 'win32') {
   const thumbprint = String(process.env.WINDOWS_CERTIFICATE_THUMBPRINT || '').replace(/\s/g, '');
   if (thumbprint) {

@@ -27,7 +27,7 @@ const realDesktopScript = read('scripts/real-desktop-gate.js');
 assert.strictEqual(pkg.version, '0.5.0');
 assert.strictEqual(tauri.version, '0.5.0');
 assert.match(cargo, /^version = "0\.5\.0"/m);
-assert.strictEqual(tauri.bundle.createUpdaterArtifacts, true);
+assert.strictEqual(tauri.bundle.createUpdaterArtifacts, false);
 
 for (const retired of ['main.js', 'preload.js', 'backend', 'providers', 'renderer', 'hook', 'shared']) {
   assert(!fs.existsSync(path.join(ROOT, retired)), `active Electron path remains: ${retired}`);

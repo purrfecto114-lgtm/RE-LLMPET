@@ -135,9 +135,12 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: 'Octopus v__VERSION__'
-          releaseBody: 'Signed Tauri 2 / Rust Phase 3 release candidate. Checksums, SBOM and GitHub artifact attestations are attached by the release workflow.'
+          releaseBody: 'Tauri 2 / Rust desktop pet release. Checksums + SBOM attached by the release workflow. Signed when TAURI_SIGNING_PRIVATE_KEY is configured; otherwise unsigned draft.'
           releaseDraft: true
           prerelease: true
+          # Disable updater JSON/signature upload — we don't ship the tauri
+          # updater plugin, so the action must not query plugins.updater config.
+          updaterJsonPreferNsis: false
           args: ${{ matrix.args }}
 
       - name: Generate checksums and SPDX SBOM
