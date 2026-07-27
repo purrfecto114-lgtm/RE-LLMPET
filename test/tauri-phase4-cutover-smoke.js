@@ -80,7 +80,7 @@ assert.match(release, /CARGO_NET_OFFLINE/);
 assert.match(desktopGate, /cargo fetch[^\n]*--locked/);
 assert.match(desktopGate, /CARGO_NET_OFFLINE/);
 assert.match(ci, /actions\/upload-artifact@v5/);
-assert.match(release, /tauri-apps\/tauri-action@v0\.6\.2/);
+assert.match(release, /tauri-apps\/tauri-action@v1/);
 assert.match(release, /TAURI_SIGNING_PRIVATE_KEY/);
 assert.match(release, /APPLE_CERTIFICATE/);
 assert.match(release, /WINDOWS_CERTIFICATE/);

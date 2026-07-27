@@ -114,7 +114,7 @@ jobs:
 
       - name: Build signed bundles and create draft release
         id: tauri
-        uses: tauri-apps/tauri-action@v0.6.2
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_NET_OFFLINE: 'true'
