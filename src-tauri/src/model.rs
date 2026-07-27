@@ -1295,10 +1295,10 @@ fn build_elicitation_updated_input(input: &Value, answers: &Value) -> Value {
 fn normalize_permission_suggestion(mut suggestion: Value) -> Value {
     if let Some(object) = suggestion.as_object_mut() {
         object
-            .entry("destination".into())
+            .entry("destination".to_string())
             .or_insert_with(|| json!("localSettings"));
         object
-            .entry("behavior".into())
+            .entry("behavior".to_string())
             .or_insert_with(|| json!("allow"));
     }
     suggestion
