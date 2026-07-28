@@ -12,12 +12,13 @@ const config = { bundle: { createUpdaterArtifacts: false } };
 if (process.platform === 'darwin') {
   const identity = String(process.env.APPLE_SIGNING_IDENTITY || '').trim();
   if (identity) {
-    config.bundle.macos = { signingIdentity: identity };
+    // Note: Tauri 2 bundle config key is `macOS` (capital S), not `macos`.
+    config.bundle.macOS = { signingIdentity: identity };
   } else if (draft) {
     // No Apple cert in draft mode: use ad-hoc signing (-) so the .app bundles
     // without a real Developer ID. The DMG/app will run locally but won't be
     // notarized — fine for pre-release testing. Production uses APPLE_SIGNING_IDENTITY.
-    config.bundle.macos = { signingIdentity: '-' };
+    config.bundle.macOS = { signingIdentity: '-' };
   } else {
     console.error('generate-release-config: APPLE_SIGNING_IDENTITY is required on macOS (or pass --draft for ad-hoc signed builds)');
     process.exit(1);
