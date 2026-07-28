@@ -940,17 +940,18 @@ impl Runtime {
         // PendingPermission. project_name() is computed exactly once per
         // session (was 3× per session before).
         let (sessions, pending) = {
-            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            let mut pending: Vec<&PendingPermission> = self
+            let _sessions_guard = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let mut pending: Vec<PendingPermission> = self
                 .pending
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .values()
+                .cloned()
                 .collect();
             pending.sort_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)));
             // Build a snapshot Vec<Session> once (needed because we drop the
             // session lock below), but project_name is computed once + reused.
-            let session_snap: Vec<Session> = sessions.values().cloned().collect();
+            let session_snap: Vec<Session> = _sessions_guard.values().cloned().collect();
             (session_snap, pending)
         };
         // project_name once per session, stored for reuse.
@@ -958,8 +959,8 @@ impl Runtime {
             .iter()
             .map(|s| (s.id.clone(), project_name(&s.cwd, &s.id)))
             .collect();
-        // Group pending by session without re-cloning each permission — keep
-        // indices into the sorted pending Vec.
+        // Group pending by session: first permission per session (sorted), no
+        // re-clone — borrow from the owned `pending` Vec.
         let mut pending_first_by_session: HashMap<&str, &PendingPermission> = HashMap::new();
         for permission in &pending {
             pending_first_by_session
