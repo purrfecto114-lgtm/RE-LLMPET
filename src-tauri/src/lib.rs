@@ -130,12 +130,18 @@ pub fn run() {
             if tray_removed.swap(true, Ordering::Relaxed) {
                 return;
             }
-            if let Some(tray) = app_handle.tray_by_id("main-tray") {
-                let _ = tray.set_visible(false);
+            // Hide all webview windows so the app appears to quit immediately
+            // even if the event loop takes a moment to drain.
+            if let Some(pet) = app_handle.get_webview_window("pet") {
+                let _ = pet.hide();
             }
-            let _ = app_handle.remove_tray_by_id("main-tray");
+            if let Some(panel) = app_handle.get_webview_window("panel") {
+                let _ = panel.hide();
+            }
             let state = app_handle.state::<AppState>();
-            state.runtime.write_log("shutdown", "tray icon removed");
+            state
+                .runtime
+                .write_log("shutdown", "windows hidden on exit request");
         }
         RunEvent::Resumed => {
             let state = app_handle.state::<AppState>();
@@ -173,7 +179,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .build()?;
     let menu = Menu::with_items(app, &[&show, &panel, &launch_menu, &log, &quit])?;
 
-    let mut builder = TrayIconBuilder::new("main-tray")
+    let mut builder = TrayIconBuilder::new()
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
