@@ -4,11 +4,12 @@ const fs=require('fs'), path=require('path');
 const ROOT=path.resolve(__dirname,'..'); const mode=process.argv.includes('--release')?'release':process.argv.includes('--release-draft')?'release-draft':process.argv.includes('--ci')?'ci':'source';
 const failures=[], blocked=[], ok=[];
 const readJson=p=>JSON.parse(fs.readFileSync(path.join(ROOT,p),'utf8'));
-const pkg=readJson('package.json'), tauri=readJson('src-tauri/tauri.conf.json');
+const pkg=readJson('package.json'), npmLock=readJson('package-lock.json'), tauri=readJson('src-tauri/tauri.conf.json');
 const cargo=fs.readFileSync(path.join(ROOT,'src-tauri/Cargo.toml'),'utf8');
 const cargoVersion=(cargo.match(/^version = "([^"]+)"/m)||[])[1];
 function check(cond,label,kind='fail'){(cond?ok:(kind==='block'?blocked:failures)).push(label);}
 check(pkg.version===tauri.version&&pkg.version===cargoVersion,`version parity package=${pkg.version}, tauri=${tauri.version}, cargo=${cargoVersion}`);
+check(npmLock.version===pkg.version&&npmLock.packages?.['']?.version===pkg.version,`npm lock parity package=${pkg.version}, lock=${npmLock.version}, root=${npmLock.packages?.['']?.version}`);
 for(const old of ['main.js','preload.js','backend','providers','renderer','hook','shared']) check(!fs.existsSync(path.join(ROOT,old)),`retired runtime path removed: ${old}`);
 const activeRoots=['src-tauri','frontend','scripts','test'];
 function walk(d){if(!fs.existsSync(d))return[];return fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(d,e.name)):[path.join(d,e.name)]);}

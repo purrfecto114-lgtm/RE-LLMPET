@@ -33,7 +33,7 @@ jobs:
         run: node scripts/real-provider-smoke.js --provider '${{ inputs.provider }}'
       - name: Upload provider evidence
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: provider-${{ inputs.provider }}-evidence
           path: reports/provider-real-*.json

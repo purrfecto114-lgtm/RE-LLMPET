@@ -35,7 +35,6 @@ for (const needle of [
   'hookEventName',
   'permissionDecision',
   'permissionDecisionReason',
-  'bash_is_read_only',
   'stdin payload too large',
   'server rejected hook',
 ]) assert(hook.includes(needle), `missing native-hook behavior: ${needle}`);
@@ -46,22 +45,23 @@ assert(readOnlyBlock, 'READ_ONLY allow-list missing');
 for (const mutatingTool of ['TaskCreate', 'TaskUpdate', 'TaskStop', 'TodoWrite', 'Skill']) {
   assert(!readOnlyBlock[0].includes(`"${mutatingTool}"`), `mutating tool auto-approved: ${mutatingTool}`);
 }
-const safeBlock = hook.match(/const SAFE:[\s\S]*?\];/);
-assert(safeBlock, 'SAFE shell allow-list missing');
-for (const unsafeShell of ['"find"', '"less"', '"env"', '"printenv"']) {
-  assert(!safeBlock[0].includes(unsafeShell), `unsafe shell command auto-approved: ${unsafeShell}`);
-}
-assert(!hook.includes('"rev-parse" | "config"'));
-assert(hook.includes('url.starts_with("https://")'));
-assert(!hook.includes('url.starts_with("https://") || url.starts_with("http://")'));
+const pretoolDecision = hook.match(/fn pretool_decision[\s\S]*?\n}\n\nfn positional_value/);
+assert(pretoolDecision, 'pretool_decision missing');
+assert(!pretoolDecision[0].includes('if tool == "Bash"'), 'Bash must not be auto-approved');
+const hookWebFetch = pretoolDecision[0].slice(pretoolDecision[0].indexOf('if tool == "WebFetch"'));
+assert(hookWebFetch.includes('to_ascii_lowercase().starts_with("https://")'));
+assert(hookWebFetch.includes('return Some("deny")'));
+assert(!hookWebFetch.includes('return Some("allow")'), 'HTTPS fetch must require native approval');
 
 const autoDecision = server.match(/fn automatic_decision[\s\S]*?\n}/);
 assert(autoDecision, 'automatic_decision missing');
 for (const mutatingTool of ['TaskCreate', 'TaskUpdate', 'TaskStop', 'TodoWrite']) {
   assert(!autoDecision[0].includes(`"${mutatingTool}"`), `server auto-approved mutating tool: ${mutatingTool}`);
 }
-assert(autoDecision[0].includes('url.starts_with("https://")'));
-assert(!autoDecision[0].includes('url.starts_with("http://")'));
+assert(autoDecision[0].includes('to_ascii_lowercase().starts_with("https://")'));
+const serverWebFetch = autoDecision[0].slice(autoDecision[0].indexOf('if tool == "WebFetch"'));
+assert(serverWebFetch.includes('return Some("deny")'));
+assert(!serverWebFetch.includes('return Some("allow")'), 'server must not silently approve HTTPS fetches');
 
 const installer = read('src-tauri/src/hook_install.rs');
 for (const needle of [

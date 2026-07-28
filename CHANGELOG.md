@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1 — comprehensive audit hardening（2026-07-28）
+
+- Removed blanket Bash auto-approval and delegated HTTPS WebFetch to the provider-native permission flow; cleartext HTTP remains denied.
+- Split Tauri invoke permissions by `pet` and `panel` window using generated command permissions instead of exposing every registered command to every WebView.
+- Made signed tag releases fail closed; manual unsigned builds now create isolated draft releases instead of public prereleases.
+- Upgraded first-party artifact upload workflows to `actions/upload-artifact@v7`, corrected SPDX namespace/DESCRIBES metadata, and added a pinned RustSec `cargo-audit` CI gate.
+- Reconciled `package-lock.json` with version 0.5.1 and added regression checks for lockfile, release, capability, SBOM and permission boundaries.
+- Reconciled migration status for the committed `Cargo.lock`; three-platform compilation, real GUI and real-provider execution remain explicitly unverified.
+
 ## 0.5.1 — hot-path performance optimization（2026-07-28）
 
 - Optimized `stats()` on the /state POST hot path: `project_name()` 3×→1× per session (cached), `PendingPermission` double-clone→1 clone + zero-copy borrow, `session_projects` values cloned→`&str`.

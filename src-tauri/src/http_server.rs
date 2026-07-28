@@ -365,13 +365,16 @@ fn automatic_decision(tool: &str, input: &Value) -> Option<&'static str> {
             .and_then(Value::as_str)
             .unwrap_or("")
             .trim();
-        if !url.is_empty() {
-            return Some(if url.starts_with("https://") {
-                "allow"
-            } else {
-                "deny"
-            });
+        if url.is_empty() {
+            return None;
         }
+        if !url.to_ascii_lowercase().starts_with("https://") {
+            return Some("deny");
+        }
+        // HTTPS alone is not proof that the destination is public or safe.
+        // Delegate it to the user/provider permission flow instead of silently
+        // allowing loopback, private-network, metadata or DNS-rebound targets.
+        return None;
     }
     None
 }

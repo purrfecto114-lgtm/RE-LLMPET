@@ -24,9 +24,9 @@ const providerGate = read('.github/workflows/provider-real-cli.yml');
 const desktopGate = read('.github/workflows/desktop-real-machine.yml');
 const realDesktopScript = read('scripts/real-desktop-gate.js');
 
-assert.strictEqual(pkg.version, '0.5.1');
-assert.strictEqual(tauri.version, '0.5.1');
-assert.match(cargo, /^version = "0\.5\.1"/m);
+assert.strictEqual(pkg.version, '0.5.2');
+assert.strictEqual(tauri.version, '0.5.2');
+assert.match(cargo, /^version = "0\.5\.2"/m);
 assert.strictEqual(tauri.bundle.createUpdaterArtifacts, false);
 
 for (const retired of ['main.js', 'preload.js', 'backend', 'providers', 'renderer', 'hook', 'shared']) {
@@ -79,7 +79,7 @@ assert.match(release, /cargo fetch[^\n]*--locked/);
 assert.match(release, /CARGO_NET_OFFLINE/);
 assert.match(desktopGate, /cargo fetch[^\n]*--locked/);
 assert.match(desktopGate, /CARGO_NET_OFFLINE/);
-assert.match(ci, /actions\/upload-artifact@v5/);
+assert.match(ci, /actions\/upload-artifact@v7/);
 assert.match(release, /tauri-apps\/tauri-action@v1/);
 assert.match(release, /TAURI_SIGNING_PRIVATE_KEY/);
 assert.match(release, /APPLE_CERTIFICATE/);

@@ -20,7 +20,7 @@ jobs:
         run: node scripts/check-protocol-drift.js --remote
       - name: Upload machine-readable drift report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: protocol-drift-report
           path: reports/protocol-drift.json

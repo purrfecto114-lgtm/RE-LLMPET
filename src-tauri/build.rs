@@ -1,3 +1,44 @@
+const COMMANDS: &[&str] = &[
+    "get_config",
+    "get_stats",
+    "get_price_info",
+    "refresh_model_prices",
+    "set_price_auto_update",
+    "set_mode",
+    "set_skin",
+    "set_budget",
+    "set_currency",
+    "toggle_mute",
+    "set_providers",
+    "territory_toggle_auto",
+    "territory_run_now",
+    "open_panel",
+    "close_panel",
+    "get_win_pos",
+    "set_win_pos",
+    "set_ignore_mouse",
+    "set_pet_tall",
+    "set_pet_big",
+    "set_pet_size",
+    "set_panel_height",
+    "focus_pet",
+    "blur_pet",
+    "decide_permission",
+    "decide_permission_batch",
+    "launch_agent",
+    "focus_session",
+    "primary_action",
+    "open_log",
+    "pet_log",
+    "ui_busy",
+    "pet_visual_bounds",
+    "quit_app",
+];
+
 fn main() {
-    tauri_build::build()
+    tauri_build::try_build(
+        tauri_build::Attributes::new()
+            .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS)),
+    )
+    .expect("failed to generate Tauri command permissions");
 }

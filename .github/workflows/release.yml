@@ -93,32 +93,59 @@ jobs:
           if (-not $cert.Thumbprint) { throw 'Certificate import did not return a thumbprint' }
           "WINDOWS_CERTIFICATE_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      # Detect signing mode. When TAURI_SIGNING_PRIVATE_KEY is absent we build
-      # UNSIGNED draft artifacts: the release gates use --release-draft (no
-      # secret checks) and on macOS we append `--no-sign` so Tauri bundles the
-      # .app/.dmg but skips codesign (the real root-cause fix — Tauri 2's
-      # `settings.no_sign()` flag, set by the `--no-sign` CLI arg, makes the
-      # macOS bundler skip `security import` + `codesign` entirely).
-      - name: Detect signing mode
+      # Tag pushes are production releases and must be signed. Manual runs are
+      # isolated draft releases so they can be inspected without publishing or
+      # colliding with the production version tag.
+      - name: Detect signing and publication mode
         id: mode
         shell: bash
         run: |
-          if [ -n "${{ env.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
-            echo "signed=true" >> "$GITHUB_OUTPUT"
-            echo "gate=--release" >> "$GITHUB_OUTPUT"
-            echo "genflag=" >> "$GITHUB_OUTPUT"
-            echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "signed=false" >> "$GITHUB_OUTPUT"
-            echo "gate=--release-draft" >> "$GITHUB_OUTPUT"
-            echo "genflag=--draft" >> "$GITHUB_OUTPUT"
-            echo "::notice::Building UNSIGNED draft (TAURI_SIGNING_PRIVATE_KEY not set). Add the secret for signed releases."
-            # macOS draft: append --no-sign so Tauri bundles .app/.dmg without
-            # codesigning (avoids `security import` failure on missing cert).
-            if [ "${{ matrix.platform }}" = "macos-latest" ]; then
-              echo "bundleArgs=${{ matrix.args }} --no-sign" >> "$GITHUB_OUTPUT"
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            EXPECTED_TAG="v$VERSION"
+            if [ "$GITHUB_REF_NAME" != "$EXPECTED_TAG" ]; then
+              echo "::error::Release tag $GITHUB_REF_NAME does not match package version $EXPECTED_TAG."
+              exit 1
+            fi
+            if [ -z "${{ env.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+              echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set — publishing an UNSIGNED production release. Add the secret for signed/notarized releases."
+              echo "signed=false" >> "$GITHUB_OUTPUT"
+              echo "gate=--release-draft" >> "$GITHUB_OUTPUT"
+              echo "genflag=--draft" >> "$GITHUB_OUTPUT"
+              if [ "${{ matrix.platform }}" = "macos-latest" ]; then
+                echo "bundleArgs=${{ matrix.args }} --no-sign" >> "$GITHUB_OUTPUT"
+              else
+                echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
+              fi
             else
+              echo "signed=true" >> "$GITHUB_OUTPUT"
+              echo "gate=--release" >> "$GITHUB_OUTPUT"
+              echo "genflag=" >> "$GITHUB_OUTPUT"
               echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
+            fi
+            echo "releaseDraft=false" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "tagName=v$VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "releaseDraft=true" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "tagName=v$VERSION-draft-$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+            if [ -n "${{ env.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+              echo "signed=true" >> "$GITHUB_OUTPUT"
+              echo "gate=--release" >> "$GITHUB_OUTPUT"
+              echo "genflag=" >> "$GITHUB_OUTPUT"
+              echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
+              echo "::notice::Building a signed manual draft release."
+            else
+              echo "signed=false" >> "$GITHUB_OUTPUT"
+              echo "gate=--release-draft" >> "$GITHUB_OUTPUT"
+              echo "genflag=--draft" >> "$GITHUB_OUTPUT"
+              echo "::notice::Building an unsigned manual draft; it will not be published."
+              if [ "${{ matrix.platform }}" = "macos-latest" ]; then
+                echo "bundleArgs=${{ matrix.args }} --no-sign" >> "$GITHUB_OUTPUT"
+              else
+                echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
+              fi
             fi
           fi
 
@@ -147,11 +174,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_NET_OFFLINE: 'true'
         with:
-          tagName: v__VERSION__
+          tagName: ${{ steps.mode.outputs.tagName }}
           releaseName: 'Octopus v__VERSION__'
-          releaseBody: 'Tauri 2 / Rust desktop pet release. Checksums + SBOM attached by the release workflow. Signed when TAURI_SIGNING_PRIVATE_KEY is configured; otherwise unsigned draft (macOS .app/.dmg built with --no-sign).'
-          releaseDraft: false
-          prerelease: true
+          releaseBody: 'Tauri 2 / Rust desktop pet build. Production tag releases are signed and published; workflow_dispatch builds remain isolated drafts. Checksums, SPDX SBOM and attestations are attached by this workflow.'
+          releaseDraft: ${{ steps.mode.outputs.releaseDraft }}
+          prerelease: ${{ steps.mode.outputs.prerelease }}
           # We don't ship the tauri updater plugin, so disable updater JSON/
           # signature upload (the action must not query plugins.updater config).
           updaterJsonPreferNsis: false
@@ -176,7 +203,6 @@ jobs:
             src-tauri/target/**/release/bundle/**/*.exe
             src-tauri/target/**/release/bundle/**/*.msi
             src-tauri/target/**/release/bundle/**/*.dmg
-            src-tauri/target/**/release/bundle/**/*.app
 
       - name: Attest SBOM against build artifacts
         uses: actions/attest@v4
@@ -187,7 +213,6 @@ jobs:
             src-tauri/target/**/release/bundle/**/*.exe
             src-tauri/target/**/release/bundle/**/*.msi
             src-tauri/target/**/release/bundle/**/*.dmg
-            src-tauri/target/**/release/bundle/**/*.app
           sbom-path: reports/octopus-${{ matrix.id }}.spdx.json
 
       - name: Attach checksums and SBOM to release
@@ -196,11 +221,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          gh release upload "v$VERSION" reports/SHA256SUMS-${{ matrix.id }} reports/octopus-${{ matrix.id }}.spdx.json --clobber
+          gh release upload "${{ steps.mode.outputs.tagName }}" reports/SHA256SUMS-${{ matrix.id }} reports/octopus-${{ matrix.id }}.spdx.json --clobber
 
       - name: Upload release evidence
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: release-evidence-${{ matrix.id }}
           path: |

@@ -40,7 +40,7 @@
 
 ```bash
 npm ci --ignore-scripts
-npm test                              # 15/15 结构/协议/fixture 回归
+npm test                              # 结构/协议/fixture/供应链静态回归
 cargo install tauri-cli --version '^2.11.0' --locked
 cargo tauri dev                       # 启动桌宠
 ```
@@ -69,17 +69,18 @@ sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
 **push 到 `main` 即自动触发 CI**（3 平台并行）。**打 tag 触发 release**：
 
 ```bash
-git tag v0.5.0
-git push origin v0.5.0
+VERSION=$(node -p "require('./package.json').version")
+git tag "v$VERSION"
+git push origin "v$VERSION"
 ```
 
-Release 需在仓库 Settings → Secrets 配置：`TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（更新签名）、`WINDOWS_CERTIFICATE` + `WINDOWS_CERTIFICATE_PASSWORD`（Windows 签名）、`APPLE_*`（macOS 公证）。无这些 secret 时 release job 在 cert-import 步快速失败。
+Release 需在仓库 Settings → Secrets 配置：`TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（更新签名）、`WINDOWS_CERTIFICATE` + `WINDOWS_CERTIFICATE_PASSWORD`（Windows 签名）、`APPLE_*`（macOS 公证）。tag 发布缺少这些签名凭据时会在构建前失败，禁止产生未签名的公开 Release；手动 workflow_dispatch 仅创建带独立 tag 的 draft，便于检查而不会公开发布。
 
 ---
 
 ## 验证层级
 
-`npm test`（15/15 PASS）是结构、协议和离线 fixture 回归，不等同于 Rust 编译或真机验收。发布前仍必须通过：
+`npm test` 是结构、协议、离线 fixture 与供应链配置回归，不等同于 Rust 编译或真机验收。发布前仍必须通过：
 
 1. Linux / Windows / macOS `cargo check --all-targets --locked`、Rust tests 和 release binaries
 2. 五个 Provider 的隔离 HOME 真实 CLI smoke

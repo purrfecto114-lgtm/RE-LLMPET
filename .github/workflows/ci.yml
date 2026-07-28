@@ -10,6 +10,22 @@ permissions:
   contents: read
 
 jobs:
+  dependency-audit:
+    name: RustSec Cargo.lock audit
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install pinned cargo-audit
+        run: cargo install cargo-audit --version 0.22.2
+
+      - name: Audit the committed Rust lockfile
+        working-directory: src-tauri
+        run: cargo audit
+
   smoke-and-check:
     name: ${{ matrix.platform }} smoke + locked Rust gates
     strategy:
@@ -72,7 +88,7 @@ jobs:
 
       - name: Upload diagnostic reports
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: ci-reports-${{ matrix.platform }}
           path: reports/

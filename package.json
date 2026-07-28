@@ -1,6 +1,6 @@
 {
   "name": "octopus",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "productName": "Octopus",
   "description": "低占用多 Agent 桌面宠物：Tauri 2 + Rust 原生 provider 适配层，保留原有 Web UI 与图片资源",
   "license": "MIT",
@@ -21,7 +21,7 @@
     "test": "npm run test:all",
     "test:core": "node test/reference-contract-smoke.js",
     "test:windows": "node test/tauri-windows-static-smoke.js",
-    "test:smoke": "node test/tauri-bridge-smoke.js && node test/tauri-static-smoke.js && node test/tauri-native-core-smoke.js && node test/tauri-performance-smoke.js && node test/tauri-windows-static-smoke.js && node test/native-hook-installer-smoke.js && node test/tauri-provider-phase2-smoke.js && node test/tauri-metering-phase2-smoke.js && node scripts/check-migration-todo.js && node test/tauri-transcript-pricing-phase2-smoke.js && node test/tauri-price-auto-update-smoke.js && node test/tauri-local-http-hardening-smoke.js && node test/tauri-protocol-drift-smoke.js && node test/tauri-permission-concurrency-smoke.js && node test/tauri-phase4-cutover-smoke.js",
+    "test:smoke": "node test/tauri-bridge-smoke.js && node test/tauri-static-smoke.js && node test/tauri-capability-boundary-smoke.js && node test/tauri-native-core-smoke.js && node test/tauri-performance-smoke.js && node test/tauri-windows-static-smoke.js && node test/native-hook-installer-smoke.js && node test/tauri-provider-phase2-smoke.js && node test/tauri-metering-phase2-smoke.js && node scripts/check-migration-todo.js && node test/tauri-transcript-pricing-phase2-smoke.js && node test/tauri-price-auto-update-smoke.js && node test/tauri-local-http-hardening-smoke.js && node test/release-supply-chain-smoke.js && node test/tauri-protocol-drift-smoke.js && node test/tauri-permission-concurrency-smoke.js && node test/tauri-phase4-cutover-smoke.js",
     "test:all": "npm run test:core && npm run test:smoke",
     "test:protocol": "node scripts/check-protocol-drift.js",
     "gate:source": "node scripts/check-release-gates.js",
@@ -34,5 +34,9 @@
     "checksums": "node scripts/generate-checksums.js"
   },
   "dependencies": {},
-  "devDependencies": {}
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/purrfecto114-lgtm/RE-LLMPET.git"
+  }
 }

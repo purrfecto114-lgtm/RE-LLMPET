@@ -63,7 +63,7 @@ jobs:
         run: node scripts/real-desktop-gate.js --platform '${{ matrix.label }}'
       - name: Upload desktop evidence
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.label }}-evidence
           path: reports/desktop-real-*.json

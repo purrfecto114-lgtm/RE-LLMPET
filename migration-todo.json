@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "LLMPET / Octopus Tauri migration",
   "release": "0.5.0-phase4",
-  "updatedAt": "2026-07-27",
+  "updatedAt": "2026-07-28",
   "statusDefinitions": {
     "done": "Acceptance evidence exists and the stated verification gate passed.",
     "implemented-uncompiled": "Code is present and static/smoke checks pass, but Rust compilation or real-provider execution is still missing.",
@@ -91,7 +91,7 @@
       "phase": "P0 baseline",
       "priority": "P0",
       "title": "Commit a resolved Cargo.lock",
-      "status": "blocked",
+      "status": "implemented-uncompiled",
       "risk": "high",
       "dependencies": [
         "P0-003"
@@ -101,15 +101,12 @@
         "CI and release builds use --locked"
       ],
       "evidence": [
+        "src-tauri/Cargo.lock",
         ".github/workflows/ci.yml",
         ".github/workflows/release.yml",
         "scripts/check-release-gates.js"
       ],
-      "nextAction": "Generate src-tauri/Cargo.lock from the first successful supported-platform dependency resolution, commit it, then rerun all --locked gates.",
-      "blockedBy": [
-        "Cargo is unavailable and dependency resolution cannot run without DNS/network access",
-        "A synthetic lock file would not be valid acceptance evidence"
-      ]
+      "nextAction": "Validate the committed src-tauri/Cargo.lock through the three-platform --locked CI and retain the successful run as acceptance evidence."
     },
     {
       "id": "P0-005",
@@ -784,9 +781,13 @@
         "scripts/install-native-hooks.js",
         "test/tauri-local-http-hardening-smoke.js",
         "test/native-hook-installer-smoke.js",
-        "test/tauri-phase4-cutover-smoke.js"
+        "test/tauri-phase4-cutover-smoke.js",
+        "src-tauri/build.rs",
+        "src-tauri/capabilities/pet.json",
+        "src-tauri/capabilities/panel.json",
+        "test/tauri-capability-boundary-smoke.js"
       ],
-      "nextAction": "Compile and fuzz the raw HTTP parser on all three OSes, then execute real shell/path-metacharacter provider tests."
+      "nextAction": "Compile and fuzz the raw HTTP parser on all three OSes, verify generated pet/panel ACL permissions at runtime, then execute real shell/path-metacharacter provider tests."
     },
     {
       "id": "P7-001",

@@ -38,7 +38,7 @@ assert(compact(server).includes('"TaskCompleted" =>'));
 
 assert(workflow.includes("cron: '17 5 * * 1'"));
 assert(workflow.includes('check-protocol-drift.js --remote'));
-assert(workflow.includes('actions/upload-artifact@v5'));
+assert(workflow.includes('actions/upload-artifact@v7'));
 assert(driftScript.includes('readBoundedResponse'));
 assert(driftScript.includes('20 * 1024 * 1024'));
 assert(driftScript.includes('response-too-large'));

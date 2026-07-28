@@ -52,7 +52,8 @@ def check_json() -> None:
         ROOT / "src-tauri" / "tauri.linux.conf.json",
         ROOT / "src-tauri" / "tauri.macos.conf.json",
         ROOT / "src-tauri" / "tauri.windows.conf.json",
-        ROOT / "src-tauri" / "capabilities" / "default.json",
+        ROOT / "src-tauri" / "capabilities" / "pet.json",
+        ROOT / "src-tauri" / "capabilities" / "panel.json",
         ROOT / "migration-todo.json",
     ]
     for path in files:

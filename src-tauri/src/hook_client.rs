@@ -479,65 +479,20 @@ fn pretool_decision(tool: &str, input: Option<&Map<String, Value>>) -> Option<&'
             .and_then(Value::as_str)
             .unwrap_or("")
             .trim();
-        // Do not silently approve clear-text HTTP or loopback/private-network fetches.
-        if url.starts_with("https://") {
-            return Some("allow");
+        if url.is_empty() {
+            return None;
         }
-        if !url.is_empty() {
+        // Clear-text fetches are always rejected. HTTPS is deliberately delegated
+        // to the provider's native permission flow: scheme checks alone cannot
+        // prove that a hostname is public, stable after DNS resolution, or safe.
+        if !url.to_ascii_lowercase().starts_with("https://") {
             return Some("deny");
         }
         return None;
     }
-    if tool == "Bash" {
-        let command = input
-            .and_then(|map| map.get("command"))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .trim();
-        if bash_is_read_only(command) {
-            return Some("allow");
-        }
-    }
+    // Shell syntax and command options are too broad for a sound lexical
+    // read-only allow-list. Bash always remains in the provider-native prompt.
     None
-}
-
-fn bash_is_read_only(command: &str) -> bool {
-    if command.is_empty() || command.contains(['\n', '\r']) {
-        return false;
-    }
-    // Refuse compound shell expressions even when their first token is safe.
-    if [";", "&&", "||", "|", ">", "<", "`", "$("]
-        .iter()
-        .any(|part| command.contains(part))
-    {
-        return false;
-    }
-    let mut words = command.split_whitespace();
-    let first = words.next().unwrap_or("");
-    // Shell commands are riskier than first-class read tools. Avoid commands such
-    // as find -exec, less shell escapes, environment dumps and arbitrary file reads.
-    const SAFE: [&str; 13] = [
-        "ls", "wc", "pwd", "date", "whoami", "uname", "which", "type", "du", "df", "arch",
-        "hostname", "tree",
-    ];
-    if SAFE.contains(&first) {
-        return true;
-    }
-    if first == "git" {
-        return matches!(
-            words.next().unwrap_or(""),
-            "status"
-                | "log"
-                | "diff"
-                | "show"
-                | "branch"
-                | "remote"
-                | "describe"
-                | "rev-parse"
-                | "help"
-        );
-    }
-    false
 }
 
 fn positional_value(args: &[String]) -> Option<String> {
@@ -738,5 +693,30 @@ mod tests {
         assert!(translated["hookSpecificOutput"]
             .get("updatedInput")
             .is_none());
+    }
+
+    #[test]
+    fn bash_is_never_auto_approved() {
+        let input = serde_json::json!({"command": "git status"});
+        assert_eq!(
+            pretool_decision("Bash", input.as_object()),
+            None,
+            "shell commands must stay in the provider-native permission flow"
+        );
+    }
+
+    #[test]
+    fn https_fetch_requires_native_approval() {
+        let input = serde_json::json!({"url": "https://127.0.0.1/admin"});
+        assert_eq!(pretool_decision("WebFetch", input.as_object()), None);
+    }
+
+    #[test]
+    fn cleartext_fetch_is_denied() {
+        let input = serde_json::json!({"url": "http://example.test"});
+        assert_eq!(
+            pretool_decision("WebFetch", input.as_object()),
+            Some("deny")
+        );
     }
 }

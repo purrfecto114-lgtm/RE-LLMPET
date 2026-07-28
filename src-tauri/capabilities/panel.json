@@ -1,0 +1,22 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "panel",
+  "description": "Least-privilege commands used by the details and configuration panel.",
+  "windows": [
+    "panel"
+  ],
+  "permissions": [
+    "core:default",
+    "allow-get-config",
+    "allow-get-stats",
+    "allow-get-price-info",
+    "allow-refresh-model-prices",
+    "allow-set-price-auto-update",
+    "allow-set-mode",
+    "allow-set-skin",
+    "allow-set-budget",
+    "allow-set-providers",
+    "allow-close-panel",
+    "allow-set-panel-height"
+  ]
+}
