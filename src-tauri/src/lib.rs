@@ -11,6 +11,7 @@ mod transcript;
 use commands::*;
 use model::AppState;
 use serde_json::json;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -20,6 +21,7 @@ pub fn run() {
     let platform_state = Arc::new(platform::PlatformState::default());
     let platform_for_setup = platform_state.clone();
     let platform_for_events = platform_state.clone();
+    let tray_removed = Arc::new(AtomicBool::new(false));
 
     let app = tauri::Builder::default()
         .manage(AppState::new())
@@ -111,6 +113,7 @@ pub fn run() {
             decide_permission,
             decide_permission_batch,
             launch_agent,
+            launch_agent_gui,
             focus_session,
             primary_action,
             open_log,
@@ -122,8 +125,19 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Octopus");
 
-    app.run(move |app_handle, event| {
-        if let RunEvent::Resumed = event {
+    app.run(move |app_handle, event| match event {
+        RunEvent::ExitRequested { .. } => {
+            if tray_removed.swap(true, Ordering::Relaxed) {
+                return;
+            }
+            if let Some(tray) = app_handle.tray_by_id("main-tray") {
+                let _ = tray.set_visible(false);
+            }
+            let _ = app_handle.remove_tray_by_id("main-tray");
+            let state = app_handle.state::<AppState>();
+            state.runtime.write_log("shutdown", "tray icon removed");
+        }
+        RunEvent::Resumed => {
             let state = app_handle.state::<AppState>();
             if let Err(error) =
                 platform_for_events.recover_windows(app_handle, &state.runtime, true)
@@ -133,6 +147,7 @@ pub fn run() {
                     .write_log("display", &format!("resume recovery failed: {error}"));
             }
         }
+        _ => {}
     });
 }
 
@@ -158,7 +173,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .build()?;
     let menu = Menu::with_items(app, &[&show, &panel, &launch_menu, &log, &quit])?;
 
-    let mut builder = TrayIconBuilder::new()
+    let mut builder = TrayIconBuilder::new("main-tray")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {

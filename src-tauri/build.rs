@@ -26,6 +26,7 @@ const COMMANDS: &[&str] = &[
     "decide_permission",
     "decide_permission_batch",
     "launch_agent",
+    "launch_agent_gui",
     "focus_session",
     "primary_action",
     "open_log",

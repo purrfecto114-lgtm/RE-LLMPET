@@ -1615,8 +1615,8 @@ if (visualBoundsObserver) {
 }
 
 // ---------- 生命周期清理 ----------
-// Electron 可能销毁/重建渲染进程。beforeunload 确保所有 interval/
-// timeout 被清除，防止孤立定时器在已销毁的窗口上下文中继续触发。
+// renderer context may be destroyed/reloaded. beforeunload ensures
+// all intervals/timeouts are cleared, preventing orphaned timers.
 window.addEventListener('beforeunload', () => {
   clearInterval(poolRot); poolRot = null;
   if (visualBoundsObserver) visualBoundsObserver.disconnect();

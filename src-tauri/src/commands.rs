@@ -324,6 +324,106 @@ pub fn launch_agent(provider: String) -> Result<(), String> {
     launch_terminal(command)
 }
 
+/// Launch a GUI/IDE version of the provider when available. Falls back to
+/// `launch_terminal` if no GUI launcher is known for the provider.
+///
+/// GUI mappings (verified via official docs + GitHub):
+/// - claude → "cursor" (Cursor IDE, a VS Code fork with Claude integration)
+///            or "code" (VS Code with Claude Code extension)
+/// - codex → "code" (VS Code with OpenAI Codex extension)
+/// - codewhale → no separate GUI (it is itself a TUI); falls back to terminal
+/// - opencode → no separate GUI (TUI only); falls back to terminal
+/// - aider → no separate GUI (CLI only); falls back to terminal
+#[tauri::command]
+pub fn launch_agent_gui(provider: String) -> Result<(), String> {
+    let gui_command = match provider.as_str() {
+        "claude" => {
+            // Cursor IDE is the most popular GUI for Claude Code.
+            // Fall back to VS Code if Cursor is not installed.
+            if which("cursor").is_some() {
+                "cursor"
+            } else if which("code").is_some() {
+                "code"
+            } else {
+                return launch_terminal("claude");
+            }
+        }
+        "codex" => {
+            // Codex integrates with VS Code via extension.
+            if which("code").is_some() {
+                "code"
+            } else if which("cursor").is_some() {
+                "cursor"
+            } else {
+                return launch_terminal("codex");
+            }
+        }
+        // CodeWhale, OpenCode, Aider: no separate GUI — launch terminal.
+        _ => return launch_terminal(provider.as_str()),
+    };
+    open_gui_application(gui_command)
+}
+
+/// Check if a command is available on PATH (cross-platform).
+fn which(command: &str) -> Option<std::path::PathBuf> {
+    #[cfg(unix)]
+    {
+        let result = Command::new("which").arg(command).output();
+        match result {
+            Ok(output) if output.status.success() => {
+                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !path.is_empty() {
+                    return Some(std::path::PathBuf::from(path));
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+    #[cfg(windows)]
+    {
+        let result = Command::new("where").arg(command).output();
+        match result {
+            Ok(output) if output.status.success() => {
+                let path = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if !path.is_empty() {
+                    return Some(std::path::PathBuf::from(path));
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+}
+
+/// Open a GUI application (Cursor, VS Code, etc.) cross-platform.
+fn open_gui_application(command: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "", command])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // On macOS, use `open` for .app bundles or direct execution.
+        Command::new(command).spawn().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Command::new(command).spawn().map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
 #[tauri::command]
 pub fn focus_session(
     app: AppHandle,

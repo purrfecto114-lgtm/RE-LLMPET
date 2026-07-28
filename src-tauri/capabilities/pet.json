@@ -22,6 +22,7 @@
     "allow-decide-permission",
     "allow-decide-permission-batch",
     "allow-launch-agent",
+    "allow-launch-agent-gui",
     "allow-focus-session",
     "allow-primary-action",
     "allow-open-log",

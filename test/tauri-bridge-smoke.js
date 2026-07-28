@@ -44,7 +44,7 @@ const expected = [
   'getConfig', 'getStats', 'getPriceInfo', 'refreshModelPrices', 'setPriceAutoUpdate', 'openPanel', 'closePanel', 'setMode', 'setSkin',
   'setBudget', 'setCurrency', 'toggleMute', 'setProviders', 'territoryRunNow',
   'territoryToggleAuto', 'quit', 'getWinPos', 'setWinPos', 'launchClaude',
-  'launchCodeWhale', 'launchCodex', 'launchOpenCode', 'launchAider', 'launchAgent',
+  'launchCodeWhale', 'launchCodex', 'launchOpenCode', 'launchAider', 'launchAgent', 'launchAgentGui',
   'decidePermission', 'decideCwPermission',
   'decideCwPermissionBatch', 'focusSession', 'primaryAction', 'setIgnoreMouse',
   'setPetTall', 'setPetBig', 'setPetSize', 'setPanelHeight', 'focusPet',

@@ -83,6 +83,7 @@
     launchOpenCode: () => send('launch_agent', { provider: 'opencode' }),
     launchAider: () => send('launch_agent', { provider: 'aider' }),
     launchAgent: (provider) => send('launch_agent', { provider }),
+    launchAgentGui: (provider) => send('launch_agent_gui', { provider }),
     decidePermission: (permId, behavior) => send('decide_permission', { permId, behavior }),
     decideCwPermission: (permId, behavior) => send('decide_permission', { permId, behavior }),
     decideCwPermissionBatch: (permId, mode) => send('decide_permission_batch', { permId, mode }),
