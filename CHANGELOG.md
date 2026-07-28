@@ -65,7 +65,7 @@
 - 移除永久 700 ms/3 s 前端轮询，改为事件和 `ResizeObserver`。
 - 新增三平台 CI/release 工作流、引导脚本、离线结构检查和 6 个迁移冒烟。
 - 原 33 个核心测试文件继续通过。
-- 计量、transcript、完整多 provider、精确终端聚焦和领地原生实现尚未迁移；详见 `MIGRATION_STATUS.md`。
+- 计量、transcript、完整多 provider、精确终端聚焦和领地原生实现尚未迁移；详见 `docs/MIGRATION_STATUS.md`。
 
 ## 0.1.1 — deep runtime hardening + CodeWhale catalog v2 + models.dev sync (2026-07-20)
 
@@ -127,7 +127,7 @@
 - New test files:
   - `test/models-dev-sync.js`: unit tests for transform/validate/cache logic (20+ assertions, includes live fetch verification)
   - `test/models-dev-sync-integration.js`: end-to-end tests covering bundled-only, live-override, stale-cache, corrupted-cache, live-fetch, non-blocking, env-override scenarios (8 tests)
-- Updated `CODEWHALE.md` §Token 计量与花费 with the new pricing model, vendor cache rate table, models.dev sync architecture, and the list of price corrections.
+- Updated `docs/CODEWHALE.md` §Token 计量与花费 with the new pricing model, vendor cache rate table, models.dev sync architecture, and the list of price corrections.
 - Updated README "CodeWhale 一等公民支持" section to highlight the catalog v2 upgrade and models.dev sync.
 - Added `MODEL-PRICING-RESEARCH.md` and `MODEL-PRICE-SYNC-RESEARCH.md` (shipped with source tarball, not in portable zip) documenting every price's vendor URL, access date, and the sync design rationale.
 - All 20 core tests pass; all 92 Windows adaptation assertions pass.

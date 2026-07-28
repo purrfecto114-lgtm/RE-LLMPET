@@ -18,7 +18,7 @@
 | **[purrfecto114-lgtm/LLMPET](https://github.com/purrfecto114-lgtm/LLMPET)** | 早期 Electron fork（R1–R20，5-provider hook 系统） | Electron + Node |
 | **purrfecto114-lgtm/RE-LLMPET**（本仓库） | Tauri 2 / Rust 重写，独立新分支 | Tauri 2 + Rust |
 
-本分支从 Electron/Node 运行时完整迁移到 Tauri 2 + Rust：旧主进程、preload、Node backend/provider/hook 和归档运行时已从源码树删除；活动运行路径只包含 `src-tauri/`、`frontend/`、`resources/` 与安装/门禁脚本。完整迁移历史见 [`MIGRATION_STATUS.md`](MIGRATION_STATUS.md) 与 [`FORK_UPSTREAM_CUTOVER_REPORT_2026-07-27.md`](FORK_UPSTREAM_CUTOVER_REPORT_2026-07-27.md)。
+本分支从 Electron/Node 运行时完整迁移到 Tauri 2 + Rust：旧主进程、preload、Node backend/provider/hook 和归档运行时已从源码树删除；活动运行路径只包含 `src-tauri/`、`frontend/`、`resources/` 与安装/门禁脚本。完整迁移历史见 [`docs/MIGRATION_STATUS.md`](docs/MIGRATION_STATUS.md) 与 [`docs/FORK_UPSTREAM_CUTOVER_REPORT_2026-07-27.md`](docs/FORK_UPSTREAM_CUTOVER_REPORT_2026-07-27.md)。
 
 ---
 
@@ -87,7 +87,7 @@ Release 需在仓库 Settings → Secrets 配置：`TAURI_SIGNING_PRIVATE_KEY` +
 3. 三平台 GUI、托盘、终端聚焦、休眠/多显示器和性能门禁
 4. Windows 签名、macOS 签名/公证、Linux 基线运行、更新包签名、SBOM 与校验和
 
-详见 [`FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md`](FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md)、[`MIGRATION_STATUS.md`](MIGRATION_STATUS.md) 和 [`docs/RELEASE.md`](docs/RELEASE.md)。
+详见 [`docs/FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md`](docs/FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md)、[`docs/MIGRATION_STATUS.md`](docs/MIGRATION_STATUS.md) 和 [`docs/RELEASE.md`](docs/RELEASE.md)。
 
 ---
 

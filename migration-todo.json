@@ -36,7 +36,7 @@
         "scripts/asset-visual-regression.js",
         "reports/asset-visual-baseline.json",
         "test/reference-contract-smoke.js",
-        "FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md"
+        "docs/FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md"
       ],
       "nextAction": "Use the immutable fork/tag and byte-pinned data fixtures as the rollback/reference source; do not restore a second runtime inside this tree."
     },
@@ -56,8 +56,8 @@
       ],
       "evidence": [
         "protocol-baseline.json",
-        "PROVIDER_CAPABILITY_MATRIX.md",
-        "FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md",
+        "docs/PROVIDER_CAPABILITY_MATRIX.md",
+        "docs/FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md",
         "test/tauri-protocol-drift-smoke.js"
       ],
       "nextAction": "Re-run the scheduled drift gate whenever a provider CLI or Tauri/GitHub action contract changes."
@@ -610,7 +610,7 @@
         "src-tauri/src/http_server.rs",
         "frontend/renderer/pet.js",
         "test/tauri-permission-concurrency-smoke.js",
-        "FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md"
+        "docs/FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md"
       ],
       "nextAction": "Compile and execute concurrent real Claude permission requests, including parallel/background agents that share a session id."
     },
@@ -809,7 +809,7 @@
       "evidence": [
         "test/fixtures",
         "test/reference-contract-smoke.js",
-        "FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md"
+        "docs/FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md"
       ],
       "nextAction": "Add new fixtures only through explicit provider or upstream contract review."
     },
@@ -831,7 +831,7 @@
       "evidence": [
         "scripts/check-release-gates.js",
         "test/reference-contract-smoke.js",
-        "FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md"
+        "docs/FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md"
       ],
       "nextAction": "Keep package-content checks in the signed release gate; do not reintroduce a second runtime."
     }
