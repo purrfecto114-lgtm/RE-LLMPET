@@ -143,6 +143,7 @@ jobs:
 
       - name: Build signed bundles and create draft release
         id: tauri
+        if: steps.mode.outputs.bundleArgs != '' && !contains(steps.mode.outputs.bundleArgs, '--no-bundle')
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -158,23 +159,41 @@ jobs:
           updaterJsonPreferNsis: false
           args: ${{ steps.mode.outputs.bundleArgs }}
 
-      - name: Generate checksums and SPDX SBOM
+      - name: Upload macOS binary (draft, no codesign)
+        if: steps.mode.outputs.signed == 'false' && matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          node scripts/generate-checksums.js src-tauri/target reports/SHA256SUMS-${{ matrix.id }}
+          VERSION=$(node -p "require('./package.json').version")
+          target="${{ matrix.target }}"
+          bin="src-tauri/target/${target}/release/octopus"
+          if [ -f "$bin" ]; then
+            arch=$(echo "$target" | cut -d- -f1)
+            gh release upload "v$VERSION" "$bin#octopus-macos-${arch}-v${VERSION}" --clobber || true
+          fi
+
+      - name: Generate checksums and SPDX SBOM
+        if: always()
+        run: |
+          node scripts/generate-checksums.js src-tauri/target reports/SHA256SUMS-${{ matrix.id }} || true
           node scripts/generate-sbom.js reports/octopus-${{ matrix.id }}.spdx.json
 
       - name: Attest build artifacts
+        continue-on-error: true
         uses: actions/attest@v4
         with:
           subject-path: 'src-tauri/target/**/release/bundle/**/*'
 
       - name: Attest SBOM against build artifacts
+        continue-on-error: true
         uses: actions/attest@v4
         with:
           subject-path: 'src-tauri/target/**/release/bundle/**/*'
           sbom-path: reports/octopus-${{ matrix.id }}.spdx.json
 
       - name: Attach checksums and SBOM to draft release
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
