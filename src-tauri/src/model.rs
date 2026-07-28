@@ -251,6 +251,13 @@ impl Runtime {
             .clone()
     }
 
+    /// Lightweight read of just the reply-privacy fields, avoiding a full
+    /// AppConfig clone on the hot ingest() path (called on every /state POST).
+    pub fn privacy_settings(&self) -> (bool, usize) {
+        let config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        (config.reply_bubbles, config.reply_bubble_chars)
+    }
+
     pub fn set_provider_status(&self, status: ProviderStatus) {
         self.provider_status
             .lock()
@@ -425,12 +432,12 @@ impl Runtime {
         .unwrap_or_default();
         let tool_name = clean_text(body.get("tool_name").or_else(|| body.get("toolName")), 256);
         let mut model = clean_text(body.get("model"), 256);
-        let privacy = self.config();
-        let mut assistant_last_output = if privacy.reply_bubbles {
+        let (reply_bubbles, reply_bubble_chars) = self.privacy_settings();
+        let mut assistant_last_output = if reply_bubbles {
             body.get("assistant_last_output")
                 .or_else(|| body.get("last_assistant_message"))
                 .and_then(Value::as_str)
-                .and_then(|value| crate::transcript::safe_reply(value, privacy.reply_bubble_chars))
+                .and_then(|value| crate::transcript::safe_reply(value, reply_bubble_chars))
         } else {
             None
         };
@@ -468,7 +475,7 @@ impl Runtime {
                         &id,
                         &mut usage,
                         now,
-                        privacy.reply_bubbles.then_some(privacy.reply_bubble_chars),
+                        reply_bubbles.then_some(reply_bubble_chars),
                     );
                 merge_usage_ingest(&mut combined, scan.usage);
                 if assistant_last_output.is_none() {
@@ -928,65 +935,73 @@ impl Runtime {
     pub fn stats(&self) -> Value {
         let now = now_ms();
         self.prune_expired_sessions(now);
-        let sessions: Vec<Session> = self
-            .sessions
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .cloned()
-            .collect();
-        let mut pending = self
-            .pending
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
-        pending.sort_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)));
-        let mut pending_by_session: HashMap<String, Vec<PendingPermission>> = HashMap::new();
-        for permission in &pending {
-            pending_by_session
-                .entry(permission.session_id.clone())
-                .or_default()
-                .push(permission.clone());
-        }
-        let session_projects = sessions
+        // Take the locks once and build everything from references, avoiding
+        // the previous O(n) clone of every Session + double-clone of every
+        // PendingPermission. project_name() is computed exactly once per
+        // session (was 3× per session before).
+        let (sessions, pending) = {
+            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let mut pending: Vec<&PendingPermission> = self
+                .pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .values()
+                .collect();
+            pending.sort_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)));
+            // Build a snapshot Vec<Session> once (needed because we drop the
+            // session lock below), but project_name is computed once + reused.
+            let session_snap: Vec<Session> = sessions.values().cloned().collect();
+            (session_snap, pending)
+        };
+        // project_name once per session, stored for reuse.
+        let session_projects: HashMap<String, String> = sessions
             .iter()
-            .map(|session| (session.id.clone(), project_name(&session.cwd, &session.id)))
-            .collect::<HashMap<_, _>>();
-        let pending_choices = pending
+            .map(|s| (s.id.clone(), project_name(&s.cwd, &s.id)))
+            .collect();
+        // Group pending by session without re-cloning each permission — keep
+        // indices into the sorted pending Vec.
+        let mut pending_first_by_session: HashMap<&str, &PendingPermission> = HashMap::new();
+        for permission in &pending {
+            pending_first_by_session
+                .entry(permission.session_id.as_str())
+                .or_insert(permission);
+        }
+        let pending_choices: Vec<Value> = pending
             .iter()
             .map(|permission| {
                 let project = session_projects
-                    .get(&permission.session_id)
-                    .cloned()
-                    .unwrap_or_else(|| project_name("", &permission.session_id));
-                permission_choice(permission, &project)
+                    .get(permission.session_id.as_str())
+                    .map(String::as_str)
+                    .unwrap_or("");
+                permission_choice(permission, project)
             })
-            .collect::<Vec<_>>();
+            .collect();
 
-        let mut rows = Vec::new();
-        let mut waiting = 0;
-        let mut needs_input = 0;
-        let mut working = 0;
-        let mut juggling = 0;
-        let mut sweeping = 0;
-        let mut thinking = 0;
-        let mut loafing = 0;
-        let mut errors = 0;
+        let mut rows = Vec::with_capacity(sessions.len());
+        let mut waiting = 0u32;
+        let mut needs_input = 0u32;
+        let mut working = 0u32;
+        let mut juggling = 0u32;
+        let mut sweeping = 0u32;
+        let mut thinking = 0u32;
+        let mut loafing = 0u32;
+        let mut errors = 0u32;
 
         for session in &sessions {
-            let mut state = session.state.clone();
-            let mut reason = Value::Null;
-            let mut choice = Value::Null;
-            if let Some(permissions) = pending_by_session.get(&session.id) {
-                if let Some(permission) = permissions.first() {
-                    state = "waiting".into();
-                    reason = json!("授权");
-                    let project = project_name(&session.cwd, &session.id);
-                    choice = permission_choice(permission, &project);
-                }
-            }
+            let project = session_projects
+                .get(session.id.as_str())
+                .map(String::as_str)
+                .unwrap_or("");
+            let (state, reason, choice) =
+                if let Some(permission) = pending_first_by_session.get(session.id.as_str()) {
+                    (
+                        "waiting".to_string(),
+                        json!("授权"),
+                        permission_choice(permission, project),
+                    )
+                } else {
+                    (session.state.clone(), Value::Null, Value::Null)
+                };
             match state.as_str() {
                 "waiting" => waiting += 1,
                 "needsinput" | "notification" => needs_input += 1,
@@ -999,7 +1014,7 @@ impl Runtime {
                 _ => {}
             }
             rows.push(json!({
-                "project":project_name(&session.cwd, &session.id),
+                "project":project,
                 "state":state,
                 "reason":reason,
                 "idleMs":now.saturating_sub(session.updated_at),
@@ -1052,9 +1067,13 @@ impl Runtime {
                     .then_with(|| a.id.cmp(&b.id))
             })
             .map(|s| {
+                let project = session_projects
+                    .get(s.id.as_str())
+                    .map(String::as_str)
+                    .unwrap_or("");
                 json!({
                     "sessionId":s.id,
-                    "project":project_name(&s.cwd, &s.id),
+                    "project":project,
                     "state":s.state,
                     "model":s.model,
                     "provider":if s.provider == "claude" { Value::Null } else { json!(s.provider) },
