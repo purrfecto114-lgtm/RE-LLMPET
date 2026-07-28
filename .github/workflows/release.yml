@@ -192,6 +192,22 @@ jobs:
           node scripts/generate-checksums.js src-tauri/target reports/SHA256SUMS-${{ matrix.id }}
           node scripts/generate-sbom.js reports/octopus-${{ matrix.id }}.spdx.json
 
+      # Remove non-distributable artifacts from the GitHub release.
+      # Tauri 2 always generates .app.tar.gz (updater sidecar) on macOS even
+      # when createUpdaterArtifacts=false; we don't ship the updater plugin,
+      # so these are unnecessary and confuse users.
+      - name: Remove non-distributable release assets
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          for asset in $(gh release view "v$VERSION" --json assets --jq '.assets[].name' 2>/dev/null | grep -E '\.app\.tar\.gz$|\.sig$'); do
+            echo "Removing non-distributable asset: $asset"
+            gh release delete-asset "v$VERSION" "$asset" --yes || true
+          done
+
       # Attest only the distributable bundle files (by extension), not every
       # file under bundle/ — the previous `**/*` glob matched duplicate paths
       # (e.g. an .app directory's contents AND the .app itself) which the

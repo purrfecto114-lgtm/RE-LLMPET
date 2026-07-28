@@ -6,7 +6,7 @@ const pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json')));
 const packages=[{SPDXID:'SPDXRef-Package-Octopus',name:pkg.name,versionInfo:pkg.version,downloadLocation:'NOASSERTION',filesAnalyzed:false,licenseConcluded:pkg.license||'NOASSERTION',licenseDeclared:pkg.license||'NOASSERTION',copyrightText:'NOASSERTION'}];
 const lockPath=path.join(root,'src-tauri','Cargo.lock');
 if(fs.existsSync(lockPath)){
- const text=fs.readFileSync(lockPath,'utf8'); let i=0;
+ const text=fs.readFileSync(lockPath,'utf8').replace(/\r\n/g,'\n'); let i=0;
  for(const block of text.split(/\n\[\[package\]\]\n/).slice(1)){
   const n=(block.match(/^name = "([^"]+)"/m)||[])[1], v=(block.match(/^version = "([^"]+)"/m)||[])[1]; if(!n||!v) continue;
   packages.push({SPDXID:`SPDXRef-Cargo-${++i}`,name:n,versionInfo:v,downloadLocation:'NOASSERTION',filesAnalyzed:false,licenseConcluded:'NOASSERTION',licenseDeclared:'NOASSERTION',copyrightText:'NOASSERTION'});

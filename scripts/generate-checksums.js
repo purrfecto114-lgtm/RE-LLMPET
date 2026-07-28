@@ -11,11 +11,16 @@ function walk(dir) {
     entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]
   );
 }
-const packageExt = /\.(?:deb|appimage|rpm|exe|msi|dmg|pkg|app|tar\.gz|zip|sig)$/i;
+// Only match distributable installer artifacts — NOT internal .deb parts
+// (control.tar.gz, data.tar.gz) or updater sidecars (.app.tar.gz, .sig).
+// We don't ship the tauri updater, so .app.tar.gz / .sig are not distributed.
+const packageExt = /\.(?:deb|appimage|rpm|exe|msi|dmg|pkg)$/i;
 const files = walk(root)
   .filter((file) => fs.statSync(file).isFile())
   .filter((file) => file.split(path.sep).includes('bundle'))
   .filter((file) => packageExt.test(file) || file.endsWith('.AppImage'))
+  // Exclude updater artifacts and internal deb parts
+  .filter((file) => !file.endsWith('.tar.gz') && !file.endsWith('.sig'))
   .sort();
 if (!files.length) { console.error(`generate-checksums: no bundle artifacts below ${root}`); process.exit(3); }
 const lines = files.map((file) => {
