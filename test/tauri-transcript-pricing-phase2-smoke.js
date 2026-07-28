@@ -133,7 +133,7 @@ assert.doesNotMatch(codexPayload, /map\.insert\([\s\S]*?"(?:updatedInput|updated
 assert.match(server, /"codewhale" =>/);
 assert.match(model, /pending-permissions\.json/);
 assert.match(model, /pub fn cancel_all_pending/);
-assert.match(model, /pub fn remove_pending/);
+assert.match(model, /pub fn close_session_pending/);
 assert.match(model, /discarded .* stale pending metadata entries after restart/);
 assert.match(model, /"toolName":entry\.tool_name/);
 assert.doesNotMatch(model.slice(model.indexOf('fn persist_pending_metadata'), model.indexOf('pub fn matching_batch_rule')), /tool_input|toolInput/, 'persisted permission metadata must exclude tool input');

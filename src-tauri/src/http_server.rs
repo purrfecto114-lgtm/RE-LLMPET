@@ -25,11 +25,9 @@ const PERMISSION_WAIT: Duration = Duration::from_secs(8 * 60);
 const MAX_CLIENT_THREADS: usize = 32;
 
 #[derive(Debug)]
-#[allow(dead_code)] // `query` parsed for completeness/validation; not all fields read by handlers
 struct Request {
     method: String,
     path: String,
-    query: HashMap<String, String>,
     headers: HashMap<String, String>,
     body: Vec<u8>,
 }
@@ -611,51 +609,20 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, (u16, String)> {
             .map_err(|_| (400, "body read failed".into()))?;
         body.extend_from_slice(&rest);
     }
-    let (path, query) = parse_target(&target);
+    let path = parse_target(&target);
     Ok(Request {
         method,
         path,
-        query,
         headers,
         body,
     })
 }
 
-fn parse_target(target: &str) -> (String, HashMap<String, String>) {
-    let (path, raw_query) = target.split_once('?').unwrap_or((target, ""));
-    let mut query = HashMap::new();
-    for pair in raw_query.split('&').filter(|pair| !pair.is_empty()) {
-        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        query.insert(percent_decode(key), percent_decode(value));
-    }
-    (path.to_string(), query)
-}
-
-fn percent_decode(input: &str) -> String {
-    let bytes = input.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(a), Some(b)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
-                out.push(a * 16 + b);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(if bytes[i] == b'+' { b' ' } else { bytes[i] });
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-fn hex(value: u8) -> Option<u8> {
-    match value {
-        b'0'..=b'9' => Some(value - b'0'),
-        b'a'..=b'f' => Some(value - b'a' + 10),
-        b'A'..=b'F' => Some(value - b'A' + 10),
-        _ => None,
-    }
+/// Extract the path component from an HTTP request target (strips any query
+/// string — no handler reads query params, so we don't waste cycles parsing
+/// them into a map that would just be dead code).
+fn parse_target(target: &str) -> String {
+    target.split('?').next().unwrap_or("/").to_string()
 }
 
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {

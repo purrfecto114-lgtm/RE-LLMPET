@@ -607,11 +607,6 @@ impl Runtime {
         (permission, false)
     }
 
-    #[allow(dead_code)] // retained as public Runtime API for future callers/tests
-    pub fn add_permission(&self, permission: PendingPermission) {
-        let _ = self.register_permission(permission);
-    }
-
     pub fn decide(&self, id: &str, behavior: &str, message: Option<String>) -> bool {
         self.finish_permission(
             id,
@@ -768,20 +763,6 @@ impl Runtime {
         self.decide(id, "allow", None)
     }
 
-    #[allow(dead_code)] // retained as public Runtime API for future callers/tests
-    pub fn remove_pending(&self, id: &str) -> Option<PendingPermission> {
-        let entry = self
-            .pending
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(id);
-        if let Some(entry) = &entry {
-            self.mark_session_after_permission(&entry.session_id);
-        }
-        self.persist_pending_metadata();
-        entry
-    }
-
     pub fn close_session_pending(&self, session_id: &str, reason: &str) -> usize {
         let entries = {
             let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
@@ -876,11 +857,6 @@ impl Runtime {
         })
     }
 
-    #[allow(dead_code)] // retained as public Runtime API for future callers/tests
-    pub fn mark_session_idle(&self, session_id: &str) {
-        self.mark_session_after_permission(session_id);
-    }
-
     pub fn mark_session_after_permission(&self, session_id: &str) {
         let pending_meta = self
             .pending
@@ -939,11 +915,6 @@ impl Runtime {
     fn prune_expired_sessions(&self, now: u64) {
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions.retain(|_, session| !session_is_expired(session, now));
-    }
-
-    #[allow(dead_code)] // retained as public Runtime API for future callers/tests
-    pub fn pending_count(&self) -> usize {
-        self.pending.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     pub fn session(&self, session_id: &str) -> Option<Session> {

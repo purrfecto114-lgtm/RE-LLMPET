@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build:
-    name: ${{ matrix.id }} signed bundle
+    name: ${{ matrix.id }} bundle
     strategy:
       fail-fast: false
       matrix:
@@ -93,6 +93,12 @@ jobs:
           if (-not $cert.Thumbprint) { throw 'Certificate import did not return a thumbprint' }
           "WINDOWS_CERTIFICATE_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      # Detect signing mode. When TAURI_SIGNING_PRIVATE_KEY is absent we build
+      # UNSIGNED draft artifacts: the release gates use --release-draft (no
+      # secret checks) and on macOS we append `--no-sign` so Tauri bundles the
+      # .app/.dmg but skips codesign (the real root-cause fix — Tauri 2's
+      # `settings.no_sign()` flag, set by the `--no-sign` CLI arg, makes the
+      # macOS bundler skip `security import` + `codesign` entirely).
       - name: Detect signing mode
         id: mode
         shell: bash
@@ -107,17 +113,10 @@ jobs:
             echo "gate=--release-draft" >> "$GITHUB_OUTPUT"
             echo "genflag=--draft" >> "$GITHUB_OUTPUT"
             echo "::notice::Building UNSIGNED draft (TAURI_SIGNING_PRIVATE_KEY not set). Add the secret for signed releases."
-            # macOS: Tauri 2 always codesigns .app/.dmg and runs `security
-            # import`, which fails without a keychain cert. In draft mode,
-            # build the binary only (--no-bundle) so macOS still produces an
-            # executable for testing. Production (signed) uses the real matrix args.
+            # macOS draft: append --no-sign so Tauri bundles .app/.dmg without
+            # codesigning (avoids `security import` failure on missing cert).
             if [ "${{ matrix.platform }}" = "macos-latest" ]; then
-              target="${{ matrix.target }}"
-              if [ -n "$target" ]; then
-                echo "bundleArgs=--target $target --no-bundle" >> "$GITHUB_OUTPUT"
-              else
-                echo "bundleArgs=--no-bundle" >> "$GITHUB_OUTPUT"
-              fi
+              echo "bundleArgs=${{ matrix.args }} --no-sign" >> "$GITHUB_OUTPUT"
             else
               echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
             fi
@@ -141,9 +140,8 @@ jobs:
           CARGO_NET_OFFLINE: 'true'
         run: cargo build --manifest-path src-tauri/Cargo.toml --release --bins --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
 
-      - name: Build signed bundles and create draft release
+      - name: Build bundles and create release
         id: tauri
-        if: steps.mode.outputs.bundleArgs != '' && !contains(steps.mode.outputs.bundleArgs, '--no-bundle')
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -151,49 +149,48 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: 'Octopus v__VERSION__'
-          releaseBody: 'Tauri 2 / Rust desktop pet release. Checksums + SBOM attached by the release workflow. Signed when TAURI_SIGNING_PRIVATE_KEY is configured; otherwise unsigned draft.'
-          releaseDraft: true
+          releaseBody: 'Tauri 2 / Rust desktop pet release. Checksums + SBOM attached by the release workflow. Signed when TAURI_SIGNING_PRIVATE_KEY is configured; otherwise unsigned draft (macOS .app/.dmg built with --no-sign).'
+          releaseDraft: false
           prerelease: true
-          # Disable updater JSON/signature upload — we don't ship the tauri
-          # updater plugin, so the action must not query plugins.updater config.
+          # We don't ship the tauri updater plugin, so disable updater JSON/
+          # signature upload (the action must not query plugins.updater config).
           updaterJsonPreferNsis: false
           args: ${{ steps.mode.outputs.bundleArgs }}
 
-      - name: Upload macOS binary (draft, no codesign)
-        if: steps.mode.outputs.signed == 'false' && matrix.platform == 'macos-latest'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          target="${{ matrix.target }}"
-          bin="src-tauri/target/${target}/release/octopus"
-          if [ -f "$bin" ]; then
-            arch=$(echo "$target" | cut -d- -f1)
-            gh release upload "v$VERSION" "$bin#octopus-macos-${arch}-v${VERSION}" --clobber || true
-          fi
-
       - name: Generate checksums and SPDX SBOM
-        if: always()
         run: |
-          node scripts/generate-checksums.js src-tauri/target reports/SHA256SUMS-${{ matrix.id }} || true
+          node scripts/generate-checksums.js src-tauri/target reports/SHA256SUMS-${{ matrix.id }}
           node scripts/generate-sbom.js reports/octopus-${{ matrix.id }}.spdx.json
 
+      # Attest only the distributable bundle files (by extension), not every
+      # file under bundle/ — the previous `**/*` glob matched duplicate paths
+      # (e.g. an .app directory's contents AND the .app itself) which the
+      # attestation API rejects as "duplicate subject". Listing concrete
+      # extensions targets exactly the installable artifacts.
       - name: Attest build artifacts
-        continue-on-error: true
         uses: actions/attest@v4
         with:
-          subject-path: 'src-tauri/target/**/release/bundle/**/*'
+          subject-path: |
+            src-tauri/target/**/release/bundle/**/*.deb
+            src-tauri/target/**/release/bundle/**/*.AppImage
+            src-tauri/target/**/release/bundle/**/*.exe
+            src-tauri/target/**/release/bundle/**/*.msi
+            src-tauri/target/**/release/bundle/**/*.dmg
+            src-tauri/target/**/release/bundle/**/*.app
 
       - name: Attest SBOM against build artifacts
-        continue-on-error: true
         uses: actions/attest@v4
         with:
-          subject-path: 'src-tauri/target/**/release/bundle/**/*'
+          subject-path: |
+            src-tauri/target/**/release/bundle/**/*.deb
+            src-tauri/target/**/release/bundle/**/*.AppImage
+            src-tauri/target/**/release/bundle/**/*.exe
+            src-tauri/target/**/release/bundle/**/*.msi
+            src-tauri/target/**/release/bundle/**/*.dmg
+            src-tauri/target/**/release/bundle/**/*.app
           sbom-path: reports/octopus-${{ matrix.id }}.spdx.json
 
-      - name: Attach checksums and SBOM to draft release
-        continue-on-error: true
+      - name: Attach checksums and SBOM to release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

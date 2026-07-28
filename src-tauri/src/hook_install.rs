@@ -69,11 +69,8 @@ const AIDER_END: &str = "# <<< octopus:aider-notification:v2 <<<";
 const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v2";
 
 #[derive(Debug, Default)]
-#[allow(dead_code)] // `updated`/`removed_legacy` retained for API completeness/future installers
 pub struct InstallResult {
     pub added: usize,
-    pub updated: usize,
-    pub removed_legacy: usize,
     pub path: PathBuf,
     pub message: String,
 }
