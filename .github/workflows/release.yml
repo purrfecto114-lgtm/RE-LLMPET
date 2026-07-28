@@ -106,6 +106,11 @@ jobs:
             echo "gate=--release-draft" >> "$GITHUB_OUTPUT"
             echo "genflag=--draft" >> "$GITHUB_OUTPUT"
             echo "::notice::Building UNSIGNED draft (TAURI_SIGNING_PRIVATE_KEY not set). Add the secret for signed releases."
+            # macOS: ad-hoc sign (-) so Tauri codesigns without a Developer ID cert.
+            # Without this, Tauri's `security import` step fails on no keychain cert.
+            if [ "${{ matrix.platform }}" = "macos-latest" ] && [ -z "${{ env.APPLE_SIGNING_IDENTITY }}" ]; then
+              echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            fi
           fi
 
       - name: Install JavaScript metadata exactly
