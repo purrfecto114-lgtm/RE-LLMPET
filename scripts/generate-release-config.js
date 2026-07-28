@@ -11,18 +11,14 @@ const output = path.resolve(args.find((a) => !a.startsWith('-')) || 'src-tauri/t
 const config = { bundle: { createUpdaterArtifacts: false } };
 if (process.platform === 'darwin') {
   const identity = String(process.env.APPLE_SIGNING_IDENTITY || '').trim();
-  if (identity) {
-    // Note: Tauri 2 bundle config key is `macOS` (capital S), not `macos`.
+  if (identity && identity !== '-') {
+    // Real Developer ID signing. Note: Tauri 2 bundle config key is `macOS`
+    // (capital S), not `macos`. Ad-hoc signing (-) is handled via the
+    // CSC_IDENTITY_AUTO_DISCOVERY env var in release.yml, not the config.
     config.bundle.macOS = { signingIdentity: identity };
-  } else if (draft) {
-    // No Apple cert in draft mode: use ad-hoc signing (-) so the .app bundles
-    // without a real Developer ID. The DMG/app will run locally but won't be
-    // notarized — fine for pre-release testing. Production uses APPLE_SIGNING_IDENTITY.
-    config.bundle.macOS = { signingIdentity: '-' };
-  } else {
-    console.error('generate-release-config: APPLE_SIGNING_IDENTITY is required on macOS (or pass --draft for ad-hoc signed builds)');
-    process.exit(1);
   }
+  // In draft mode (no APPLE_SIGNING_IDENTITY), we set CSC_IDENTITY_AUTO_DISCOVERY=false
+  // in the workflow env to skip signing entirely; no config change needed here.
 }
 if (process.platform === 'win32') {
   const thumbprint = String(process.env.WINDOWS_CERTIFICATE_THUMBPRINT || '').replace(/\s/g, '');

@@ -106,10 +106,12 @@ jobs:
             echo "gate=--release-draft" >> "$GITHUB_OUTPUT"
             echo "genflag=--draft" >> "$GITHUB_OUTPUT"
             echo "::notice::Building UNSIGNED draft (TAURI_SIGNING_PRIVATE_KEY not set). Add the secret for signed releases."
-            # macOS: ad-hoc sign (-) so Tauri codesigns without a Developer ID cert.
-            # Without this, Tauri's `security import` step fails on no keychain cert.
-            if [ "${{ matrix.platform }}" = "macos-latest" ] && [ -z "${{ env.APPLE_SIGNING_IDENTITY }}" ]; then
-              echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            # macOS: disable Tauri's auto cert discovery so it does NOT run
+            # `security import` (which fails without a keychain cert).
+            # CSC_IDENTITY_AUTO_DISCOVERY=false makes Tauri skip code-signing
+            # entirely for draft builds; the .app/.dmg bundle unsigned.
+            if [ "${{ matrix.platform }}" = "macos-latest" ]; then
+              echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
             fi
           fi
 
