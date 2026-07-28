@@ -101,17 +101,25 @@ jobs:
             echo "signed=true" >> "$GITHUB_OUTPUT"
             echo "gate=--release" >> "$GITHUB_OUTPUT"
             echo "genflag=" >> "$GITHUB_OUTPUT"
+            echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
           else
             echo "signed=false" >> "$GITHUB_OUTPUT"
             echo "gate=--release-draft" >> "$GITHUB_OUTPUT"
             echo "genflag=--draft" >> "$GITHUB_OUTPUT"
             echo "::notice::Building UNSIGNED draft (TAURI_SIGNING_PRIVATE_KEY not set). Add the secret for signed releases."
-            # macOS: disable Tauri's auto cert discovery so it does NOT run
-            # `security import` (which fails without a keychain cert).
-            # CSC_IDENTITY_AUTO_DISCOVERY=false makes Tauri skip code-signing
-            # entirely for draft builds; the .app/.dmg bundle unsigned.
+            # macOS: Tauri 2 always codesigns .app/.dmg and runs `security
+            # import`, which fails without a keychain cert. In draft mode,
+            # build the binary only (--no-bundle) so macOS still produces an
+            # executable for testing. Production (signed) uses the real matrix args.
             if [ "${{ matrix.platform }}" = "macos-latest" ]; then
-              echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+              target="${{ matrix.target }}"
+              if [ -n "$target" ]; then
+                echo "bundleArgs=--target $target --no-bundle" >> "$GITHUB_OUTPUT"
+              else
+                echo "bundleArgs=--no-bundle" >> "$GITHUB_OUTPUT"
+              fi
+            else
+              echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
             fi
           fi
 
@@ -148,7 +156,7 @@ jobs:
           # Disable updater JSON/signature upload — we don't ship the tauri
           # updater plugin, so the action must not query plugins.updater config.
           updaterJsonPreferNsis: false
-          args: ${{ matrix.args }}
+          args: ${{ steps.mode.outputs.bundleArgs }}
 
       - name: Generate checksums and SPDX SBOM
         run: |
