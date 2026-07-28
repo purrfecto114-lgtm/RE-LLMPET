@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1 — hot-path performance optimization（2026-07-28）
+
+- Optimized `stats()` on the /state POST hot path: `project_name()` 3×→1× per session (cached), `PendingPermission` double-clone→1 clone + zero-copy borrow, `session_projects` values cloned→`&str`.
+- Added `privacy_settings() -> (bool, usize)` to `ingest()` — avoids a full `AppConfig` clone on every hook event (reads only `reply_bubbles` + `reply_bubble_chars`).
+- Fixed E0716 (dangling borrow on temporary `MutexGuard`) caught by CI macOS.
+- Cleaned stale source-tree files: `--draft` junk, duplicate migration TODO, 5 one-off phase4 verification logs, stale SHA256 manifest, unreferenced BUILD_TAURI.md.
+
 ## 0.5.0-phase4 — upstream reliability reconciliation and complete runtime cutover（2026-07-27）
 
 - Compared the migration candidate with `purrfecto114-lgtm/LLMPET` and upstream `myunwang/LLMPET`; recorded the fork tag, observed fork head, and upstream head separately.
