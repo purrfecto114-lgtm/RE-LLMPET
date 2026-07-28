@@ -37,14 +37,13 @@ function walk(dir) {
   }
   return result;
 }
-const sourceAssets = walk(path.join(ROOT, 'assets'));
+// Asset integrity: verify frontend/assets/ files exist and are non-empty.
+// (Root assets/ duplicate was removed; asset-visual-regression.js checks
+// SHA256 against the pinned baseline for byte-identity.)
 const copiedAssets = walk(path.join(ROOT, 'frontend', 'assets'));
-assert.strictEqual(copiedAssets.length, sourceAssets.length, 'frontend asset count changed');
-for (const source of sourceAssets) {
-  const relative = path.relative(path.join(ROOT, 'assets'), source);
-  const copy = path.join(ROOT, 'frontend', 'assets', relative);
-  assert(fs.existsSync(copy), `missing copied asset ${relative}`);
-  assert.strictEqual(hash(copy), hash(source), `asset bytes changed unexpectedly: ${relative}`);
+assert(copiedAssets.length >= 30, `expected ≥30 frontend assets, got ${copiedAssets.length}`);
+for (const asset of copiedAssets) {
+  assert(fs.statSync(asset).size > 0, `empty asset: ${path.relative(ROOT, asset)}`);
 }
 
 const bridge = read('frontend/renderer/tauri-bridge.js');
@@ -62,4 +61,4 @@ assert(!/electron/i.test(cargo));
 assert(fs.existsSync(path.join(ROOT, 'src-tauri', 'icons', 'icon.ico')));
 assert(fs.existsSync(path.join(ROOT, 'src-tauri', 'icons', 'icon.icns')));
 
-console.log(`tauri-static-smoke: ok (${sourceAssets.length} assets byte-identical, ${commands.size} bridge commands registered)`);
+console.log(`tauri-static-smoke: ok (${copiedAssets.length} assets verified, ${commands.size} bridge commands registered)`);

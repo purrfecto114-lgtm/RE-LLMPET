@@ -391,20 +391,26 @@ fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
     let path = home_dir().join(".aider.conf.yml");
     let current = fs::read_to_string(&path).unwrap_or_default();
     let stripped = strip_marker_block(&current, AIDER_BEGIN, AIDER_END)?;
+    // Aider YAML config uses underscores (notifications_command); the CLI flag
+    // uses hyphens (--notifications-command). Detect either form to avoid
+    // clobbering a pre-existing foreign notification command.
     let foreign = stripped.lines().find(|line| {
         let t = line.trim();
-        t.starts_with("notifications-command:") && !t.contains(MARKER)
+        (t.starts_with("notifications_command:") || t.starts_with("notifications-command:"))
+            && !t.contains(MARKER)
     });
     if let Some(line) = foreign {
         return Err(format!(
-            "Aider 已配置其他 notifications-command，未覆盖：{}",
+            "Aider 已配置其他 notifications_command，未覆盖：{}",
             line.trim()
         ));
     }
     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
     let command = hook_command(&executable, "aider", Some("turn_end"), false);
+    // YAML key: notifications_command (underscore). The CLI flag is
+    // --notifications-command (hyphen), but the config file uses underscore.
     let block = format!(
-        "{AIDER_BEGIN}\nnotifications: true\nnotifications-command: {}\n{AIDER_END}",
+        "{AIDER_BEGIN}\nnotifications: true\nnotifications_command: {}\n{AIDER_END}",
         yaml_string(&command)
     );
     replace_marker_block(&path, AIDER_BEGIN, AIDER_END, &block)?;
@@ -631,12 +637,9 @@ fn write_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
 fn write_text_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("config path has no parent")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
-            .map_err(|e| e.to_string())?;
-    }
+    // Do NOT chmod the parent directory — for files like ~/.aider.conf.yml the
+    // parent is $HOME, and changing its permissions to 0700 is an unacceptable
+    // side effect. Only secure the temp file and the final file themselves.
     let temp = parent.join(format!(
         ".octopus.{}.{}.tmp",
         std::process::id(),

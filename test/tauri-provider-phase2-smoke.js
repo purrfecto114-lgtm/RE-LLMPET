@@ -69,9 +69,10 @@ const pluginCheck = spawnSync(process.execPath, ['--check', temp], { encoding: '
 fs.rmSync(temp, { force: true });
 assert.strictEqual(pluginCheck.status, 0, pluginCheck.stderr);
 
-// Aider: official hyphenated YAML key and honest turn-end-only capability.
-assert(installer.includes('notifications-command:'));
-assert(!installer.includes('notifications_command:'));
+// Aider: YAML config uses underscore (notifications_command); the CLI flag
+// uses hyphen (--notifications-command). The installer must write the YAML form.
+assert(installer.includes('notifications_command:'));
+assert(installer.includes('notifications: true\\nnotifications_command:'));
 assert(installer.includes('turn-end-only'));
 assert(client.includes('stable_session("aider"'));
 

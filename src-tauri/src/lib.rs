@@ -137,12 +137,26 @@ pub fn run() {
 }
 
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Submenu, SubmenuBuilder};
     let show = MenuItem::with_id(app, "show", "显示桌宠", true, None::<&str>)?;
     let panel = MenuItem::with_id(app, "panel", "打开详情", true, None::<&str>)?;
-    let launch = MenuItem::with_id(app, "launch", "新开 Claude", true, None::<&str>)?;
     let log = MenuItem::with_id(app, "log", "打开日志", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &panel, &launch, &log, &quit])?;
+    // New-agent submenu: launch any of the 5 providers, not just Claude.
+    let launch_claude = MenuItem::with_id(app, "launch_claude", "Claude Code", true, None::<&str>)?;
+    let launch_cw = MenuItem::with_id(app, "launch_codewhale", "CodeWhale", true, None::<&str>)?;
+    let launch_codex = MenuItem::with_id(app, "launch_codex", "Codex", true, None::<&str>)?;
+    let launch_opencode =
+        MenuItem::with_id(app, "launch_opencode", "OpenCode", true, None::<&str>)?;
+    let launch_aider = MenuItem::with_id(app, "launch_aider", "Aider", true, None::<&str>)?;
+    let launch_menu = SubmenuBuilder::new(app, "新开 Agent")
+        .item(&launch_claude)
+        .item(&launch_cw)
+        .item(&launch_codex)
+        .item(&launch_opencode)
+        .item(&launch_aider)
+        .build()?;
+    let menu = Menu::with_items(app, &[&show, &panel, &launch_menu, &log, &quit])?;
 
     let mut builder = TrayIconBuilder::new()
         .menu(&menu)
@@ -157,8 +171,20 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             "panel" => {
                 let _ = open_panel(app.clone());
             }
-            "launch" => {
+            "launch_claude" => {
                 let _ = launch_agent("claude".into());
+            }
+            "launch_codewhale" => {
+                let _ = launch_agent("codewhale".into());
+            }
+            "launch_codex" => {
+                let _ = launch_agent("codex".into());
+            }
+            "launch_opencode" => {
+                let _ = launch_agent("opencode".into());
+            }
+            "launch_aider" => {
+                let _ = launch_agent("aider".into());
             }
             "log" => {
                 let state = app.state::<AppState>();

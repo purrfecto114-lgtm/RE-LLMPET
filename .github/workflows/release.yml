@@ -108,7 +108,7 @@ jobs:
               exit 1
             fi
             if [ -z "${{ env.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
-              echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set — publishing an UNSIGNED production release. Add the secret for signed/notarized releases."
+              echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set — publishing an UNSIGNED PRERELEASE (alpha). Add the secret for signed production releases."
               echo "signed=false" >> "$GITHUB_OUTPUT"
               echo "gate=--release-draft" >> "$GITHUB_OUTPUT"
               echo "genflag=--draft" >> "$GITHUB_OUTPUT"
@@ -117,14 +117,17 @@ jobs:
               else
                 echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
               fi
+              # Unsigned builds are marked as prerelease (alpha candidate),
+              # NOT production. Only signed builds get prerelease=false.
+              echo "prerelease=true" >> "$GITHUB_OUTPUT"
             else
               echo "signed=true" >> "$GITHUB_OUTPUT"
               echo "gate=--release" >> "$GITHUB_OUTPUT"
               echo "genflag=" >> "$GITHUB_OUTPUT"
               echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
+              echo "prerelease=false" >> "$GITHUB_OUTPUT"
             fi
             echo "releaseDraft=false" >> "$GITHUB_OUTPUT"
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
             echo "tagName=v$VERSION" >> "$GITHUB_OUTPUT"
           else
             echo "releaseDraft=true" >> "$GITHUB_OUTPUT"

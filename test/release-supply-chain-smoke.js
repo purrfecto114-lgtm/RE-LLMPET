@@ -22,9 +22,11 @@ assert.match(release, /GITHUB_REF_TYPE" = "tag"/);
 assert.match(release, /GITHUB_REF_NAME" != "\$EXPECTED_TAG"/);
 assert.match(release, /does not match package version/);
 // Tag releases without TAURI_SIGNING_PRIVATE_KEY emit a warning and build
-// unsigned (allows first release before signing keys are configured); with
-// the secret they build signed. Both paths publish (releaseDraft=false).
+// unsigned (prerelease=true, alpha candidate); with the secret they build
+// signed (prerelease=false, production). Both paths publish (releaseDraft=false).
 assert.match(release, /TAURI_SIGNING_PRIVATE_KEY is not set/);
+assert.match(release, /UNSIGNED PRERELEASE/);
+assert.match(release, /prerelease=true/);
 assert.match(release, /prerelease=false/);
 assert.match(release, /releaseDraft: \$\{\{ steps\.mode\.outputs\.releaseDraft \}\}/);
 assert.match(release, /tagName: \$\{\{ steps\.mode\.outputs\.tagName \}\}/);

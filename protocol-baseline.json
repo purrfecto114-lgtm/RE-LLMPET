@@ -65,7 +65,7 @@
       "session.error"
     ],
     "aiderNeedles": [
-      "notifications-command:",
+      "notifications_command:",
       "turn-end-only"
     ]
   },
