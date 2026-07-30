@@ -1375,6 +1375,55 @@ pub fn now_ms() -> u64 {
         .unwrap_or(u64::MAX)
 }
 
+/// R25 (2026-07-30): Atomically replace `dest` with `src` on Windows.
+///
+/// Windows `fs::rename` cannot overwrite an existing file. The old code
+/// did `remove_file(dest)` then `rename(src, dest)` — a crash between them
+/// loses the file entirely (config, ledger, or pending permissions).
+///
+/// This helper mirrors `hook_install.rs::write_text_atomic`'s backup pattern:
+/// 1. If dest exists, rename it to a `.bak` backup
+/// 2. Rename src → dest
+/// 3. On success: remove the backup
+/// 4. On failure: restore the backup
+pub fn windows_safe_rename(src: &Path, dest: &Path) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let backup = dest.with_extension(format!(
+            "{}.{}.bak",
+            std::process::id(),
+            now_ms()
+        ));
+        let had_original = dest.exists();
+        if had_original {
+            fs::rename(dest, &backup).map_err(|e| {
+                let _ = fs::remove_file(src);
+                format!("failed to preserve existing file: {e}")
+            })?;
+        }
+        match fs::rename(src, dest) {
+            Ok(()) => {
+                if had_original {
+                    let _ = fs::remove_file(&backup);
+                }
+                Ok(())
+            }
+            Err(error) => {
+                let _ = fs::remove_file(src);
+                if had_original {
+                    let _ = fs::rename(&backup, dest);
+                }
+                Err(format!("failed to rename temp file: {error}"))
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        // On Unix, rename is atomic and replaces existing files.
+        fs::rename(src, dest).map_err(|e| e.to_string())
+    }
+}
+
 pub fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
@@ -1427,11 +1476,8 @@ fn write_private_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
         fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))
             .map_err(|error| error.to_string())?;
     }
-    #[cfg(windows)]
-    if path.exists() {
-        fs::remove_file(path).map_err(|error| error.to_string())?;
-    }
-    fs::rename(&tmp, path).map_err(|error| error.to_string())
+    // R25: use windows_safe_rename to avoid remove-then-rename data loss
+    crate::model::windows_safe_rename(&tmp, path)
 }
 
 pub fn load_config(path: &Path) -> AppConfig {
@@ -1460,11 +1506,8 @@ pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
     }
-    #[cfg(windows)]
-    if path.exists() {
-        fs::remove_file(path).map_err(|e| e.to_string())?;
-    }
-    fs::rename(&tmp, path).map_err(|e| e.to_string())
+    // R25: use windows_safe_rename to avoid remove-then-rename data loss
+    crate::model::windows_safe_rename(&tmp, path)
 }
 
 fn clean_text(value: Option<&Value>, max: usize) -> Option<String> {

@@ -580,10 +580,25 @@ fn post_json(
     stream.write_all(&payload).map_err(|e| e.to_string())?;
     stream.flush().map_err(|e| e.to_string())?;
 
-    let mut response = Vec::new();
-    stream
-        .read_to_end(&mut response)
-        .map_err(|e| e.to_string())?;
+    // R25 (2026-07-30): bound the response read to 1 MiB to prevent unbounded
+    // memory growth if the loopback server misbehaves. The old code used
+    // read_to_end which has no cap — a blocking permission hook (9-minute
+    // timeout) could OOM the hook process.
+    let mut response = Vec::with_capacity(8192);
+    let mut chunk = [0u8; 4096];
+    let max_response = 1024 * 1024; // 1 MiB
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                if response.len() + n > max_response {
+                    return Err("hook response exceeds 1 MiB cap".into());
+                }
+                response.extend_from_slice(&chunk[..n]);
+            }
+            Err(e) => return Err(format!("read error: {e}")),
+        }
+    }
     let split = response
         .windows(4)
         .position(|window| window == b"\r\n\r\n")

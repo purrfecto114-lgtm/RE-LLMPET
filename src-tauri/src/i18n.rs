@@ -80,10 +80,16 @@ pub fn tray_label(lang: &str, key: &str) -> &'static str {
             };
         }
     }
-    // Unreachable in practice: smoke test enumerates every key.
-    // Leak the key so the return type stays 'static.
-    Box::leak(key.to_string().into_boxed_str())
+    // R25 (2026-07-30): return a static fallback instead of Box::leak.
+    // The old code leaked on every missing-key lookup — unbounded memory
+    // growth if the smoke test ever missed a key. This const is 'static
+    // and zero-allocation.
+    MISSING_KEY_FALLBACK
 }
+
+/// Static fallback for missing i18n keys. Visible as `<?>` in the UI
+/// so the bug is immediately noticeable rather than silently empty.
+const MISSING_KEY_FALLBACK: &str = "<?>";
 
 /// Return the list of all keys this module knows about. Used by the
 /// smoke test to verify every key has a matching entry in the frontend

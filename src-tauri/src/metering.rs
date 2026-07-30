@@ -792,11 +792,8 @@ impl UsageLedger {
             file.flush().map_err(|error| error.to_string())?;
             let _ = file.sync_all();
         }
-        #[cfg(windows)]
-        if self.path.exists() {
-            fs::remove_file(&self.path).map_err(|error| error.to_string())?;
-        }
-        fs::rename(&temp, &self.path).map_err(|error| error.to_string())?;
+        // R25: use windows_safe_rename to avoid remove-then-rename data loss
+        crate::model::windows_safe_rename(&temp, &self.path)?;
         secure_file(&self.path)
     }
 }

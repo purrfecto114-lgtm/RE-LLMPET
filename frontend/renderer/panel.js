@@ -875,7 +875,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const lang = String(event.target.value || 'zh');
     applyLanguage(lang);
     window.pet.setLanguage(lang);
-    if (latestSessions.length) renderSessList(latestSessions);
+    // R25 (2026-07-30): re-render ALL sections, not just sessList.
+    // The old code only called renderSessList, leaving 8 other sections
+    // (providerCost/byModel/todos/chart/cal/diagnostics/ops/bg) showing
+    // mixed-language content for ~2s until the next stats push.
+    if (lastStats) render(lastStats);
+    else if (latestSessions.length) renderSessList(latestSessions);
   });
   const sessionProvider = $('sess-provider-filter');
   const sessionSearch = $('sess-query');
