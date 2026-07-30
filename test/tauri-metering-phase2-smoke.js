@@ -71,7 +71,8 @@ assert.match(hook, /normalize_codewhale_turn_end/);
 assert.match(hook, /"prompt_cache_hit_tokens"/);
 assert.match(hook, /"StopFailure"/);
 
-assert.match(panel, /价格未知/);
+// R26: '价格未知' was i18n-ized to t('panel.priceUnknown') — check for the i18n key instead
+assert.match(panel, /panel\.priceUnknown/);
 assert.match(panel, /v\.unknownPrice/);
 assert.match(panel, /function aggregateCostText/);
 assert.match(panel, /today-cost'\)\.textContent = aggregateCostText/);

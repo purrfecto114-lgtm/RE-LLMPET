@@ -73,10 +73,10 @@ function aggregateCostText(value) {
   const cost = Number(value && value.cost) || 0;
   const unknown = Number(value && value.unknownPrice) || 0;
   const estimated = Number(value && value.estimatedPrice) || 0;
-  if (unknown > 0 && cost <= 0) return '价格未知';
+  if (unknown > 0 && cost <= 0) return t('panel.priceUnknown');
   let text = fmtCost(cost);
-  if (estimated > 0) text = estimated === Number(value && (value.messages || value.msgs) || 0) ? '≈' + text : text + '（含估算）';
-  if (unknown > 0) text += ' + 未知';
+  if (estimated > 0) text = estimated === Number(value && (value.messages || value.msgs) || 0) ? '≈' + text : text + t('panel.withEstimate');
+  if (unknown > 0) text += t('panel.plusUnknown');
   return text;
 }
 
@@ -181,7 +181,7 @@ function render(s) {
   const ops = s.lastOps || [];
   const list = $('ops');
   if (ops.length === 0) {
-    list.innerHTML = '<li class="empty">等待操作…</li>';
+    list.innerHTML = '<li class="empty">' + escapeHtml(t('panel.waitingOps')) + '</li>';
   } else {
     const topKey = ops[0].ts + ops[0].detail;
     const isNew = topKey !== lastOpKey;
@@ -337,20 +337,23 @@ function renderByModel(byModel) {
   bm.innerHTML = html;
 }
 
+// R26 (2026-07-30): labels use i18n t('state.*') at render time, not
+// hardcoded Chinese. The static label field is removed; renderSessList
+// calls t('state.' + effState) to get the localized string.
 const STATE_META = {
-  working: { label: '干活中', cls: 'st-working' },
-  juggling: { label: '并行子任务', cls: 'st-working' },
-  sweeping: { label: '清理上下文', cls: 'st-working' },
-  thinking: { label: '思考中', cls: 'st-thinking' },
-  loafing: { label: '摸鱼中', cls: 'st-idle' },
-  waiting: { label: '等你处理', cls: 'st-waiting' },
-  needsinput: { label: '等你回复', cls: 'st-needsinput' },
-  error: { label: '出错了', cls: 'st-error' },
-  done: { label: '刚完成', cls: 'st-done' },
-  idle: { label: '空闲', cls: 'st-idle' },
-  sleeping: { label: '休息中', cls: 'st-sleeping' },
-  greet: { label: '新会话', cls: 'st-greet' },
-  talking: { label: '回应中', cls: 'st-talking' },
+  working: { key: 'state.working', cls: 'st-working' },
+  juggling: { key: 'state.juggling', cls: 'st-working' },
+  sweeping: { key: 'state.sweeping', cls: 'st-working' },
+  thinking: { key: 'state.thinking', cls: 'st-thinking' },
+  loafing: { key: 'state.loafing', cls: 'st-idle' },
+  waiting: { key: 'state.waiting', cls: 'st-waiting' },
+  needsinput: { key: 'state.needsinput', cls: 'st-needsinput' },
+  error: { key: 'state.error', cls: 'st-error' },
+  done: { key: 'state.done', cls: 'st-done' },
+  idle: { key: 'state.idle', cls: 'st-idle' },
+  sleeping: { key: 'state.sleeping', cls: 'st-sleeping' },
+  greet: { key: 'state.greet', cls: 'st-greet' },
+  talking: { key: 'state.talking', cls: 'st-talking' },
 };
 // R16 (2026-07-30): renderChart now accepts both hourly cost and hourly
 // token arrays and picks which to display based on usageMetric. Mirrors
@@ -478,10 +481,10 @@ function renderSessList(sessions) {
         : s.state;
       const m = STATE_META[effState] || STATE_META.idle;
       const detail =
-        effState === 'waiting' ? escapeHtml(`等你${s.reason || '处理'}`)
-        : effState === 'needsinput' ? escapeHtml((s.choice && s.choice.question) || '等你回复')
+        effState === 'waiting' ? escapeHtml(t('sess.waitFor', { reason: s.reason || t('wait.default') }))
+        : effState === 'needsinput' ? escapeHtml((s.choice && s.choice.question) || t('state.needsinput'))
         : (effState === 'working' || effState === 'juggling' || effState === 'sweeping' || effState === 'thinking') && s.op ? escapeHtml(s.op)
-        : escapeHtml(m.label);
+        : escapeHtml(t(m.key));
       const provider = sessionProviderId(s);
       const meta = PROVIDER_META[provider] || { icon: '•', label: provider };
       const sid = String(s.sessionId || '');
@@ -492,7 +495,7 @@ function renderSessList(sessions) {
       const pinBtn = `<button class="sess-pin" data-sid="${escapeHtml(sid)}" data-action="pin" title="${isPinned ? t('sess.unpin') : t('sess.pin')}">${isPinned ? '📌' : '📍'}</button>`;
       const archiveBtn = `<button class="sess-archive" data-sid="${escapeHtml(sid)}" data-action="archive" title="${isArchived ? t('sess.unarchive') : t('sess.archive')}">${isArchived ? '📤' : '📥'}</button>`;
       return `<div class="row sess${isPinned ? ' pinned' : ''}${isArchived ? ' archived' : ''}" data-provider="${escapeHtml(provider)}" title="${escapeHtml(sid)}">`
-        + `<span class="badge ${m.cls}">${m.label}</span>`
+        + `<span class="badge ${m.cls}">${escapeHtml(t(m.key))}</span>`
         + `<span class="sess-provider" title="${escapeHtml(meta.label)}">${escapeHtml(meta.icon)}</span>`
         + `<span class="sess-proj">${escapeHtml(s.project)}</span>`
         + `<span class="sess-id">${escapeHtml(sidShort)}</span>`
