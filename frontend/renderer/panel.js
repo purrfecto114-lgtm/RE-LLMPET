@@ -279,7 +279,7 @@ function renderProviderCost(providerCost) {
   // Hide the whole block if no provider has any cost data.
   const hasData = entries.some(([, v]) => (v.cost || 0) > 0 || (v.tokens || 0) > 0 || (v.unknownPrice || 0) > 0);
   if (block) block.style.display = hasData ? '' : 'none';
-  if (!hasData) { el.innerHTML = '<div class="empty">暂无数据</div>'; return; }
+  if (!hasData) { el.innerHTML = '<div class="empty">' + t('panel.noData') + '</div>'; return; }
   const totalCost = entries.reduce((s, [, v]) => s + (v.cost || 0), 0);
   const base = totalCost || 1;
   let html = '';
@@ -304,7 +304,7 @@ function renderProviderCost(providerCost) {
 function renderByModel(byModel) {
   const bm = $('by-model');
   const entries = Object.entries(byModel).sort((a, b) => (b[1].cost || 0) - (a[1].cost || 0));
-  if (!entries.length) { bm.innerHTML = '<div class="empty">暂无数据</div>'; return; }
+  if (!entries.length) { bm.innerHTML = '<div class="empty">' + t('panel.noData') + '</div>'; return; }
   const totCost = entries.reduce((s, [, v]) => s + (v.cost || 0), 0);
   const totTok = entries.reduce((s, [, v]) => s + (v.tokens || 0), 0);
   const base = totCost || 1;

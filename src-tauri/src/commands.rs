@@ -332,7 +332,9 @@ pub fn set_win_pos(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
     let physical_x = (x as f64 * scale).round() as i32;
     let physical_y = (y as f64 * scale).round() as i32;
     window
-        .set_position(Position::Physical(PhysicalPosition::new(physical_x, physical_y)))
+        .set_position(Position::Physical(PhysicalPosition::new(
+            physical_x, physical_y,
+        )))
         .map_err(|error| error.to_string())
 }
 
