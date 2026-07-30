@@ -1,0 +1,20 @@
+R6 -> R7 working-tree diff
+generated: 2026-07-29 America/Los_Angeles
+note: this report and the package manifest are self-excluded from their own hashes
+
+ M CHANGELOG.md	20548 bytes	sha256=edb4b303f94f21639e9d5b426d8db73e4453ca5592f45049ce23e61b5db0716f
+ M frontend/renderer/panel.js	39802 bytes	sha256=65df312e8c255b35d7a6d8fcad32728e6e2fd3a4a20add6c967df7a5e68d7769
+ M frontend/renderer/tauri-bridge.js	4808 bytes	sha256=05d50cabd36daf8be309c2a796f8674f8e8504e006c1be31eb822f53c7874846
+ M frontend/shared/i18n.js	49553 bytes	sha256=941068ed929bac8b0124f5161e365d7cbfb63f4509306520651074cdd490d132
+ M package.json	3302 bytes	sha256=8ba73575bdde6f94c483a636c1faeb32ff072efed6454e9263b6cff98a7daf61
+ M reports/protocol-drift.json	4679 bytes	sha256=7cd7841dd55d53c4953ebe0543f8637dec641db32cedfc91bb5a70f2af50a537
+ M reports/upstream-import-provenance.json	2775 bytes	sha256=e1f1d977b37adaa5eff2ef2b72331989b31f9032e84af853ce49b56ee0cd4273
+ M scripts/windows-cli-diagnostics.ps1	9858 bytes	sha256=199d3613ae33d5d5ced91496f20bfff8b7d42c9b64e7a68cc74aa932d9865fc0
+ M src-tauri/src/commands.rs	62518 bytes	sha256=354fef108d7b9ff878b67d9bbfb3c84d18fca4cfc540b742fa9867760c85fd5e
+ M test/tauri-cli-diagnostics-r5-smoke.js	3842 bytes	sha256=77ce2f5e02a6256def8939659f5b7dd712435d60abdd4b534bee56ada38808b0
+ M test/tauri-cli-hardening-r3-smoke.js	5991 bytes	sha256=6ab7cddc690a4793c5c68e5ea77a31b84c8f3a256eeb20d2b667b6afaf4448b2
+?? docs/MIGRATION_R7_CLI_RESILIENCE_2026-07-29.md	5482 bytes	sha256=3723e2b23147b4559befbc001f09540b2eab13abe87e96e684630f98eee52bae
+?? docs/MIGRATION_R7_TODOLIST.md	2540 bytes	sha256=b7c236cb5ed0dfb3e82b1af76c62a5f9e9308b99df5d2c2d0a6da06ff751a936
+?? reports/r7-autonomous-validation.json	2113 bytes	sha256=83828b8bb9b76b30f2fc987ba9434385833cb3e1fa89573f23ac76bbb7575c43
+?? reports/r7-web-verification.json	2409 bytes	sha256=5fcb9e7cd9af2d9cd2518a00627f5aa5c68ecd98ebec95f070054bfa2a7a909f
+?? test/tauri-cli-resilience-r7-smoke.js	4700 bytes	sha256=d834efaef35da5fc54ee59695a8d948127a0f815e8ec9eff4b3de6150d4df0c6

@@ -17,11 +17,24 @@ const model = read('src-tauri/src/model.rs');
 const commands = read('src-tauri/src/commands.rs');
 const lib = read('src-tauri/src/lib.rs');
 const panel = read('frontend/renderer/panel.js');
+const pet = read('frontend/renderer/pet.js');
+const bridge = read('frontend/renderer/tauri-bridge.js');
 
 for (const id of ['claude', 'codewhale', 'codex', 'opencode', 'aider']) {
   assert(installer.includes(`"${id}"`), `provider missing in native installer: ${id}`);
   assert(panel.includes(`${id}:`), `provider missing in renderer metadata: ${id}`);
 }
+for (const [id, label] of Object.entries({ claude: 'Claude', codewhale: 'CodeWhale', codex: 'Codex', opencode: 'OpenCode', aider: 'Aider' })) {
+  assert(pet.includes(`${id}: '${label}'`), `pet provider label missing: ${id}`);
+}
+for (const id of ['claude', 'codewhale', 'codex', 'opencode', 'aider']) {
+  assert(pet.includes(`${id}:`), `pet provider icon missing: ${id}`);
+  assert(panel.includes(`${id}:`), `panel provider cost/status metadata missing: ${id}`);
+}
+assert(pet.includes("const provIcon = PROVIDER_ICONS[s.provider] || '•';"), 'session HUD must not fall back to the Claude icon');
+assert(bridge.includes("launchAgent: (provider) => send('launch_agent', { provider })"));
+assert(pet.includes('window.pet.launchAgent(provider);'), 'new-session button must launch the selected provider');
+assert(!pet.includes("if (pid === 'codewhale')"), 'provider-specific renderer launch branch must stay removed');
 assert(installer.includes('sync_enabled'));
 assert(installer.includes('resync_current'));
 assert(commands.includes('hook_install::resync_current'));

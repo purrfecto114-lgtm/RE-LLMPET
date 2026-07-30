@@ -1,0 +1,56 @@
+{
+  "checkedAt": "2026-07-29T04:31:00-07:00",
+  "sources": [
+    {
+      "name": "CodeWhale configuration and doctor contract",
+      "url": "https://github.com/Hmbown/CodeWhale/blob/main/docs/CONFIGURATION.md",
+      "facts": [
+        "doctor/setup/session commands are documented as codewhale-tui surfaces",
+        "codewhale-tui doctor --json returns machine-readable data and redacted config-validation errors",
+        "managed configuration and project-level extension paths can affect startup"
+      ]
+    },
+    {
+      "name": "CodeWhale public guide",
+      "url": "https://github.com/Hmbown/CodeWhale/blob/main/docs/GUIDE.md",
+      "facts": [
+        "the public guide still demonstrates codewhale doctor and codewhale doctor --json, creating a command-surface documentation conflict"
+      ]
+    },
+    {
+      "name": "Claude Code release feed",
+      "url": "https://github.com/anthropics/claude-code/blob/main/feed.xml",
+      "facts": [
+        "v2.1.200 fixed background sessions stopping after sleep/wake and stale daemon recovery problems"
+      ]
+    },
+    {
+      "name": "OpenCode CLI",
+      "url": "https://opencode.ai/docs/cli/",
+      "facts": [
+        "--dir sets TUI working directory",
+        "auth list reports credential-file providers",
+        "environment variables and project .env may also provide credentials"
+      ]
+    },
+    {
+      "name": "Aider YAML configuration",
+      "url": "https://aider.chat/docs/config/aider_conf.html",
+      "facts": [
+        ".aider.conf.yml is searched in git root, cwd and home",
+        "the default .env location is the git root",
+        "notifications can be configured without implying a full permission protocol"
+      ]
+    },
+    {
+      "name": "Tauri capabilities and window API",
+      "url": "https://v2.tauri.app/security/capabilities/",
+      "facts": [
+        "capabilities constrain which WebViews can invoke commands",
+        "setIgnoreCursorEvents remains a strict boolean API",
+        "native cursor position and scale-factor APIs remain available in Tauri 2.11.5"
+      ]
+    }
+  ],
+  "interpretation": "R7 resolves conflicting CodeWhale command surfaces with an auditable fallback, treats authentication/config/version findings as scoped evidence rather than universal launch blockers, and prevents the always-on renderer from selecting a diagnostic directory that could load untrusted project state."
+}

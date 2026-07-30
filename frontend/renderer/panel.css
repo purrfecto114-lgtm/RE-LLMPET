@@ -60,6 +60,14 @@ html, body {
 .bar { height: 8px; background: rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden; }
 .bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #e8a06d, #d97757); border-radius: 6px; transition: width 0.4s ease; }
 .bar-fill.warn { background: linear-gradient(90deg, #e8896b, #c9472b); }
+/* R15 (2026-07-30): Codex quota bar uses a distinct cool tone so users can
+   tell it apart from the 5h budget bar at a glance. */
+.bar-fill.codex { background: linear-gradient(90deg, #6d9ee8, #5773d9); }
+.bar-fill.codex.warn { background: linear-gradient(90deg, #8b6de8, #7234c9); }
+/* Compact stat variant for the Codex today/lifetime grid (smaller numbers,
+   tighter spacing than the hero stats at the top). */
+.stat.compact { padding: 4px 0; }
+.stat.compact .stat-value { font-size: 18px; }
 
 /* 区块 */
 .block { padding: 8px 16px; }
@@ -111,6 +119,15 @@ html, body {
 
 /* 用量趋势：视图切换 */
 .block-title { display: flex; align-items: center; justify-content: space-between; }
+/* R16 (2026-07-30): trend-controls groups metric-tabs + view-tabs so they
+   sit together on the right of the block title. */
+.trend-controls { display: flex; gap: 8px; align-items: center; }
+.metric-tabs { display: flex; gap: 3px; }
+.metric-tabs .mt {
+  font-size: 10px; padding: 3px 8px; border-radius: 7px; cursor: pointer;
+  border: none; background: rgba(255,255,255,0.07); color: #c79b86; text-transform: none; letter-spacing: 0;
+}
+.metric-tabs .mt.active { background: #d97757; color: #fff; }
 .view-tabs { display: flex; gap: 3px; }
 .view-tabs .vt {
   font-size: 10px; padding: 3px 8px; border-radius: 7px; cursor: pointer;
@@ -119,6 +136,8 @@ html, body {
 .view-tabs .vt.active { background: #d97757; color: #fff; }
 .uview.hidden { display: none; }
 .readout { font-size: 10.5px; color: #c79b86; margin-top: 5px; min-height: 14px; font-variant-numeric: tabular-nums; }
+/* R16: usage diagnostics line — small, muted, sits below the price-src. */
+.usage-diagnostics { font-size: 9.5px; color: #8c6a5a; margin-top: 4px; min-height: 12px; }
 .readout b { color: #ffd8bf; }
 
 /* 日历热力图 */
@@ -188,12 +207,14 @@ html, body {
 /* Round 8: provider toggle list */
 .provider-list { display: flex; flex-direction: column; gap: 5px; }
 .prov-item {
-  display: flex; align-items: center; gap: 8px; padding: 5px 8px;
-  border-radius: 8px; cursor: pointer; transition: background 0.15s;
+  display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 8px;
+  border-radius: 8px; transition: background 0.15s;
 }
 .prov-item:hover { background: rgba(255,255,255,0.06); }
 .prov-item.active { background: rgba(217,119,87,0.15); }
-.prov-item.locked { opacity: 0.7; cursor: default; }
+.prov-item.locked { opacity: 0.82; }
+.prov-toggle { min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.prov-item.locked .prov-toggle { cursor: default; }
 .prov-item input[type="checkbox"] {
   appearance: none; -webkit-appearance: none;
   width: 16px; height: 16px; border: 2px solid #c79b86; border-radius: 4px;
@@ -216,6 +237,41 @@ html, body {
 .prov-status.warn { color: #f0c674; background: rgba(240,198,116,0.12); }
 .prov-status.off { color: #8a807a; background: rgba(138,128,122,0.10); }
 
+.prov-diagnose, .diag-actions button, .diag-close {
+  border: 1px solid rgba(255,216,191,.18); border-radius: 7px;
+  background: rgba(255,255,255,.055); color: #dfc4b6; cursor: pointer;
+  font: inherit; font-size: 10px; padding: 4px 7px;
+}
+.prov-diagnose:hover, .diag-actions button:hover, .diag-close:hover { border-color: rgba(217,119,87,.62); background: rgba(217,119,87,.14); }
+.prov-diagnose:disabled, .diag-actions button:disabled { opacity: .55; cursor: wait; }
+.provider-diag-summary { margin-left: auto; font-size: 10px; text-transform: none; letter-spacing: 0; }
+.provider-diag-summary.ok { color: #7fd1a3; }
+.provider-diag-summary.warn { color: #f0c674; }
+.provider-diagnostic {
+  margin-top: 9px; padding: 10px; border: 1px solid rgba(255,216,191,.12);
+  border-radius: 10px; background: rgba(10,7,6,.38); overflow: hidden;
+}
+.diag-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+.diag-provider { color: #f5e8e1; font-size: 12px; font-weight: 700; }
+.diag-state { font-size: 10px; padding: 2px 6px; border-radius: 8px; }
+.diag-state.ok { color: #7fd1a3; background: rgba(127,209,163,.12); }
+.diag-state.warn { color: #f0c674; background: rgba(240,198,116,.12); }
+.diag-close { margin-left: auto; width: 24px; height: 22px; padding: 0; }
+.diag-loading, .diag-ok { color: #bfa99d; font-size: 11px; padding: 4px 1px; }
+.diag-ok { color: #7fd1a3; }
+.diag-issues { margin: 0 0 8px; padding-left: 18px; color: #f0c674; font-size: 10.5px; line-height: 1.45; }
+.diag-warning-title { margin: 4px 0 2px; color: #d8a878; font-size: 10px; font-weight: 700; }
+.diag-warnings { margin: 0 0 8px; padding-left: 18px; color: #cfa984; font-size: 10px; line-height: 1.45; }
+.diag-grid { display: flex; flex-direction: column; gap: 4px; }
+.diag-row { display: grid; grid-template-columns: minmax(82px,.36fr) minmax(0,1fr); gap: 8px; align-items: start; font-size: 10px; }
+.diag-row span { color: #8e756a; }
+.diag-row b { color: #dbc5ba; font-weight: 500; overflow-wrap: anywhere; }
+.diag-row b.mono, .diag-details pre { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.diag-details { margin-top: 8px; color: #bca59a; font-size: 10px; }
+.diag-details summary { cursor: pointer; color: #d8b9a9; }
+.diag-details pre { max-height: 180px; overflow: auto; margin: 6px 0 0; padding: 7px; border-radius: 7px; background: rgba(0,0,0,.28); color: #bfaea6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.diag-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 9px; }
+
 /* Round 12-拓展: per-provider cost breakdown */
 .pcost-row { flex-wrap: wrap; gap: 4px 8px; align-items: center; }
 .pcost-name { font-size: 12px; color: #e9c9b8; flex-shrink: 0; min-width: 0; }
@@ -236,6 +292,24 @@ html, body {
 .session-filters { display: grid; grid-template-columns: minmax(110px, 0.8fr) minmax(130px, 1.2fr); gap: 6px; margin: -1px 0 8px; }
 .session-filters select, .session-filters input { min-width: 0; border: 1px solid rgba(255,216,191,.16); border-radius: 7px; background: rgba(20,12,10,.58); color: #e8c7b6; font: inherit; font-size: 10px; padding: 5px 7px; outline: none; }
 .session-filters select:focus, .session-filters input:focus { border-color: rgba(255,185,145,.48); }
+/* R19 (2026-07-30): attention filter + archive toggle buttons.
+   Grid expanded to 4 columns to fit the two new buttons. */
+.session-filters { grid-template-columns: minmax(90px, 0.7fr) minmax(110px, 1fr) auto auto; align-items: center; }
+.sess-filter-btn {
+  font-size: 10px; padding: 4px 8px; border-radius: 7px; cursor: pointer;
+  border: 1px solid rgba(255,216,191,.16); background: rgba(20,12,10,.58); color: #c79b86;
+  white-space: nowrap;
+}
+.sess-filter-btn.active { background: #d97757; color: #fff; border-color: #d97757; }
+/* R19: pin/archive action buttons on each session row. */
+.sess-actions { display: flex; gap: 2px; flex: 0 0 auto; margin-left: 4px; }
+.sess-pin, .sess-archive {
+  font-size: 11px; padding: 2px 4px; border: none; background: transparent;
+  cursor: pointer; line-height: 1; border-radius: 4px;
+}
+.sess-pin:hover, .sess-archive:hover { background: rgba(255,255,255,.08); }
+.row.sess.pinned { background: rgba(217,119,87,.08); }
+.row.sess.archived { opacity: 0.55; }
 .sess-provider { width: 16px; text-align: center; flex: 0 0 16px; }
 .sess-id { color: #785f54; font: 9px ui-monospace, SFMono-Regular, Consolas, monospace; flex: 0 0 auto; }
 
@@ -254,3 +328,13 @@ html, body {
 .price-auto input { accent-color: #d97757; }
 .price-src.price-error { color: #e48a7a; }
 .price-src.price-live { color: #b99886; }
+
+/* Upstream language switcher, adapted to the Tauri title bar. */
+.title-actions { display: flex; align-items: center; gap: 7px; -webkit-app-region: no-drag; }
+.lang-picker { display: flex; align-items: center; gap: 4px; color: #c79b86; font-size: 11px; }
+.lang-picker select {
+  max-width: 104px; border: 1px solid rgba(255,216,191,.16); border-radius: 7px;
+  background: rgba(20,12,10,.58); color: #e8c7b6; font: inherit; font-size: 10px;
+  padding: 4px 5px; outline: none; cursor: pointer;
+}
+.lang-picker select:focus { border-color: rgba(255,185,145,.48); }

@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-28",
+  "projectVersion": "0.5.5",
+  "referenceRevisions": {
+    "officialUpstream": "49fef749364b31dfa2ddab857aed7d82d49460cc",
+    "fiveProviderFork": "b424675b80162121e58cab631088604d10716b63"
+  },
+  "inputArchives": [
+    {
+      "path": "/mnt/data/origin.zip",
+      "bytes": 9183020,
+      "sha256": "1fce02c71f33321df8a305443c3078aa06c4bb28d84082c8114f2e02f8336440"
+    },
+    {
+      "path": "/mnt/data/originfork.zip",
+      "bytes": 6359364,
+      "sha256": "276d3822ce48629812aec799de1a4eb5d9b52d4b72b8b68eacc90a5efe66f3e9"
+    },
+    {
+      "path": "/mnt/data/RE-LLMPET-v0.5.5.zip",
+      "bytes": 2798838,
+      "sha256": "75a7acfbc812324e4aeec4b9a9dacf90dbaef3cfe2a786338fde6bbb762b6eed"
+    },
+    {
+      "path": "/mnt/data/LLMPET-Tauri-v0.5.5-source.zip",
+      "bytes": 2813667,
+      "sha256": "cc77913ab8cfaf412e84ad4101d31da0c024c95f4245b894ba8332f2a5561dc9"
+    }
+  ],
+  "environment": {
+    "platform": "Linux-6.12.13-x86_64-with-glibc2.41",
+    "node": "v22.16.0",
+    "npm": "10.9.2",
+    "cargo": null,
+    "rustc": null,
+    "rustfmt": null,
+    "githubDnsResolvable": false
+  },
+  "checks": [
+    {
+      "command": "npm test",
+      "status": "passed",
+      "evidence": "all reference, bridge, capability, provider, protocol, Windows, HTTP, supply-chain and reconciliation smoke tests passed"
+    },
+    {
+      "command": "npm run gate:assets",
+      "status": "passed",
+      "evidence": "39 gated asset files match the pinned SHA-256 baseline"
+    },
+    {
+      "command": "npm run gate:memes",
+      "status": "passed",
+      "evidence": "2 deterministic public entries; complete prompt bodies excluded"
+    },
+    {
+      "command": "npm run gate:source",
+      "status": "passed",
+      "evidence": "16 source/release checks passed; 0 blocked; 0 failed"
+    },
+    {
+      "command": "npm run test:protocol",
+      "status": "passed",
+      "evidence": "protocol drift report generated without drift"
+    },
+    {
+      "command": "python3 scripts/static-check.py",
+      "status": "passed",
+      "evidence": "22 structural checks passed; includes 39 JavaScript syntax checks and lexical-only Rust balance"
+    },
+    {
+      "command": "cargo fmt/check/test/build --locked",
+      "status": "not-run",
+      "evidence": "Rust toolchain unavailable and DNS resolution blocked in this environment"
+    },
+    {
+      "command": "real provider and desktop gates",
+      "status": "not-run",
+      "evidence": "requires installed provider CLIs and interactive Linux/Windows/macOS machines"
+    }
+  ],
+  "scopeCaveats": [
+    "Core pet/panel language switching is integrated; native tray translation remains partial.",
+    "Meme action integration is an explicit local GIF/audio preview; backend prompt dispatch is deliberately deferred.",
+    "Static and contract evidence must not be represented as native compilation or real-machine proof.",
+    "Third-party GIF/audio redistribution rights require independent review before public/commercial distribution."
+  ]
+}

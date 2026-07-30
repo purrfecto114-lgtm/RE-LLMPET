@@ -125,11 +125,34 @@ fn write_runtime_file(runtime: &Runtime, port: u16, token: &str) -> Result<(), S
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
     }
-    #[cfg(windows)]
-    if runtime.runtime_path.exists() {
-        fs::remove_file(&runtime.runtime_path).map_err(|e| e.to_string())?;
+    #[cfg(not(windows))]
+    {
+        return fs::rename(tmp, &runtime.runtime_path).map_err(|e| e.to_string());
     }
-    fs::rename(tmp, &runtime.runtime_path).map_err(|e| e.to_string())
+    #[cfg(windows)]
+    {
+        let backup = runtime
+            .runtime_path
+            .with_extension(format!("octopus-backup.{}", std::process::id()));
+        let had_original = runtime.runtime_path.exists();
+        if had_original {
+            let _ = fs::remove_file(&backup);
+            fs::rename(&runtime.runtime_path, &backup).map_err(|e| e.to_string())?;
+        }
+        match fs::rename(&tmp, &runtime.runtime_path) {
+            Ok(()) => {
+                let _ = fs::remove_file(&backup);
+                Ok(())
+            }
+            Err(error) => {
+                let _ = fs::remove_file(&tmp);
+                if had_original {
+                    let _ = fs::rename(&backup, &runtime.runtime_path);
+                }
+                Err(error.to_string())
+            }
+        }
+    }
 }
 
 fn handle_client(

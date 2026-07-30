@@ -1,5 +1,37 @@
 'use strict';
 
+const i18n = window.OctoI18n;
+const t = (key, vars) => i18n ? i18n.t(key, vars) : key;
+const LOCALES = { zh: 'zh-CN', en: 'en-US', ja: 'ja-JP' };
+const SAFE_MEME_ENTRY_TITLES = {
+  zh: '预览这个 session 的表情包',
+  en: 'Preview a meme for this session',
+  ja: 'このセッション向けミームをプレビュー',
+};
+let currentLang = 'zh';
+
+function applyLanguage(next) {
+  currentLang = i18n ? i18n.setLang(next) : 'zh';
+  document.documentElement.lang = LOCALES[currentLang] || 'zh-CN';
+  document.querySelectorAll('[data-i18n]').forEach((node) => {
+    node.textContent = t(node.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach((node) => {
+    node.title = t(node.dataset.i18nTitle);
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach((node) => {
+    node.placeholder = t(node.dataset.i18nPlaceholder);
+  });
+  updateProviderUI();
+  if (sessListOpen && !memePickerOpen) { slTitle.textContent = t('sess.title'); renderSessList(); }
+  if (memePickerOpen) {
+    slTitle.textContent = t('meme.pickTitle');
+    updateMemePickerContext();
+    renderMemePicker();
+  }
+  if (activeMeme) refreshMemePreviewCopy();
+}
+
 const stage = document.getElementById('stage');
 const pixel = document.getElementById('pixel');
 const mascot = document.getElementById('mascot');
@@ -83,6 +115,22 @@ const CAT_POOLS = {
     'cat-loafing-3.gif', // 靠着枕头奶瓶+手机
   ],
 };
+const CAT_ASSET_FILES = Array.from(new Set([
+  ...Object.values(CAT_STATES),
+  ...Object.values(CAT_POOLS).flat(),
+]));
+const catAssetCache = new Map();
+function preloadCatAssets() {
+  for (const file of CAT_ASSET_FILES) {
+    const image = new Image();
+    image.decoding = 'async';
+    image.src = `../assets/cat/${file}`;
+    catAssetCache.set(file, image);
+  }
+}
+if (typeof requestIdleCallback === 'function') requestIdleCallback(preloadCatAssets, { timeout: 1600 });
+else setTimeout(preloadCatAssets, 250);
+
 const POOL_ROTATE_MS = 60 * 1000;
 let poolIdx = 0;
 let poolRot = null;
@@ -142,6 +190,27 @@ const tpTodoSec = document.getElementById('tp-todo-sec');
 const sesslist = document.getElementById('sesslist');
 const slRows = document.getElementById('sl-rows');
 const slSub = document.getElementById('sl-sub');
+const slTitle = document.getElementById('sl-title');
+const slBack = document.getElementById('sl-back');
+const slSessionView = document.getElementById('sl-session-view');
+const memePicker = document.getElementById('sl-meme-view');
+const memeGrid = document.getElementById('sl-meme-grid');
+const memePickerSession = document.getElementById('sl-meme-session');
+const memePickerStatus = document.getElementById('sl-meme-status');
+const memePlayer = document.getElementById('meme-player');
+const memeImage = document.getElementById('meme-image');
+const memeCaption = document.getElementById('meme-caption');
+const memeStatus = document.getElementById('meme-status');
+const agentTag = document.getElementById('agent-tag');
+const MEME_ITEMS = window.LLMPET_MEMES && Array.isArray(window.LLMPET_MEMES.items)
+  ? window.LLMPET_MEMES.items
+  : [];
+let memePickerOpen = false;
+let memePickerTarget = null;
+let memePreviewOpen = false;
+let activeMeme = null;
+let memeAudio = null;
+let memeTimer = null;
 
 let askActive = false;
 let askQueue = []; // 当前所有待处理的选择/输入（每项含 project）
@@ -159,10 +228,11 @@ const isInteracting = () => askActive && (askHover || document.activeElement ===
 // Tauri 迁移：交互状态改为事件驱动，不再每 700ms 常驻轮询。
 let lastUiBusy = null;
 function syncUiBusy(force = false) {
-  const busy = !!(radialOpen || todoPopOpen || sessListOpen || askActive || isInteracting());
+  const busy = !!(radialOpen || todoPopOpen || sessListOpen || memePickerOpen || memePreviewOpen || askActive || isInteracting());
   if (!force && busy === lastUiBusy) return;
   lastUiBusy = busy;
   try { window.pet.uiBusy(busy); } catch {}
+  requestAnimationFrame(reportPetVisualBounds);
 }
 
 const rlog = (tag, msg) => { try { window.pet.petLog(tag, msg); } catch {} }; // 把 UI 决策写日志，便于自检
@@ -183,24 +253,70 @@ const snapshotChoices = (stats) => Array.isArray(stats && stats.pendingChoices)
   ? stats.pendingChoices
   : ((stats && stats.sessions) || []).filter((x) => x.choice).map((x) => x.choice);
 
-// 动态定高：弹层贴 pet 上方(bottom:200)，把窗口高度调到刚好容纳内容，
-// 避免固定大窗口留白 / 顶屏被下移。w=440 让会话名有地方换行不截断。
-const POPUP_W = 440;
+// 动态定高：保持上游 1.1.1 的逻辑像素尺寸和底部锚定语义。Rust 会按
+// 当前 DPI 换算为物理像素，并在扩窗/缩窗时保持可见桌宠的底部中心不跳动。
+const POPUP_W = 520;
 const POPUP_BOTTOM = 200;
-function fitPopup(el) {
-  if (!el) return;
-  requestAnimationFrame(() => {
-    // 关键：先临时去掉 max-height 再量，否则 scrollHeight 会被「当前小窗口算出的
-    // max-height」钳住（鸡生蛋问题）→ 窗口永远只长一点点、列表只剩 1 行+滚动条。
-    const prev = el.style.maxHeight;
-    el.style.maxHeight = 'none';
-    const h = el.scrollHeight; // 真实内容高度
-    el.style.maxHeight = prev;
-    const winH = Math.max(340, POPUP_BOTTOM + h + 24);
-    try { window.pet.setPetSize(POPUP_W, winH); } catch {}
+const ASK_VIEWPORT_MAX_H = 520;
+const MEME_WINDOW_W = 760;
+const MEME_WINDOW_H = 340;
+const MEME_MEDIA_W = 260;
+const MEME_GAP = 14;
+const MEME_EDGE_PAD = 10;
+let memeLayoutActive = false;
+let fitPopupSeq = 0;
+let petSizeFrame = 0;
+let pendingPetSize = null;
+let petSizeChain = Promise.resolve();
+function setRequestedPetSize(width, height) {
+  let w = Number(width) || 0;
+  let h = Number(height) || 0;
+  if (memeLayoutActive) {
+    w = Math.max(w, MEME_WINDOW_W);
+    h = Math.max(h, MEME_WINDOW_H);
+  }
+  pendingPetSize = [w, h];
+  if (petSizeFrame) return;
+  petSizeFrame = requestAnimationFrame(() => {
+    petSizeFrame = 0;
+    const size = pendingPetSize;
+    pendingPetSize = null;
+    if (!size) return;
+    // Tauri invoke calls are asynchronous. Serialize resize requests so a fast
+    // open/close sequence cannot apply an older popup size after a newer reset.
+    petSizeChain = petSizeChain
+      .catch(() => {})
+      .then(() => window.pet.setPetSize(size[0], size[1]))
+      .catch((error) => rlog('resize', 'set size failed: ' + String(error && error.message || error || 'unknown')));
   });
 }
-function resetPetSize() { try { window.pet.setPetSize(0, 0); } catch {} }
+function fitPopup(el) {
+  if (!el) return;
+  const seq = ++fitPopupSeq;
+  requestAnimationFrame(() => {
+    const measure = () => {
+      if (seq !== fitPopupSeq) return;
+      // 先解除当前 viewport 派生的 max-height，再在目标宽度下量真实内容。
+      const prev = el.style.maxHeight;
+      el.style.maxHeight = 'none';
+      const contentH = el.scrollHeight;
+      el.style.maxHeight = prev;
+      const viewportH = el === askEl ? Math.min(contentH, ASK_VIEWPORT_MAX_H) : contentH;
+      setRequestedPetSize(POPUP_W, Math.max(340, POPUP_BOTTOM + viewportH + 24));
+    };
+    if (Math.abs((window.innerWidth || 0) - POPUP_W) > 2 && !memeLayoutActive) {
+      setRequestedPetSize(POPUP_W, Math.max(340, window.innerHeight || 340));
+      requestAnimationFrame(() => requestAnimationFrame(measure));
+    } else {
+      measure();
+    }
+  });
+}
+function resetPetSize() {
+  fitPopupSeq++;
+  if (memeLayoutActive) setRequestedPetSize(MEME_WINDOW_W, MEME_WINDOW_H);
+  else setRequestedPetSize(0, 0);
+}
 
 // 从快照重建队列（多任务都在、且标明项目）
 function refreshAsk(stats) {
@@ -669,8 +785,15 @@ let sessListOpen = false;
 // Claude 橙色 burst（小图标）
 const CLAUDE_ICON =
   '<svg viewBox="0 0 24 24" fill="#d97757"><path d="M12 1l2.2 6.3L20.5 5l-4 5.4 6.5 1.6-6.5 1.6 4 5.4-6.3-2.3L12 23l-2.2-6.3L3.5 19l4-5.4L1 12l6.5-1.6-4-5.4 6.3 2.3z"/></svg>';
-const CODEWHALE_ICON = '🐋';
-const PROVIDER_LABELS = { claude: 'Claude', codewhale: 'CodeWhale', aider: 'Aider' };
+// Keep provider identity visible in the mixed-session HUD. Codex reuses the
+// official upstream terminal glyph; the remaining providers use compact local
+// symbols so they are never visually misrepresented as Claude.
+const CODEX_ICON =
+  '<svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="#3b82f6"/>' +
+  '<path d="M7 8l4 4-4 4" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+  '<path d="M13 16.5h4.5" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>';
+const PROVIDER_ICONS = { claude: CLAUDE_ICON, codewhale: '🐋', codex: CODEX_ICON, opencode: '🧩', aider: '🛠️' };
+const PROVIDER_LABELS = { claude: 'Claude', codewhale: 'CodeWhale', codex: 'Codex', opencode: 'OpenCode', aider: 'Aider' };
 const SESS_META = {
   waiting: '✋ 等你授权', needsinput: '💬 等你回复',
   working: '⚙️ 干活中', juggling: '🤹 并行子任务', sweeping: '🧹 清理上下文',
@@ -678,6 +801,15 @@ const SESS_META = {
   idle: '空闲', sleeping: '💤 休息中',
 };
 const SESS_SORT = { waiting: 0, needsinput: 0, error: 1, working: 2, juggling: 2, sweeping: 2, thinking: 2, loafing: 3, idle: 4, sleeping: 5 };
+const SESSION_STATE_KEYS = {
+  waiting: 'state.waiting', needsinput: 'state.needsinput', working: 'state.working',
+  juggling: 'state.juggling', sweeping: 'state.sweeping', thinking: 'state.thinking',
+  loafing: 'state.loafingLong', error: 'state.error', idle: 'state.idle', sleeping: 'state.sleeping',
+};
+function sessionStateLabel(value) {
+  const key = SESSION_STATE_KEYS[value];
+  return key ? t(key) : (SESS_META[value] || value || '');
+}
 
 // 对齐参考项目阈值：≥90% 红(hot)、≥75% 黄(warm)、其余灰
 function ctxClass(p) { return p >= 90 ? 'high' : p >= 75 ? 'mid' : ''; }
@@ -704,12 +836,12 @@ function visibleSessions() {
 
 function renderSessList() {
   const list = visibleSessions();
-  slSub.textContent = list.length ? `${list.length} 个` : '';
+  slSub.textContent = list.length ? t('sess.count', { n: list.length }) : '';
   slRows.innerHTML = '';
   if (!list.length) {
     const e = document.createElement('div');
     e.className = 'sl-empty';
-    e.textContent = '暂无活跃会话 — 点下面新开一个';
+    e.textContent = t('sess.empty');
     slRows.appendChild(e);
     return;
   }
@@ -719,21 +851,29 @@ function renderSessList() {
     const attn = s.state === 'waiting' || s.state === 'needsinput';
     // meta：等待类显示「等你…」；忙碌显示当前操作；其余只显示状态（不要把陈旧 op 显示成"处理中"）
     let meta;
-    if (attn) meta = s.reason ? (s.state === 'waiting' ? '✋ 等你' + s.reason : '💬 等你' + s.reason) : SESS_META[s.state];
-    else if (s.state === 'working' || s.state === 'juggling' || s.state === 'sweeping' || s.state === 'thinking') meta = s.op || SESS_META[s.state];
-    else if (s.badge === 'done') meta = '✅ 刚完成';
-    else if (s.badge === 'interrupted') meta = '⚠️ 中断';
-    else meta = SESS_META[s.state] || s.state;
+    if (attn) meta = s.reason
+      ? t(s.state === 'waiting' ? 'sess.waitFor' : 'sess.replyFor', { reason: s.reason })
+      : sessionStateLabel(s.state);
+    else if (s.state === 'working' || s.state === 'juggling' || s.state === 'sweeping' || s.state === 'thinking') meta = s.op || sessionStateLabel(s.state);
+    else if (s.badge === 'done') meta = t('sess.justDone');
+    else if (s.badge === 'interrupted') meta = t('sess.interrupted');
+    else meta = sessionStateLabel(s.state);
     const dotCls = sessionDotClass(s); // 与头顶小点同一套配色
     const ctx = typeof s.contextPercent === 'number'
       ? `<span class="sl-ctx ${ctxClass(s.contextPercent)}">${s.contextPercent}%</span>` : '';
-    const provIcon = s.provider === 'codewhale' ? CODEWHALE_ICON : CLAUDE_ICON;
+    const provIcon = PROVIDER_ICONS[s.provider] || '•';
     row.innerHTML =
       `<span class="sl-dot ${dotCls}"></span>` +
       `<span class="sl-icon">${provIcon}</span>` +
       `<div class="sl-main"><div class="sl-name">${esc(s.project)}</div>` +
       `<div class="sl-meta ${attn ? 'attn' : ''}">${esc(meta)}</div></div>` +
-      ctx;
+      ctx +
+      (MEME_ITEMS.length ? `<button class="sl-meme-entry" title="${esc(SAFE_MEME_ENTRY_TITLES[currentLang] || SAFE_MEME_ENTRY_TITLES.zh)}">${esc(t('meme.entry'))}</button>` : '');
+    const memeEntry = row.querySelector('.sl-meme-entry');
+    if (memeEntry) memeEntry.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openMemePicker(s);
+    });
     row.addEventListener('click', () => {
       window.pet.focusSession(s.sessionId || '');
       rlog('sesslist', 'focus ' + (s.project || ''));
@@ -743,26 +883,220 @@ function renderSessList() {
   }
 }
 
+function showSessionPage() {
+  memePickerOpen = false;
+  memePickerTarget = null;
+  memePicker.classList.add('hidden');
+  slSessionView.classList.remove('hidden');
+  slBack.classList.add('hidden');
+  slTitle.textContent = t('sess.title');
+  renderSessList();
+}
+
 function openSessList() {
   if (radialOpen) closeRadial();
   if (todoPopOpen) closeTodoPop();
   hideAsk();
-  renderSessList();
+  closeMemePreview(false);
+  showSessionPage();
   sesslist.classList.remove('hidden');
   sessListOpen = true;
   syncUiBusy();
   rlog('sesslist', 'open ' + visibleSessions().length);
-  fitPopup(sesslist); // 动态定高 + 440 宽，会话名不截断
+  fitPopup(sesslist);
 }
-function closeSessList() {
+function closeSessList(reset = true) {
   if (!sessListOpen) return;
   sesslist.classList.add('hidden');
   sessListOpen = false;
+  memePickerOpen = false;
+  memePickerTarget = null;
+  memePicker.classList.add('hidden');
+  slSessionView.classList.remove('hidden');
+  slBack.classList.add('hidden');
+  if (!memePreviewOpen) stage.classList.remove('meme-open');
   syncUiBusy();
   rlog('sesslist', 'close');
-  resetPetSize();
+  if (reset && !memePreviewOpen) resetPetSize();
 }
 function toggleSessList() { sessListOpen ? closeSessList() : openSessList(); }
+
+function memeCopy(item) {
+  if (!item || !item.copy) return { label: t('meme.fallbackLabel'), description: '', reactionLabel: '' };
+  return item.copy[currentLang] || item.copy.zh || item.copy.en || { label: t('meme.fallbackLabel'), description: '', reactionLabel: '' };
+}
+
+function stopMemeAudio() {
+  if (!memeAudio) return;
+  try { memeAudio.pause(); memeAudio.currentTime = 0; } catch {}
+  memeAudio = null;
+}
+
+function refreshMemePreviewCopy() {
+  if (!activeMeme) return;
+  const copy = memeCopy(activeMeme);
+  memeCaption.textContent = copy.label;
+  memeStatus.textContent = `${copy.reactionLabel} · ${t('meme.noDispatcher')}`;
+  memeImage.alt = copy.label;
+}
+
+function updateMemePickerContext() {
+  if (!memePickerSession) return;
+  if (!memePickerTarget) {
+    memePickerSession.textContent = t('meme.noDispatcher');
+    return;
+  }
+  const provider = memePickerTarget.provider || firstProviderId();
+  const label = PROVIDER_LABELS[provider] || provider;
+  memePickerSession.textContent = `${label} · ${memePickerTarget.project || t('sess.title')} · ${t('meme.noDispatcher')}`;
+}
+
+function renderMemePicker() {
+  memeGrid.innerHTML = '';
+  memePickerStatus.textContent = t('meme.noDispatcher');
+  memePickerStatus.className = 'sl-meme-status warn';
+  if (!MEME_ITEMS.length) {
+    const empty = document.createElement('div');
+    empty.className = 'sl-empty';
+    empty.textContent = t('meme.none');
+    memeGrid.appendChild(empty);
+    return;
+  }
+  for (const item of MEME_ITEMS) {
+    const copy = memeCopy(item);
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'sl-meme-card';
+    card.innerHTML =
+      `<img class="sl-meme-thumb" src="../assets/memes/${esc(item.media.gif)}" alt="">` +
+      `<span class="sl-meme-label">${esc(copy.label)}</span>` +
+      `<span class="sl-meme-desc">${esc(copy.description)}</span>`;
+    card.addEventListener('click', (event) => {
+      event.stopPropagation();
+      playMemePreview(item);
+    });
+    memeGrid.appendChild(card);
+  }
+}
+
+function openMemePicker(session = null) {
+  if (radialOpen) closeRadial();
+  if (todoPopOpen) closeTodoPop();
+  hideAsk();
+  closeMemePreview(false);
+  if (!sessListOpen) {
+    sesslist.classList.remove('hidden');
+    sessListOpen = true;
+  }
+  slSessionView.classList.add('hidden');
+  memePicker.classList.remove('hidden');
+  slBack.classList.remove('hidden');
+  slTitle.textContent = t('meme.pickTitle');
+  slSub.textContent = '';
+  memePickerTarget = session;
+  updateMemePickerContext();
+  memePickerOpen = true;
+  stage.classList.add('meme-open');
+  renderMemePicker();
+  syncUiBusy();
+  fitPopup(sesslist);
+  rlog('meme', `picker ${MEME_ITEMS.length}`);
+}
+
+function closeMemePicker(reset = true) {
+  if (!memePickerOpen) return;
+  showSessionPage();
+  if (!memePreviewOpen) stage.classList.remove('meme-open');
+  syncUiBusy();
+  if (sessListOpen && reset) fitPopup(sesslist);
+  else if (reset && !memePreviewOpen) resetPetSize();
+}
+
+let currentMemePlacement = 'pet-right';
+function alignMemePlayer() {
+  if (!memeLayoutActive || !memePlayer || memePlayer.classList.contains('hidden')) return;
+  const petEl = curSkinEl();
+  if (!petEl) return;
+  const petRect = petEl.getBoundingClientRect();
+  const docEl = document.documentElement;
+  const viewportW = Math.max(1, window.innerWidth || (docEl && docEl.clientWidth) || MEME_WINDOW_W);
+  const viewportH = Math.max(1, window.innerHeight || (docEl && docEl.clientHeight) || MEME_WINDOW_H);
+  const naturalW = Number(memeImage.naturalWidth) || 16;
+  const naturalH = Number(memeImage.naturalHeight) || 9;
+  const availableRight = viewportW - petRect.right - MEME_GAP - MEME_EDGE_PAD;
+  const availableLeft = petRect.left - MEME_GAP - MEME_EDGE_PAD;
+  const preferred = currentMemePlacement === 'pet-left' ? 'left' : 'right';
+  let side = preferred;
+  if (side === 'right' && availableRight < 120 && availableLeft > availableRight) side = 'left';
+  if (side === 'left' && availableLeft < 120 && availableRight > availableLeft) side = 'right';
+  const available = Math.max(120, side === 'right' ? availableRight : availableLeft);
+  const mediaW = Math.min(MEME_MEDIA_W, available);
+  const mediaH = Math.min(180, mediaW * naturalH / naturalW);
+  let left = side === 'right' ? petRect.right + MEME_GAP : petRect.left - MEME_GAP - mediaW;
+  let top = petRect.top + (petRect.height - mediaH) / 2;
+  left = Math.max(MEME_EDGE_PAD, Math.min(left, viewportW - mediaW - MEME_EDGE_PAD));
+  top = Math.max(MEME_EDGE_PAD, Math.min(top, viewportH - mediaH - 52));
+  memePlayer.style.left = `${Math.round(left)}px`;
+  memePlayer.style.top = `${Math.round(top)}px`;
+  memePlayer.style.width = `${Math.round(mediaW)}px`;
+  memePlayer.dataset.side = side;
+  requestAnimationFrame(reportPetVisualBounds);
+}
+
+function restoreSizeAfterMeme() {
+  if (askActive) fitPopup(askEl);
+  else if (sessListOpen) fitPopup(sesslist);
+  else if (todoPopOpen) fitPopup(todopop);
+  else if (!bubble.classList.contains('hidden')) fitPopup(bubble);
+  else resetPetSize();
+}
+
+function closeMemePreview(reset = true) {
+  clearTimeout(memeTimer);
+  memeTimer = null;
+  stopMemeAudio();
+  activeMeme = null;
+  if (memePlayer) memePlayer.classList.add('hidden');
+  memeImage.removeAttribute('src');
+  memePreviewOpen = false;
+  memeLayoutActive = false;
+  if (!memePickerOpen) stage.classList.remove('meme-open');
+  syncUiBusy();
+  if (reset) restoreSizeAfterMeme();
+}
+
+function playMemePreview(item) {
+  if (!item || !item.media || !/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*$/.test(item.media.gif || '')) return;
+  closeMemePicker(false);
+  closeSessList(false);
+  closeMemePreview(false);
+  fitPopupSeq += 1;
+  activeMeme = item;
+  memePreviewOpen = true;
+  memeLayoutActive = true;
+  currentMemePlacement = item.media.placement === 'pet-left' ? 'pet-left' : 'pet-right';
+  stage.classList.add('meme-open');
+  memeImage.src = `../assets/memes/${item.media.gif}`;
+  refreshMemePreviewCopy();
+  memePlayer.classList.remove('hidden');
+  setRequestedPetSize(MEME_WINDOW_W, MEME_WINDOW_H);
+  requestAnimationFrame(() => requestAnimationFrame(alignMemePlayer));
+  syncUiBusy();
+  const duration = Math.max(1800, Math.min(30000, Number(item.media.durationMs) || 3000));
+  transient(item.reaction && item.reaction.state || 'puzzled', Math.max(duration, Number(item.reaction && item.reaction.durationMs) || duration));
+  if (!muted && /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*$/.test(item.media.audio || '')) {
+    try {
+      memeAudio = new Audio(`../assets/memes/${item.media.audio}`);
+      memeAudio.preload = 'auto';
+      memeAudio.volume = 0.9;
+      const pending = memeAudio.play();
+      if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+    } catch {}
+  }
+  memeTimer = setTimeout(() => closeMemePreview(), duration + 500);
+  rlog('meme', `preview ${item.id}`);
+}
+memeImage.addEventListener('load', alignMemePlayer);
 
 // 工具 -> 干活动作；道具 emoji 的运动变体
 const TOOL_ACT = {
@@ -1291,6 +1625,7 @@ let activeProviders = ['claude'];
 window.pet.onConfig((cfg) => {
   if (!cfg) return;
   muted = !!cfg.muted;
+  if (cfg.lang) applyLanguage(cfg.lang);
   territorySupported = !!cfg.territorySupported;
   if (cfg.skin) applySkin(cfg.skin);
   if (cfg.providers && Array.isArray(cfg.providers.active)) {
@@ -1312,14 +1647,29 @@ window.pet.onConfig((cfg) => {
 
 // Update button labels and actions to reflect the first active provider.
 function firstProviderId() { return activeProviders[0] || 'claude'; }
-function firstProviderLabel() { return PROVIDER_LABELS[firstProviderId()] || 'Claude'; }
+function firstProviderLabel() { return PROVIDER_LABELS[firstProviderId()] || firstProviderId(); }
 
 function updateProviderUI() {
+  const provider = firstProviderId();
   const label = firstProviderLabel();
   const slNew = document.getElementById('sl-new');
-  if (slNew) slNew.textContent = '🚀 新开 ' + label;
+  if (slNew) slNew.textContent = currentLang === 'en'
+    ? `🚀 New ${label}`
+    : currentLang === 'ja' ? `🚀 ${label} を新規` : `🚀 新开 ${label}`;
   const tpClaude = document.querySelector('.tp-ops [data-op="claude"]');
-  if (tpClaude) tpClaude.textContent = '💬 唤起 ' + label;
+  if (tpClaude) tpClaude.textContent = currentLang === 'en'
+    ? `💬 Launch ${label}`
+    : currentLang === 'ja' ? `💬 ${label} を起動` : `💬 唤起 ${label}`;
+  if (agentTag) {
+    if (activeProviders.length > 1) {
+      const icon = PROVIDER_ICONS[provider] || '•';
+      agentTag.innerHTML = `<span class="at-ic">${icon}</span><span>${esc(label)} +${activeProviders.length - 1}</span>`;
+      agentTag.className = `agent-tag provider-${provider}`;
+    } else {
+      agentTag.className = 'agent-tag hidden';
+      agentTag.textContent = '';
+    }
+  }
 }
 
 function applySkin(s) {
@@ -1333,61 +1683,133 @@ function applySkin(s) {
   requestAnimationFrame(reportPetVisualBounds);
 }
 
+const INTERACTIVE_HIT_SEL = '#pixel,#mascot,#cat,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player';
+
 function reportPetVisualBounds() {
-  const el = curSkinEl();
-  if (!el) return;
-  const r = el.getBoundingClientRect();
-  try { window.pet.petVisualBounds({ x: r.left, y: r.top, width: r.width, height: r.height }); } catch {}
+  const rects = Array.from(document.querySelectorAll(INTERACTIVE_HIT_SEL))
+    .filter((el) => {
+      const style = getComputedStyle(el);
+      return style.display !== 'none' && style.visibility !== 'hidden';
+    })
+    .map((el) => el.getBoundingClientRect())
+    .filter((r) => r.width > 0 && r.height > 0);
+  if (!rects.length) return;
+  const left = Math.min(...rects.map((r) => r.left));
+  const top = Math.min(...rects.map((r) => r.top));
+  const right = Math.max(...rects.map((r) => r.right));
+  const bottom = Math.max(...rects.map((r) => r.bottom));
+  try {
+    window.pet.petVisualBounds({ x: left, y: top, width: right - left, height: bottom - top });
+  } catch {}
 }
 
 // ====================================================================
-// 拖动 + 点击（短按=泡泡菜单 / 拖动=移动窗口）
+// 拖动 + 点击（短按=会话列表 / 移动=等价上游的手动窗口拖动）
 // ====================================================================
-let g = null; // 当前手势（同步建立，保证快速点击也能识别）
+let g = null;
+let dragFrame = 0;
+let pendingDragPos = null;
+let dragMoveChain = Promise.resolve();
+
+function queueWindowMove(x, y) {
+  pendingDragPos = [Math.round(x), Math.round(y)];
+  if (dragFrame) return;
+  dragFrame = requestAnimationFrame(() => {
+    dragFrame = 0;
+    const pos = pendingDragPos;
+    pendingDragPos = null;
+    if (!pos) return;
+    dragMoveChain = dragMoveChain
+      .catch(() => {})
+      .then(() => window.pet.setWinPos(pos[0], pos[1]))
+      .catch((error) => rlog('drag', 'move failed: ' + String(error && error.message || error || 'unknown')));
+    lastWinPos = pos;
+  });
+}
+
+function flushWindowMove() {
+  if (dragFrame) {
+    cancelAnimationFrame(dragFrame);
+    dragFrame = 0;
+  }
+  const pos = pendingDragPos;
+  pendingDragPos = null;
+  if (pos) {
+    dragMoveChain = dragMoveChain
+      .catch(() => {})
+      .then(() => window.pet.setWinPos(pos[0], pos[1]))
+      .catch((error) => rlog('drag', 'move failed: ' + String(error && error.message || error || 'unknown')));
+    lastWinPos = pos;
+  }
+}
+
+function commitWindowMove() {
+  flushWindowMove();
+  dragMoveChain = dragMoveChain
+    .catch(() => {})
+    .then(() => window.pet.commitWinPos())
+    .then(([wx, wy]) => { lastWinPos = [wx, wy]; })
+    .catch((error) => rlog('drag', 'commit failed: ' + String(error && error.message || error || 'unknown')));
+}
+
 function attachDrag(el) {
-  el.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    try { el.setPointerCapture(e.pointerId); } catch {}
-    el.classList.add('dragging');
-    // 使用缓存窗口位置同步建立手势，消除 async getWinPos 造成的 pointermove 空跳
-    g = { el, pid: e.pointerId, sx: e.screenX, sy: e.screenY, moved: false, win: lastWinPos };
-    // 异步兜底：缓存失效/位置已变时由真实值覆盖
-    window.pet.getWinPos().then(([wx, wy]) => {
-      if (g) { g.win = [wx, wy]; lastWinPos = [wx, wy]; }
-    });
-  });
-  el.addEventListener('pointermove', (e) => {
-    if (!g) return;
-    const dx = e.screenX - g.sx;
-    const dy = e.screenY - g.sy;
-    if (!g.moved && Math.abs(dx) + Math.abs(dy) > 4) g.moved = true;
-    if (g.moved && g.win) {
-      if (radialOpen) closeRadial();
-      const newX = g.win[0] + dx;
-      const newY = g.win[1] + dy;
-      window.pet.setWinPos(newX, newY);
-      lastWinPos = [newX, newY]; // 即时缓存，消除下一次 pointermove 间的空窗
-    }
-  });
-  el.addEventListener('pointerup', () => {
-    if (!g) return;
-    const wasMove = g.moved;
-    try { el.releasePointerCapture(g.pid); } catch {}
-    el.classList.remove('dragging');
-    if (g.win) lastWinPos = g.win;
-    g = null;
-    if (!wasMove) {
-      // 左键短按 = 会话列表 HUD（状态/会话名/上下文用量一览，点行聚焦该会话）。
-      // 权限的允许/拒绝仍由 waiting 事件自动弹气泡，不走这里。
+  const finishGesture = (gesture, allowClick) => {
+    if (!gesture) return;
+    if (g === gesture) g = null;
+    try { gesture.el.releasePointerCapture(gesture.pid); } catch {}
+    gesture.el.classList.remove('dragging');
+    // Re-enable native hit-test ownership after the gesture. `true` means the
+    // transparent regions may ignore input again; the native guard still keeps
+    // the window interactive while the cursor is over the pet or an open HUD.
+    setMouseIgnore(true);
+    if (gesture.moved) commitWindowMove();
+    else if (allowClick) {
       if (radialOpen) closeRadial();
       else toggleSessList();
     }
+  };
+
+  el.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    setMouseIgnore(false);
+    try { el.setPointerCapture(e.pointerId); } catch {}
+    el.classList.add('dragging');
+    g = {
+      el, pid: e.pointerId, sx: e.screenX, sy: e.screenY, cx: e.screenX, cy: e.screenY, moved: false, win: lastWinPos,
+    };
+    const gesture = g;
+    window.pet.getWinPos().then(([wx, wy]) => {
+      if (g !== gesture) return;
+      gesture.win = [wx, wy];
+      lastWinPos = [wx, wy];
+      if (gesture.moved) queueWindowMove(wx + gesture.cx - gesture.sx, wy + gesture.cy - gesture.sy);
+    }).catch(() => {});
   });
-  el.addEventListener('pointercancel', () => {
-    if (g) { el.classList.remove('dragging'); if (g.win) lastWinPos = g.win; }
-    g = null;
+
+  el.addEventListener('pointermove', (e) => {
+    const gesture = g;
+    if (!gesture || gesture.pid !== e.pointerId) return;
+    gesture.cx = e.screenX;
+    gesture.cy = e.screenY;
+    const dx = gesture.cx - gesture.sx;
+    const dy = gesture.cy - gesture.sy;
+    if (!gesture.moved && Math.abs(dx) + Math.abs(dy) > 4) {
+      gesture.moved = true;
+      if (radialOpen) closeRadial();
+    }
+    if (gesture.moved && gesture.win) {
+      queueWindowMove(gesture.win[0] + dx, gesture.win[1] + dy);
+    }
   });
-  // 右键 = 泡泡菜单
+
+  el.addEventListener('pointerup', (e) => {
+    const gesture = g;
+    if (!gesture || gesture.pid !== e.pointerId) return;
+    finishGesture(gesture, true);
+  });
+  el.addEventListener('pointercancel', () => finishGesture(g, false));
+  el.addEventListener('lostpointercapture', () => { if (g) finishGesture(g, false); });
   el.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     toggleRadial();
@@ -1424,18 +1846,19 @@ document.getElementById('tp-close').addEventListener('click', (e) => { e.stopPro
 
 // 会话列表 HUD：关闭 + 底部操作
 document.getElementById('sl-close').addEventListener('click', (e) => { e.stopPropagation(); closeSessList(); });
+slBack.addEventListener('click', (e) => { e.stopPropagation(); closeMemePicker(); });
+document.getElementById('meme-player-close').addEventListener('click', (e) => { e.stopPropagation(); closeMemePreview(); });
+memePicker.addEventListener('contextmenu', (e) => e.stopPropagation());
+memePlayer.addEventListener('contextmenu', (e) => e.stopPropagation());
 // W26: '新开' button must ALWAYS launch a fresh CLI session, not call
 // primaryAction() — primaryAction() sees existing sessions and tries to focus
 // them or opens the panel instead of launching a new terminal. The button label
 // says "🚀 新开 <provider>", so it must launch the first active provider's CLI.
 document.getElementById('sl-new').addEventListener('click', (e) => {
   e.stopPropagation();
-  const pid = firstProviderId();
-  if (pid === 'codewhale') {
-    window.pet.launchCodeWhale ? window.pet.launchCodeWhale() : window.pet.launchClaude();
-  } else {
-    window.pet.launchClaude();
-  }
+  const provider = firstProviderId();
+  window.pet.launchAgent(provider);
+  rlog('launch', 'new ' + provider);
   closeSessList();
 });
 document.getElementById('sl-panel').addEventListener('click', (e) => { e.stopPropagation(); window.pet.openPanel(); closeSessList(); });
@@ -1454,15 +1877,16 @@ todopop.querySelectorAll('.tp-ops button').forEach((b) => {
 // ---------- 泡泡菜单 ----------
 let territorySupported = false; // 由 pet:config 下发(仅 macOS true)
 const MENU = [
-  { ic: 'chart',  label: '详情', act: () => window.pet.openPanel() },
-  { ic: 'mask',   label: '形象', act: () => toggleSkin() },
-  { ic: 'hand',   label: '待处理', badge: true, act: () => window.pet.openPanel() },
-  { ic: 'zombie', label: '后台', badgeBg: true, act: () => window.pet.openPanel() },
-  { ic: 'doc',    label: '日志', act: () => window.pet.openLog() },
-  { ic: 'search', label: '巡视', when: () => territorySupported, act: () => window.pet.territoryRunNow() },
-  { ic: 'bell',   label: '静音', act: () => window.pet.toggleMute() },
-  { ic: 'coins',  label: '货币', act: () => toggleCurrency() },
-  { ic: 'power',  label: '退出', act: () => window.pet.quit() },
+  { ic: 'chart',  key: 'menu.panel', act: () => window.pet.openPanel() },
+  { ic: 'mask',   key: 'menu.skin', act: () => toggleSkin() },
+  { ic: 'chat',   key: 'meme.entry', when: () => MEME_ITEMS.length > 0, act: () => openMemePicker() },
+  { ic: 'hand',   key: 'menu.pending', badge: true, act: () => window.pet.openPanel() },
+  { ic: 'zombie', key: 'menu.background', badgeBg: true, act: () => window.pet.openPanel() },
+  { ic: 'doc',    key: 'menu.log', act: () => window.pet.openLog() },
+  { ic: 'search', key: 'menu.patrol', when: () => territorySupported, act: () => window.pet.territoryRunNow() },
+  { ic: 'bell',   key: 'menu.mute', act: () => window.pet.toggleMute() },
+  { ic: 'coins',  key: 'currency', act: () => toggleCurrency() },
+  { ic: 'power',  key: 'menu.quit', act: () => window.pet.quit() },
 ];
 
 function toggleSkin() {
@@ -1504,10 +1928,11 @@ function buildRadial() {
     b.style.left = x + 'px';
     b.style.top = y + 'px';
     b.style.transitionDelay = i * 0.03 + 's';
-    const icName = it.label === '静音' ? (muted ? 'bell-off' : 'bell')
-      : it.label === '货币' ? (currentCurrency === 'CNY' ? 'yen' : 'coins') : it.ic;
+    const label = it.key === 'currency' ? (currentLang === 'en' ? 'Currency' : currentLang === 'ja' ? '通貨' : '货币') : t(it.key);
+    const icName = it.key === 'menu.mute' ? (muted ? 'bell-off' : 'bell')
+      : it.key === 'currency' ? (currentCurrency === 'CNY' ? 'yen' : 'coins') : it.ic;
     const icHtml = (window.OctoIcons && window.OctoIcons.icon(icName)) || '';
-    b.innerHTML = `<span class="ri-ic oi">${icHtml}</span><span class="ri-lb">${it.label}</span>`;
+    b.innerHTML = `<span class="ri-ic oi">${icHtml}</span><span class="ri-lb">${label}</span>`;
     const cnt = it.badge ? lastWaiting : it.badgeBg ? lastBgZombie : 0;
     if ((it.badge || it.badgeBg) && cnt > 0) {
       const bd = document.createElement('span');
@@ -1542,6 +1967,8 @@ function updateRadialBadge() {
 function openRadial() {
   if (todoPopOpen) closeTodoPop();
   if (sessListOpen) closeSessList();
+  if (memePickerOpen) closeMemePicker();
+  if (memePreviewOpen) closeMemePreview();
   buildRadial();
   radial.classList.remove('hidden');
   radialOpen = true;
@@ -1558,13 +1985,14 @@ function toggleRadial() {
 }
 // 点遮罩空白处关闭
 radial.addEventListener('click', () => closeRadial());
-window.addEventListener('blur', () => { if (radialOpen) closeRadial(); });
+window.addEventListener('blur', () => { if (radialOpen) closeRadial(); if (memePickerOpen) closeMemePicker(); if (memePreviewOpen) closeMemePreview(); });
 
 // ---------- 初始化 ----------
 (async () => {
   const cfg = await window.pet.getConfig();
   if (cfg) {
     muted = !!cfg.muted;
+    if (cfg.lang) applyLanguage(cfg.lang);
     territorySupported = !!cfg.territorySupported;
     applySkin(cfg.skin || 'mascot');
     if (cfg.currency === 'USD' || cfg.currency === 'CNY') currentCurrency = cfg.currency;
@@ -1576,15 +2004,15 @@ window.addEventListener('blur', () => { if (radialOpen) closeRadial(); });
   // 已先到时（lastStats 已有值）同样不能清。
   if (s) applyStats(s);
   else if (!lastStats) setState('idle');
-  showBubble('🐙 小章鱼上线，开始盯任务啦！', 3000);
+  showBubble(t('bub.online'), 3000);
   if (DEBUG_CONFETTI) setInterval(() => confetti(), 2500);
 })();
 
 // ---------- 透明区域点击穿透（命中测试）----------
-// 桌宠窗口是透明矩形，空白处不该拦住后面的应用。光标在内容(小章鱼/卡片/菜单/记事本)
-// 上 → 接收点击；在透明区 → 让窗口穿透。forward:true 使穿透时 mousemove 仍回传，
-// 因此一旦光标回到内容上即可恢复可点。拖动中(g)始终保持可点。
-const HIT_SEL = '#pixel,#mascot,#cat,#radial,#notepad,#todopop,#ask,#sesslist';
+// 桌宠窗口是透明矩形，空白处不该拦住后面的应用。Tauri 没有 Electron
+// `forward:true`，所以 renderer 只声明期望状态；Rust 侧用桌面坐标命中守护
+// 恢复输入，避免一旦穿透后永远收不到 mousemove 的死锁。
+const HIT_SEL = INTERACTIVE_HIT_SEL;
 let mouseIgnoring = false;
 function setMouseIgnore(on) {
   if (on === mouseIgnoring) return;
@@ -1605,7 +2033,10 @@ setMouseIgnore(true);
 // ---------- 交互状态与可视边界上报（事件驱动） ----------
 // 首次同步一次；之后由各弹层 open/close、resize、皮肤/状态变化触发。
 syncUiBusy(true);
-window.addEventListener('resize', () => requestAnimationFrame(reportPetVisualBounds));
+window.addEventListener('resize', () => {
+  requestAnimationFrame(reportPetVisualBounds);
+  if (memeLayoutActive) requestAnimationFrame(alignMemePlayer);
+});
 const visualBoundsObserver = typeof ResizeObserver === 'function'
   ? new ResizeObserver(() => requestAnimationFrame(reportPetVisualBounds))
   : null;
@@ -1622,6 +2053,8 @@ window.addEventListener('beforeunload', () => {
   if (visualBoundsObserver) visualBoundsObserver.disconnect();
   clearTimeout(bubbleTimer); bubbleTimer = null;
   clearTimeout(transientTimer); transientTimer = null;
+  clearTimeout(memeTimer); memeTimer = null;
+  stopMemeAudio();
   clearTimeout(actTimer); actTimer = null;
   clearTimeout(emptyWarnTimer); emptyWarnTimer = null;
   clearTimeout(blinkTimer); blinkTimer = null;

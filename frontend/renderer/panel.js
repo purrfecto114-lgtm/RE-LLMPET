@@ -1,7 +1,30 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
-let config = { mode: 'pet', skin: 'mascot', budget5h: 0, currency: 'USD', fxRate: 7.2 };
+const i18n = window.OctoI18n;
+const t = (key, vars) => i18n ? i18n.t(key, vars) : key;
+const LOCALES = { zh: 'zh-CN', en: 'en-US', ja: 'ja-JP' };
+let config = { lang: 'zh', mode: 'pet', skin: 'mascot', budget5h: 0, currency: 'USD', fxRate: 7.2 };
+
+function applyLanguage(next) {
+  const lang = i18n ? i18n.setLang(next) : 'zh';
+  config.lang = lang;
+  document.documentElement.lang = LOCALES[lang] || 'zh-CN';
+  document.querySelectorAll('[data-i18n]').forEach((node) => {
+    node.textContent = t(node.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach((node) => {
+    node.title = t(node.dataset.i18nTitle);
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach((node) => {
+    node.placeholder = t(node.dataset.i18nPlaceholder);
+  });
+  document.title = t('panel.title');
+  if (latestProviderDiagnostic) renderProviderDiagnostic(latestProviderDiagnostic);
+  const picker = $('language');
+  if (picker && picker.value !== lang) picker.value = lang;
+}
+
 
 // Format cost with current currency symbol (supports USD → $, CNY → ¥).
 // Cost values in stats are always USD; CNY display applies fxRate conversion.
@@ -19,10 +42,25 @@ function fmtCost(cost, currency, fxRate) {
 let lastOpKey = null;
 let hoursSummary = ''; // 24h 视图默认读数（鼠标移开时恢复）
 let calSummary = '';   // 日历默认读数
+// R16 (2026-07-30): metric switching state — 'tokens' or 'cost'. Default
+// 'tokens' matches the upstream Electron panel (Token tab is active by
+// default). lastStats is kept so a metric switch or language switch can
+// re-render without waiting for a new stats push.
+let usageMetric = 'tokens';
+let lastStats = null;
 let latestSessions = [];
 let sessionProviderFilter = '';
 let sessionQuery = '';
+// R19 (2026-07-30): session list pin/archive state. Mirrored from config
+// on every config push; toggled by clicking the pin/archive buttons on
+// each session row. Persisted via window.pet.setSessionPrefs.
+let sessionPinned = [];
+let sessionArchived = [];
+let sessionAttentionOnly = false;
+let sessionShowArchived = false;
 let latestPriceInfo = null;
+let latestProviderDiagnostic = null;
+let providerDiagnosticBusy = '';
 const dKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 function fmt(n) {
@@ -44,7 +82,7 @@ function aggregateCostText(value) {
 
 function timeStr(ts) {
   const d = new Date(ts);
-  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  return d.toLocaleTimeString(LOCALES[config.lang] || 'zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 }
 function shortModel(m) {
   if (!m) return '?';
@@ -58,13 +96,15 @@ function render(s) {
     $('active-sub').textContent = `${s.active.project} · ${shortModel(s.active.model)}`;
   }
   // 大数
+  // AUDIT-FIX (2026-07-30): was hardcoded ' 轮' / ' 重置'; now uses the
+  // existing panel.rounds / panel.reset i18n keys (already in zh/en/ja).
   $('today-cost').textContent = aggregateCostText(s.today);
-  $('today-tokens').textContent = fmt(s.today.tokens) + ' tokens · ' + s.today.messages + ' 轮';
+  $('today-tokens').textContent = fmt(s.today.tokens) + ' tokens · ' + s.today.messages + t('panel.rounds');
   $('win-cost').textContent = aggregateCostText(s.window5h);
   if (s.window5h.tokens > 0 && s.window5h.resetTs) {
-    $('win-reset').textContent = fmt(s.window5h.tokens) + ' tok · ' + timeStr(s.window5h.resetTs) + ' 重置';
+    $('win-reset').textContent = fmt(s.window5h.tokens) + ' tok · ' + timeStr(s.window5h.resetTs) + t('panel.reset');
   } else {
-    $('win-reset').textContent = '窗口空闲';
+    $('win-reset').textContent = t('panel.windowIdle');
   }
 
   // 预算条
@@ -79,10 +119,37 @@ function render(s) {
     $('budget-wrap').classList.add('hidden');
   }
 
+  // R15 (2026-07-30): Codex 5h quota bar (rollout rate_limits).
+  // Hidden when s.codexLimits is absent — matches upstream "no Codex
+  // activity → hide the whole block" behavior. The actual codexLimits
+  // data producer (codex-watch equivalent) is a separate task; this
+  // rendering code is ready for when it lands.
+  const cl = s.codexLimits;
+  if (cl && cl.usedPercent != null) {
+    $('codex-wrap').classList.remove('hidden');
+    const pct = Math.max(0, Math.min(100, cl.usedPercent));
+    $('codex-pct').textContent = pct.toFixed(0) + '%';
+    const cfill = $('codex-fill');
+    cfill.style.width = pct + '%';
+    cfill.classList.toggle('warn', pct >= 80);
+    const bits = [];
+    if (cl.resetsAt) bits.push(timeStr(cl.resetsAt) + t('panel.reset'));
+    if (cl.secondaryUsedPercent != null) bits.push(t('panel.weekWindow') + Math.round(cl.secondaryUsedPercent) + '%');
+    if (cl.planType) bits.push(cl.planType + t('panel.plan'));
+    $('codex-foot').textContent = bits.join(' · ');
+  } else {
+    $('codex-wrap').classList.add('hidden');
+  }
+
+  // R15: Codex today + lifetime tokens. Hidden when s.codexUsage is absent.
+  renderCodexUsage(s.codexUsage);
+
   // token 明细
+  // R18: cache write split into 5m + 1h rows, matching upstream panel.
   $('t-in').textContent = fmt(s.today.input);
   $('t-out').textContent = fmt(s.today.output);
-  $('t-cw').textContent = fmt(s.today.cacheCreate);
+  $('t-cw5').textContent = fmt(s.today.cacheWrite5m || s.today.cacheCreate || 0);
+  $('t-cw1').textContent = fmt(s.today.cacheWrite1h || 0);
   $('t-cr').textContent = fmt(s.today.cacheRead);
   $('t-msg').textContent = s.today.messages;
 
@@ -96,8 +163,13 @@ function render(s) {
   renderTodos(s.todos || [], s.todosProject || '');
 
   // 用量趋势：24h + 日历
-  renderChart(s.hourly || []);
+  // R16: pass both hourly cost and hourly token arrays so renderChart can
+  // pick based on usageMetric. Also store lastStats so a metric tab click
+  // can re-render without waiting for a new stats push.
+  lastStats = s;
+  renderChart(s.hourly || [], s.hourlyTok || []);
   renderCal(s.daily || {});
+  renderDiagnostics(s.transcriptDiagnostics);
 
   // 进行中的任务（各会话状态）
   renderSessList(s.sessions || []);
@@ -147,8 +219,58 @@ function fitPanelHeight() {
 const PCOST_META = {
   claude: { icon: '🐙', label: 'Claude Code' },
   codewhale: { icon: '🐋', label: 'CodeWhale' },
-  aider: { icon: '🤖', label: 'Aider' },
+  codex: { icon: '💻', label: 'Codex CLI' },
+  opencode: { icon: '🧩', label: 'OpenCode' },
+  aider: { icon: '🛠️', label: 'Aider' },
 };
+// R15 (2026-07-30): Codex today + lifetime tokens rendering.
+// Mirrors the upstream Electron panel.js renderCodexUsage. Hidden when
+// codexUsage is absent (no Codex activity). The data producer (codex-watch
+// equivalent in Rust) is a separate task; this renderer is ready for it.
+function renderCodexUsage(codexUsage) {
+  const wrap = $('codex-usage');
+  if (!wrap) return;
+  if (!codexUsage || !codexUsage.today || !codexUsage.lifetime) {
+    wrap.classList.add('hidden');
+    return;
+  }
+  wrap.classList.remove('hidden');
+  const today = codexUsage.today;
+  const lifetime = codexUsage.lifetime;
+  $('codex-today').textContent = fmt(today.tokens);
+  $('codex-lifetime').textContent = fmt(lifetime.tokens);
+  $('codex-today-detail').textContent = t('panel.codexBreakdown', {
+    in: fmt(today.input),
+    out: fmt(today.output),
+    cached: fmt(today.cached || 0),
+    reasoning: fmt(today.reasoning || 0),
+  });
+  $('codex-lifetime-detail').textContent = t('panel.codexLocalHistory', {
+    sessions: lifetime.sessions || 0,
+    events: lifetime.events || 0,
+  });
+}
+
+// R16 (2026-07-30): usage diagnostics line — shows transcript scan info,
+// streaming corrections, estimated model count, and pricing staleness.
+// Mirrors the upstream Electron panel.js renderDiagnostics. Reads
+// s.transcriptDiagnostics (already produced by metering.rs snapshot()).
+function renderDiagnostics(diag) {
+  const el = $('usage-diagnostics');
+  if (!el) return;
+  if (!diag) { el.textContent = ''; return; }
+  const last = diag.lastScanTs
+    ? new Date(diag.lastScanTs).toLocaleTimeString(LOCALES[config.lang] || 'zh-CN', { hour: '2-digit', minute: '2-digit' })
+    : t('panel.diagNever');
+  const bits = [
+    t('panel.diagScan', { when: last, files: diag.scannedFiles || 0, records: diag.records || 0 }),
+    t('panel.diagCorrections', { n: diag.streamingCorrections || 0 }),
+  ];
+  if (diag.estimatedModelCount) bits.push(t('panel.diagEstimated', { n: diag.estimatedModelCount }));
+  if (diag.pricing && diag.pricing.stale) bits.push(t('panel.diagStale'));
+  el.textContent = bits.join(' · ');
+}
+
 function renderProviderCost(providerCost) {
   const el = $('provider-cost');
   const block = $('provider-cost-block');
@@ -167,12 +289,13 @@ function renderProviderCost(providerCost) {
     const unknown = Number(v.unknownPrice) || 0;
     const costText = aggregateCostText(v);
     const estimated = Number(v.estimatedPrice) || 0;
-    const unknownText = `${estimated > 0 ? ` · ${estimated} 轮按 API 等价估算` : ''}${unknown > 0 ? ` · ${unknown} 轮价格未知` : ''}`;
+    // AUDIT-FIX (2026-07-30): was hardcoded Chinese; now uses i18n keys.
+    const unknownText = `${estimated > 0 ? escapeHtml(t('panel.estimatedRounds', { n: estimated })) : ''}${estimated > 0 && unknown > 0 ? ' · ' : ''}${unknown > 0 ? escapeHtml(t('panel.unknownRounds', { n: unknown })) : ''}`;
     html += `<div class="row pcost-row">`
       + `<span class="pcost-name">${escapeHtml(m.icon)} ${escapeHtml(m.label)}</span>`
       + `<span class="pcost-bar-wrap"><span class="pcost-bar" style="width:${pct}%"></span></span>`
        + `<b>${escapeHtml(costText)}</b>`
-      + `<span class="pcost-sub">${fmt(v.tokens)} tok · ${v.messages || 0} 轮${escapeHtml(unknownText)}</span>`
+      + `<span class="pcost-sub">${fmt(v.tokens)} tok · ${v.messages || 0}${escapeHtml(t('panel.rounds'))}${unknownText ? ' · ' + unknownText : ''}</span>`
       + `</div>`;
   }
   el.innerHTML = html;
@@ -190,9 +313,16 @@ function renderByModel(byModel) {
     const pct = Math.round(((v.cost || 0) / base) * 100);
     const hasDetail = (v.input || v.output || v.cacheCreate || v.cacheRead);
     const unknown = Number(v.unknownPrice) || 0;
+    // AUDIT-FIX (2026-07-30): was hardcoded Chinese; now uses the existing
+    // panel.modelDetail + panel.modelRounds + panel.estimatedRounds +
+    // panel.unknownRounds i18n keys. R18 (2026-07-30): upgraded modelDetail
+    // to use {cw5}/{cw1} split when available, falling back to {cw} (the
+    // aggregate cacheCreate) for older ledger rows that lack the split.
+    const cw5 = v.cacheWrite5m || v.cacheCreate || 0;
+    const cw1 = v.cacheWrite1h || 0;
     const detail = hasDetail
-      ? `<div class="m-detail">入 ${fmt(v.input)} · 出 ${fmt(v.output)} · 缓写 ${fmt(v.cacheCreate)} · 缓读 ${fmt(v.cacheRead)}${v.msgs ? ' · ' + v.msgs + ' 轮' : ''}${v.estimatedPrice ? ' · ' + v.estimatedPrice + ' 轮按 API 等价估算' : ''}${unknown ? ' · ' + unknown + ' 轮价格未知' : ''}</div>`
-      : ((v.estimatedPrice || unknown) ? `<div class="m-detail">${v.estimatedPrice ? v.estimatedPrice + ' 轮按 API 等价估算' : ''}${v.estimatedPrice && unknown ? ' · ' : ''}${unknown ? unknown + ' 轮价格未知' : ''}</div>` : '');
+      ? `<div class="m-detail">${escapeHtml(t('panel.modelDetail', { in: fmt(v.input), out: fmt(v.output), cw: fmt(v.cacheCreate || 0), cw5: fmt(cw5), cw1: fmt(cw1), cr: fmt(v.cacheRead) }))}${v.msgs ? escapeHtml(t('panel.modelRounds', { n: v.msgs })) : ''}${v.estimatedPrice ? escapeHtml(t('panel.estimatedRounds', { n: v.estimatedPrice })) : ''}${unknown ? escapeHtml(t('panel.unknownRounds', { n: unknown })) : ''}</div>`
+      : ((v.estimatedPrice || unknown) ? `<div class="m-detail">${v.estimatedPrice ? escapeHtml(t('panel.estimatedRounds', { n: v.estimatedPrice })) : ''}${v.estimatedPrice && unknown ? ' · ' : ''}${unknown ? escapeHtml(t('panel.unknownRounds', { n: unknown })) : ''}</div>` : '');
     const costText = aggregateCostText(v);
     html += `<div class="m-item">`
       + `<div class="m-head"><span class="mc">${escapeHtml(shortModel(model))}</span>`
@@ -201,7 +331,7 @@ function renderByModel(byModel) {
        + `<span class="m-tok">${fmt(v.tokens)} · ${pct}%</span></div>`
        + detail + `</div>`;
    }
-   html += `<div class="m-item m-total"><div class="m-head"><span class="mc">合计</span>`
+   html += `<div class="m-item m-total"><div class="m-head"><span class="mc">${escapeHtml(t('panel.total'))}</span>`
      + `<span class="m-bar"></span><b class="m-cost">${escapeHtml(aggregateCostText({ cost: totCost, messages: entries.reduce((sum, [, value]) => sum + (Number(value.messages || value.msgs) || 0), 0), estimatedPrice: entries.reduce((sum, [, value]) => sum + (Number(value.estimatedPrice) || 0), 0), unknownPrice: entries.reduce((sum, [, value]) => sum + (Number(value.unknownPrice) || 0), 0) }))}</b>`
     + `<span class="m-tok">${fmt(totTok)}</span></div></div>`;
   bm.innerHTML = html;
@@ -222,23 +352,30 @@ const STATE_META = {
   greet: { label: '新会话', cls: 'st-greet' },
   talking: { label: '回应中', cls: 'st-talking' },
 };
-function renderChart(hourly) {
+// R16 (2026-07-30): renderChart now accepts both hourly cost and hourly
+// token arrays and picks which to display based on usageMetric. Mirrors
+// the upstream Electron panel.js contract so the Token/Cost tabs work.
+function renderChart(hourlyCost, hourlyTokens) {
   const el = $('chart');
   if (!el) return;
-  if (!hourly.length) hourly = new Array(24).fill(0);
-  const max = Math.max(0.000001, ...hourly);
+  const hourly = usageMetric === 'cost' ? hourlyCost : (hourlyTokens || hourlyCost);
+  const values = hourly && hourly.length ? hourly : new Array(24).fill(0);
+  const max = Math.max(0.000001, ...values);
   const nowH = new Date().getHours();
   let total = 0, peakH = 0, peakV = 0;
-  el.innerHTML = hourly
-    .map((c, h) => {
-      total += c;
-      if (c > peakV) { peakV = c; peakH = h; }
-      const pct = Math.max(3, Math.round((c / max) * 100));
-      const cls = c <= 0 ? 'bar empty' : h === nowH ? 'bar now' : 'bar';
-      return `<div class="${cls}" data-h="${h}" data-c="${c.toFixed(3)}" style="height:${c <= 0 ? 4 : pct}%" title="${h}:00 · ${fmtCost(c)}"></div>`;
+  el.innerHTML = values
+    .map((value, h) => {
+      total += value;
+      if (value > peakV) { peakV = value; peakH = h; }
+      const pct = Math.max(3, Math.round((value / max) * 100));
+      const cls = value <= 0 ? 'bar empty' : h === nowH ? 'bar now' : 'bar';
+      const display = usageMetric === 'cost' ? fmtCost(value) : fmt(value) + ' tok';
+      return `<div class="${cls}" data-h="${h}" data-v="${escapeHtml(display)}" style="height:${value <= 0 ? 4 : pct}%" title="${h}:00 · ${escapeHtml(display)}"></div>`;
     })
     .join('');
-  hoursSummary = `今日 <b>${fmtCost(total)}</b> · 峰值 ${peakH}点 <b>${fmtCost(peakV)}</b>`;
+  hoursSummary = usageMetric === 'cost'
+    ? t('panel.hoursSummaryCost', { total: total.toFixed(2), peakH, peakV: peakV.toFixed(2) })
+    : t('panel.hoursSummaryTokens', { total: fmt(total), peakH, peakV: fmt(peakV) });
   const ro = $('hours-readout');
   if (ro) ro.innerHTML = hoursSummary;
 }
@@ -258,8 +395,10 @@ function renderCal(daily) {
   for (let d = new Date(start); d <= today; d.setDate(d.getDate() + 1)) {
     const k = dKey(d);
     const v = daily[k] || { cost: 0, tokens: 0, msgs: 0 };
-    if (v.cost > max) max = v.cost;
-    total += v.cost;
+    // R16: pick metric value based on usageMetric
+    const metricValue = usageMetric === 'cost' ? v.cost : (v.tokens || 0);
+    if (metricValue > max) max = metricValue;
+    total += metricValue;
     list.push({ k, cost: v.cost, tokens: v.tokens || 0, msgs: v.msgs || 0 });
   }
   let html = '';
@@ -267,14 +406,18 @@ function renderCal(daily) {
     html += '<div class="cal-col">';
     for (let j = 0; j < 7 && i + j < list.length; j++) {
       const c = list[i + j];
-      const lvl = c.cost <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((c.cost / max) * 4)));
+      const metricValue = usageMetric === 'cost' ? c.cost : (c.tokens || 0);
+      const lvl = metricValue <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((metricValue / max) * 4)));
       const isToday = c.k === todayK ? ' today' : '';
-      html += `<div class="cal-cell lv${lvl}${isToday}" data-k="${c.k}" data-c="${c.cost.toFixed(2)}" data-t="${fmt(c.tokens)}" data-m="${c.msgs}" title="${c.k} · ${fmtCost(c.cost)}"></div>`;
+      const display = usageMetric === 'cost' ? fmtCost(c.cost) : fmt(c.tokens) + ' tok';
+      html += `<div class="cal-cell lv${lvl}${isToday}" data-k="${c.k}" data-c="${c.cost.toFixed(2)}" data-t="${fmt(c.tokens)}" data-m="${c.msgs}" title="${c.k} · ${escapeHtml(display)}"></div>`;
     }
     html += '</div>';
   }
   el.innerHTML = html;
-  calSummary = `近 ${list.length} 天合计 <b>${fmtCost(total)}</b>`;
+  calSummary = usageMetric === 'cost'
+    ? t('panel.calSummaryCost', { n: list.length, total: fmtCost(total) })
+    : t('panel.calSummaryTokens', { n: list.length, total: fmt(total) });
   const cr = $('cal-readout');
   if (cr) cr.innerHTML = calSummary;
 }
@@ -298,11 +441,26 @@ function renderSessList(sessions) {
   refreshSessionProviderOptions(latestSessions);
   const el = $('sess-list');
   const query = sessionQuery.trim().toLowerCase();
+  // R19: filter by provider + query + attention + archive.
+  const pinnedSet = new Set(sessionPinned);
+  const archivedSet = new Set(sessionArchived);
   const filtered = latestSessions.filter((s) => {
     const provider = sessionProviderId(s);
     if (sessionProviderFilter && provider !== sessionProviderFilter) return false;
     if (!query) return true;
     return [s.project, s.sessionId, s.op, provider].some((value) => String(value || '').toLowerCase().includes(query));
+  }).filter((s) => {
+    // Attention filter: only waiting/needsinput sessions.
+    if (sessionAttentionOnly && s.state !== 'waiting' && s.state !== 'needsinput') return false;
+    // Archive filter: hide archived unless toggled.
+    const sid = String(s.sessionId || '');
+    if (archivedSet.has(sid) && !sessionShowArchived) return false;
+    return true;
+  }).sort((a, b) => {
+    // Pinned sessions float to top; stable order otherwise.
+    const pa = pinnedSet.has(String(a.sessionId || '')) ? 0 : 1;
+    const pb = pinnedSet.has(String(b.sessionId || '')) ? 0 : 1;
+    return pa - pb;
   });
   const count = $('sess-count');
   if (count) count.textContent = filtered.length === latestSessions.length
@@ -326,15 +484,46 @@ function renderSessList(sessions) {
         : escapeHtml(m.label);
       const provider = sessionProviderId(s);
       const meta = PROVIDER_META[provider] || { icon: '•', label: provider };
-      const sid = String(s.sessionId || '').slice(0, 8);
-      return `<div class="row sess" data-provider="${escapeHtml(provider)}" title="${escapeHtml(String(s.sessionId || ''))}">`
+      const sid = String(s.sessionId || '');
+      const sidShort = sid.slice(0, 8);
+      // R19: pin/archive buttons. Clicking toggles membership and persists.
+      const isPinned = pinnedSet.has(sid);
+      const isArchived = archivedSet.has(sid);
+      const pinBtn = `<button class="sess-pin" data-sid="${escapeHtml(sid)}" data-action="pin" title="${isPinned ? t('sess.unpin') : t('sess.pin')}">${isPinned ? '📌' : '📍'}</button>`;
+      const archiveBtn = `<button class="sess-archive" data-sid="${escapeHtml(sid)}" data-action="archive" title="${isArchived ? t('sess.unarchive') : t('sess.archive')}">${isArchived ? '📤' : '📥'}</button>`;
+      return `<div class="row sess${isPinned ? ' pinned' : ''}${isArchived ? ' archived' : ''}" data-provider="${escapeHtml(provider)}" title="${escapeHtml(sid)}">`
         + `<span class="badge ${m.cls}">${m.label}</span>`
         + `<span class="sess-provider" title="${escapeHtml(meta.label)}">${escapeHtml(meta.icon)}</span>`
         + `<span class="sess-proj">${escapeHtml(s.project)}</span>`
-        + `<span class="sess-id">${escapeHtml(sid)}</span>`
-        + `<span class="sess-op">${detail}</span></div>`;
+        + `<span class="sess-id">${escapeHtml(sidShort)}</span>`
+        + `<span class="sess-op">${detail}</span>`
+        + `<span class="sess-actions">${pinBtn}${archiveBtn}</span></div>`;
     })
     .join('');
+  // R19: wire pin/archive button clicks.
+  el.querySelectorAll('.sess-pin, .sess-archive').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sid = btn.dataset.sid;
+      const action = btn.dataset.action;
+      if (!sid) return;
+      if (action === 'pin') {
+        sessionPinned = sessionPinned.includes(sid)
+          ? sessionPinned.filter((x) => x !== sid)
+          : [...sessionPinned, sid];
+        // Pin wins: remove from archived if pinning.
+        sessionArchived = sessionArchived.filter((x) => x !== sid);
+      } else if (action === 'archive') {
+        sessionArchived = sessionArchived.includes(sid)
+          ? sessionArchived.filter((x) => x !== sid)
+          : [...sessionArchived, sid];
+        // Archived can't be pinned.
+        sessionPinned = sessionPinned.filter((x) => x !== sid);
+      }
+      window.pet.setSessionPrefs(sessionPinned, sessionArchived);
+      renderSessList(latestSessions);
+    });
+  });
 }
 
 const TODO_ICON = { completed: '✅', in_progress: '▶️', pending: '⬜️' };
@@ -415,6 +604,156 @@ const PROVIDER_META = {
   aider: { icon: '🛠️', label: 'Aider' },
 };
 
+function probeText(probe) {
+  if (!probe || typeof probe !== 'object') return '';
+  return String(probe.stderr || probe.stdout || probe.error || '').trim().slice(0, 2400);
+}
+
+function probeVersion(probe) {
+  const text = probeText(probe);
+  return text ? text.split(/\r?\n/).find((line) => line.trim()) || '' : '';
+}
+
+function probeStatus(probe) {
+  if (!probe || typeof probe !== 'object' || !probe.started) return t('diag.notRun');
+  if (probe.timedOut) return t('diag.timedOut');
+  return probe.success ? t('diag.confirmed') : t('diag.unconfirmed');
+}
+
+function diagnosticRow(label, value, mono) {
+  if (value == null || value === '') return '';
+  return `<div class="diag-row"><span>${escapeHtml(label)}</span><b class="${mono ? 'mono' : ''}">${escapeHtml(String(value))}</b></div>`;
+}
+
+function renderProviderDiagnostic(result) {
+  latestProviderDiagnostic = result;
+  const el = $('provider-diagnostic');
+  const summary = $('provider-diag-summary');
+  if (!el || !result) return;
+  const id = String(result.provider || '');
+  const meta = PROVIDER_META[id] || { icon: '•', label: id || 'Provider' };
+  const issues = Array.isArray(result.issues) ? result.issues : [];
+  const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+  const ready = Boolean(result.ready);
+  const version = probeVersion(result.versionProbe);
+  const companionVersion = probeVersion(result.companionVersionProbe);
+  const doctor = probeText(result.doctorProbe);
+  const auth = probeText(result.authProbe);
+  const doctorSummary = result.doctorSummary && typeof result.doctorSummary === 'object'
+    ? result.doctorSummary : null;
+  const configInfo = result.config && typeof result.config === 'object' ? result.config : null;
+  const terminal = result.terminal && typeof result.terminal === 'object' ? result.terminal : null;
+  const aiderSummary = result.aiderSummary && typeof result.aiderSummary === 'object'
+    ? result.aiderSummary : null;
+  const statusLabel = ready ? t('diag.ready') : t('diag.problem');
+  const issueHtml = issues.length
+    ? `<ul class="diag-issues">${issues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join('')}</ul>`
+    : `<div class="diag-ok">${escapeHtml(t('diag.noIssues'))}</div>`;
+  const warningHtml = warnings.length
+    ? `<div class="diag-warning-title">${escapeHtml(t('diag.warnings'))}</div><ul class="diag-warnings">${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>`
+    : '';
+  const compatibility = configInfo && configInfo.compatibility && typeof configInfo.compatibility === 'object'
+    ? configInfo.compatibility : null;
+  const legacyModels = compatibility && Array.isArray(compatibility.legacyModelIds)
+    ? compatibility.legacyModelIds.join(', ') : '';
+  const projectOverlays = configInfo && Array.isArray(configInfo.projectOverlays)
+    ? configInfo.projectOverlays.filter((item) => item && item.present).map((item) => item.path).join(' · ')
+    : '';
+  const configRows = configInfo ? [
+    diagnosticRow(t('diag.config'), configInfo.selected || configInfo.path, true),
+    diagnosticRow(t('diag.configSource'), configInfo.selectedSource, false),
+    diagnosticRow(t('diag.projectConfig'), projectOverlays, true),
+    diagnosticRow(t('diag.hooks'), configInfo.octopusHookBlock ? t('diag.present') : t('diag.absent'), false),
+    diagnosticRow(t('diag.legacyModels'), legacyModels, true),
+  ].join('') : '';
+  const aiderConfigs = aiderSummary && Array.isArray(aiderSummary.configCandidates)
+    ? aiderSummary.configCandidates.filter((item) => item && item.present).map((item) => item.path).join(' · ')
+    : '';
+  const aiderCredentials = aiderSummary && Array.isArray(aiderSummary.credentialEnvironment)
+    ? aiderSummary.credentialEnvironment.join(', ')
+    : '';
+  const aiderRows = aiderSummary ? [
+    diagnosticRow(t('diag.configCandidates'), aiderConfigs || t('diag.absent'), true),
+    diagnosticRow(t('diag.credentialHints'), aiderCredentials || t('diag.absent'), true),
+    diagnosticRow(t('diag.modelEnvironment'), aiderSummary.modelEnvironment ? t('diag.present') : t('diag.absent'), false),
+  ].join('') : '';
+  const terminalRows = terminal ? [
+    diagnosticRow('Windows Terminal', terminal.windowsTerminal || t('diag.absent'), true),
+    diagnosticRow('cmd.exe', terminal.cmdFallback || t('diag.absent'), true),
+  ].join('') : '';
+  const doctorRows = doctorSummary ? [
+    diagnosticRow(t('diag.doctorStatus'), doctorSummary.status, false),
+    diagnosticRow(t('diag.providerRoute'), doctorSummary.provider, false),
+    diagnosticRow(t('diag.modelRoute'), doctorSummary.model, true),
+    diagnosticRow(t('diag.apiKeySource'), doctorSummary.apiKeySource, false),
+    diagnosticRow(t('diag.payloadMode'), doctorSummary.requestPayloadMode, false),
+    diagnosticRow(t('diag.sessionRecovery'), doctorSummary.sessionRecovery, false),
+  ].join('') : '';
+  el.innerHTML = `
+    <div class="diag-head">
+      <span class="diag-provider">${escapeHtml(meta.icon)} ${escapeHtml(meta.label)}</span>
+      <span class="diag-state ${ready ? 'ok' : 'warn'}">${escapeHtml(statusLabel)}</span>
+      <button type="button" class="diag-close" data-diag-action="close" title="${escapeHtml(t('diag.close'))}">✕</button>
+    </div>
+    ${issueHtml}
+    ${warningHtml}
+    <div class="diag-grid">
+      ${diagnosticRow(t('diag.executable'), result.executable || t('diag.absent'), true)}
+      ${diagnosticRow(t('diag.installKind'), result.executableKind, false)}
+      ${diagnosticRow(t('diag.version'), version || t('diag.notRun'), true)}
+      ${diagnosticRow(t('diag.companion'), result.companion, true)}
+      ${diagnosticRow(t('diag.companionVersion'), companionVersion, true)}
+      ${diagnosticRow(t('diag.cwd'), result.workingDirectory, true)}
+      ${diagnosticRow(t('diag.doctorTarget'), result.doctorTarget, true)}
+      ${diagnosticRow(t('diag.doctorSurface'), result.doctorSurface, false)}
+      ${diagnosticRow(t('diag.doctorAttempts'), Array.isArray(result.doctorAttempts) ? result.doctorAttempts.length : '', false)}
+      ${diagnosticRow(t('diag.authStatus'), probeStatus(result.authProbe), false)}
+      ${diagnosticRow('PATH', `${Number(result.pathEntryCount) || 0} ${t('diag.entries')}`, false)}
+      ${doctorRows}
+      ${configRows}
+      ${terminalRows}
+      ${aiderRows}
+    </div>
+    ${auth ? `<details class="diag-details"><summary>${escapeHtml(t('diag.authOutput'))}</summary><pre>${escapeHtml(auth)}</pre></details>` : ''}
+    ${doctor ? `<details class="diag-details"><summary>${escapeHtml(t('diag.doctor'))}</summary><pre>${escapeHtml(doctor)}</pre></details>` : ''}
+    <div class="diag-actions">
+      <button type="button" data-diag-action="rerun" data-provider="${escapeHtml(id)}">${escapeHtml(t('diag.rerun'))}</button>
+      <button type="button" data-diag-action="launch" data-provider="${escapeHtml(id)}">${escapeHtml(t('diag.launch'))}</button>
+    </div>`;
+  el.classList.remove('hidden');
+  if (summary) {
+    summary.textContent = `${meta.icon} ${statusLabel}`;
+    summary.className = `provider-diag-summary ${ready ? 'ok' : 'warn'}`;
+  }
+}
+
+function renderProviderDiagnosticError(provider, error) {
+  renderProviderDiagnostic({
+    provider,
+    ready: false,
+    issues: [String(error && (error.message || error) || t('diag.failed'))],
+  });
+}
+
+async function diagnoseProvider(provider) {
+  if (!provider || providerDiagnosticBusy) return;
+  providerDiagnosticBusy = provider;
+  renderProviders();
+  const el = $('provider-diagnostic');
+  if (el) {
+    el.classList.remove('hidden');
+    el.innerHTML = `<div class="diag-loading">${escapeHtml(t('diag.running'))}</div>`;
+  }
+  try {
+    renderProviderDiagnostic(await window.pet.diagnoseAgent(provider));
+  } catch (error) {
+    renderProviderDiagnosticError(provider, error);
+  } finally {
+    providerDiagnosticBusy = '';
+    renderProviders();
+  }
+}
+
 function renderProviders() {
   const el = $('provider-list');
   if (!el || !config.providers) return;
@@ -429,18 +768,23 @@ function renderProviders() {
     const installed = runtime.installed != null ? !!runtime.installed : (id === 'codewhale' && cwHooksInstalled);
     const failed = runtime.state === 'error';
     const cls = failed ? 'warn' : installed ? 'ok' : 'off';
-    const label = failed ? '●安装失败' : installed ? '●已注册' : on ? '○待注册' : '○未启用';
-    const detail = runtime.message || (on ? '等待原生 Hook 同步' : 'provider 未启用');
-    const mode = runtime.permissionMode ? ` · 权限：${runtime.permissionMode}` : '';
+    const label = failed ? t('provider.installFailed') : installed ? t('provider.registered') : on ? t('provider.pending') : t('provider.disabled');
+    const detail = runtime.message || (on ? t('provider.waitingSync') : t('provider.notEnabled'));
+    const mode = runtime.permissionMode ? ` · ${t('provider.permission')}: ${runtime.permissionMode}` : '';
     const warning = runtime.capabilities && runtime.capabilities.bypassWarning
       ? ` · ⚠ ${runtime.capabilities.bypassWarning}` : '';
-    const status = `<span class="prov-status ${cls}" title="${escapeHtml(detail + mode + warning)}">${label}${warning ? ' ⚠' : ''}</span>`;
-    return '<label class="prov-item' + (on ? ' active' : '') + (locked ? ' locked' : '') + '">'
+    const status = `<span class="prov-status ${cls}" title="${escapeHtml(detail + mode + warning)}">${escapeHtml(label)}${warning ? ' ⚠' : ''}</span>`;
+    const busy = providerDiagnosticBusy === id;
+    return '<div class="prov-item' + (on ? ' active' : '') + (locked ? ' locked' : '') + '">'
+      + '<label class="prov-toggle">'
       + '<input type="checkbox" ' + (on ? 'checked' : '') + ' ' + (locked ? 'disabled' : '') + ' data-id="' + escapeHtml(id) + '">'
       + '<span class="prov-icon">' + escapeHtml(m.icon) + '</span>'
       + '<span class="prov-label">' + escapeHtml(m.label) + '</span>'
       + status
-      + '</label>';
+      + '</label>'
+      + '<button type="button" class="prov-diagnose" data-provider="' + escapeHtml(id) + '" ' + (busy ? 'disabled' : '') + '>'
+      + escapeHtml(busy ? t('diag.runningShort') : t('diag.action')) + '</button>'
+      + '</div>';
   }).join('');
 }
 
@@ -523,6 +867,14 @@ function renderPriceInfo(message) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  applyLanguage(config.lang);
+  const language = $('language');
+  if (language) language.addEventListener('change', (event) => {
+    const lang = String(event.target.value || 'zh');
+    applyLanguage(lang);
+    window.pet.setLanguage(lang);
+    if (latestSessions.length) renderSessList(latestSessions);
+  });
   const sessionProvider = $('sess-provider-filter');
   const sessionSearch = $('sess-query');
   if (sessionProvider) sessionProvider.addEventListener('change', (e) => {
@@ -531,6 +883,19 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   if (sessionSearch) sessionSearch.addEventListener('input', (e) => {
     sessionQuery = String(e.target.value || '').slice(0, 128);
+    renderSessList(latestSessions);
+  });
+  // R19: attention filter + archive toggle buttons.
+  const sessAttention = $('sess-attention');
+  if (sessAttention) sessAttention.addEventListener('click', () => {
+    sessionAttentionOnly = !sessionAttentionOnly;
+    sessAttention.classList.toggle('active', sessionAttentionOnly);
+    renderSessList(latestSessions);
+  });
+  const sessShowArchived = $('sess-show-archived');
+  if (sessShowArchived) sessShowArchived.addEventListener('click', () => {
+    sessionShowArchived = !sessionShowArchived;
+    sessShowArchived.classList.toggle('active', sessionShowArchived);
     renderSessList(latestSessions);
   });
   const priceRefresh = $('price-refresh');
@@ -568,6 +933,34 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     window.pet.setProviders(newActive);
   });
+  $('provider-list').addEventListener('click', (e) => {
+    const button = e.target.closest('button[data-provider]');
+    if (!button) return;
+    e.preventDefault();
+    e.stopPropagation();
+    diagnoseProvider(button.dataset.provider);
+  });
+  $('provider-diagnostic').addEventListener('click', async (e) => {
+    const button = e.target.closest('button[data-diag-action]');
+    if (!button) return;
+    const action = button.dataset.diagAction;
+    const provider = button.dataset.provider || (latestProviderDiagnostic && latestProviderDiagnostic.provider);
+    if (action === 'close') {
+      $('provider-diagnostic').classList.add('hidden');
+      $('provider-diag-summary').textContent = '';
+      latestProviderDiagnostic = null;
+    } else if (action === 'rerun') {
+      diagnoseProvider(provider);
+    } else if (action === 'launch') {
+      button.disabled = true;
+      try {
+        await window.pet.launchAgentChecked(provider);
+        button.textContent = t('diag.launched');
+      } catch (error) {
+        renderProviderDiagnosticError(provider, error);
+      }
+    }
+  });
 });
 
 function applyConfigUI() {
@@ -588,6 +981,11 @@ window.pet.onPrice(renderPriceInfo);
 window.pet.onConfig((cfg) => {
   if (!cfg) return;
   config = { ...config, ...cfg };
+  // R19: sync pinned/archived session prefs from config so a config push
+  // from another source (tray, another panel instance) is reflected.
+  sessionPinned = Array.isArray(cfg.pinnedSessions) ? cfg.pinnedSessions.slice(0, 200) : [];
+  sessionArchived = Array.isArray(cfg.archivedSessions) ? cfg.archivedSessions.slice(0, 200) : [];
+  applyLanguage(config.lang);
   applyConfigUI();
 });
 
@@ -623,24 +1021,43 @@ document.querySelectorAll('.view-tabs .vt').forEach((b) =>
   })
 );
 
+// R16 (2026-07-30): metric tab switching — toggles between Token and Cost
+// for the 24h chart + calendar. Re-renders from lastStats so the switch is
+// instant without waiting for a new stats push.
+document.querySelectorAll('.metric-tabs .mt').forEach((b) =>
+  b.addEventListener('click', () => {
+    usageMetric = b.dataset.metric === 'cost' ? 'cost' : 'tokens';
+    document.querySelectorAll('.metric-tabs .mt').forEach((x) => x.classList.toggle('active', x === b));
+    if (lastStats) {
+      renderChart(lastStats.hourly || [], lastStats.hourlyTok || []);
+      renderCal(lastStats.daily || {});
+    }
+  })
+);
+
 // 悬停看具体数值：24h 柱
+// R16: bar now carries data-v (display string) instead of data-c (cost only).
 $('chart').addEventListener('mouseover', (e) => {
   const bar = e.target.closest('.bar');
-  if (bar) $('hours-readout').innerHTML = `${bar.dataset.h}:00 · <b>${fmtCost(Number(bar.dataset.c))}</b>`;
+  if (bar && bar.dataset.v) $('hours-readout').innerHTML = `${bar.dataset.h}:00 · <b>${escapeHtml(bar.dataset.v)}</b>`;
 });
 $('chart').addEventListener('mouseleave', () => { $('hours-readout').innerHTML = hoursSummary; });
 
 // 悬停看具体数值：日历格子
+// AUDIT-FIX (2026-07-30): was hardcoded Chinese; now uses the existing
+// panel.calReadout i18n template (which already exists in zh/en/ja).
 $('cal').addEventListener('mouseover', (e) => {
   const cell = e.target.closest('.cal-cell');
-  if (cell) $('cal-readout').innerHTML = `${cell.dataset.k} · <b>${fmtCost(Number(cell.dataset.c))}</b> · ${cell.dataset.t} tok · ${cell.dataset.m} 轮`;
+  if (cell) $('cal-readout').innerHTML = t('panel.calReadout', {
+    k: cell.dataset.k, c: cell.dataset.c, t: cell.dataset.t, m: cell.dataset.m,
+  });
 });
 $('cal').addEventListener('mouseleave', () => { $('cal-readout').innerHTML = calSummary; });
 
 // 初始化
 (async () => {
   const cfg = await window.pet.getConfig();
-  if (cfg) { config = { ...config, ...cfg }; applyConfigUI(); }
+  if (cfg) { config = { ...config, ...cfg }; applyLanguage(config.lang); applyConfigUI(); }
   const s = await window.pet.getStats();
   if (s) render(s);
 })();

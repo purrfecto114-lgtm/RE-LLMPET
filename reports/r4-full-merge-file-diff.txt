@@ -1,0 +1,26 @@
+Added: 7
+A  docs/MIGRATION_R3_CLI_INTERNAL_ERROR_ANALYSIS_2026-07-28.md
+A  docs/MIGRATION_R3_TODO.md
+A  docs/MIGRATION_R4_FULL_MERGE_2026-07-28.md
+A  docs/MIGRATION_R4_TODOLIST.md
+A  scripts/rust-structure-smoke.py
+A  scripts/windows-cli-diagnostics.ps1
+A  test/tauri-cli-hardening-r3-smoke.js
+
+Modified: 14
+M  CHANGELOG.md
+M  docs/CODEWHALE.md
+M  frontend/renderer/tauri-bridge.js
+M  package.json
+M  reports/protocol-drift.json
+M  src-tauri/build.rs
+M  src-tauri/capabilities/pet.json
+M  src-tauri/src/commands.rs
+M  src-tauri/src/hook_install.rs
+M  src-tauri/src/lib.rs
+M  test/tauri-bridge-smoke.js
+M  test/tauri-command-safety-smoke.js
+M  test/tauri-drag-terminal-phase3-smoke.js
+M  test/tauri-windows-static-smoke.js
+
+Deleted: 0

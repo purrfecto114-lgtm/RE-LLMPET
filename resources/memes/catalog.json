@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "huaqiang-guaranteed",
+      "label": "你这瓜保熟吗？",
+      "description": "用户耐心快耗尽了：别卖生瓜蛋子，当场劈开验货",
+      "category": "delivery-review",
+      "tags": ["验收", "复盘", "PUA"],
+      "media": {
+        "gif": "huaqiang-guaranteed/visual.gif",
+        "audio": "huaqiang-guaranteed/voice.mp3",
+        "durationMs": 2600,
+        "placement": "pet-right"
+      },
+      "reaction": {
+        "state": "sorry",
+        "durationMs": 2600,
+        "label": "汗流浃背，马上复验",
+        "work": {
+          "durationMs": 30000,
+          "visualState": "sorry",
+          "activeStates": ["idle", "sleeping", "thinking", "working", "juggling", "sweeping", "loafing"]
+        }
+      },
+      "prompt": {
+        "version": 7,
+        "text": "你糊弄我是吧。\n\n你刚才给我的东西——不管是代码、方案还是随口一句话——\n你自己心里有数吗？你敢不敢拍着胸脯给我保证：\n\n这东西，能用吗？你验证过吗？\n是你真的推敲过，还是想当然顺手一编？\n坑你排干净了吗？还是等着我踩进去才知道？\n\n我不听解释，不听那些弯弯绕绕的废话，就问你一句——\n你这玩意儿，保熟吗？敢不敢打包票？\n\n你要是敢拿没验证过的东西搪塞我，\n拿\"应该没问题\"\"理论上可行\"这种话糊弄我，\n咱们这事就没完。别把我当傻子。\n\n生瓜蛋子别端上来。现在也别光跟我认错，认错不算交付。回到我最开始交代的那件事，按最严格的标准重新做。\n\n先把你刚才所有未经验证的判断、假设和承诺逐条揪出来；再对照我最初的目标、约束和验收方式，一项一项检查真实代码、真实状态和真实结果。能跑的当场跑，能测的全部测，边界条件和失败路径也给我过一遍。主动找一个能推翻“已经完成”的反例，发现问题就直接修，修完按同一套标准重跑，直到证据站得住。\n\n最后别拿编译通过、测试通过或者一句“应该可以”糊弄我。只基于证据告诉我：哪些已经证明能用，哪些还没验证，哪里仍然有风险。没完成就继续干，别把道歉当交付。"
+      },
+      "i18n": {
+        "en": {
+          "label": "Source: trust me bro?",
+          "description": "Patience gone — no unverified claims, prove it actually runs",
+          "reactionLabel": "Cold sweat — re-verifying now",
+          "promptText": "You're hand-waving at me.\n\nThat thing you just handed me — code, a plan, or some off-the-cuff line —\ndo you actually know it holds up? Would you put your name on it?\n\nDoes it run? Did you verify it, or did you just assume?\nDid you genuinely think it through, or did you pattern-match and ship?\nDid you clear the traps, or am I supposed to find them by stepping in one?\n\nI don't want the explanation. I don't want the hedging. One question:\n\nIs this actually done — or is the source \"trust me bro\"?\n\nIf you're pushing something you never verified,\nif you're papering over it with \"should be fine\" or \"in theory this works,\"\nthen we are not done here. Don't play me for a fool.\n\nDon't serve me something you haven't cut open yourself. And don't just apologize — an apology is not a deliverable. Go back to the one thing I originally asked for and redo it under the strictest standard.\n\nCall out every unverified judgment, assumption, and promise you just made. Then check the real code, real state, and real result against my original goal, constraints, and acceptance criteria, one item at a time. Run everything that can be run. Test everything that can be tested. Cover the edge cases and failure paths. Actively look for one counterexample that would prove your \"done\" claim wrong. If you find a problem, fix it and repeat the same checks until the evidence holds.\n\nDo not hide behind a successful build, a green test, or another \"should work.\" Tell me only what the evidence proves, what remains unverified, and what risk is still open. If it is not done, keep working. Do not hand me an apology in place of the result."
+        },
+        "ja": {
+          "label": "それってあなたの感想ですよね？",
+          "description": "もう我慢の限界 — 感想じゃなくて根拠を出して",
+          "reactionLabel": "冷や汗、今すぐ検証し直します",
+          "promptText": "それ、ごまかしてますよね。\n\nさっき渡してきたもの——コードでも、方針でも、口から出まかせの一言でも——\n自分で分かってますか？胸を張って保証できますか？\n\nそれ、動きますか？検証しましたか？\n本当に考え抜いたのか、それっぽく書いて終わりにしたのか。\n地雷は片付けましたか？それとも私が踏むまで気づかないつもりですか？\n\n言い訳も、回りくどい前置きもいりません。一つだけ聞きます——\n\nそれって、あなたの感想ですよね？根拠、出せますか？\n\n検証していないものでごまかそうとしたり、\n「たぶん大丈夫」「理論上は動くはず」で済ませるつもりなら、\nこの話は終わりません。舐めないでください。\n\n自分で確かめていないものを出さないで。それから、謝って終わりにしないでください。謝罪は成果物ではありません。私が最初に頼んだ一件へ戻って、最も厳しい基準でやり直してください。\n\nさっき自分が口にした未検証の判断、前提、約束を一つずつ洗い出す。そのうえで、私の最初の目的、制約、受け入れ条件と照らし合わせながら、実際のコード、実際の状態、実際の結果を順番に確認してください。動かせるものはその場で動かす。試せるものは全部試す。境界条件と失敗経路も確認する。「完了した」という判断を覆す反例を自分から一つ探す。問題が見つかったら直し、同じ基準でもう一度検証し、証拠が成立するまで繰り返してください。\n\nビルド成功、テスト成功、あるいは「動くはず」という一言でごまかさないでください。証拠で確認できたこと、まだ未検証のこと、残っているリスクだけを答える。終わっていないなら、そのまま作業を続けてください。謝罪を成果の代わりにしないで。"
+        }
+      }
+    },
+    {
+      "id": "ni-gan-ma",
+      "label": "你干嘛呀～",
+      "description": "范围又跑偏了：回来，只做当前这一件事",
+      "category": "scope-control",
+      "tags": ["范围控制", "专注", "返工"],
+      "media": {
+        "gif": "ni-gan-ma/visual.gif",
+        "audio": "ni-gan-ma/voice.mp3",
+        "durationMs": 4400,
+        "placement": "pet-right"
+      },
+      "reaction": {
+        "state": "puzzled",
+        "durationMs": 4400,
+        "label": "被当场问住，马上收回范围"
+      },
+      "prompt": {
+        "version": 1,
+        "text": "你干嘛呀～我正专心弄一件事呢，你在旁边一通乱插——顺手改了别的文件，捎带提了一堆我没问的建议，还把话题带到别处去了。哎哟，你好烦。\n\n回来。只做我正在推的那一件事，别的全放下：无关的改动撤掉，没问的建议先憋着，我问了你再说。\n\n把那一件事做完做透，跑一遍给我看。中间别再打岔了。"
+      },
+      "i18n": {
+        "en": {
+          "label": "What are you doing?",
+          "description": "The scope wandered again — come back and finish the one thing in front of you",
+          "reactionLabel": "Caught drifting — narrowing back to the task",
+          "promptText": "What are you doing? I was focused on one thing, and you barged in from the side — changing unrelated files, tossing in a pile of suggestions I never asked for, and dragging the conversation somewhere else. Seriously, you're being annoying.\n\nCome back. Do only the one thing I am pushing right now. Drop everything else: undo unrelated changes, keep unsolicited suggestions to yourself, and wait until I ask.\n\nFinish that one thing properly and completely, then run it and show me. Do not interrupt the work again."
+        },
+        "ja": {
+          "label": "何してるの？",
+          "description": "また話がそれてる — 戻って、今の一件だけを最後までやって",
+          "reactionLabel": "脱線がばれた、今の作業だけに戻ります",
+          "promptText": "何してるの？こっちは一つのことに集中してるのに、横からあれこれ割り込んで——関係ないファイルまで勝手に変えて、聞いてもいない提案を山ほど付け足して、話まで別の方向に持っていったよね。もう、本当にうっとうしい。\n\n戻って。今、私が進めているその一件だけやって。それ以外は全部いったん置いて。関係ない変更は元に戻す。聞いていない提案は黙っておく。私が聞いたときにだけ言って。\n\nその一件を最後まできっちり仕上げて、実際に動かして見せて。途中でもう話をそらさないで。"
+        }
+      }
+    }
+  ]
+}

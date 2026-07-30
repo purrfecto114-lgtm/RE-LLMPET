@@ -1,0 +1,39 @@
+{
+  "baseline": "RE-LLMPET-v0.5.5-reworked-r5",
+  "target": "RE-LLMPET-v0.5.5-reworked-r6",
+  "added": [
+    "docs/MIGRATION_R6_AUTH_DIAGNOSTICS_2026-07-29.md",
+    "docs/MIGRATION_R6_TODOLIST.md",
+    "reports/logs/r6-asset-gate.log",
+    "reports/logs/r6-npm-test.log",
+    "reports/logs/r6-protocol-gate.log",
+    "reports/logs/r6-rust-structure.log",
+    "reports/logs/r6-source-gate.log",
+    "reports/logs/r6-static-check.log",
+    "reports/r6-autonomous-validation.json",
+    "reports/r6-file-diff.json",
+    "reports/r6-file-diff.txt",
+    "reports/r6-web-verification.json",
+    "reports/source-package-manifest-r6.json",
+    "test/tauri-cli-auth-r6-smoke.js"
+  ],
+  "modified": [
+    "CHANGELOG.md",
+    "README.md",
+    "frontend/renderer/panel.js",
+    "frontend/shared/i18n.js",
+    "migration-todo.json",
+    "package.json",
+    "reports/protocol-drift.json",
+    "reports/upstream-import-provenance.json",
+    "scripts/windows-cli-diagnostics.ps1",
+    "src-tauri/src/commands.rs"
+  ],
+  "deleted": [],
+  "counts": {
+    "added": 14,
+    "modified": 10,
+    "deleted": 0
+  },
+  "note": "The source manifest is counted as an added file but excludes its own hash."
+}

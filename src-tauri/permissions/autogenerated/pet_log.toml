@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pet-log"
+description = "Enables the pet_log command without any pre-configured scope."
+commands.allow = ["pet_log"]
+
+[[permission]]
+identifier = "deny-pet-log"
+description = "Denies the pet_log command without any pre-configured scope."
+commands.deny = ["pet_log"]

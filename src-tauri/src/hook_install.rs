@@ -13,11 +13,10 @@ const MARKER: &str = "--octopus-hook";
 // MessageDisplay and PostToolBatch are also intentionally excluded because they
 // may contain rendered conversation/tool payloads that are unnecessary for pet
 // state and expand the privacy/size surface.
-const CLAUDE_EVENTS: [&str; 19] = [
+const CLAUDE_EVENTS: [&str; 18] = [
     "SessionStart",
     "SessionEnd",
     "UserPromptSubmit",
-    "PreToolUse",
     "PostToolUse",
     "PostToolUseFailure",
     "Stop",
@@ -152,6 +151,14 @@ fn uninstall_provider(id: &str) -> Result<PathBuf, String> {
         }
         _ => Err(format!("unknown provider: {id}")),
     }
+}
+
+/// R13 (2026-07-30): public wrapper so the tray's "Uninstall Claude hooks"
+/// menu item can remove a single provider's Octopus-owned hook block without
+/// touching the user's other config. Mirrors the upstream Electron tray's
+/// `tray.uninstallHook` action.
+pub fn uninstall_provider_hooks(id: &str) -> Result<PathBuf, String> {
+    uninstall_provider(id)
 }
 
 fn status_from_result(
@@ -424,10 +431,23 @@ fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
 }
 
 fn codewhale_config_path() -> PathBuf {
-    let base = std::env::var_os("CODEWHALE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".codewhale"));
-    base.join("config.toml")
+    if let Some(path) = std::env::var_os("CODEWHALE_CONFIG_PATH")
+        .or_else(|| std::env::var_os("DEEPSEEK_CONFIG_PATH"))
+    {
+        return PathBuf::from(path);
+    }
+    if let Some(base) = std::env::var_os("CODEWHALE_HOME") {
+        return PathBuf::from(base).join("config.toml");
+    }
+    let current = home_dir().join(".codewhale").join("config.toml");
+    if current.exists() {
+        return current;
+    }
+    let legacy = home_dir().join(".deepseek").join("config.toml");
+    if legacy.exists() {
+        return legacy;
+    }
+    current
 }
 
 fn hook_command(
@@ -652,10 +672,43 @@ fn write_text_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
         fs::set_permissions(&temp, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
     }
     #[cfg(windows)]
-    if path.exists() {
-        fs::remove_file(path).map_err(|e| e.to_string())?;
+    {
+        // Windows rename cannot replace an existing file. Preserve the old
+        // configuration until the new file is known to be in place; deleting
+        // first can lose the user's entire config when antivirus/indexing holds
+        // the destination between remove and rename.
+        let backup = parent.join(format!(
+            ".octopus.{}.{}.bak",
+            std::process::id(),
+            crate::model::now_ms()
+        ));
+        let had_original = path.exists();
+        if had_original {
+            fs::rename(path, &backup).map_err(|e| {
+                let _ = fs::remove_file(&temp);
+                format!("failed to preserve existing config: {e}")
+            })?;
+        }
+        match fs::rename(&temp, path) {
+            Ok(()) => {
+                if had_original {
+                    let _ = fs::remove_file(&backup);
+                }
+                Ok(())
+            }
+            Err(error) => {
+                let _ = fs::remove_file(&temp);
+                if had_original {
+                    let _ = fs::rename(&backup, path);
+                }
+                Err(format!("failed to replace config; original restored: {error}"))
+            }
+        }
     }
-    fs::rename(&temp, path).map_err(|e| e.to_string())
+    #[cfg(not(windows))]
+    {
+        fs::rename(&temp, path).map_err(|e| e.to_string())
+    }
 }
 
 fn opencode_plugin_source() -> &'static str {

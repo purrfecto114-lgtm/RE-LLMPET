@@ -1,0 +1,88 @@
+LLMPET Tauri v0.5.5 reworked R2 file diff
+Baseline: 02b58f8b0632962e2a9fe41950c95f3293a0f2da
+Date: 2026-07-28
+
+NAME-STATUS
+M	CHANGELOG.md
+M	README.md
+M	README_EN.md
+M	README_JA.md
+M	docs/MIGRATION_STATUS.md
+M	docs/UPSTREAM_RECONCILIATION_2026-07-28.md
+M	docs/WINDOWS.md
+M	docs/next-actions.md
+M	frontend/renderer/pet.css
+M	frontend/renderer/pet.html
+M	frontend/renderer/pet.js
+M	frontend/renderer/tauri-bridge.js
+M	package.json
+M	reports/protocol-drift.json
+M	src-tauri/build.rs
+M	src-tauri/capabilities/pet.json
+M	src-tauri/src/commands.rs
+M	src-tauri/src/lib.rs
+M	src-tauri/src/platform.rs
+M	test/tauri-bridge-smoke.js
+M	test/tauri-capability-boundary-smoke.js
+M	test/tauri-command-safety-smoke.js
+M	test/tauri-meme-preview-smoke.js
+M	test/tauri-windows-static-smoke.js
+M	test/upstream-reconciliation-smoke.js
+
+NUMSTAT
+4	0	CHANGELOG.md
+4	2	README.md
+2	2	README_EN.md
+2	2	README_JA.md
+5	1	docs/MIGRATION_STATUS.md
+30	2	docs/UPSTREAM_RECONCILIATION_2026-07-28.md
+25	1	docs/WINDOWS.md
+38	46	docs/next-actions.md
+145	38	frontend/renderer/pet.css
+33	28	frontend/renderer/pet.html
+334	77	frontend/renderer/pet.js
+3	2	frontend/renderer/tauri-bridge.js
+1	1	package.json
+1	1	reports/protocol-drift.json
+1	0	src-tauri/build.rs
+1	0	src-tauri/capabilities/pet.json
+111	36	src-tauri/src/commands.rs
+2	0	src-tauri/src/lib.rs
+64	0	src-tauri/src/platform.rs
+4	1	test/tauri-bridge-smoke.js
+1	1	test/tauri-capability-boundary-smoke.js
+14	0	test/tauri-command-safety-smoke.js
+6	4	test/tauri-meme-preview-smoke.js
+11	1	test/tauri-windows-static-smoke.js
+2	1	test/upstream-reconciliation-smoke.js
+
+WORKTREE STATUS (includes reports and other untracked files)
+ M CHANGELOG.md
+ M README.md
+ M README_EN.md
+ M README_JA.md
+ M docs/MIGRATION_STATUS.md
+ M docs/UPSTREAM_RECONCILIATION_2026-07-28.md
+ M docs/WINDOWS.md
+ M docs/next-actions.md
+ M frontend/renderer/pet.css
+ M frontend/renderer/pet.html
+ M frontend/renderer/pet.js
+ M frontend/renderer/tauri-bridge.js
+ M package.json
+ M reports/protocol-drift.json
+ M src-tauri/build.rs
+ M src-tauri/capabilities/pet.json
+ M src-tauri/src/commands.rs
+ M src-tauri/src/lib.rs
+ M src-tauri/src/platform.rs
+ M test/tauri-bridge-smoke.js
+ M test/tauri-capability-boundary-smoke.js
+ M test/tauri-command-safety-smoke.js
+ M test/tauri-meme-preview-smoke.js
+ M test/tauri-windows-static-smoke.js
+ M test/upstream-reconciliation-smoke.js
+?? docs/FOLLOWUP_DRAG_TERMINAL_UI_2026-07-28.md
+?? reports/followup-drag-terminal-ui-file-diff-2026-07-28.txt
+?? reports/followup-drag-terminal-ui-validation-2026-07-28.json
+?? test/tauri-drag-terminal-phase3-smoke.js

@@ -211,14 +211,15 @@ dumpbin /headers ".\src-tauri\target\release\octopus.exe" |
 
 ## 6. B2：桌宠顶部裁切
 
-**当前状态：BLOCKED，需要真实截图、当前皮肤和 DPI 数据。**
+**当前状态：源码级 DPI/锚定修复已实施；真实 Windows/WebView2 截图与混合 DPI 行为仍为 NOT TESTED。**
 
-### 为什么不能直接按提示词修
+### 已实施的尺寸与视觉锚定重写
 
-- pet 窗口由 `tauri.conf.json` 声明为 320x340、无装饰、透明、无 shadow（L11-L27），不是由 `WebviewWindowBuilder` 创建。
-- cat 容器在 CSS 中是 120x120，图片 `object-fit: contain`（`frontend/renderer/pet.css` L592-L598），明显小于窗口，单凭这些行不能证明窗口高度不足。
-- 运行时 `set_pet_size` 使用 `Size::Physical`（`src-tauri/src/commands.rs` L238-L250），配置中的宽高和 Web 内容通常按逻辑像素理解。这里存在 DPI 单位不一致风险，但还不能直接等同于“顶部裁切根因”。
-- DOM 的 `naturalWidth`/`naturalHeight` 是资源固有尺寸，`getBoundingClientRect()` 是 CSS 像素，Tauri `PhysicalSize` 是物理像素。无条件再乘 `scale_factor()` 可能造成二次缩放。
+- pet 基础窗口仍由 `tauri.conf.json` 以 320x340 逻辑尺寸声明；renderer 的 popup/meme 测量也保持 CSS 逻辑像素语义。
+- `set_pet_size` 统一进入 `resize_pet_anchored`：仅在 Rust 侧按当前 `scale_factor()` 将逻辑尺寸换算为物理尺寸，避免 CSS 与原生层重复缩放。
+- 扩窗和缩窗保留旧窗口的底部中心锚点，并按当前显示器 `work_area()` 限制尺寸与位置，避免打开 HUD 后桌宠横跳或被任务栏/屏幕边缘裁切。
+- renderer 串行执行 Tauri resize invoke，快速打开/关闭弹层时旧请求不能晚到覆盖新尺寸。
+- 该修复解决了可从源码证明的单位和锚定问题；透明 WebView2 在具体 GPU、DPI 和多显示器组合下是否仍有裁切，必须由真机截图和窗口数据确认。
 
 ### 必须采集的诊断数据
 
@@ -252,8 +253,8 @@ Rust/窗口侧记录：
 
 1. **DOM 边界超出 viewport**：修前端布局、定位或 transform，先不要改原生窗口。
 2. **DOM 正常但截图裁切**：检查 WebView2/透明窗口组合和窗口实际 inner size，必要时加可测量的透明 buffer。
-3. **只在调用 `set_pet_size` 后发生**：统一尺寸单位。CSS/配置尺寸应优先使用 `LogicalSize`；只有明确收到物理像素时才用 `PhysicalSize`。
-4. **只在跨 DPI 显示器移动后发生**：监听 scale factor/resize 变化，基于新的 scale factor 重新计算一次，不要在 CSS 和 Rust 两侧同时缩放。
+3. **只在调用 `set_pet_size` 后发生**：检查 `resize_pet_anchored` 的逻辑→物理单次换算、底部中心锚定和 work-area 限制；禁止在 CSS 侧再乘 DPI。
+4. **只在跨 DPI 显示器移动后发生**：记录移动前后 `scale_factor()` 与窗口物理尺寸；必要时监听 scale-factor 变化并重放最后一个逻辑尺寸，仍只允许 Rust 做一次换算。
 5. **只有某张 GIF 裁切**：检查该资源实际画布、透明边界和帧尺寸是否一致，而不是扩大所有窗口。
 
 ### 验收标准
@@ -310,7 +311,7 @@ Windows Explorer 有时会保留失效图标直到鼠标悬停，这可能是 sh
 
 ## 8. B4：旧版互动能力迁移
 
-**当前状态：现版能力 CONFIRMED；旧版差异 BLOCKED。**
+**当前状态：上游差异已完成对账；拖动输入死锁与高频持久化已在源码层修复，真机行为仍为 NOT TESTED。**
 
 ### 现版已存在能力
 
@@ -318,9 +319,9 @@ Windows Explorer 有时会保留失效图标直到鼠标悬停，这可能是 sh
 |---|---|---|
 | 状态切换 GIF | `frontend/renderer/pet.js` L37-L100 | 已实现，不应重复迁移 |
 | 左键短按 | `frontend/renderer/pet.js` L1372-L1384 | 打开会话 HUD |
-| 拖拽 | `frontend/renderer/pet.js` L1347-L1389 | Pointer Events + pointer capture |
+| 拖拽 | `frontend/renderer/pet.js` 的 `attachDrag` / `queueWindowMove` / `commitWindowMove` | Pointer Events + pointer capture；短按与移动手势分离，移动按帧节流，结束时持久化一次 |
 | 右键菜单 | `frontend/renderer/pet.js` L1390-L1394 | 已实现 |
-| 透明区域点击穿透 | `frontend/renderer/pet.js` L1583-L1603；`src-tauri/src/commands.rs` L215-L220 | DOM 命中 + 原生窗口穿透 |
+| 透明区域点击穿透 | renderer 的 `reportPetVisualBounds`；`src-tauri/src/platform.rs` 的 native cursor hit-test | Rust 根据桌面光标、窗口位置、DPI 和交互边界恢复输入，避免严格穿透后的自锁 |
 | 状态词汇契约 | `frontend/shared/states.js` L1-L72 | 已集中管理前端词汇并与 Rust 镜像 |
 
 因此把 B4 标题改为：
@@ -344,15 +345,13 @@ Windows Explorer 有时会保留失效图标直到鼠标悬停，这可能是 sh
 |---|---|---|---|---|---|---|
 | 待填写 | 文件 + 行号 + SHA | 文件 + 行号 + SHA | 完整/部分/无 | 可复现证据 | 保留/重写/丢弃 | 明确步骤 |
 
-### 当前实现值得优先调查的问题
+### 已实施的拖动重写
 
-`pointermove` 每次调用 `setWinPos`（`frontend/renderer/pet.js` L1359-L1370），而 Rust 的 `set_win_pos` 每次都更新配置并 emit（`src-tauri/src/commands.rs` L198-L212）。高频拖动可能导致磁盘写入、序列化和事件广播过多。
-
-推荐方向：
-
-- 拖动中只移动窗口，并按 animation frame 或合理频率节流。
-- `pointerup` / `pointercancel` 时持久化最终位置一次。
-- 如果 Rust API 目前把“移动”和“持久化”绑死，拆成最小的移动命令和保存命令；不要引入笼统的 `interaction.rs`，除非后端交互逻辑已达到独立模块的复杂度。
+- 根因：Tauri 的严格 cursor-ignore 不具备 Electron `forward: true` 语义；启动即穿透后，renderer 无法收到把自身恢复为可交互的 `mousemove`。
+- 原生修复：`PlatformState` 启动单一命中守护，按桌面光标、窗口原点、DPI 和经过校验的交互边界切换穿透；数据缺失时保持可交互。
+- 手势修复：继续保留“短按打开会话 HUD、移动才拖动”的产品行为，没有改成会吞掉复合手势的标题栏式拖动。
+- 性能修复：`set_win_pos` 只移动；renderer 以 animation frame 节流并串行发送；`commit_win_pos` 在拖动结束后只保存和广播一次最终位置。
+- 待验证：Windows/WebView2 真机、混合 DPI、跨显示器、pointercancel/lostcapture 和快速拖动。
 
 ### 纠正 API 描述
 
@@ -365,19 +364,15 @@ Windows Explorer 有时会保留失效图标直到鼠标悬停，这可能是 sh
 
 提示词不应要求“必须新找 3-5 个问题”，因为这会诱导把已有功能或未经复现的猜测包装成缺陷。改成“最多列出 5 个有源码证据或复现证据的问题”。当前可调查项如下：
 
-### U1. 拖动时高频持久化
+### U1. 拖动时高频持久化 — RESOLVED AT SOURCE LEVEL
 
-- **证据**：见 B4。
-- **风险**：卡顿、配置写放大、拖动期间事件风暴。
-- **验证**：记录 5 秒拖动产生的 IPC 数、配置写次数和 CPU。
-- **修复候选**：移动节流，结束时持久化一次。
+- **修复**：移动命令不再写配置或广播完整配置；按 animation frame 节流并串行；手势结束调用一次 `commit_win_pos`。
+- **剩余验收**：在 Windows 真机记录 5 秒拖动 IPC、配置写次数、CPU 和最终位置一致性。
 
-### U2. GIF 预加载和切换闪烁
+### U2. GIF 预加载和切换闪烁 — PARTIALLY RESOLVED
 
-- **证据**：`updateCat` 直接替换 `img.src`（`frontend/renderer/pet.js` L89-L100）。
-- **状态**：HYPOTHESIS，代码不等于一定闪烁。
-- **验证**：清缓存后录屏状态切换，检查 `load` 前是否出现透明帧。
-- **修复候选**：启动后用 `Image` 预载实际映射和 pool 资源；新图 load/decode 成功后再切换可见 src。GIF 的 `decode()` 支持和首帧行为需在 WebView2/Safari/WebKitGTK 分别测量。
+- **修复**：所有猫状态与轮换 GIF 在空闲期通过 `Image` 对象预加载，资源文件没有转码或改写。
+- **剩余验收**：清缓存后在 WebView2/Safari/WebKitGTK 录屏切换，确认首帧、内存和长会话轮换表现；必要时再引入 load/decode 后原子切换。
 
 ### U3. 多显示器恢复线程无法主动停止
 
@@ -386,17 +381,15 @@ Windows Explorer 有时会保留失效图标直到鼠标悬停，这可能是 sh
 - **验证**：正常退出是否被线程或其他服务延迟，日志是否在 shutdown 后继续写。
 - **修复候选**：仅在真实退出阻塞或测试泄漏时加入停止信号，不为理论问题新增复杂架构。
 
-### U4. DPI 单位混用
+### U4. DPI 单位混用 — RESOLVED AT SOURCE LEVEL
 
-- **证据**：配置宽高与 CSS 采用逻辑尺寸语义，而运行时 resize 使用 `PhysicalSize`。
-- **状态**：HYPOTHESIS。
-- **验证和修复**：按 B2 的 DPI 矩阵执行；确认后统一单位。
+- **修复**：renderer 只提交逻辑尺寸；Rust 用当前 scale factor 换算一次，保持底部中心锚点并限制在 monitor work area。
+- **并发修复**：resize invoke 串行化，避免旧请求在快速关闭后覆盖重置尺寸。
+- **剩余验收**：按 B2 的 100%/125%/150%/200% 与混合显示器矩阵截图验证。
 
-### U5. 注释仍称 renderer 为 Electron
+### U5. Electron 生命周期注释 — RESOLVED
 
-- **证据**：`frontend/renderer/pet.js` L1617-L1620。
-- **影响**：不影响运行，但误导维护者对 Tauri/WebView 生命周期的判断。
-- **修复**：改为中性的“renderer context may be destroyed/reloaded”，无需行为改动。
+- **修复**：维护注释已改为中性的 renderer context reload/destroy 描述；仅用于卸载监听，不再暗示 Electron 运行时仍存在。
 
 ## 10. 输出格式修订
 
@@ -450,15 +443,14 @@ Windows Explorer 有时会保留失效图标直到鼠标悬停，这可能是 sh
 
 ## 13. 推荐执行顺序
 
-1. **P0**：确认当前源码版本或 SHA，准备独立的旧仓库目录。
-2. **P0**：按第 3、4、10、11 节修订 `prompt_optimized.md`。
-3. **P0**：在 Windows release 构建中复现 B1，检查两个 EXE subsystem。
-4. **P0**：采集 B2 的 DOM、窗口、DPI 和截图证据，再决定尺寸修复。
-5. **P0**：复现 B3，并用固定 tray ID + 唯一幂等 shutdown 做最小修复。
-6. **P1**：clone 并固定旧 LLMPET SHA，完成 B4 行为差异表。
-7. **P1**：测量拖动 IPC/写配置次数，确认后再拆分移动与持久化。
-8. **P1**：运行 Rust、Node、Windows 打包和人工桌面验收。
-9. **P2**：在可用硬件上补 macOS、X11、Wayland 和混合 DPI 验收。
+1. **P0**：在 Windows release 构建中验证两个 EXE subsystem、无黑框启动和 Windows Terminal→cmd fallback。
+2. **P0**：执行三皮肤拖拽、透明穿透、pointercancel/lostcapture 与快速开关 HUD 的真机回归。
+3. **P0**：按 B2 采集 100%/125%/150%/200% 及混合显示器截图，验证底部中心锚定、work-area 限制和无裁切。
+4. **P0**：复现 B3，并核对固定 tray ID、幂等 shutdown 与 Explorer shell 缓存现象。
+5. **P1**：运行 `cargo fmt/check/test/build --locked`、Node 全门禁、Windows NSIS 打包和真实 Provider CLI。
+6. **P1**：记录 5 秒快速拖动的 IPC 数、配置写次数、CPU 和最终位置一致性。
+7. **P1**：继续按官方上游 UI 行为表迁移仍需要的功能，但拒绝引回 Electron/Node 特有实现。
+8. **P2**：在可用硬件上补 macOS、X11、Wayland、Retina 与混合 DPI 验收。
 
 每一步只有满足明确退出标准才能标记完成；单项被阻塞不应阻塞其他独立项。
 

@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "project": "LLMPET / Octopus Tauri migration",
+  "releaseLabel": "R6 complete source",
+  "validatedAt": "2026-07-29T09:12:52.653868+00:00",
+  "baseline": "R5 complete source",
+  "scope": [
+    "structured CodeWhale doctor JSON redaction and summary",
+    "CodeWhale/Codex/OpenCode authentication probes",
+    "OpenCode provider-native working directory launch arguments",
+    "existing-panel zh/en/ja diagnostics UI",
+    "Windows PowerShell diagnostic parity"
+  ],
+  "gates": {
+    "npmTest": {
+      "passed": true,
+      "r6Checks": 20,
+      "legacyCliHardeningChecks": 35,
+      "visualAssets": 39,
+      "bridgeCommands": 38
+    },
+    "assetVisualRegression": {
+      "passed": true,
+      "byteIdenticalAssets": 39
+    },
+    "sourceReleaseGate": {
+      "passed": true,
+      "ok": 16,
+      "blocked": 0,
+      "failed": 0
+    },
+    "protocolDrift": {
+      "passed": true
+    },
+    "staticCheck": {
+      "passed": true,
+      "checks": 22,
+      "javascriptFiles": 43,
+      "rustFilesLexed": 13
+    },
+    "rustStructure": {
+      "passed": true,
+      "files": 3,
+      "compilerEquivalent": false
+    },
+    "markdownLocalLinks": {
+      "passed": true,
+      "checked": 21,
+      "missing": []
+    },
+    "changedTextWhitespace": {
+      "passed": true,
+      "errors": []
+    }
+  },
+  "diff": {
+    "added": 14,
+    "modified": 10,
+    "deleted": 0
+  },
+  "limitations": [
+    "cargo, rustc and rustfmt are unavailable in the execution environment",
+    "native Tauri compilation and Windows real-CLI execution were not performed",
+    "PowerShell is unavailable in the container; the script is covered by source contracts only",
+    "authentication status is not an end-to-end provider connectivity test"
+  ]
+}

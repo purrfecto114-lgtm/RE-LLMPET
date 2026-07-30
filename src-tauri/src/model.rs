@@ -27,6 +27,7 @@ pub struct Point {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppConfig {
+    pub lang: String,
     pub mode: String,
     pub skin: String,
     pub pet_position: Option<Point>,
@@ -42,11 +43,19 @@ pub struct AppConfig {
     pub providers: Vec<String>,
     pub price_auto_update: bool,
     pub price_refresh_hours: u64,
+    // R19 (2026-07-30): session list pin/archive prefs. Pinned sessions
+    // float to the top of the panel's session list; archived sessions are
+    // hidden unless the user toggles "show archived". Both are stable
+    // session-id strings; the backend never touches the actual session
+    // state, only the display ordering.
+    pub pinned_sessions: Vec<String>,
+    pub archived_sessions: Vec<String>,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            lang: "zh".into(),
             mode: "pet".into(),
             skin: "mascot".into(),
             pet_position: None,
@@ -62,13 +71,18 @@ impl Default for AppConfig {
             providers: vec!["claude".into()],
             price_auto_update: true,
             price_refresh_hours: 24,
+            pinned_sessions: Vec::new(),
+            archived_sessions: Vec::new(),
         }
     }
 }
 
 impl AppConfig {
     pub fn sanitize(mut self) -> Self {
-        if !matches!(self.mode.as_str(), "pet" | "panel" | "menubar") {
+        if !matches!(self.lang.as_str(), "zh" | "en" | "ja") {
+            self.lang = "zh".into();
+        }
+        if !matches!(self.mode.as_str(), "pet" | "panel" | "menubar" | "hidePet") {
             self.mode = "pet".into();
         }
         if !matches!(self.skin.as_str(), "mascot" | "pixel" | "cat") {
@@ -1125,7 +1139,15 @@ impl Runtime {
 
     pub fn write_log(&self, tag: &str, message: &str) {
         let safe_tag: String = tag.chars().filter(|c| !c.is_control()).take(64).collect();
-        let safe_message: String = message.chars().filter(|c| *c != '\0').take(4096).collect();
+        let safe_tag = if safe_tag.is_empty() { "app" } else { safe_tag.as_str() };
+        // Renderer-originated diagnostics share this sink with native logs. Keep
+        // every event on one bounded line so a compromised WebView cannot forge
+        // additional timestamp/tag records with CR/LF or other controls.
+        let safe_message: String = message
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .take(4096)
+            .collect();
         let line = format!("{} [{}] {}\n", now_ms(), safe_tag, safe_message);
         let _ = fs::OpenOptions::new()
             .create(true)

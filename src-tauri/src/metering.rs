@@ -62,6 +62,15 @@ pub struct UsageEvent {
     pub output: u64,
     pub cache_read: u64,
     pub cache_create: u64,
+    // R18 (2026-07-30): Anthropic exposes cache writes split by TTL —
+    // 5-minute ephemeral and 1-hour ephemeral. Older transcript rows only
+    // have the aggregate cache_creation_input_tokens; we attribute the
+    // full amount to 5m in that case (Anthropic's default TTL is 5m).
+    // serde(default) keeps older ledger JSON loading without breakage.
+    #[serde(default)]
+    pub cache_write_5m: u64,
+    #[serde(default)]
+    pub cache_write_1h: u64,
     #[serde(default = "default_true")]
     pub input_includes_cache: bool,
     pub reasoning: u64,
@@ -104,6 +113,9 @@ struct Aggregate {
     output: u64,
     cache_create: u64,
     cache_read: u64,
+    // R18: split cache writes by TTL for parity with upstream metering.js
+    cache_write_5m: u64,
+    cache_write_1h: u64,
     tokens: u64,
     messages: u64,
     unknown_price: u64,
@@ -117,6 +129,8 @@ impl Aggregate {
         self.output = self.output.saturating_add(event.output);
         self.cache_create = self.cache_create.saturating_add(event.cache_create);
         self.cache_read = self.cache_read.saturating_add(event.cache_read);
+        self.cache_write_5m = self.cache_write_5m.saturating_add(event.cache_write_5m);
+        self.cache_write_1h = self.cache_write_1h.saturating_add(event.cache_write_1h);
         let mut tokens = event.input.saturating_add(event.output);
         if !event.input_includes_cache {
             tokens = tokens
@@ -139,6 +153,8 @@ impl Aggregate {
             "input": self.input,
             "output": self.output,
             "cacheCreate": self.cache_create,
+            "cacheWrite5m": self.cache_write_5m,
+            "cacheWrite1h": self.cache_write_1h,
             "cacheRead": self.cache_read,
             "tokens": self.tokens,
             "messages": self.messages,
@@ -428,6 +444,12 @@ impl UsageLedger {
             output,
             cache_read,
             cache_create,
+            // R18: CodeWhale turn_end hooks do not expose the 5m/1h TTL split.
+            // The aggregate cache_create is preserved for cost math; the
+            // split fields stay 0 so the panel's 5m/1h rows read 0 until
+            // CodeWhale starts emitting the split.
+            cache_write_5m: 0,
+            cache_write_1h: 0,
             input_includes_cache: true,
             reasoning,
             reasoning_replay,
@@ -463,6 +485,25 @@ impl UsageLedger {
         if input == 0 && output == 0 && cache_read == 0 && cache_create == 0 {
             return None;
         }
+        // R18 (2026-07-30): Anthropic exposes cache writes split by TTL via
+        // usage.cache_creation.ephemeral_5m_input_tokens /
+        // ephemeral_1h_input_tokens. Older transcript rows only have the
+        // aggregate cache_creation_input_tokens; we attribute the full
+        // remainder to 5m (Anthropic's default TTL is 5 minutes), matching
+        // upstream metering.js usageSnapshot().
+        let cache_creation_obj = usage
+            .get("cache_creation")
+            .and_then(Value::as_object);
+        let explicit_5m = cache_creation_obj
+            .and_then(|o| number(o, &["ephemeral_5m_input_tokens"]))
+            .unwrap_or(0);
+        let one_hour = cache_creation_obj
+            .and_then(|o| number(o, &["ephemeral_1h_input_tokens"]))
+            .unwrap_or(0);
+        let five_minute = explicit_5m
+            .saturating_add(cache_create.saturating_sub(explicit_5m.saturating_add(one_hour)));
+        let cache_write_5m = five_minute;
+        let cache_write_1h = one_hour;
         let model = text(message, &["model"], 256).unwrap_or_else(|| "unknown".into());
         let session_id = text(object, &["sessionId", "session_id"], 256)
             .or_else(|| {
@@ -523,6 +564,8 @@ impl UsageLedger {
             output,
             cache_read,
             cache_create,
+            cache_write_5m,
+            cache_write_1h,
             input_includes_cache: false,
             reasoning: number(usage, &["reasoning_tokens"]).unwrap_or(0),
             reasoning_replay: 0,

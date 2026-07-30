@@ -1,0 +1,40 @@
+{
+  "checkedAt": "2026-07-29T02:00:00-07:00",
+  "sources": [
+    {
+      "name": "CodeWhale configuration/doctor contract",
+      "url": "https://github.com/Hmbown/CodeWhale/blob/main/docs/CONFIGURATION.md",
+      "facts": [
+        "doctor/setup are codewhale-tui subcommands",
+        "doctor --json is machine-readable and network-light",
+        "api_key.source and capability route fields are documented",
+        "auth status reports credential source without printing the key"
+      ]
+    },
+    {
+      "name": "OpenCode CLI",
+      "url": "https://opencode.ai/docs/cli/",
+      "facts": [
+        "--dir sets TUI working directory",
+        "auth list lists stored authenticated providers",
+        "environment variables and project .env can also supply credentials"
+      ]
+    },
+    {
+      "name": "Codex developer commands",
+      "url": "https://developers.openai.com/codex/developer-commands",
+      "facts": [
+        "codex login status reports active authentication mode and exits 0 when logged in"
+      ]
+    },
+    {
+      "name": "Claude Code setup",
+      "url": "https://code.claude.com/docs/en/setup",
+      "facts": [
+        "claude --version verifies installation",
+        "claude doctor is a read-only installation/settings diagnostic"
+      ]
+    }
+  ],
+  "interpretation": "Authentication probes are evidence for one layer only; they are warnings rather than launch blockers because custom providers, environment keys, project .env files and local/keyless routes may remain valid."
+}

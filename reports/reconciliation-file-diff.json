@@ -1,0 +1,505 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-28",
+  "baseline": "/mnt/data/llmpet_work/tauri/RE-LLMPET-v0.5.5",
+  "worktree": "/mnt/data/llmpet_work/RE-LLMPET-v0.5.5-reworked",
+  "summary": {
+    "added": 16,
+    "modified": 29,
+    "removed": 0
+  },
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "status": "modified",
+      "before": {
+        "bytes": 14040,
+        "sha256": "f8a136ac99a997bbc4a29ebb43815df73a8e3503db11f19ecc389afdf781abc1"
+      },
+      "after": {
+        "bytes": 15864,
+        "sha256": "4ecb5f63b8eb3d8fa0b3dedfe6d5932de9d9acf80eb7c729ae4bb96e30344ce6"
+      }
+    },
+    {
+      "path": "README.md",
+      "status": "modified",
+      "before": {
+        "bytes": 5386,
+        "sha256": "8e2af29470f3b6f70df293cd273b78b99dfa14ec7c34579828fe8e8069526453"
+      },
+      "after": {
+        "bytes": 5902,
+        "sha256": "383fbf3ce4fc18b248023c9bc6cebed3de9d23efd20b58764d85d36ddb59a30d"
+      }
+    },
+    {
+      "path": "README_EN.md",
+      "status": "modified",
+      "before": {
+        "bytes": 795,
+        "sha256": "0887694dd071f8ce490e3f2075ec14eb494c3461ce800a6268b6314355a9b54e"
+      },
+      "after": {
+        "bytes": 1619,
+        "sha256": "55fd04e43f3dc317eeec4b31aa7e6b3f6ce619fe3c2d7a574c125ebb9cab5f91"
+      }
+    },
+    {
+      "path": "README_JA.md",
+      "status": "modified",
+      "before": {
+        "bytes": 838,
+        "sha256": "ccded1af317ad1f9c96aaafa6534fc363995d38de4a41f44d791b01bbab80806"
+      },
+      "after": {
+        "bytes": 1872,
+        "sha256": "0bb16e98dbcf527c61690280d6e42bf3f920f4818faedab64e536a54268ada29"
+      }
+    },
+    {
+      "path": "docs/MEME_ASSET_PROVENANCE.md",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 2722,
+        "sha256": "00b60262bda0034d9af9821871bbf4bb26440095ad7d5fbe09a4ace45fa7302c"
+      }
+    },
+    {
+      "path": "docs/MIGRATION_STATUS.md",
+      "status": "modified",
+      "before": {
+        "bytes": 1316,
+        "sha256": "36acad1599e5c013ceb09427aa7c6643897382a6db6192ff783f225467b06021"
+      },
+      "after": {
+        "bytes": 2554,
+        "sha256": "cd21f6ae8f2fe41fde4a956aca448013519b70355c787341e9d4064e98a8637d"
+      }
+    },
+    {
+      "path": "docs/UPSTREAM_RECONCILIATION_2026-07-28.md",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 9120,
+        "sha256": "9ba93d21cdffe9616f64140ef99827d94a298a227bbfdf3d635b4ace83ffbb22"
+      }
+    },
+    {
+      "path": "frontend/assets/cat/CREDITS.md",
+      "status": "modified",
+      "before": {
+        "bytes": 2757,
+        "sha256": "70ab95083923bd817f22e936ce5176497b0933e0d932c41db2e6e0ebd82bf0c8"
+      },
+      "after": {
+        "bytes": 2795,
+        "sha256": "b49c4ec367f5a212e25f9bc8e79010f3999b2d81073c785a9b1d7b1873a8ab25"
+      }
+    },
+    {
+      "path": "frontend/assets/memes/huaqiang-guaranteed/visual.gif",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 796199,
+        "sha256": "071b250823da30d6bdf80891a61cf5debe674f4e19cd8df35079d41cbe172481"
+      }
+    },
+    {
+      "path": "frontend/assets/memes/huaqiang-guaranteed/voice.mp3",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 51314,
+        "sha256": "acd1b3d4a066d7a7d2d72a1fe3c2a15585c81ae3b95b12ae70b2fc25dcdf560d"
+      }
+    },
+    {
+      "path": "frontend/assets/memes/ni-gan-ma/visual.gif",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 656667,
+        "sha256": "485ae2c4aacd3b3c7a41b141ad31b58f6b3457b3c9c1fe9efd962dcf439f232f"
+      }
+    },
+    {
+      "path": "frontend/assets/memes/ni-gan-ma/voice.mp3",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 104882,
+        "sha256": "c45cbb45b263d470781b41de8c1247841183d8f674a4559ca39d54cb23cb0c29"
+      }
+    },
+    {
+      "path": "frontend/renderer/panel.css",
+      "status": "modified",
+      "before": {
+        "bytes": 13853,
+        "sha256": "47aa844066197dff7ee1eaf8f1b6a73c233f1d3575d55c451d867b7e9d646b73"
+      },
+      "after": {
+        "bytes": 14416,
+        "sha256": "4ffe9e30cbbf3bbde56b502708bce88fdffe8a6828721a08c5280921166426de"
+      }
+    },
+    {
+      "path": "frontend/renderer/panel.html",
+      "status": "modified",
+      "before": {
+        "bytes": 6039,
+        "sha256": "3e1a3a67201e5b74e0262824ece7de0e904c61ff9e96bc1560d768c7aef0c121"
+      },
+      "after": {
+        "bytes": 7332,
+        "sha256": "f96e4d9f5571968ec0bedcdd905a76d95a1048aae28564583c411f97af2778c0"
+      }
+    },
+    {
+      "path": "frontend/renderer/panel.js",
+      "status": "modified",
+      "before": {
+        "bytes": 29013,
+        "sha256": "3e4e3ab4eda647be6de8e7f90f6f5aa91f216a15866c5bd6a2c619ea882b5e4f"
+      },
+      "after": {
+        "bytes": 30334,
+        "sha256": "f8ef507d241d35c634e6d606bbef6a681ad6f3626a705af26306ef98477f9e61"
+      }
+    },
+    {
+      "path": "frontend/renderer/pet.css",
+      "status": "modified",
+      "before": {
+        "bytes": 38449,
+        "sha256": "c622d1b7f77bc8ffec9b5fa0f75d69611f003423e8ba846a6cca0e0365f5526c"
+      },
+      "after": {
+        "bytes": 41194,
+        "sha256": "e546526a28d507dba0479bc501439564b5db44ef9ebf40ec91260ac4c42e8c0e"
+      }
+    },
+    {
+      "path": "frontend/renderer/pet.html",
+      "status": "modified",
+      "before": {
+        "bytes": 5786,
+        "sha256": "568d862fa04ce05076a49f472ab71d0598567d38cb5e978d608c4b920a62a06f"
+      },
+      "after": {
+        "bytes": 7284,
+        "sha256": "b63cbb8346fc0c75b338b04757fe48c593c965c4eff6c494a172519114fd9de1"
+      }
+    },
+    {
+      "path": "frontend/renderer/pet.js",
+      "status": "modified",
+      "before": {
+        "bytes": 69834,
+        "sha256": "3ba71ff68b872a596d417b51e573aa7f3957c8d2a7f050dc85ce86aec5e164c0"
+      },
+      "after": {
+        "bytes": 77186,
+        "sha256": "2abd0b525e0436dca230098b7e4580317c40b5da1a3fd19119dfe9cb1f8b2800"
+      }
+    },
+    {
+      "path": "frontend/renderer/tauri-bridge.js",
+      "status": "modified",
+      "before": {
+        "bytes": 4556,
+        "sha256": "6c4de1cd4ece22aa51c8460660ca71dcb52ea27c373333cd0de14ae29ac46494"
+      },
+      "after": {
+        "bytes": 4615,
+        "sha256": "50be0a89a4c4847bb28b24757abfa3e7a5a55e7976b7549648979e7b9c8f7d16"
+      }
+    },
+    {
+      "path": "frontend/shared/i18n.js",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 43537,
+        "sha256": "73506ebf26d625647209660639ef6ea59b336cf4805a86c633322f8c560c0f63"
+      }
+    },
+    {
+      "path": "frontend/shared/memes.js",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 2589,
+        "sha256": "9b7bbdaa706dd35b62b2c99191049c054e402fd1abf8b664dc61a745cd3f0c45"
+      }
+    },
+    {
+      "path": "package.json",
+      "status": "modified",
+      "before": {
+        "bytes": 2560,
+        "sha256": "1f8839d63fae13737746bfc8a7e2b4d8ae073a7defbb8142ad05a64427403945"
+      },
+      "after": {
+        "bytes": 2977,
+        "sha256": "b90cb063680f59c73a53b044750d69c826f17be05f53c9066d81c49cef46b196"
+      }
+    },
+    {
+      "path": "reports/asset-visual-baseline.json",
+      "status": "modified",
+      "before": {
+        "bytes": 19165,
+        "sha256": "52860981f35daa18e51d9bacacb218638da44813ac64f717418fbfda6dfcf17d"
+      },
+      "after": {
+        "bytes": 21397,
+        "sha256": "da88680d5ef8965e3cd849a28ee08021fd2fd86cb428a6b8b7f85fecb0fa1599"
+      }
+    },
+    {
+      "path": "reports/protocol-drift.json",
+      "status": "modified",
+      "before": {
+        "bytes": 4679,
+        "sha256": "e1d132170e9186781e81418d6cd7ea38248f3ea2338db40c710c0c2cd5b2cc1c"
+      },
+      "after": {
+        "bytes": 4679,
+        "sha256": "3da2cbc1c88dfdb87c06ccfb082192134fcc8b42bcf49e3ec33bbdeb93fc2ada"
+      }
+    },
+    {
+      "path": "reports/reconciliation-validation.json",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 3051,
+        "sha256": "12e57f767078896fee71edf935ff79d3ee467261a64c56fc21175ce57ac1b2a7"
+      }
+    },
+    {
+      "path": "reports/source-package-manifest.json",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 25786,
+        "sha256": "c6b679b4c3fc5cd1261bbff356091255823baa1f8dccec63ef91a00db25c892f"
+      }
+    },
+    {
+      "path": "reports/upstream-import-provenance.json",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 2214,
+        "sha256": "77adcb95a5427417b12e749dbc353210752b513c59241cf22dc5d7d9be4fa8ea"
+      }
+    },
+    {
+      "path": "resources/memes/catalog.json",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 9566,
+        "sha256": "c49f3188a36ce2184876c2adb1973022c33c1f79355b54a566934b802625b46a"
+      }
+    },
+    {
+      "path": "scripts/asset-visual-regression.js",
+      "status": "modified",
+      "before": {
+        "bytes": 3662,
+        "sha256": "eb0413858d144e579981ed34f27a9a1212f4c811910b80a2934e77f326f738f5"
+      },
+      "after": {
+        "bytes": 3779,
+        "sha256": "8de7f3783d7a6bffbfe37b69b63f633ef94a333cebcabd7c1857e1771e271b00"
+      }
+    },
+    {
+      "path": "scripts/generate-public-meme-catalog.js",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 5119,
+        "sha256": "fc23cd9285d29110ed9525244e74abcd14958aff7417e4019f55f2ab3bcff64f"
+      }
+    },
+    {
+      "path": "src-tauri/build.rs",
+      "status": "modified",
+      "before": {
+        "bytes": 983,
+        "sha256": "17d804b84a2b548a2f43ba10decde4da8a9c3ced845ffff9afe720da8a9a5109"
+      },
+      "after": {
+        "bytes": 1003,
+        "sha256": "dcbdc4923e782f67669708285dea835785f7319cb45751c5a0d797208d875d6c"
+      }
+    },
+    {
+      "path": "src-tauri/capabilities/panel.json",
+      "status": "modified",
+      "before": {
+        "bytes": 538,
+        "sha256": "9d5acbb277f56bb9439dcc141e1ae3f124b13b8676aec127fdc3aa06994d99f1"
+      },
+      "after": {
+        "bytes": 564,
+        "sha256": "e95750bf375c1cf34d49f55365baa64a15fa6d0758753447b505711b778c8395"
+      }
+    },
+    {
+      "path": "src-tauri/capabilities/pet.json",
+      "status": "modified",
+      "before": {
+        "bytes": 836,
+        "sha256": "79a5f58353ac00763d9d3a81873f340919a3a33c28c1e0f3e3e49d26c4c733a1"
+      },
+      "after": {
+        "bytes": 862,
+        "sha256": "7116cc2caf38f6505b8de4b9322188949e000b387ef0b5e8a6e7ea6aeccf2a37"
+      }
+    },
+    {
+      "path": "src-tauri/src/commands.rs",
+      "status": "modified",
+      "before": {
+        "bytes": 17140,
+        "sha256": "459514adeb823be4cfd351b94ab0c8f88c2f75f2ee1f4b020eaa480fb1cc57ab"
+      },
+      "after": {
+        "bytes": 17691,
+        "sha256": "216535eb1103c68d8c398e87de4b177f29a9cba74fb586fbbb973254f055f5f0"
+      }
+    },
+    {
+      "path": "src-tauri/src/hook_install.rs",
+      "status": "modified",
+      "before": {
+        "bytes": 25806,
+        "sha256": "249574ed107a630c5917a76480219a56c2d02fa19471056be87d107d98605b5a"
+      },
+      "after": {
+        "bytes": 26663,
+        "sha256": "27425cb37d29329c06bebf5a1f30e473cced9ad944f3a78ee30f58c6c1213040"
+      }
+    },
+    {
+      "path": "src-tauri/src/http_server.rs",
+      "status": "modified",
+      "before": {
+        "bytes": 23462,
+        "sha256": "501427e619a64e08ee23df2d21e4d126d189d076eb2a89eb405008d7452a50c2"
+      },
+      "after": {
+        "bytes": 24189,
+        "sha256": "cd869c46c307f7823a67a6f287b84e72386e369a74f82a45facdef264a0b4c55"
+      }
+    },
+    {
+      "path": "src-tauri/src/lib.rs",
+      "status": "modified",
+      "before": {
+        "bytes": 8969,
+        "sha256": "332a1d9a739bfbc04a2d7eea11872908788060c54aa74ab8548decc0bfc47b3e"
+      },
+      "after": {
+        "bytes": 8995,
+        "sha256": "6d9b777fa3a654719b9ef95dd60847d0732c28030a6908158e4c0e38bc7e138e"
+      }
+    },
+    {
+      "path": "src-tauri/src/model.rs",
+      "status": "modified",
+      "before": {
+        "bytes": 63697,
+        "sha256": "fd062ecd247a85329b797f265dc8f160b2d171090f2862222bb57ccda805098b"
+      },
+      "after": {
+        "bytes": 64256,
+        "sha256": "954560ccde6c8691f771b1c84d223a9e8240f3a257ae1436d2f024a920308152"
+      }
+    },
+    {
+      "path": "src-tauri/src/platform.rs",
+      "status": "modified",
+      "before": {
+        "bytes": 11184,
+        "sha256": "c7eaa0a8e3e0d0d973e924f8bb072061be09b4ad1b95201414ae7d98266c38ab"
+      },
+      "after": {
+        "bytes": 12831,
+        "sha256": "8e6dc498e86ec7bea935964d9a2a1293d6eeefd2e1eba6f78bd92ab93f80d760"
+      }
+    },
+    {
+      "path": "test/tauri-bridge-smoke.js",
+      "status": "modified",
+      "before": {
+        "bytes": 3986,
+        "sha256": "5174611bf40a33f843f713af4ac8662817209dbb4d26712c94475b043ab9e179"
+      },
+      "after": {
+        "bytes": 4118,
+        "sha256": "bcc2a7817c152dd39c22735b5f30797a489d13951567454804fe6ea1d934cd39"
+      }
+    },
+    {
+      "path": "test/tauri-command-safety-smoke.js",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 2530,
+        "sha256": "6f117cbbc3f1c8734bf59602c0a6f35147b631a48fcee79d26b602f1b8206308"
+      }
+    },
+    {
+      "path": "test/tauri-meme-preview-smoke.js",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 2387,
+        "sha256": "e5da701b48d963020d03cba988c4e4838ee94c5f02ad2b6d38af1b1f0c2824ed"
+      }
+    },
+    {
+      "path": "test/tauri-provider-phase2-smoke.js",
+      "status": "modified",
+      "before": {
+        "bytes": 4765,
+        "sha256": "0200d1fd0c75bb878cc94d75723dc3636414450a582415caba6cc4c99bb54b62"
+      },
+      "after": {
+        "bytes": 5783,
+        "sha256": "09d4a17ffe018612adf4c4a2e76bfbce398e5d77099c185f9641eb551c09bb62"
+      }
+    },
+    {
+      "path": "test/tauri-windows-static-smoke.js",
+      "status": "modified",
+      "before": {
+        "bytes": 1792,
+        "sha256": "e74e7f5af755936fe5e8219ac939d2f46c839a8f21b974a925b9237e6e5cad61"
+      },
+      "after": {
+        "bytes": 2431,
+        "sha256": "fcf127b03f85e64b34266df7bbfd104b9161ac423cc92be1705fdfcf7fb07bef"
+      }
+    },
+    {
+      "path": "test/upstream-reconciliation-smoke.js",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 4489,
+        "sha256": "92c47f99320197b946c6fe95b96c178e1fb311165156c6b4a1eb9d69e448b2c5"
+      }
+    }
+  ]
+}

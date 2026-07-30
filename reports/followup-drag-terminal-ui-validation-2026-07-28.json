@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 2,
+  "date": "2026-07-28",
+  "candidate": "LLMPET-Tauri-v0.5.5-reworked-r2",
+  "baselineCommit": "02b58f8b0632962e2a9fe41950c95f3293a0f2da",
+  "changeSummary": {
+    "changedTrackedFiles": 25,
+    "untrackedFiles": 4,
+    "assetFilesModified": []
+  },
+  "implemented": [
+    "native cursor hit-test recovery for strict Tauri click-through",
+    "manual short-click-versus-drag gesture with one final position commit",
+    "idempotent pointer-capture completion",
+    "Windows Terminal direct allow-listed executable launch with cmd.exe fallback only",
+    "logical-to-physical DPI conversion with bottom-centre anchoring and work-area clamp",
+    "serialized Tauri resize invokes",
+    "upstream-style skin-aware side-media meme layout",
+    "bounded ask UI, fixed toolbar and five-provider identity parity"
+  ],
+  "verification": {
+    "npmTest": {
+      "status": "passed"
+    },
+    "assetGate": {
+      "status": "passed",
+      "byteIdenticalAssets": 39
+    },
+    "memeGate": {
+      "status": "passed",
+      "publicEntries": 2,
+      "fullPromptsExposed": false
+    },
+    "sourceGate": {
+      "status": "passed",
+      "ok": 16,
+      "blocked": 0,
+      "failed": 0
+    },
+    "protocolGate": {
+      "status": "passed",
+      "bridgeCommands": 37
+    },
+    "javascriptSyntax": {
+      "status": "passed",
+      "files": 40,
+      "errors": []
+    },
+    "rustLexicalStructure": {
+      "status": "passed",
+      "files": 13,
+      "errors": [],
+      "note": "Not a Rust compiler/type check."
+    },
+    "css": {
+      "files": 2,
+      "parseErrors": []
+    },
+    "html": {
+      "ids": 61,
+      "duplicateIds": [],
+      "javascriptIdReferences": 59,
+      "missingJavascriptIdReferences": [],
+      "missingLocalResources": []
+    },
+    "markdownLinks": {
+      "checked": 21,
+      "missing": []
+    },
+    "gitDiffCheck": {
+      "status": "passed",
+      "output": ""
+    }
+  },
+  "nativeVerification": {
+    "cargoAvailable": false,
+    "rustcAvailable": false,
+    "rustfmtAvailable": false,
+    "cargoBuildRun": false,
+    "reason": "Rust toolchain absent; container DNS cannot resolve Rust/package/GitHub hosts.",
+    "required": [
+      "cargo fmt/check/test/build --locked on Windows, macOS and Linux",
+      "Windows WebView2 drag/click-through at 100/125/150/200 percent scale",
+      "mixed-DPI monitor crossing and work-area clamping",
+      "Windows Terminal present and absent fallback behavior",
+      "real five-provider CLI launch and focus behavior"
+    ]
+  },
+  "webCrossChecks": [
+    "Tauri 2.11.5 WebviewWindow cursor_position/inner_position/scale_factor/set_ignore_cursor_events APIs",
+    "Tauri Window setIgnoreCursorEvents/startDragging APIs",
+    "Tauri Monitor work_area/scale_factor API",
+    "Microsoft Windows Terminal command-line arguments",
+    "Tauri forward-option feature request and drag mouseup issue"
+  ]
+}

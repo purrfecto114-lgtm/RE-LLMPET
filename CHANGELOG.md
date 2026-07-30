@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.5.5 R7 — resilient doctor fallback and bounded local diagnostics（2026-07-29）
+
+- Reconciled CodeWhale's conflicting public dispatcher and detailed TUI doctor documentation with a bounded, auditable fallback chain: try `codewhale doctor --json`, then use the matched `codewhale-tui doctor --json` when the first surface has no parseable JSON. Both attempts, targets and selected surface remain visible.
+- Removed arbitrary diagnostic working directories from the always-on WebView. Diagnostics now run only in the application-owned directory, preventing renderer-controlled projects from implicitly loading provider `.env`, plugins, hooks or workspace configuration.
+- Added CodeWhale project-overlay detection, current/legacy overlay conflict warnings, and Claude Code `<2.1.200` sleep/wake compatibility guidance without turning version age into a launch blocker.
+- Added Aider configuration discovery for cwd/git-root/home and reports only credential environment variable names and model-presence booleans, never credential values.
+- Extended the existing zh/en/ja provider diagnostic card and the Windows PowerShell 5.1 evidence collector; no new web page or remote UI dependency was introduced.
+- Added a 23-check R7 CLI-resilience suite and a stable `npm run check:static` gate. Full npm smoke, 39-byte-identical visual/media assets, protocol drift, source-release gates, JavaScript/JSON checks and Rust lexical/structure checks pass. Native compilation and real Windows CLI execution remain external gates.
+
+## 0.5.5 R6 — authentication and route diagnostics（2026-07-29）
+
+- Split pre-launch diagnostics into installation, authentication, provider/model routing, and working-directory evidence instead of collapsing every CLI failure into `internal error`.
+- Parse CodeWhale `doctor --json` before truncation, recursively redact secrets, and expose only bounded route/config/session-migration summaries to the existing provider panel.
+- Added non-interactive `codewhale auth status`, `codex login status`, and `opencode auth list` probes; authentication uncertainty remains a warning because environment keys, project `.env`, custom providers, or local/keyless providers can still work.
+- OpenCode now receives its official `--dir .` argument on Windows Terminal, cmd fallback, macOS Terminal, and Linux terminal paths while retaining process `current_dir`.
+- Extended the Windows PowerShell 5.1 collector, zh/en/ja UI labels, structured migration TODO, and a 20-check R6 regression suite. No image, GIF, MP3, drag, DPI, or transparency behavior was replaced.
+- Offline tests, 39-byte-identical asset gate, protocol drift, 16 source-release gates, JavaScript syntax, JSON parsing, and Rust lexical/structure checks pass. Native Rust compilation and real CLI/desktop evidence remain external gates.
+
+## 0.5.5 — upstream reconciliation, visual preservation and runtime hardening（2026-07-28）
+
+- R4 merged the CLI-hardening overlay into the complete R2 source tree with a guarded function-level merge; it did not overwrite drag, cursor hit-testing, DPI anchoring, language switching, UI state, or visual/media resources.
+- Added diagnosable fixed-provider launch resolution, PATHEXT/npm shim handling, CodeWhale companion/version/doctor checks, explicit cwd support, bounded stdout/stderr probes, and a Windows PowerShell diagnostic collector.
+- Kept Windows Terminal as the primary host with a restricted cmd fallback, and fixed VS Code/Cursor `.cmd` GUI entry points without restoring `cmd /C start`.
+- The default test suite now includes 35 CLI merge/preservation assertions; all offline tests, resource hashes, protocol drift and source release gates pass. Native Rust compilation and Windows real-CLI evidence remain unclaimed.
+- Reconciled the Tauri tree against official upstream `49fef749364b31dfa2ddab857aed7d82d49460cc` and the five-provider fork `b424675b80162121e58cab631088604d10716b63`; official UI behavior, fork protocol lessons and Tauri runtime responsibilities are recorded separately.
+- Imported official zh/en/ja copy, two GIFs, two MP3 files and the cat-skin attribution byte-for-byte; retained the full meme catalog as a backend resource and generated a presentation-only renderer manifest without full prompt bodies.
+- Added persistent language switching for the core pet/panel UI and an honestly labelled local meme preview that preserves GIF/audio quality without pretending to send prompts.
+- Fixed the session-list provider launch regression where Codex/OpenCode/Aider labels still launched Claude; all five providers now use one fixed Rust allowlist, distinct session/cost icons and fail-closed unknown identifiers.
+- Replaced Windows shell-interpolated path opening with `explorer.exe` arguments; corrected PowerShell focus-helper scope; validated and stored UI-busy/visual-bound state instead of accepting no-op commands; flattened bounded diagnostics to prevent multi-line log forgery.
+- Hardened Windows hook/runtime atomic replacement with backup-and-rollback behavior so a rename failure does not destroy the previous configuration.
+- Added deterministic meme generation, upstream hash/provenance checks, command-safety tests, provider-launch regression tests and a 39-file visual baseline gate.
+- Fixed the transparent-pet input deadlock caused by treating Tauri's strict cursor-ignore API like Electron's `forward: true`: a native cursor hit-test guard now restores input over validated interactive bounds, while short-click and drag remain distinct gestures.
+- Reworked drag into an animation-frame-throttled move path with one final position commit, eliminating configuration writes and full config broadcasts on every pointer movement; pointer-capture completion is idempotent and popup resize invokes are serialized.
+- Windows agent launch now passes the allow-listed provider executable directly to `wt.exe` in a new Windows Terminal window; only if Terminal cannot be spawned does it fall back to `cmd.exe /D /K`, with no `cmd /C start` wrapper.
+- Continued upstream visual migration with a bounded ask body/fixed toolbar, per-provider identity tags, an in-session-HUD meme page, skin-aware side media, idle GIF preloading, and DPI-aware bottom-centre window anchoring while preserving every imported media byte.
+- All offline source, protocol, resource and JavaScript checks pass. Rust/Tauri compilation and real-provider/desktop/signing evidence remain unavailable in the current no-toolchain, DNS-blocked environment and are not claimed.
+
 ## 0.5.1 — comprehensive audit hardening（2026-07-28）
 
 - Removed blanket Bash auto-approval and delegated HTTPS WebFetch to the provider-native permission flow; cleartext HTTP remains denied.

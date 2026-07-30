@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-29T01:10:00-07:00",
+  "baseline": "LLMPET-Tauri-v0.5.5-reworked-r4-full-source.zip",
+  "excludedFromDiff": [
+    "reports/r5-file-diff.json",
+    "reports/r5-file-diff.txt",
+    "reports/source-package-manifest-r5.json"
+  ],
+  "addedCount": 11,
+  "modifiedCount": 16,
+  "deletedCount": 0,
+  "added": [
+    "docs/MIGRATION_R5_AUTONOMOUS_DEEP_DIVE_2026-07-29.md",
+    "docs/MIGRATION_R5_TODOLIST.md",
+    "reports/logs/r5-assets.log",
+    "reports/logs/r5-npm-test.log",
+    "reports/logs/r5-protocol.log",
+    "reports/logs/r5-rust-structure.log",
+    "reports/logs/r5-source-gate.log",
+    "reports/logs/r5-static-check.log",
+    "reports/r5-autonomous-validation.json",
+    "reports/r5-web-verification.json",
+    "test/tauri-cli-diagnostics-r5-smoke.js"
+  ],
+  "modified": [
+    "docs/CODEWHALE.md",
+    "docs/PROVIDER_CAPABILITY_MATRIX.md",
+    "frontend/renderer/panel.css",
+    "frontend/renderer/panel.html",
+    "frontend/renderer/panel.js",
+    "frontend/renderer/tauri-bridge.js",
+    "frontend/shared/i18n.js",
+    "package.json",
+    "reports/protocol-drift.json",
+    "reports/upstream-import-provenance.json",
+    "scripts/windows-cli-diagnostics.ps1",
+    "src-tauri/src/commands.rs",
+    "src-tauri/src/hook_install.rs",
+    "test/tauri-bridge-smoke.js",
+    "test/tauri-cli-hardening-r3-smoke.js",
+    "test/upstream-reconciliation-smoke.js"
+  ],
+  "deleted": []
+}

@@ -8,6 +8,7 @@
   "permissions": [
     "core:default",
     "allow-get-config",
+    "allow-set-language",
     "allow-get-stats",
     "allow-get-price-info",
     "allow-refresh-model-prices",
@@ -16,6 +17,7 @@
     "allow-set-skin",
     "allow-set-budget",
     "allow-set-providers",
+    "allow-set-session-prefs",
     "allow-close-panel",
     "allow-set-panel-height"
   ]

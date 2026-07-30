@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-29T01:00:00-07:00",
+  "project": "RE-LLMPET-v0.5.5-reworked-r5",
+  "baseline": "R4 full source",
+  "result": "pass-with-native-build-pending",
+  "gates": [
+    {
+      "name": "npm test",
+      "status": "pass",
+      "evidence": "reports/logs/r5-npm-test.log"
+    },
+    {
+      "name": "asset visual regression",
+      "status": "pass",
+      "details": "39 byte-identical assets",
+      "evidence": "reports/logs/r5-assets.log"
+    },
+    {
+      "name": "source release gate",
+      "status": "pass",
+      "details": "16 passed, 0 blocked, 0 failed",
+      "evidence": "reports/logs/r5-source-gate.log"
+    },
+    {
+      "name": "protocol drift",
+      "status": "pass",
+      "evidence": "reports/logs/r5-protocol.log"
+    },
+    {
+      "name": "static check",
+      "status": "pass",
+      "details": "22 passed, 0 failed; 42 JavaScript files; 13 Rust lexical scans",
+      "evidence": "reports/logs/r5-static-check.log"
+    },
+    {
+      "name": "core Rust structure smoke",
+      "status": "pass",
+      "details": "commands.rs, hook_install.rs, lib.rs",
+      "evidence": "reports/logs/r5-rust-structure.log"
+    },
+    {
+      "name": "CLI hardening contract",
+      "status": "pass",
+      "details": "35/35"
+    },
+    {
+      "name": "R5 diagnostics contract",
+      "status": "pass",
+      "details": "18/18"
+    }
+  ],
+  "implemented": [
+    "Unified CodeWhale config resolution across diagnostics, hook installation, and Windows evidence script",
+    "CodeWhale doctor now invokes the matched codewhale-tui companion",
+    "Claude doctor probe with bounded timeout and redacted output",
+    "Provider diagnostics integrated into existing details panel without a new page",
+    "Hard failures separated from compatibility warnings",
+    "Legacy DeepSeek model IDs and rejected TLS bypass setting detected without returning config contents",
+    "Upstream i18n provenance records both original and adapted hashes"
+  ],
+  "preserved": [
+    "39 image/GIF/audio assets remain byte-identical",
+    "R2/R4 drag, native cursor hit-test, DPI anchored resize, three languages, session HUD and meme preview",
+    "Five-provider allowlist and minimal Tauri capability boundary"
+  ],
+  "limitations": [
+    "cargo, rustc and rustfmt unavailable; no Rust compilation or Tauri bundle was performed",
+    "GitHub DNS failed for local git clone; Web source/release verification is not a substitute for local commit history",
+    "managed browser policy blocked localhost and file URL rendering, so no Playwright visual screenshot was claimed",
+    "Windows real CLI, WebView2, mixed-DPI and signing tests remain pending"
+  ]
+}

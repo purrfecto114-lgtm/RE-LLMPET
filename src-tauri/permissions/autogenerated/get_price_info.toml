@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-price-info"
+description = "Enables the get_price_info command without any pre-configured scope."
+commands.allow = ["get_price_info"]
+
+[[permission]]
+identifier = "deny-get-price-info"
+description = "Denies the get_price_info command without any pre-configured scope."
+commands.deny = ["get_price_info"]

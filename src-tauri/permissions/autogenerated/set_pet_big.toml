@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-pet-big"
+description = "Enables the set_pet_big command without any pre-configured scope."
+commands.allow = ["set_pet_big"]
+
+[[permission]]
+identifier = "deny-set-pet-big"
+description = "Denies the set_pet_big command without any pre-configured scope."
+commands.deny = ["set_pet_big"]

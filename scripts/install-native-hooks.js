@@ -11,7 +11,7 @@ const path = require('path');
 const SETTINGS = path.join(os.homedir(), '.claude', 'settings.json');
 const EVENTS = [
   'SessionStart', 'SessionEnd', 'UserPromptSubmit',
-  'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure',
+  'PostToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure',
   'SubagentStart', 'SubagentStop', 'PreCompact', 'PostCompact',
   'Notification', 'Elicitation', 'ElicitationResult',
   'PermissionDenied', 'TaskCreated', 'TaskCompleted', 'TeammateIdle',
@@ -116,6 +116,11 @@ function install() {
       : { type: 'command', command, timeout: 5 };
     result[sync(settings.hooks, event, desired, isOurs)]++;
   }
+  const pretoolCommand = `${quote(binary)} --octopus-hook --provider claude --pretool PreToolUse`;
+  const pretoolHook = process.platform === 'win32'
+    ? { type: 'command', shell: 'powershell', command: pretoolCommand, timeout: 600 }
+    : { type: 'command', command: pretoolCommand, timeout: 600 };
+  result[sync(settings.hooks, 'PreToolUse', pretoolHook, isOurs)]++;
   const permissionCommand = `${quote(binary)} --octopus-hook --provider claude --permission PermissionRequest`;
   const permissionHook = process.platform === 'win32'
     ? { type: 'command', shell: 'powershell', command: permissionCommand, timeout: 600 }

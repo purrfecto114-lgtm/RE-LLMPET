@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pet-visual-bounds"
+description = "Enables the pet_visual_bounds command without any pre-configured scope."
+commands.allow = ["pet_visual_bounds"]
+
+[[permission]]
+identifier = "deny-pet-visual-bounds"
+description = "Denies the pet_visual_bounds command without any pre-configured scope."
+commands.deny = ["pet_visual_bounds"]

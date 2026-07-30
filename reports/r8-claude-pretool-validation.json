@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "release": "r8",
+  "fix": "claude-pretool-hook-deduplication",
+  "changes": [
+    "Rust generic Claude event list excludes PreToolUse",
+    "Rust installs exactly one specialized --pretool hook with 600 second timeout",
+    "Node installer mirrors the specialized hook contract",
+    "Repeated Node installation remains idempotent",
+    "Codex PreToolUse remains registered"
+  ],
+  "tests": {
+    "npmTest": "passed",
+    "r8Smoke": "10/10",
+    "static": "22/22",
+    "assetHashes": "39/39",
+    "sourceReleaseGate": "16/16"
+  },
+  "nativeCompilation": "not-run-toolchain-unavailable"
+}

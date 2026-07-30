@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-07-29T01:00:00-07:00",
+  "sources": [
+    {
+      "topic": "CodeWhale command boundary",
+      "url": "https://github.com/Hmbown/CodeWhale/blob/main/docs/CONFIGURATION.md",
+      "observation": "doctor --json is documented as a codewhale-tui subcommand; config precedence and current model migration rules were cross-checked"
+    },
+    {
+      "topic": "CodeWhale release",
+      "url": "https://github.com/Hmbown/CodeWhale/releases",
+      "observation": "latest release page showed v0.9.1 released 2026-07-24 with codewhale, codew, and codewhale-tui entrypoints"
+    },
+    {
+      "topic": "Claude doctor",
+      "url": "https://docs.anthropic.com/en/docs/claude-code/setup",
+      "observation": "official setup guidance recommends claude doctor for installation checks"
+    },
+    {
+      "topic": "Codex hook payload size",
+      "url": "https://github.com/openai/codex/issues/18067",
+      "observation": "open upstream report shows Linux/Windows hook loss for large payloads"
+    },
+    {
+      "topic": "Codex non-ASCII Stop payload",
+      "url": "https://github.com/openai/codex/issues/23784",
+      "observation": "open upstream report shows malformed Stop JSON on Windows with non-ASCII content"
+    }
+  ],
+  "localClone": {
+    "attempted": true,
+    "status": "blocked",
+    "reason": "container DNS could not resolve github.com"
+  }
+}

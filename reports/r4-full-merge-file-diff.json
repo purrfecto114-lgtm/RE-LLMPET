@@ -1,0 +1,29 @@
+{
+  "baseline": "RE-LLMPET-v0.5.5-reworked-r2",
+  "added": [
+    "docs/MIGRATION_R3_CLI_INTERNAL_ERROR_ANALYSIS_2026-07-28.md",
+    "docs/MIGRATION_R3_TODO.md",
+    "docs/MIGRATION_R4_FULL_MERGE_2026-07-28.md",
+    "docs/MIGRATION_R4_TODOLIST.md",
+    "scripts/rust-structure-smoke.py",
+    "scripts/windows-cli-diagnostics.ps1",
+    "test/tauri-cli-hardening-r3-smoke.js"
+  ],
+  "modified": [
+    "CHANGELOG.md",
+    "docs/CODEWHALE.md",
+    "frontend/renderer/tauri-bridge.js",
+    "package.json",
+    "reports/protocol-drift.json",
+    "src-tauri/build.rs",
+    "src-tauri/capabilities/pet.json",
+    "src-tauri/src/commands.rs",
+    "src-tauri/src/hook_install.rs",
+    "src-tauri/src/lib.rs",
+    "test/tauri-bridge-smoke.js",
+    "test/tauri-command-safety-smoke.js",
+    "test/tauri-drag-terminal-phase3-smoke.js",
+    "test/tauri-windows-static-smoke.js"
+  ],
+  "deleted": []
+}

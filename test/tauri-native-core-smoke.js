@@ -76,6 +76,12 @@ for (const needle of [
 const lib = read('src-tauri/src/lib.rs');
 assert(lib.includes('hook_install::sync_enabled'));
 assert(lib.includes('http_server::start'));
-assert(lib.includes('app.manage(tray)'));
+// R10 (2026-07-30): tray is registered via `TrayIconBuilder::with_id("main-tray")`
+// and looked up at shutdown via `tray_by_id("main-tray")`. The redundant
+// `app.manage(tray)` was removed; see docs/MIGRATION_R10_CODEWHALE_DOCTOR_ORDER_2026-07-30.md
+// (R10 roundup) for the rationale.
+assert(lib.includes('TrayIconBuilder::with_id("main-tray")'));
+assert(lib.includes('tray_by_id("main-tray")'));
+assert(!lib.includes('app.manage(tray)'));
 
 console.log('tauri-native-core-smoke: ok');

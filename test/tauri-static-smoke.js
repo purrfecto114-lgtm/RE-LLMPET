@@ -61,4 +61,17 @@ assert(!/electron/i.test(cargo));
 assert(fs.existsSync(path.join(ROOT, 'src-tauri', 'icons', 'icon.ico')));
 assert(fs.existsSync(path.join(ROOT, 'src-tauri', 'icons', 'icon.icns')));
 
+// R10 (2026-07-30): TrayIconBuilder API contract for Tauri 2.11.5.
+// `.new()` takes no args; `.with_id(I)` assigns the id. The earlier
+// `.new("main-tray")` form was an E0061 compile error.
+assert(lib.includes('TrayIconBuilder::with_id("main-tray")'),
+  'TrayIconBuilder must use with_id("main-tray") in Tauri 2.11.5');
+assert(!lib.includes('TrayIconBuilder::new("main-tray")'),
+  'TrayIconBuilder::new("main-tray") is an E0061 compile error in Tauri 2.11.5');
+assert(lib.includes('tray_by_id("main-tray")'),
+  'shutdown path must look up tray by id via tray_by_id("main-tray")');
+// app.manage(tray) is redundant when with_id is used; would create ambiguous ownership.
+assert(!/app\.manage\(\s*tray\s*\)/.test(lib),
+  'app.manage(tray) is redundant after with_id; remove to avoid ambiguous ownership on shutdown');
+
 console.log(`tauri-static-smoke: ok (${copiedAssets.length} assets verified, ${commands.size} bridge commands registered)`);

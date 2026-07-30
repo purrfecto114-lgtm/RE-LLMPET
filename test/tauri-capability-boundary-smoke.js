@@ -26,7 +26,7 @@ assert.deepStrictEqual(pet.windows, ['pet']);
 assert.deepStrictEqual(panel.windows, ['panel']);
 
 const petRequired = [
-  'get_config', 'get_stats', 'get_win_pos', 'set_win_pos', 'set_ignore_mouse',
+  'get_config', 'get_stats', 'get_win_pos', 'set_win_pos', 'commit_win_pos', 'set_ignore_mouse',
   'set_pet_size', 'set_skin', 'set_currency', 'toggle_mute', 'territory_run_now',
   'open_panel', 'blur_pet', 'decide_permission', 'decide_permission_batch',
   'launch_agent', 'focus_session', 'primary_action', 'open_log', 'pet_log',

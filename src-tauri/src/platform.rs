@@ -1,4 +1,5 @@
 use crate::model::{AppState, Runtime};
+use serde_json::Value;
 use std::collections::HashSet;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,15 +10,134 @@ use tauri::{AppHandle, Manager, PhysicalPosition, Position};
 
 const MAX_PARENT_DEPTH: usize = 16;
 const HEALTH_CHECK_SECS: u64 = 30;
+const CURSOR_HIT_TEST_MS: u64 = 24;
+const CURSOR_HIT_PADDING: f64 = 6.0;
 const VISIBLE_MARGIN: i32 = 48;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VisualBounds {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
 
 #[derive(Default)]
 pub struct PlatformState {
     health_started: AtomicBool,
+    cursor_hit_test_started: AtomicBool,
     display_signature: Mutex<String>,
+    ui_busy: AtomicBool,
+    mouse_ignore_requested: AtomicBool,
+    mouse_ignore_applied: AtomicBool,
+    visual_bounds: Mutex<Option<VisualBounds>>,
 }
 
 impl PlatformState {
+    pub fn set_ui_busy(&self, on: bool) {
+        self.ui_busy.store(on, Ordering::Release);
+    }
+
+    pub fn is_ui_busy(&self) -> bool {
+        self.ui_busy.load(Ordering::Acquire)
+    }
+
+    pub fn request_mouse_ignore(&self, on: bool) {
+        self.mouse_ignore_requested.store(on, Ordering::Release);
+    }
+
+    pub fn start_cursor_hit_test(self: &Arc<Self>, app: AppHandle) {
+        if self
+            .cursor_hit_test_started
+            .swap(true, Ordering::AcqRel)
+        {
+            return;
+        }
+        let state = self.clone();
+        let _ = thread::Builder::new()
+            .name("octopus-cursor-hit-test".into())
+            .spawn(move || loop {
+                thread::sleep(Duration::from_millis(CURSOR_HIT_TEST_MS));
+                let Some(window) = app.get_webview_window("pet") else {
+                    continue;
+                };
+                let ignore = state.should_ignore_cursor(&window);
+                let previous = state.mouse_ignore_applied.load(Ordering::Acquire);
+                if previous != ignore && window.set_ignore_cursor_events(ignore).is_ok() {
+                    state.mouse_ignore_applied.store(ignore, Ordering::Release);
+                }
+            });
+    }
+
+    fn should_ignore_cursor(&self, window: &tauri::WebviewWindow) -> bool {
+        if !self.mouse_ignore_requested.load(Ordering::Acquire) {
+            return false;
+        }
+        let Some(bounds) = self.visual_bounds() else {
+            // Never enter an unrecoverable click-through state before the
+            // renderer has reported a usable hit target.
+            return false;
+        };
+        let Ok(cursor) = window.cursor_position() else {
+            return false;
+        };
+        let Ok(origin) = window.inner_position() else {
+            return false;
+        };
+        let scale = window
+            .scale_factor()
+            .ok()
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .unwrap_or(1.0);
+        let padding = CURSOR_HIT_PADDING * scale;
+        let left = f64::from(origin.x) + bounds.x * scale - padding;
+        let top = f64::from(origin.y) + bounds.y * scale - padding;
+        let right = left + bounds.width * scale + padding * 2.0;
+        let bottom = top + bounds.height * scale + padding * 2.0;
+        let over_interactive_region = cursor.x >= left
+            && cursor.x <= right
+            && cursor.y >= top
+            && cursor.y <= bottom;
+        !over_interactive_region
+    }
+
+    pub fn set_visual_bounds(&self, rect: &Value) -> Result<(), String> {
+        fn number(rect: &Value, key: &str) -> Result<f64, String> {
+            rect.get(key)
+                .and_then(Value::as_f64)
+                .filter(|value| value.is_finite())
+                .ok_or_else(|| format!("invalid visual bounds field: {key}"))
+        }
+
+        let bounds = VisualBounds {
+            x: number(rect, "x")?,
+            y: number(rect, "y")?,
+            width: number(rect, "width")?,
+            height: number(rect, "height")?,
+        };
+        if bounds.width <= 0.0
+            || bounds.height <= 0.0
+            || bounds.width > 4096.0
+            || bounds.height > 4096.0
+            || bounds.x.abs() > 4096.0
+            || bounds.y.abs() > 4096.0
+        {
+            return Err("visual bounds outside supported range".into());
+        }
+        *self
+            .visual_bounds
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(bounds);
+        Ok(())
+    }
+
+    pub fn visual_bounds(&self) -> Option<VisualBounds> {
+        *self
+            .visual_bounds
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
     pub fn start_health_check(self: &Arc<Self>, app: AppHandle, runtime: Arc<Runtime>) {
         if self.health_started.swap(true, Ordering::AcqRel) {
             return;
@@ -264,7 +384,7 @@ public static class OctopusFocus {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
 }
 '@
-$found = $false
+$script:found = $false
 [OctopusFocus]::EnumWindows({ param($h,$x)
   [uint32]$pid = 0
   [void][OctopusFocus]::GetWindowThreadProcessId($h, [ref]$pid)
@@ -274,7 +394,7 @@ $found = $false
   }
   return -not $script:found
 }, [IntPtr]::Zero) | Out-Null
-if ($found) { exit 0 } else { exit 3 }
+if ($script:found) { exit 0 } else { exit 3 }
 "#;
     let status = Command::new("powershell.exe")
         .args([

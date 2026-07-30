@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-28T23:09:00-07:00",
+  "baselineArchive": {
+    "path": "LLMPET-Tauri-v0.5.5-reworked-r2-source.zip",
+    "sha256": "7d2f5d110703c7441fa4dc0a32f7a797fb2f8ff3ef735d6b9c2ba8a906055a96"
+  },
+  "overlayArchive": {
+    "path": "RE-LLMPET-r3-cli-hardening-overlay.zip",
+    "sha256": "dd188c6b1ee54aad7111ec681b55c3e29211997e8359a9f54a8fc8f90658cec0"
+  },
+  "merge": {
+    "strategy": "function-level three-way merge; no whole-file overlay replacement",
+    "addedFiles": 7,
+    "modifiedFiles": 14,
+    "deletedFiles": 0,
+    "completeProject": true,
+    "visualAssetsByteIdenticalToR2": true,
+    "visualAssetCount": 39
+  },
+  "checks": {
+    "npmTest": "pass",
+    "cliHardeningAssertions": "35/35 pass",
+    "assetVisualRegression": "39 byte-identical assets pass",
+    "sourceReleaseGate": "16 pass, 0 blocked, 0 failed",
+    "protocolDrift": "pass",
+    "staticCheck": "22 pass, 0 failed",
+    "rustLexicalFiles": "13 pass (not compiler)",
+    "rustFocusedStructure": "3 pass",
+    "markdownLocalLinks": "21 checked, 0 missing",
+    "zipPathSanity": "pass"
+  },
+  "preservedR2": [
+    "language switching",
+    "deferred drag position commit",
+    "native cursor hit-test",
+    "DPI anchored resize",
+    "real ui_busy and pet_visual_bounds state",
+    "three skins",
+    "meme GIF/MP3 bytes",
+    "session HUD visual structure"
+  ],
+  "mergedR3": [
+    "five-provider allowlist",
+    "PATH/PATHEXT and npm shim resolution",
+    "CodeWhale companion/version checks",
+    "bounded diagnose_agent probes",
+    "explicit cwd backend command",
+    "Windows Terminal first/cmd fallback",
+    "Windows configuration backup rollback",
+    "PowerShell diagnostics"
+  ],
+  "limitations": [
+    "cargo/rustc/rustfmt unavailable",
+    "Debian/Rust download DNS timed out",
+    "no Windows real-machine CLI/DPI/WebView2 validation",
+    "no signing or installer validation"
+  ],
+  "webCrossValidation": [
+    "https://github.com/Hmbown/CodeWhale/blob/main/docs/GUIDE.md",
+    "https://github.com/Hmbown/CodeWhale/blob/main/docs/CONFIGURATION.md",
+    "https://learn.microsoft.com/en-us/windows/terminal/command-line-arguments",
+    "https://v2.tauri.app/develop/calling-rust/",
+    "https://v2.tauri.app/security/capabilities/"
+  ]
+}

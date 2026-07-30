@@ -21,6 +21,7 @@ const context = {
           if (command === 'get_stats') return Promise.resolve({ sessions: [] });
           if (command === 'get_price_info') return Promise.resolve({ autoUpdate: true, refreshHours: 24 });
           if (command === 'get_win_pos') return Promise.resolve({ x: 1, y: 2 });
+          if (command === 'commit_win_pos') return Promise.resolve([11, 22]);
           return Promise.resolve(null);
         },
       },
@@ -41,10 +42,10 @@ vm.runInContext(source, context, { filename: 'tauri-bridge.js' });
 const api = context.window.pet;
 const expected = [
   'onEvent', 'onStats', 'onPanelStats', 'onConfig', 'onPrice',
-  'getConfig', 'getStats', 'getPriceInfo', 'refreshModelPrices', 'setPriceAutoUpdate', 'openPanel', 'closePanel', 'setMode', 'setSkin',
-  'setBudget', 'setCurrency', 'toggleMute', 'setProviders', 'territoryRunNow',
-  'territoryToggleAuto', 'quit', 'getWinPos', 'setWinPos', 'launchClaude',
-  'launchCodeWhale', 'launchCodex', 'launchOpenCode', 'launchAider', 'launchAgent', 'launchAgentGui',
+  'getConfig', 'getStats', 'getPriceInfo', 'refreshModelPrices', 'setPriceAutoUpdate', 'setLanguage', 'openPanel', 'closePanel', 'setMode', 'setSkin',
+  'setBudget', 'setCurrency', 'setSessionPrefs', 'toggleMute', 'setProviders', 'territoryRunNow',
+  'territoryToggleAuto', 'quit', 'getWinPos', 'setWinPos', 'commitWinPos', 'launchClaude',
+  'launchCodeWhale', 'launchCodex', 'launchOpenCode', 'launchAider', 'diagnoseAgent', 'launchAgent', 'launchAgentChecked', 'launchAgentGui',
   'decidePermission', 'decideCwPermission',
   'decideCwPermissionBatch', 'focusSession', 'primaryAction', 'setIgnoreMouse',
   'setPetTall', 'setPetBig', 'setPetSize', 'setPanelHeight', 'focusPet',
@@ -61,18 +62,24 @@ assert(Object.values(api).every((value) => typeof value === 'function'));
   assert.deepStrictEqual(await api.getPriceInfo(), { autoUpdate: true, refreshHours: 24 });
   assert.deepStrictEqual(Array.from(await api.getWinPos()), [1, 2]);
 
+  api.setLanguage('ja');
   api.setMode('panel');
   api.setWinPos(11, 22);
+  assert.deepStrictEqual(Array.from(await api.commitWinPos()), [11, 22]);
   api.decidePermission('perm-1', 'deny');
   api.launchCodeWhale();
+  await api.launchAgentChecked('codex');
   await api.refreshModelPrices();
   api.setPriceAutoUpdate(false, 48);
   await new Promise((resolve) => setTimeout(resolve, 0));
 
+  assert(calls.some((call) => call.command === 'set_language' && call.args.lang === 'ja'));
   assert(calls.some((call) => call.command === 'set_mode' && call.args.mode === 'panel'));
   assert(calls.some((call) => call.command === 'set_win_pos' && call.args.x === 11 && call.args.y === 22));
+  assert(calls.some((call) => call.command === 'commit_win_pos'));
   assert(calls.some((call) => call.command === 'decide_permission' && call.args.permId === 'perm-1' && call.args.behavior === 'deny'));
   assert(calls.some((call) => call.command === 'launch_agent' && call.args.provider === 'codewhale'));
+  assert(calls.some((call) => call.command === 'launch_agent' && call.args.provider === 'codex'));
   assert(calls.some((call) => call.command === 'refresh_model_prices'));
   assert(calls.some((call) => call.command === 'set_price_auto_update' && call.args.enabled === false && call.args.refreshHours === 48));
 
