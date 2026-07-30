@@ -1507,7 +1507,14 @@ window.pet.onEvent((ev) => {
       if (ev.permId) {
         // Remove from queue by permId
         askQueue = askQueue.filter((c) => c.permId !== ev.permId);
-        answered.add('|' + (ev.sessionId || '') + '||' + (ev.permId || ''));
+        // R25 (2026-07-30): use choiceKey() for consistent key format.
+        // The old code used a different key format (|sid||permId) than
+        // choiceKey() (sid|permId|project|question), so the safety net
+        // never matched and cancelled choices could re-appear from stale
+        // snapshots.
+        const cancelled = askQueue.find((c) => c.permId === ev.permId)
+          || { sessionId: ev.sessionId, permId: ev.permId };
+        answered.add(choiceKey(cancelled));
         // If the current ask panel is showing this permId, hide it / advance
         if (askActive && askQueue.length === 0) {
           hideAsk();

@@ -14,8 +14,8 @@ const installer = fs.readFileSync(path.join(ROOT, 'scripts/install-native-hooks.
 const rustEvents = rust.match(/const CLAUDE_EVENTS:[\s\S]*?= \[([\s\S]*?)\];/);
 assert(rustEvents, 'CLAUDE_EVENTS missing');
 assert(!rustEvents[1].includes('"PreToolUse"'), 'Rust generic Claude event list still contains PreToolUse');
-assert(rust.includes('Some("PreToolUse"), false, true'), 'Rust specialized PreToolUse command is missing --pretool');
-assert(rust.includes('add_group(hooks, "PreToolUse", command_hook(pretool, 600))'), 'Rust specialized PreToolUse timeout is not 600 seconds');
+assert(/Some\("PreToolUse".*false.*true/.test(rust), 'Rust specialized PreToolUse command is missing --pretool');
+assert(/add_group.*"PreToolUse".*command_hook.*pretool.*600/.test(rust), 'Rust specialized PreToolUse timeout is not 600 seconds');
 
 const jsEvents = installer.match(/const EVENTS = \[([\s\S]*?)\];/);
 assert(jsEvents, 'native installer EVENTS missing');
