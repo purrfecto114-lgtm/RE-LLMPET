@@ -66,10 +66,15 @@ const CODEX_EVENTS: [&str; 11] = [
 // Current maintained CodeWhale events used by the fork. shell_env is
 // intentionally excluded: it is a credential/environment mutation contract,
 // not a lifecycle observer, and invoking the pet there would add shell latency.
-const CODEWHALE_EVENTS: [&str; 10] = [
+// R22 (2026-07-30): message_submit removed from CODEWHALE_EVENTS — it is
+// a STEERING event in CodeWhale (can block or replace the submitted text),
+// not an observer. Our hook runs in background and posts to /state for
+// observation, but CodeWhale treats message_submit as foreground-blocking.
+// When the hook fails (e.g. HTTP server not yet up), CodeWhale reports
+// "hook failed and blocked" and prevents the message from being sent.
+const CODEWHALE_EVENTS: [&str; 9] = [
     "session_start",
     "session_end",
-    "message_submit",
     "tool_call_before",
     "tool_call_after",
     "turn_end",

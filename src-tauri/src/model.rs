@@ -68,7 +68,7 @@ impl Default for AppConfig {
             territory_rivals: Vec::new(),
             currency: "USD".into(),
             fx_rate: 7.2,
-            providers: vec!["claude".into()],
+            providers: Vec::new(), // R22: default empty — user selects providers
             price_auto_update: true,
             price_refresh_hours: 24,
             pinned_sessions: Vec::new(),

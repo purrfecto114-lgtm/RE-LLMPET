@@ -137,6 +137,8 @@ pub fn set_mode(app: AppHandle, state: State<'_, AppState>, mode: String) -> Res
 /// only the Octopus-owned hook block for the given provider, leaving the
 /// user's own config and other providers intact. Mirrors the upstream
 /// Electron tray's `tray.uninstallHook` action.
+/// R22 (2026-07-30): if provider is "all", clean ALL providers and clear
+/// config.providers so the user starts fresh.
 #[tauri::command]
 pub fn uninstall_hooks(
     app: AppHandle,
@@ -144,6 +146,26 @@ pub fn uninstall_hooks(
     provider: String,
 ) -> Result<Value, String> {
     let provider = provider.trim().to_lowercase();
+    // R22: "all" cleans every provider + clears config.providers
+    if provider == "all" {
+        let mut paths = Vec::new();
+        for id in ["claude", "codewhale", "codex", "opencode", "aider"] {
+            if let Ok(path) = crate::hook_install::uninstall_provider_hooks(id) {
+                paths.push(json!({"provider": id, "path": path.to_string_lossy()}));
+            }
+        }
+        state.runtime.update_config(|config| {
+            config.providers.clear();
+        })?;
+        state.runtime.write_log("tray", "uninstalled ALL provider hooks + cleared config.providers");
+        let _ = crate::hook_install::resync_current(&state.runtime);
+        emit_config(&app, &state);
+        return Ok(json!({
+            "provider": "all",
+            "paths": paths,
+            "message": "All Octopus hooks removed; config.providers cleared"
+        }));
+    }
     if !["claude", "codewhale", "codex", "opencode", "aider"].contains(&provider.as_str()) {
         return Err(format!("unsupported provider: {provider}"));
     }
@@ -152,6 +174,11 @@ pub fn uninstall_hooks(
         "tray",
         &format!("uninstalled hooks for {provider}: {}", path.display()),
     );
+    // R22: also remove this provider from config.providers so it doesn't
+    // get re-synced on next resync.
+    state.runtime.update_config(|config| {
+        config.providers.retain(|p| p != &provider);
+    })?;
     // Resync provider statuses so the panel reflects the new state.
     let _ = crate::hook_install::resync_current(&state.runtime);
     emit_config(&app, &state);
@@ -1866,14 +1893,19 @@ pub fn primary_action(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
     if let Some(session_id) = active_session {
         focus_session(app, state, session_id)
     } else {
+        // R22 (2026-07-30): if no providers are configured, open the panel
+        // instead of defaulting to 'claude'. The user explicitly chose to
+        // have zero providers; launching claude would be surprising.
         let provider = state
             .runtime
             .config()
             .providers
             .into_iter()
-            .next()
-            .unwrap_or_else(|| "claude".into());
-        launch_agent(provider)
+            .next();
+        match provider {
+            Some(p) => launch_agent(p),
+            None => open_panel(app),
+        }
     }
 }
 

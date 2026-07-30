@@ -763,7 +763,9 @@ function renderProviders() {
   el.innerHTML = all.map((id) => {
     const m = PROVIDER_META[id] || { icon: '❓', label: id };
     const on = activeSet.has(id);
-    const locked = on && activeCount <= 1;
+    // R22 (2026-07-30): removed locked logic — users can now uncheck all
+    // providers (empty selection is valid; no provider hooks installed).
+    const locked = false;
     const runtime = statuses[id] || {};
     const installed = runtime.installed != null ? !!runtime.installed : (id === 'codewhale' && cwHooksInstalled);
     const failed = runtime.state === 'error';

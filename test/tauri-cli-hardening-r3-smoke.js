@@ -34,7 +34,7 @@ check('npm cmd/bat shims are handled', commands.includes('eq_ignore_ascii_case("
 check('legacy cmd /C start launcher is gone', !commands.includes('.args(["/C", "start"'));
 check('Windows log opening bypasses cmd.exe', commands.includes('Command::new("explorer.exe")'));
 check('diagnostic commands are registered', lib.includes('diagnose_agent,') && lib.includes('launch_agent_in,'));
-check('CodeWhale hook contract keeps current native events', ['session_start','session_end','message_submit','tool_call_before','tool_call_after','turn_end','on_error','mode_change','subagent_spawn','subagent_complete'].every(event => hooks.includes(`"${event}"`)));
+check('CodeWhale hook contract keeps current native events', ['session_start','session_end','tool_call_before','tool_call_after','turn_end','on_error','mode_change','subagent_spawn','subagent_complete'].every(event => hooks.includes(`"${event}"`)));
 check('permission hook remains foreground and strict', hooks.includes('let permission = event == "tool_call_before"') && hooks.includes('if permission { "false" } else { "true" }'));
 check('observer hooks remain background', hooks.includes('block.push_str("background = true\\n")'));
 check('Windows config replacement uses backup rollback', hooks.includes('.bak"') && hooks.includes('original restored'));

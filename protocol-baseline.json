@@ -33,7 +33,6 @@
     "codewhaleEvents": [
       "session_start",
       "session_end",
-      "message_submit",
       "tool_call_before",
       "tool_call_after",
       "turn_end",

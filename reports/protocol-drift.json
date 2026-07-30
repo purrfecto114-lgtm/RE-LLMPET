@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-30T12:44:51.309Z",
+  "generatedAt": "2026-07-30T13:10:26.595Z",
   "baselineUpdatedAt": "2026-07-29",
   "sourceFork": {
     "repository": "https://github.com/purrfecto114-lgtm/LLMPET",
@@ -111,7 +111,6 @@
       "actual": [
         "session_start",
         "session_end",
-        "message_submit",
         "tool_call_before",
         "tool_call_after",
         "turn_end",
@@ -123,7 +122,6 @@
       "expected": [
         "session_start",
         "session_end",
-        "message_submit",
         "tool_call_before",
         "tool_call_after",
         "turn_end",

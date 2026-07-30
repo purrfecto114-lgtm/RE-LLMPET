@@ -1646,16 +1646,26 @@ window.pet.onConfig((cfg) => {
 });
 
 // Update button labels and actions to reflect the first active provider.
-function firstProviderId() { return activeProviders[0] || 'claude'; }
+// R22 (2026-07-30): return empty string if no providers selected, not 'claude'.
+// The sl-new button hides itself when no provider is active.
+function firstProviderId() { return activeProviders[0] || ''; }
 function firstProviderLabel() { return PROVIDER_LABELS[firstProviderId()] || firstProviderId(); }
 
 function updateProviderUI() {
   const provider = firstProviderId();
   const label = firstProviderLabel();
   const slNew = document.getElementById('sl-new');
-  if (slNew) slNew.textContent = currentLang === 'en'
-    ? `🚀 New ${label}`
-    : currentLang === 'ja' ? `🚀 ${label} を新規` : `🚀 新开 ${label}`;
+  // R22: hide the "new agent" button when no provider is active
+  if (slNew) {
+    if (!provider) {
+      slNew.style.display = 'none';
+    } else {
+      slNew.style.display = '';
+      slNew.textContent = currentLang === 'en'
+        ? `🚀 New ${label}`
+        : currentLang === 'ja' ? `🚀 ${label} を新規` : `🚀 新开 ${label}`;
+    }
+  }
   const tpClaude = document.querySelector('.tp-ops [data-op="claude"]');
   if (tpClaude) tpClaude.textContent = currentLang === 'en'
     ? `💬 Launch ${label}`
@@ -1857,6 +1867,7 @@ memePlayer.addEventListener('contextmenu', (e) => e.stopPropagation());
 document.getElementById('sl-new').addEventListener('click', (e) => {
   e.stopPropagation();
   const provider = firstProviderId();
+  if (!provider) return; // R22: no provider selected — do nothing
   window.pet.launchAgent(provider);
   rlog('launch', 'new ' + provider);
   closeSessList();
