@@ -1,7 +1,9 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
   width: 100%; height: 100%;
-  background: transparent;
+  /* R22 (2026-07-30): match #card gradient so transparent window doesn't
+     show WebView2's default white background around the rounded corners. */
+  background: #2c1f1a;
   font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
   user-select: none; -webkit-user-select: none;
   color: #f3e7df;
@@ -18,8 +20,12 @@ html, body {
 }
 /* 子块不许被 flex 压缩：总高超出时 #card 整体滚动，下方区块（按模型/设置）不再被裁切 */
 #card > * { flex-shrink: 0; }
-/* 隐藏滚动条：触控板/滚轮照常滚，视觉更干净 */
-#card::-webkit-scrollbar { width: 0; height: 0; }
+/* R22 (2026-07-30): visible scrollbar so users can see there's more
+   content below the fold. Was width:0 which hid it entirely. */
+#card::-webkit-scrollbar { width: 6px; height: 6px; }
+#card::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); border-radius: 3px; }
+#card::-webkit-scrollbar-thumb { background: rgba(217,119,87,0.4); border-radius: 3px; }
+#card::-webkit-scrollbar-thumb:hover { background: rgba(217,119,87,0.6); }
 
 /* 双列区：CSS 多列自动平衡列高（masonry），块不被拆开，底部尽量对齐、少留空白 */
 .cols { columns: 2; column-gap: 14px; padding: 0 16px; }

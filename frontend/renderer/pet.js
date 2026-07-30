@@ -1917,16 +1917,19 @@ function buildRadial() {
   const cy = r.top - sr.top + r.height / 2;
   const items = MENU.filter((it) => !it.when || it.when()); // 平台不支持的项(如非 mac 的巡视)不渲染
   const n = items.length;
-  const radius = 96;
+  const radius = 78;
   const startA = 192, endA = 348; // 头顶上方的弧
   items.forEach((it, i) => {
     const a = ((startA + (endA - startA) * (n === 1 ? 0.5 : i / (n - 1))) * Math.PI) / 180;
     const x = cx + radius * Math.cos(a);
     const y = cy + radius * Math.sin(a);
+    // R22: clamp to stay within the window bounds (items are 46px, centered)
+    const clampedX = Math.max(23, Math.min(sr.width - 23, x));
+    const clampedY = Math.max(23, Math.min(sr.height - 23, y));
     const b = document.createElement('div');
     b.className = 'radial-item';
-    b.style.left = x + 'px';
-    b.style.top = y + 'px';
+    b.style.left = clampedX + 'px';
+    b.style.top = clampedY + 'px';
     b.style.transitionDelay = i * 0.03 + 's';
     const label = it.key === 'currency' ? (currentLang === 'en' ? 'Currency' : currentLang === 'ja' ? '通貨' : '货币') : t(it.key);
     const icName = it.key === 'menu.mute' ? (muted ? 'bell-off' : 'bell')

@@ -481,10 +481,16 @@ fn hook_command_with_flags(
 
     #[cfg(target_os = "windows")]
     {
-        // A bare quoted executable path is not a valid PowerShell invocation.
-        // Route through cmd.exe so the same hook string works from Codex,
-        // Claude, CodeWhale and Aider regardless of their parent shell.
         let path = executable.to_string_lossy();
+        // R22 (2026-07-30): CodeWhale's docs say hook commands are run via
+        // "sh -c on Unix, cmd /C on Windows" — CodeWhale ALREADY wraps the
+        // command. Adding another cmd.exe /D /S /C layer caused double-
+        // wrapping that broke quoting and made message_submit hooks fail.
+        // Claude and Codex use JSON config and execute the command string
+        // directly, so they still need the cmd.exe wrapper.
+        if provider == "codewhale" {
+            return format!("\"{}\" {}", path, args);
+        }
         return format!("cmd.exe /D /S /C \"\"{}\" {}\"", path, args);
     }
     #[cfg(not(target_os = "windows"))]

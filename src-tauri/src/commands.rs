@@ -310,19 +310,29 @@ pub fn close_panel(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn get_win_pos(app: AppHandle) -> Result<[i32; 2], String> {
     let window = app.get_webview_window("pet").ok_or("pet window missing")?;
+    // R22 (2026-07-30): return LOGICAL position so the renderer's screenX
+    // delta (also logical) can be added directly without DPI mismatch.
+    // The old code returned outer_position (physical), which caused the pet
+    // to move at a different speed than the mouse on scaled displays.
     let position = window.outer_position().map_err(|e| e.to_string())?;
-    // Renderer contract: return the position as [x, y].
-    Ok([position.x, position.y])
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let logical_x = (position.x as f64 / scale).round() as i32;
+    let logical_y = (position.y as f64 / scale).round() as i32;
+    Ok([logical_x, logical_y])
 }
 
 #[tauri::command]
 pub fn set_win_pos(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
-    // Hot drag path: move only. Persisting the JSON config and broadcasting a
-    // full config snapshot on every pointermove caused avoidable disk churn and
-    // visible lag compared with the Electron implementation.
-    app.get_webview_window("pet")
-        .ok_or("pet window missing")?
-        .set_position(Position::Physical(PhysicalPosition::new(x, y)))
+    // R22 (2026-07-30): accept LOGICAL position from the renderer (which
+    // uses e.screenX — CSS/logical pixels) and convert to physical internally.
+    // The old code used PhysicalPosition directly, causing DPI mismatch on
+    // scaled displays (pet moved slower/faster than mouse).
+    let window = app.get_webview_window("pet").ok_or("pet window missing")?;
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let physical_x = (x as f64 * scale).round() as i32;
+    let physical_y = (y as f64 * scale).round() as i32;
+    window
+        .set_position(Position::Physical(PhysicalPosition::new(physical_x, physical_y)))
         .map_err(|error| error.to_string())
 }
 
@@ -330,14 +340,18 @@ pub fn set_win_pos(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
 pub fn commit_win_pos(app: AppHandle, state: State<'_, AppState>) -> Result<[i32; 2], String> {
     let window = app.get_webview_window("pet").ok_or("pet window missing")?;
     let position = window.outer_position().map_err(|error| error.to_string())?;
+    let scale = window.scale_factor().unwrap_or(1.0);
+    // R22: store and return LOGICAL position for consistency with get_win_pos.
+    let logical_x = (position.x as f64 / scale).round() as i32;
+    let logical_y = (position.y as f64 / scale).round() as i32;
     state.runtime.update_config(|config| {
         config.pet_position = Some(Point {
-            x: position.x,
-            y: position.y,
+            x: logical_x,
+            y: logical_y,
         });
     })?;
     emit_config(&app, &state);
-    Ok([position.x, position.y])
+    Ok([logical_x, logical_y])
 }
 
 #[tauri::command]
@@ -590,12 +604,17 @@ fn executable_candidates(command: &str) -> Vec<OsString> {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_else(|| vec![".com".into(), ".exe".into(), ".bat".into(), ".cmd".into()]);
-        let mut values = vec![OsString::from(command)];
-        values.extend(
-            extensions
-                .into_iter()
-                .map(|extension| format!("{command}{extension}").into()),
-        );
+        // R22 (2026-07-30): try extensions FIRST, then bare name.
+        // On npm Windows installs, both "codewhale" (bash script, no ext)
+        // and "codewhale.cmd" exist. The old code tried the bare name first,
+        // found the bash script, and passed it to wt.exe which failed with
+        // 0x800700c1 (STATUS_INVALID_IMAGE_FORMAT). By trying .exe/.cmd/.bat
+        // first, we find the right executable for the Windows shell.
+        let mut values: Vec<OsString> = extensions
+            .into_iter()
+            .map(|extension| format!("{command}{extension}").into())
+            .collect();
+        values.push(OsString::from(command));
         values
     }
     #[cfg(not(windows))]
