@@ -157,7 +157,10 @@ pub fn uninstall_hooks(
         state.runtime.update_config(|config| {
             config.providers.clear();
         })?;
-        state.runtime.write_log("tray", "uninstalled ALL provider hooks + cleared config.providers");
+        state.runtime.write_log(
+            "tray",
+            "uninstalled ALL provider hooks + cleared config.providers",
+        );
         let _ = crate::hook_install::resync_current(&state.runtime);
         emit_config(&app, &state);
         return Ok(json!({
@@ -694,7 +697,9 @@ fn is_executable_file(path: &Path) -> bool {
 /// executable and fail with `0x800700c1` (STATUS_INVALID_IMAGE_FORMAT).
 /// Stripping the prefix restores compatibility with all Windows shell tools.
 fn canonicalize_path(path: &Path) -> Option<PathBuf> {
-    let canonical = std::fs::canonicalize(path).ok().or_else(|| Some(path.to_path_buf()))?;
+    let canonical = std::fs::canonicalize(path)
+        .ok()
+        .or_else(|| Some(path.to_path_buf()))?;
     #[cfg(windows)]
     {
         let s = canonical.to_string_lossy();
@@ -1896,12 +1901,7 @@ pub fn primary_action(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
         // R22 (2026-07-30): if no providers are configured, open the panel
         // instead of defaulting to 'claude'. The user explicitly chose to
         // have zero providers; launching claude would be surprising.
-        let provider = state
-            .runtime
-            .config()
-            .providers
-            .into_iter()
-            .next();
+        let provider = state.runtime.config().providers.into_iter().next();
         match provider {
             Some(p) => launch_agent(p),
             None => open_panel(app),
