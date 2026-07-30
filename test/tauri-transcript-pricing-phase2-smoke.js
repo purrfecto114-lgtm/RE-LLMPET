@@ -148,9 +148,12 @@ assert.match(lib, /cancel_all_pending\("Octopus is shutting down; permission den
 assert.match(panel, /capabilities\.bypassWarning/);
 
 // Estimate/unknown semantics are visible and Stop emits the safe reply before completion.
-assert.match(panel, /按 API 等价估算/);
+// R17 (2026-07-30): hardcoded Chinese '按 API 等价估算' was replaced with
+// t('panel.estimatedRounds', {n:...}). Assert the i18n key usage instead.
+assert.match(panel, /t\('panel\.estimatedRounds'/);
 assert.match(panel, /estimatedPrice/);
-assert.match(panel, /models\.dev 缓存/);
+// R17: 'models.dev 缓存' was also i18n-ized; just assert the pricing source reference exists.
+assert.match(panel, /models\.dev/);
 const stopBlock = server.slice(server.indexOf('if event == "Stop"'), server.indexOf('let payload = match event'));
 assert.ok(stopBlock.indexOf('"kind":"say"') >= 0 && stopBlock.indexOf('"kind":"turn-done"') > stopBlock.indexOf('"kind":"say"'));
 

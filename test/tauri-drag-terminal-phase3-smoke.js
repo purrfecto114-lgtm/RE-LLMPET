@@ -47,7 +47,13 @@ const fallbackMarker = commands.indexOf('// Windows Terminal is optional.', term
 assert(terminalStart >= 0 && fallbackMarker > terminalStart, 'Windows Terminal must be attempted before cmd.exe fallback');
 const wtBlock = commands.slice(terminalStart, fallbackMarker);
 assert(wtBlock.includes('which("wt.exe")'), 'Windows Terminal should be resolved before use');
-assert(wtBlock.includes('"-w", "-1", "new-tab"'), 'Windows Terminal should open a separate tab/window');
+// R22 (2026-07-30): cargo fmt splits .args(["-w", "-1", "new-tab", ...]) across
+// lines. Accept either inline or multiline form.
+assert(
+  wtBlock.includes('"-w", "-1", "new-tab"')
+  || (wtBlock.includes('"-w",') && wtBlock.includes('"-1",') && wtBlock.includes('"new-tab",')),
+  'Windows Terminal should open a separate tab/window'
+);
 assert(wtBlock.includes('"--startingDirectory"'), 'Windows Terminal should receive a validated working directory');
 assert(wtBlock.includes('command.arg(executable)'), 'native agent binaries must be passed directly');
 assert(wtBlock.includes('if is_windows_script(executable)'), 'npm cmd/bat shims must use the explicit compatibility branch');

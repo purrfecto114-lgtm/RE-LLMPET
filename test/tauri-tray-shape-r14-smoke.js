@@ -71,7 +71,9 @@ assert(setModeFn.includes('window.show().and_then(|_| window.set_focus())'),
   'set_mode must call window.show() + set_focus() when mode is pet/panel/menubar');
 assert(setModeFn.includes('get_webview_window("pet")'),
   'set_mode must operate on the pet window');
-assert(setModeFn.includes('write_log("mode"'),
+// R22 (2026-07-30): cargo fmt may split write_log("mode", ...) across
+// lines. Use a regex that tolerates whitespace between write_log( and "mode".
+assert(/write_log\(\s*"mode"/.test(setModeFn),
   'set_mode must log window side-effect failures');
 
 // ── model.rs: sanitize accepts hidePet ─────────────────────────────────────
