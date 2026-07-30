@@ -1,9 +1,11 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
   width: 100%; height: 100%;
-  /* R22 (2026-07-30): match #card gradient so transparent window doesn't
-     show WebView2's default white background around the rounded corners. */
-  background: #2c1f1a;
+  /* R22 (2026-07-30): transparent body so the window's transparent:true
+     works on Windows WebView2. The #card div provides the visible
+     gradient background. If body is opaque, WebView2 shows white
+     around rounded corners. */
+  background: transparent;
   font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
   user-select: none; -webkit-user-select: none;
   color: #f3e7df;
