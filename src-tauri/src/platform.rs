@@ -196,10 +196,18 @@ impl PlatformState {
                     moved = true;
                     if label == "pet" {
                         if let Ok(position) = window.outer_position() {
+                            // R24 (2026-07-30): outer_position() returns
+                            // PhysicalPosition; pet_position stores LOGICAL.
+                            // Convert to match commit_win_pos's storage format.
+                            let scale = window.scale_factor().unwrap_or(1.0);
+                            let logical_x =
+                                (position.x as f64 / scale).round() as i32;
+                            let logical_y =
+                                (position.y as f64 / scale).round() as i32;
                             let _ = runtime.update_config(|config| {
                                 config.pet_position = Some(crate::model::Point {
-                                    x: position.x,
-                                    y: position.y,
+                                    x: logical_x,
+                                    y: logical_y,
                                 });
                             });
                         }

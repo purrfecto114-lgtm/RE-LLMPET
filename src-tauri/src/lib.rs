@@ -31,9 +31,17 @@ pub fn run() {
             let state = app.state::<AppState>();
             if let Some(position) = state.runtime.config().pet_position {
                 if let Some(window) = app.get_webview_window("pet") {
-                    let _ = window.set_position(Position::Physical(PhysicalPosition::new(
-                        position.x, position.y,
-                    )));
+                    // R24 (2026-07-30): pet_position is stored as LOGICAL
+                    // coordinates (per R22 commit_win_pos fix). Convert to
+                    // physical before calling set_position, which expects
+                    // PhysicalPosition. Without this, a 150%-scale display
+                    // would place the pet at 2/3 of the saved position.
+                    let scale = window.scale_factor().unwrap_or(1.0);
+                    let phys_x = (position.x as f64 * scale).round() as i32;
+                    let phys_y = (position.y as f64 * scale).round() as i32;
+                    let _ = window.set_position(Position::Physical(
+                        PhysicalPosition::new(phys_x, phys_y),
+                    ));
                 }
             }
             if let Err(error) =

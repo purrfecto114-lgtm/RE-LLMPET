@@ -748,7 +748,7 @@ fn which(command: &str) -> Option<PathBuf> {
         for base in bases {
             let path = base.join(file);
             if is_executable_file(&path) {
-                return std::fs::canonicalize(&path).ok().or(Some(path));
+                return canonicalize_path(&path);
             }
         }
     }

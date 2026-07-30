@@ -1,6 +1,6 @@
 # RE-LLMPET / Octopus — Tauri 2 desktop pet
 
-`0.5.5` is a Tauri 2 / Rust migration candidate reconciled against the current official LLMPET upstream and the earlier five-provider fork. The active runtime contains the Tauri frontend, Rust core, resources, tests and release gates; Electron main/preload/Node runtime code is not part of the execution path.
+`0.5.6` is a Tauri 2 / Rust migration candidate reconciled against the current official LLMPET upstream and the earlier five-provider fork. The active runtime contains the Tauri frontend, Rust core, resources, tests and release gates; Electron main/preload/Node runtime code is not part of the execution path.
 
 It supports provider-specific adapters for Claude Code, CodeWhale, Codex, OpenCode and Aider; structured Claude interactions; parallel permission cards; metering; source-PID terminal focus; and display/suspend recovery. The core pet and panel UI can switch between simplified Chinese, English and Japanese. Transparent click-through now recovers through native cursor hit testing, manual drag preserves short-click behavior, and logical popup sizes are DPI-converted with a bottom-centre anchor. On Windows, allow-listed agents are passed directly to a new Windows Terminal window, with `cmd.exe /D /K` used only when `wt.exe` cannot be spawned. Two official upstream GIF/audio actions are retained byte-for-byte as an explicitly local, skin-aware side preview; full prompt dispatch is intentionally deferred until provider/session ownership can be enforced in Rust.
 
