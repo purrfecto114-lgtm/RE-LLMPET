@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.5.6 — R10-R21 visual migration complete + Windows cargo check clean（2026-07-30）
+
+This release completes the R9 roadmap's visual migration: **tray 18/18** and **panel 10/10** visual elements now match the upstream Electron layout. Windows `cargo check --target x86_64-pc-windows-gnu --locked` passes with 0 errors, 0 warnings (R20). All changes are source-level; Linux/macOS native compilation, real CLI execution, and signed bundles remain external gates per `docs/RELEASE.md`.
+
+### Tray menu (R10-R14)
+
+- **R10**: Fixed `TrayIconBuilder::new("main-tray")` compile blocker — Tauri 2.11.5 requires `.with_id("main-tray")`. Removed redundant `app.manage(tray)`. Reversed CodeWhale doctor probe to **companion-first** with dispatcher fallback (was dispatcher-first, contradicting project docs). Added 19-check `tauri-codewhale-doctor-consistency-r10-smoke.js` locking docs/impl/PowerShell/tests together.
+- **R11**: Added `src-tauri/src/i18n.rs` with 29-key `TRAY_LABELS` table (zh/en/ja). `build_tray_menu` localizes all labels. `refresh_tray_menu` rebuilds the menu + tooltip on language switch. 23-check cross-source parity smoke.
+- **R12**: Added 4 submenus (language / skin / 5h budget / mute) via `CheckMenuItem` + `PredefinedMenuItem::separator`. 10 new `on_menu_event` handlers route to existing config commands.
+- **R13**: Added disabled settings placeholder, `uninstall_hooks` Tauri command (single-provider hook cleanup via `hook_install::uninstall_provider_hooks`), localized tooltip.
+- **R14**: Added shape submenu (pet / panel / hidePet). `set_mode` now has window side-effects (hidePet hides pet window; pet/panel show+focus). `hidePet` replaces upstream's menubar mode (Tauri has no menubar).
+
+### Panel (R15-R19)
+
+- **R15**: Restored Codex 5h quota bar (`#codex-wrap`) + today/lifetime token grid (`#codex-usage`) with distinct cool-tone CSS. `renderCodexUsage` ready for when Rust codex-watch equivalent populates `s.codexLimits`/`s.codexUsage`.
+- **R16**: Restored Token/Cost metric switching (`.metric-tabs`) + `#usage-diagnostics` line. `renderChart`/`renderCal` now accept dual arrays and respect `usageMetric`. `renderDiagnostics` shows scan info + pricing staleness.
+- **R17** (audit): Fixed 5 pre-existing i18n hardcoded Chinese bugs in `today-tokens`, `win-reset`, `cal mouseover`, `renderByModel`, `renderProviderCost`. Wired `i18n.rs::known_keys()` into smoke (was dead code). Added 3 new i18n keys (`estimatedRounds`/`unknownRounds`/`total`).
+- **R18**: Added `cache_write_5m` + `cache_write_1h` to `UsageEvent` + `Aggregate` + `parse_claude_assistant` (extracts `ephemeral_5m/1h_input_tokens` from `usage.cache_creation`, remainder → 5m per Anthropic default TTL). Panel `t-cw` single row → `t-cw5` + `t-cw1` dual row. `modelDetail` upgraded to `{cw5}/{cw1}`.
+- **R19**: Added session list Pin/Archive + attention filter. `AppConfig.pinned_sessions`/`archived_sessions` + `set_session_prefs` Tauri command (sanitize 256-char + dedup + pin-wins). `renderSessList` filters by attention (waiting/needsinput), hides archived unless toggled, sorts pinned to top, renders pin/archive buttons per row. 9 new `sess.*` i18n keys × 3 langs.
+
+### Native compilation (R20-R21)
+
+- **R20**: `cargo check --target x86_64-pc-windows-gnu --locked` = 0 errors, 0 warnings. Added `build-windows.sh` for reproducible Windows builds. All R10-R19 Rust code compiles clean on Windows target.
+- **R21**: Web-verified 5 provider CLIs (4/5 current; Claude has 7 new non-blocking events documented in protocol-drift). Hardened smoke assertions to tolerate `cargo fmt` multiline splits.
+
+### CLI smoke test
+
+- Added `cli-smoke-test.sh` (10-dimension downloadable verification script): project structure, tray API contract, CodeWhale doctor order, tray i18n+submenus, panel visual elements, metering 5m/1h, npm test, static checks, provider CLI discoverability, real CodeWhale doctor test.
+
+### Verification
+
+- `npm test`: **45/45 PASS** (10 new R10-R19 smoke suites)
+- `npm run check:static`: 22/22 PASS (bridge parity 39 commands)
+- `python3 scripts/rust-structure-smoke.py`: 3/3 PASS
+- `cargo check --target x86_64-pc-windows-gnu --locked`: 0 errors, 0 warnings (R20)
+- `cargo fmt --check`: clean (R21)
+- `migration-todo`: 47 tasks (4 done, 40 implemented-uncompiled, 3 blocked, 1 deferred)
+
+### Not verified in this release
+
+- Linux/macOS `cargo check --locked` (Windows target verified; Linux/macOS targets need their own toolchain)
+- Real CodeWhale/Codex/OpenCode/Aider CLI execution (web-verified only)
+- Real GUI: tray submenu rendering, panel dual rows, pin/archive persistence
+- Windows/macOS/Linux signed bundles, SBOM, checksums (CI `release.yml` handles this on tag push)
+
+These remain release gates per `docs/RELEASE.md`. This is a **source-reconciled release candidate with Windows compile evidence**, not a stable production release.
+
 ## 0.5.5 R7 — resilient doctor fallback and bounded local diagnostics（2026-07-29）
 
 - Reconciled CodeWhale's conflicting public dispatcher and detailed TUI doctor documentation with a bounded, auditable fallback chain: try `codewhale doctor --json`, then use the matched `codewhale-tui doctor --json` when the first surface has no parseable JSON. Both attempts, targets and selected surface remain visible.
