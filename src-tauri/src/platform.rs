@@ -47,10 +47,7 @@ impl PlatformState {
     }
 
     pub fn start_cursor_hit_test(self: &Arc<Self>, app: AppHandle) {
-        if self
-            .cursor_hit_test_started
-            .swap(true, Ordering::AcqRel)
-        {
+        if self.cursor_hit_test_started.swap(true, Ordering::AcqRel) {
             return;
         }
         let state = self.clone();
@@ -94,10 +91,8 @@ impl PlatformState {
         let top = f64::from(origin.y) + bounds.y * scale - padding;
         let right = left + bounds.width * scale + padding * 2.0;
         let bottom = top + bounds.height * scale + padding * 2.0;
-        let over_interactive_region = cursor.x >= left
-            && cursor.x <= right
-            && cursor.y >= top
-            && cursor.y <= bottom;
+        let over_interactive_region =
+            cursor.x >= left && cursor.x <= right && cursor.y >= top && cursor.y <= bottom;
         !over_interactive_region
     }
 

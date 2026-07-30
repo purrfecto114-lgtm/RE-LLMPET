@@ -1139,7 +1139,11 @@ impl Runtime {
 
     pub fn write_log(&self, tag: &str, message: &str) {
         let safe_tag: String = tag.chars().filter(|c| !c.is_control()).take(64).collect();
-        let safe_tag = if safe_tag.is_empty() { "app" } else { safe_tag.as_str() };
+        let safe_tag = if safe_tag.is_empty() {
+            "app"
+        } else {
+            safe_tag.as_str()
+        };
         // Renderer-originated diagnostics share this sink with native logs. Keep
         // every event on one bounded line so a compromised WebView cannot forge
         // additional timestamp/tag records with CR/LF or other controls.

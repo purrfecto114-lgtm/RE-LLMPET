@@ -106,7 +106,9 @@ pub fn set_mode(app: AppHandle, state: State<'_, AppState>, mode: String) -> Res
         "pet" | "panel" | "menubar" | "hidePet" => mode,
         other => return Err(format!("unsupported mode: {other}")),
     };
-    state.runtime.update_config(|config| config.mode = mode.clone())?;
+    state
+        .runtime
+        .update_config(|config| config.mode = mode.clone())?;
     // R14: window side-effect. "hidePet" hides the pet window so the user
     // gets a tray-only experience (the upstream Electron "menubar" mode
     // equivalent — Tauri has no native menubar). "pet" and "panel" both
@@ -121,9 +123,10 @@ pub fn set_mode(app: AppHandle, state: State<'_, AppState>, mode: String) -> Res
             window.show().and_then(|_| window.set_focus())
         };
         if let Err(error) = result {
-            state
-                .runtime
-                .write_log("mode", &format!("set_mode window side-effect failed: {error}"));
+            state.runtime.write_log(
+                "mode",
+                &format!("set_mode window side-effect failed: {error}"),
+            );
         }
     }
     emit_config(&app, &state);
@@ -145,9 +148,10 @@ pub fn uninstall_hooks(
         return Err(format!("unsupported provider: {provider}"));
     }
     let path = crate::hook_install::uninstall_provider_hooks(&provider)?;
-    state
-        .runtime
-        .write_log("tray", &format!("uninstalled hooks for {provider}: {}", path.display()));
+    state.runtime.write_log(
+        "tray",
+        &format!("uninstalled hooks for {provider}: {}", path.display()),
+    );
     // Resync provider statuses so the panel reflects the new state.
     let _ = crate::hook_install::resync_current(&state.runtime);
     emit_config(&app, &state);
@@ -272,10 +276,7 @@ pub fn territory_toggle_auto(app: AppHandle, state: State<'_, AppState>) -> Resu
 }
 
 #[tauri::command]
-pub fn territory_run_now(
-    app: AppHandle,
-    platform_state: State<'_, Arc<platform::PlatformState>>,
-) {
+pub fn territory_run_now(app: AppHandle, platform_state: State<'_, Arc<platform::PlatformState>>) {
     if platform_state.is_ui_busy() {
         let _ = app.emit(
             "pet:event",
@@ -369,7 +370,11 @@ fn logical_to_physical(value: f64, scale: f64) -> u32 {
     (value * scale).round().clamp(1.0, f64::from(u32::MAX)) as u32
 }
 
-fn resize_pet_anchored(window: &tauri::WebviewWindow, width: f64, height: f64) -> Result<(), String> {
+fn resize_pet_anchored(
+    window: &tauri::WebviewWindow,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
     // Renderer measurements are CSS/logical pixels. Convert them using the
     // monitor scale factor, then preserve the old bottom-centre anchor exactly
     // like upstream Electron's applyPetSize so opening a HUD does not make the
@@ -388,7 +393,10 @@ fn resize_pet_anchored(window: &tauri::WebviewWindow, width: f64, height: f64) -
 
     let mut x = center_x - i64::from(target_width) / 2;
     let mut y = bottom - i64::from(target_height);
-    if let Some(monitor) = window.current_monitor().map_err(|error| error.to_string())? {
+    if let Some(monitor) = window
+        .current_monitor()
+        .map_err(|error| error.to_string())?
+    {
         let work = monitor.work_area();
         target_width = target_width.min(work.size.width.max(1));
         target_height = target_height.min(work.size.height.max(1));
@@ -403,7 +411,10 @@ fn resize_pet_anchored(window: &tauri::WebviewWindow, width: f64, height: f64) -
     }
 
     window
-        .set_size(Size::Physical(PhysicalSize::new(target_width, target_height)))
+        .set_size(Size::Physical(PhysicalSize::new(
+            target_width,
+            target_height,
+        )))
         .map_err(|error| error.to_string())?;
     window
         .set_position(Position::Physical(PhysicalPosition::new(
@@ -540,7 +551,10 @@ fn agent_working_directory(requested: Option<&str>) -> Result<PathBuf, String> {
     if let Some(raw) = requested.map(str::trim).filter(|value| !value.is_empty()) {
         let path = PathBuf::from(raw);
         if !path.is_dir() {
-            return Err(format!("agent working directory does not exist: {}", path.display()));
+            return Err(format!(
+                "agent working directory does not exist: {}",
+                path.display()
+            ));
         }
         return Ok(path);
     }
@@ -577,7 +591,11 @@ fn executable_candidates(command: &str) -> Vec<OsString> {
             })
             .unwrap_or_else(|| vec![".com".into(), ".exe".into(), ".bat".into(), ".cmd".into()]);
         let mut values = vec![OsString::from(command)];
-        values.extend(extensions.into_iter().map(|extension| format!("{command}{extension}" ).into()));
+        values.extend(
+            extensions
+                .into_iter()
+                .map(|extension| format!("{command}{extension}").into()),
+        );
         values
     }
     #[cfg(not(windows))]
@@ -610,7 +628,9 @@ fn is_executable_file(path: &Path) -> bool {
 fn which(command: &str) -> Option<PathBuf> {
     let command_path = Path::new(command);
     if command_path.components().count() > 1 && is_executable_file(command_path) {
-        return std::fs::canonicalize(command_path).ok().or_else(|| Some(command_path.to_path_buf()));
+        return std::fs::canonicalize(command_path)
+            .ok()
+            .or_else(|| Some(command_path.to_path_buf()));
     }
     let candidates = executable_candidates(command);
     if let Some(path_value) = std::env::var_os("PATH") {
@@ -632,7 +652,12 @@ fn which(command: &str) -> Option<PathBuf> {
         };
         let mut bases = Vec::new();
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-            bases.push(PathBuf::from(local).join("Programs").join("CodeWhale").join("bin"));
+            bases.push(
+                PathBuf::from(local)
+                    .join("Programs")
+                    .join("CodeWhale")
+                    .join("bin"),
+            );
         }
         if let Some(profile) = std::env::var_os("USERPROFILE") {
             bases.push(PathBuf::from(profile).join("bin"));
@@ -697,8 +722,12 @@ fn redact_sensitive_line(line: &str) -> String {
 
     let mut output = Vec::new();
     for token in line.split_whitespace() {
-        let normalized = token
-            .trim_matches(|ch: char| matches!(ch, '\"' | '\'' | ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}'));
+        let normalized = token.trim_matches(|ch: char| {
+            matches!(
+                ch,
+                '\"' | '\'' | ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}'
+            )
+        });
         let lower_token = normalized.to_ascii_lowercase();
         let looks_secret = lower_token.starts_with("sk-")
             || lower_token.starts_with("sk_")
@@ -805,7 +834,12 @@ struct CodeWhaleDoctorProbe {
     attempts: Vec<Value>,
 }
 
-fn run_probe_capture(executable: &Path, args: &[&str], cwd: &Path, timeout: Duration) -> ProbeCapture {
+fn run_probe_capture(
+    executable: &Path,
+    args: &[&str],
+    cwd: &Path,
+    timeout: Duration,
+) -> ProbeCapture {
     #[cfg(windows)]
     let mut command = if is_windows_script(executable) {
         let mut command = Command::new("cmd.exe");
@@ -1018,7 +1052,8 @@ fn codewhale_doctor_probe(
         if let Some(path) = dispatcher {
             let duplicate = companion.is_some_and(|companion| companion == path);
             if !duplicate {
-                let capture = run_probe_capture(path, &["doctor", "--json"], cwd, Duration::from_secs(15));
+                let capture =
+                    run_probe_capture(path, &["doctor", "--json"], cwd, Duration::from_secs(15));
                 attempts.push(json!({
                     "surface": "dispatcher",
                     "target": path.to_string_lossy(),
@@ -1094,7 +1129,9 @@ fn semverish_from_probe(probe: &Value) -> Option<String> {
         .flat_map(str::split_whitespace)
         .map(|value| {
             value
-                .trim_matches(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '+'))
+                .trim_matches(|ch: char| {
+                    !(ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '+')
+                })
                 .trim_start_matches('v')
                 .to_string()
         })
@@ -1175,7 +1212,11 @@ fn codewhale_config_candidates(cwd: &Path) -> Value {
                 .map(|base| ("CODEWHALE_HOME", PathBuf::from(base).join("config.toml")))
         });
     let selected_source = if let Some((source, path)) = explicit.as_ref() {
-        if path == &selected { *source } else { "explicit" }
+        if path == &selected {
+            *source
+        } else {
+            "explicit"
+        }
     } else if selected == legacy {
         "legacy-fallback"
     } else {
@@ -1207,7 +1248,8 @@ fn codewhale_config_compatibility(path: &Path) -> Value {
             })
         }
     };
-    if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() > MAX_CONFIG_BYTES {
+    if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() > MAX_CONFIG_BYTES
+    {
         return json!({
             "readable": false,
             "bytes": metadata.len(),
@@ -1228,7 +1270,13 @@ fn codewhale_config_compatibility(path: &Path) -> Value {
     };
     let active_lines = raw
         .lines()
-        .map(|line| line.split('#').next().unwrap_or_default().trim().to_ascii_lowercase())
+        .map(|line| {
+            line.split('#')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase()
+        })
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>();
     let active_text = active_lines.join("\n");
@@ -1293,8 +1341,7 @@ fn aider_configuration_summary(cwd: &Path) -> Value {
     ]
     .into_iter()
     .filter(|name| {
-        std::env::var_os(name)
-            .is_some_and(|value| !value.to_string_lossy().trim().is_empty())
+        std::env::var_os(name).is_some_and(|value| !value.to_string_lossy().trim().is_empty())
     })
     .collect::<Vec<_>>();
     let model_environment = std::env::var_os("AIDER_MODEL")
@@ -1315,12 +1362,18 @@ fn executable_kind(path: &Path) -> &'static str {
         if path
             .extension()
             .and_then(|value| value.to_str())
-            .is_some_and(|value| value.eq_ignore_ascii_case("exe") || value.eq_ignore_ascii_case("com"))
+            .is_some_and(|value| {
+                value.eq_ignore_ascii_case("exe") || value.eq_ignore_ascii_case("com")
+            })
         {
             return "native-windows";
         }
     }
-    if path.to_string_lossy().to_ascii_lowercase().contains("node_modules") {
+    if path
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .contains("node_modules")
+    {
         "package-manager-shim"
     } else {
         "native-or-script"
@@ -1344,16 +1397,33 @@ pub fn diagnose_agent(provider: String) -> Result<Value, String> {
         issues.push(format!("{} CLI was not found in Octopus PATH", spec.title));
     }
     if spec.id == "codewhale" && executable.is_some() && companion.is_none() {
-        issues.push("MISSING_COMPANION_BINARY: codewhale-tui was not found beside codewhale or on PATH".into());
+        issues.push(
+            "MISSING_COMPANION_BINARY: codewhale-tui was not found beside codewhale or on PATH"
+                .into(),
+        );
     }
     let version = executable
         .as_deref()
-        .map(|path| run_probe(path, &["--version"], &working_directory, Duration::from_secs(5)))
+        .map(|path| {
+            run_probe(
+                path,
+                &["--version"],
+                &working_directory,
+                Duration::from_secs(5),
+            )
+        })
         .unwrap_or(Value::Null);
     let companion_version = if spec.id == "codewhale" {
         companion
             .as_deref()
-            .map(|path| run_probe(path, &["--version"], &working_directory, Duration::from_secs(5)))
+            .map(|path| {
+                run_probe(
+                    path,
+                    &["--version"],
+                    &working_directory,
+                    Duration::from_secs(5),
+                )
+            })
             .unwrap_or(Value::Null)
     } else {
         Value::Null
@@ -1380,9 +1450,18 @@ pub fn diagnose_agent(provider: String) -> Result<Value, String> {
         "claude" => (
             executable
                 .as_deref()
-                .map(|path| run_probe(path, &["doctor"], &working_directory, Duration::from_secs(15)))
+                .map(|path| {
+                    run_probe(
+                        path,
+                        &["doctor"],
+                        &working_directory,
+                        Duration::from_secs(15),
+                    )
+                })
                 .unwrap_or(Value::Null),
-            executable.as_deref().map(|path| path.to_string_lossy().into_owned()),
+            executable
+                .as_deref()
+                .map(|path| path.to_string_lossy().into_owned()),
             executable.as_ref().map(|_| "cli"),
             None,
             Value::Null,
@@ -1392,15 +1471,36 @@ pub fn diagnose_agent(provider: String) -> Result<Value, String> {
     let auth = match spec.id {
         "codewhale" => executable
             .as_deref()
-            .map(|path| run_probe(path, &["auth", "status"], &working_directory, Duration::from_secs(8)))
+            .map(|path| {
+                run_probe(
+                    path,
+                    &["auth", "status"],
+                    &working_directory,
+                    Duration::from_secs(8),
+                )
+            })
             .unwrap_or(Value::Null),
         "codex" => executable
             .as_deref()
-            .map(|path| run_probe(path, &["login", "status"], &working_directory, Duration::from_secs(8)))
+            .map(|path| {
+                run_probe(
+                    path,
+                    &["login", "status"],
+                    &working_directory,
+                    Duration::from_secs(8),
+                )
+            })
             .unwrap_or(Value::Null),
         "opencode" => executable
             .as_deref()
-            .map(|path| run_probe(path, &["auth", "list"], &working_directory, Duration::from_secs(8)))
+            .map(|path| {
+                run_probe(
+                    path,
+                    &["auth", "list"],
+                    &working_directory,
+                    Duration::from_secs(8),
+                )
+            })
             .unwrap_or(Value::Null),
         _ => Value::Null,
     };
@@ -1427,13 +1527,13 @@ pub fn diagnose_agent(provider: String) -> Result<Value, String> {
             probe_failure_detail(&companion_version)
         ));
     }
-    if spec.id == "codewhale"
-        && probe_succeeded(&version)
-        && probe_succeeded(&companion_version)
-    {
+    if spec.id == "codewhale" && probe_succeeded(&version) && probe_succeeded(&companion_version) {
         let dispatcher_version = semverish_from_probe(&version);
         let runtime_version = semverish_from_probe(&companion_version);
-        if dispatcher_version.is_some() && runtime_version.is_some() && dispatcher_version != runtime_version {
+        if dispatcher_version.is_some()
+            && runtime_version.is_some()
+            && dispatcher_version != runtime_version
+        {
             issues.push(format!(
                 "CodeWhale dispatcher/runtime version mismatch: {} vs {}",
                 dispatcher_version.unwrap_or_default(),
@@ -1476,13 +1576,24 @@ pub fn diagnose_agent(provider: String) -> Result<Value, String> {
         {
             warnings.push("CodeWhale reports no stored or environment API key; local/keyless providers may still work, otherwise authenticate before launch".into());
         }
-        if let Some(state) = doctor_summary.get("sessionRecovery").and_then(Value::as_str) {
-            if matches!(state, "migration_pending" | "migration_incomplete" | "scan_failed") {
-                warnings.push(format!("CodeWhale legacy session recovery needs attention: {state}"));
+        if let Some(state) = doctor_summary
+            .get("sessionRecovery")
+            .and_then(Value::as_str)
+        {
+            if matches!(
+                state,
+                "migration_pending" | "migration_incomplete" | "scan_failed"
+            ) {
+                warnings.push(format!(
+                    "CodeWhale legacy session recovery needs attention: {state}"
+                ));
             }
         }
     }
-    if matches!(spec.id, "codewhale" | "codex" | "opencode") && executable.is_some() && !probe_succeeded(&auth) {
+    if matches!(spec.id, "codewhale" | "codex" | "opencode")
+        && executable.is_some()
+        && !probe_succeeded(&auth)
+    {
         let qualification = match spec.id {
             "codex" => " Custom model providers using env_key may still work even when the built-in login store is empty.",
             "opencode" => " Environment variables or a project .env file may still provide credentials.",
@@ -1785,7 +1896,15 @@ fn launch_terminal(spec: AgentSpec, executable: &Path, cwd: &Path) -> Result<(),
         if let Some(wt) = which("wt.exe").or_else(|| which("wt")) {
             let mut command = Command::new(wt);
             command
-                .args(["-w", "-1", "new-tab", "--title", spec.title, "--suppressApplicationTitle", "--startingDirectory"])
+                .args([
+                    "-w",
+                    "-1",
+                    "new-tab",
+                    "--title",
+                    spec.title,
+                    "--suppressApplicationTitle",
+                    "--startingDirectory",
+                ])
                 .arg(cwd);
             if is_windows_script(executable) {
                 command
@@ -1805,7 +1924,10 @@ fn launch_terminal(spec: AgentSpec, executable: &Path, cwd: &Path) -> Result<(),
         let command_line = if is_windows_script(executable) {
             cmd_launch_call(executable, launch_args)
         } else {
-            let mut parts = vec![format!("\"{}\"", executable.to_string_lossy().replace('"', "\"\""))];
+            let mut parts = vec![format!(
+                "\"{}\"",
+                executable.to_string_lossy().replace('"', "\"\"")
+            )];
             parts.extend(launch_args.iter().map(|value| cmd_quote_arg(*value)));
             parts.join(" ")
         };
@@ -1815,7 +1937,12 @@ fn launch_terminal(spec: AgentSpec, executable: &Path, cwd: &Path) -> Result<(),
             .current_dir(cwd)
             .spawn()
             .map(|_| ())
-            .map_err(|e| format!("failed to launch {} in Windows Terminal or cmd.exe: {e}", spec.title))
+            .map_err(|e| {
+                format!(
+                    "failed to launch {} in Windows Terminal or cmd.exe: {e}",
+                    spec.title
+                )
+            })
     }
     #[cfg(target_os = "macos")]
     {
@@ -1855,11 +1982,19 @@ fn launch_terminal(spec: AgentSpec, executable: &Path, cwd: &Path) -> Result<(),
             ("xterm", terminal_args("-e")),
         ];
         for (program, args) in attempts {
-            if Command::new(program).args(args).current_dir(cwd).spawn().is_ok() {
+            if Command::new(program)
+                .args(args)
+                .current_dir(cwd)
+                .spawn()
+                .is_ok()
+            {
                 return Ok(());
             }
         }
-        Err(format!("no supported terminal emulator found for {}", spec.title))
+        Err(format!(
+            "no supported terminal emulator found for {}",
+            spec.title
+        ))
     }
 }
 

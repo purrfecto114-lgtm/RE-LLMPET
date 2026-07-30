@@ -118,7 +118,14 @@ assert.match(panelHtml, /id="sess-provider-filter"/);
 assert.match(panelHtml, /id="sess-query"/);
 assert.match(panel, /function sessionProviderId/);
 assert.match(panel, /sessionProviderFilter/);
-assert.match(panel, /String\(s\.sessionId \|\| ''\)\.slice\(0, 8\)/);
+// R19 (2026-07-30): renderSessList now uses `const sid = String(s.sessionId || ''); sid.slice(0, 8)`
+// instead of the inline `String(s.sessionId || '').slice(0, 8)`. Both forms are equivalent;
+// the assertion accepts either so the smoke does not break on the refactor.
+assert(
+  /String\(s\.sessionId \|\| ''\)\.slice\(0, 8\)/.test(panel)
+  || (/const sid = String\(s\.sessionId \|\| ''\)/.test(panel) && /sid\.slice\(0, 8\)/.test(panel)),
+  'renderSessList must shorten sessionId to 8 chars (either inline or via sid variable)'
+);
 
 
 // Permission semantics and queue recovery: provider contracts stay explicit; only metadata persists.

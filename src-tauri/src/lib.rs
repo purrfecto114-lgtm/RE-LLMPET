@@ -163,19 +163,72 @@ fn build_tray_menu<R: tauri::Runtime>(
     lang: &str,
 ) -> tauri::Result<tauri::menu::Menu<R>> {
     use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, SubmenuBuilder};
-    let show = MenuItem::with_id(app, "show", i18n::tray_label(lang, "tray.showPet"), true, None::<&str>)?;
-    let panel = MenuItem::with_id(app, "panel", i18n::tray_label(lang, "tray.panel"), true, None::<&str>)?;
-    let log = MenuItem::with_id(app, "log", i18n::tray_label(lang, "tray.openLog"), true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", i18n::tray_label(lang, "tray.quit"), true, None::<&str>)?;
+    let show = MenuItem::with_id(
+        app,
+        "show",
+        i18n::tray_label(lang, "tray.showPet"),
+        true,
+        None::<&str>,
+    )?;
+    let panel = MenuItem::with_id(
+        app,
+        "panel",
+        i18n::tray_label(lang, "tray.panel"),
+        true,
+        None::<&str>,
+    )?;
+    let log = MenuItem::with_id(
+        app,
+        "log",
+        i18n::tray_label(lang, "tray.openLog"),
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(
+        app,
+        "quit",
+        i18n::tray_label(lang, "tray.quit"),
+        true,
+        None::<&str>,
+    )?;
     // New-agent submenu: launch any of the 5 providers, not just Claude.
     // Item ids stay stable across languages so the on_menu_event handler
     // never needs to know which language produced the label.
-    let launch_claude = MenuItem::with_id(app, "launch_claude", i18n::tray_label(lang, "tray.launchClaude"), true, None::<&str>)?;
-    let launch_cw = MenuItem::with_id(app, "launch_codewhale", i18n::tray_label(lang, "tray.launchCodewhale"), true, None::<&str>)?;
-    let launch_codex = MenuItem::with_id(app, "launch_codex", i18n::tray_label(lang, "tray.launchCodex"), true, None::<&str>)?;
-    let launch_opencode =
-        MenuItem::with_id(app, "launch_opencode", i18n::tray_label(lang, "tray.launchOpencode"), true, None::<&str>)?;
-    let launch_aider = MenuItem::with_id(app, "launch_aider", i18n::tray_label(lang, "tray.launchAider"), true, None::<&str>)?;
+    let launch_claude = MenuItem::with_id(
+        app,
+        "launch_claude",
+        i18n::tray_label(lang, "tray.launchClaude"),
+        true,
+        None::<&str>,
+    )?;
+    let launch_cw = MenuItem::with_id(
+        app,
+        "launch_codewhale",
+        i18n::tray_label(lang, "tray.launchCodewhale"),
+        true,
+        None::<&str>,
+    )?;
+    let launch_codex = MenuItem::with_id(
+        app,
+        "launch_codex",
+        i18n::tray_label(lang, "tray.launchCodex"),
+        true,
+        None::<&str>,
+    )?;
+    let launch_opencode = MenuItem::with_id(
+        app,
+        "launch_opencode",
+        i18n::tray_label(lang, "tray.launchOpencode"),
+        true,
+        None::<&str>,
+    )?;
+    let launch_aider = MenuItem::with_id(
+        app,
+        "launch_aider",
+        i18n::tray_label(lang, "tray.launchAider"),
+        true,
+        None::<&str>,
+    )?;
     let launch_menu = SubmenuBuilder::new(app, i18n::tray_label(lang, "tray.launchAgent"))
         .item(&launch_claude)
         .item(&launch_cw)
@@ -188,9 +241,30 @@ fn build_tray_menu<R: tauri::Runtime>(
     // on pick we update config + persist + emit + call refresh_tray_menu
     // which rebuilds the menu so the new selection shows the check mark).
     let config = app.state::<AppState>().runtime.config();
-    let lang_zh = CheckMenuItem::with_id(app, "lang_zh", i18n::tray_label(lang, "lang.zh"), true, lang == "zh", None::<&str>)?;
-    let lang_en = CheckMenuItem::with_id(app, "lang_en", i18n::tray_label(lang, "lang.en"), true, lang == "en", None::<&str>)?;
-    let lang_ja = CheckMenuItem::with_id(app, "lang_ja", i18n::tray_label(lang, "lang.ja"), true, lang == "ja", None::<&str>)?;
+    let lang_zh = CheckMenuItem::with_id(
+        app,
+        "lang_zh",
+        i18n::tray_label(lang, "lang.zh"),
+        true,
+        lang == "zh",
+        None::<&str>,
+    )?;
+    let lang_en = CheckMenuItem::with_id(
+        app,
+        "lang_en",
+        i18n::tray_label(lang, "lang.en"),
+        true,
+        lang == "en",
+        None::<&str>,
+    )?;
+    let lang_ja = CheckMenuItem::with_id(
+        app,
+        "lang_ja",
+        i18n::tray_label(lang, "lang.ja"),
+        true,
+        lang == "ja",
+        None::<&str>,
+    )?;
     let lang_menu = SubmenuBuilder::new(app, i18n::tray_label(lang, "tray.language"))
         .item(&lang_zh)
         .item(&lang_en)
@@ -198,9 +272,30 @@ fn build_tray_menu<R: tauri::Runtime>(
         .build()?;
 
     // Skin submenu — 3 skins, only the active one is checked.
-    let skin_mascot = CheckMenuItem::with_id(app, "skin_mascot", i18n::tray_label(lang, "skin.mascot"), true, config.skin == "mascot", None::<&str>)?;
-    let skin_pixel = CheckMenuItem::with_id(app, "skin_pixel", i18n::tray_label(lang, "skin.pixel"), true, config.skin == "pixel", None::<&str>)?;
-    let skin_cat = CheckMenuItem::with_id(app, "skin_cat", i18n::tray_label(lang, "skin.cat"), true, config.skin == "cat", None::<&str>)?;
+    let skin_mascot = CheckMenuItem::with_id(
+        app,
+        "skin_mascot",
+        i18n::tray_label(lang, "skin.mascot"),
+        true,
+        config.skin == "mascot",
+        None::<&str>,
+    )?;
+    let skin_pixel = CheckMenuItem::with_id(
+        app,
+        "skin_pixel",
+        i18n::tray_label(lang, "skin.pixel"),
+        true,
+        config.skin == "pixel",
+        None::<&str>,
+    )?;
+    let skin_cat = CheckMenuItem::with_id(
+        app,
+        "skin_cat",
+        i18n::tray_label(lang, "skin.cat"),
+        true,
+        config.skin == "cat",
+        None::<&str>,
+    )?;
     let skin_menu = SubmenuBuilder::new(app, i18n::tray_label(lang, "tray.skin"))
         .item(&skin_mascot)
         .item(&skin_pixel)
@@ -211,12 +306,54 @@ fn build_tray_menu<R: tauri::Runtime>(
     // tray uses $10/$20/$30/$50/$100; we keep the same presets. Values
     // are formatted as "$N" in every locale (currency symbol is universal
     // enough; the "Off" label is localized via tray.budgetOff).
-    let budget_off = CheckMenuItem::with_id(app, "budget_0", i18n::tray_label(lang, "tray.budgetOff"), true, config.budget5h == 0.0, None::<&str>)?;
-    let budget_10 = CheckMenuItem::with_id(app, "budget_10", "$10", true, config.budget5h == 10.0, None::<&str>)?;
-    let budget_20 = CheckMenuItem::with_id(app, "budget_20", "$20", true, config.budget5h == 20.0, None::<&str>)?;
-    let budget_30 = CheckMenuItem::with_id(app, "budget_30", "$30", true, config.budget5h == 30.0, None::<&str>)?;
-    let budget_50 = CheckMenuItem::with_id(app, "budget_50", "$50", true, config.budget5h == 50.0, None::<&str>)?;
-    let budget_100 = CheckMenuItem::with_id(app, "budget_100", "$100", true, config.budget5h == 100.0, None::<&str>)?;
+    let budget_off = CheckMenuItem::with_id(
+        app,
+        "budget_0",
+        i18n::tray_label(lang, "tray.budgetOff"),
+        true,
+        config.budget5h == 0.0,
+        None::<&str>,
+    )?;
+    let budget_10 = CheckMenuItem::with_id(
+        app,
+        "budget_10",
+        "$10",
+        true,
+        config.budget5h == 10.0,
+        None::<&str>,
+    )?;
+    let budget_20 = CheckMenuItem::with_id(
+        app,
+        "budget_20",
+        "$20",
+        true,
+        config.budget5h == 20.0,
+        None::<&str>,
+    )?;
+    let budget_30 = CheckMenuItem::with_id(
+        app,
+        "budget_30",
+        "$30",
+        true,
+        config.budget5h == 30.0,
+        None::<&str>,
+    )?;
+    let budget_50 = CheckMenuItem::with_id(
+        app,
+        "budget_50",
+        "$50",
+        true,
+        config.budget5h == 50.0,
+        None::<&str>,
+    )?;
+    let budget_100 = CheckMenuItem::with_id(
+        app,
+        "budget_100",
+        "$100",
+        true,
+        config.budget5h == 100.0,
+        None::<&str>,
+    )?;
     let budget_menu = SubmenuBuilder::new(app, i18n::tray_label(lang, "tray.budget"))
         .item(&budget_off)
         .item(&budget_10)
@@ -231,9 +368,30 @@ fn build_tray_menu<R: tauri::Runtime>(
     // window so the user gets a tray-only experience. "pet" is the default
     // floating pet; "panel" is reserved for a future corner-panel layout
     // (currently the panel is a separate window opened from the tray).
-    let shape_pet = CheckMenuItem::with_id(app, "shape_pet", i18n::tray_label(lang, "shape.pet"), true, config.mode == "pet", None::<&str>)?;
-    let shape_panel = CheckMenuItem::with_id(app, "shape_panel", i18n::tray_label(lang, "shape.panel"), true, config.mode == "panel", None::<&str>)?;
-    let shape_hide = CheckMenuItem::with_id(app, "shape_hidePet", i18n::tray_label(lang, "shape.hidePet"), true, config.mode == "hidePet", None::<&str>)?;
+    let shape_pet = CheckMenuItem::with_id(
+        app,
+        "shape_pet",
+        i18n::tray_label(lang, "shape.pet"),
+        true,
+        config.mode == "pet",
+        None::<&str>,
+    )?;
+    let shape_panel = CheckMenuItem::with_id(
+        app,
+        "shape_panel",
+        i18n::tray_label(lang, "shape.panel"),
+        true,
+        config.mode == "panel",
+        None::<&str>,
+    )?;
+    let shape_hide = CheckMenuItem::with_id(
+        app,
+        "shape_hidePet",
+        i18n::tray_label(lang, "shape.hidePet"),
+        true,
+        config.mode == "hidePet",
+        None::<&str>,
+    )?;
     let shape_menu = SubmenuBuilder::new(app, i18n::tray_label(lang, "tray.shape"))
         .item(&shape_pet)
         .item(&shape_panel)
@@ -249,18 +407,37 @@ fn build_tray_menu<R: tauri::Runtime>(
     } else {
         i18n::tray_label(lang, "tray.mute")
     };
-    let mute_item = CheckMenuItem::with_id(app, "toggle_mute", mute_label, true, config.muted, None::<&str>)?;
+    let mute_item = CheckMenuItem::with_id(
+        app,
+        "toggle_mute",
+        mute_label,
+        true,
+        config.muted,
+        None::<&str>,
+    )?;
 
     // R13 (2026-07-30): "Settings" is a disabled placeholder so the tray
     // visually matches the upstream Electron layout. A real settings panel
     // is reachable from the dashboard; this item signals that the tray is
     // not the place for full settings.
-    let settings = MenuItem::with_id(app, "settings", i18n::tray_label(lang, "tray.settings"), false, None::<&str>)?;
+    let settings = MenuItem::with_id(
+        app,
+        "settings",
+        i18n::tray_label(lang, "tray.settings"),
+        false,
+        None::<&str>,
+    )?;
 
     // R13: "Uninstall Claude hooks" — single-provider hook cleanup.
     // Default provider is Claude (matches upstream Electron tray label);
     // the underlying command accepts any of the 5 providers.
-    let uninstall_hooks = MenuItem::with_id(app, "uninstall_claude_hooks", i18n::tray_label(lang, "tray.uninstallHook"), true, None::<&str>)?;
+    let uninstall_hooks = MenuItem::with_id(
+        app,
+        "uninstall_claude_hooks",
+        i18n::tray_label(lang, "tray.uninstallHook"),
+        true,
+        None::<&str>,
+    )?;
 
     // Separators between logical groups: launch / settings / quit.
     let sep1 = PredefinedMenuItem::separator(app)?;
@@ -302,9 +479,10 @@ pub fn refresh_tray_menu(app: &tauri::AppHandle) {
     match build_tray_menu(app, &lang) {
         Ok(menu) => {
             if let Err(error) = tray.set_menu(Some(menu)) {
-                app.state::<AppState>()
-                    .runtime
-                    .write_log("tray", &format!("refresh_tray_menu set_menu failed: {error}"));
+                app.state::<AppState>().runtime.write_log(
+                    "tray",
+                    &format!("refresh_tray_menu set_menu failed: {error}"),
+                );
             }
         }
         Err(error) => {
@@ -431,11 +609,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             // 5 providers. Future tray revisions could expose a submenu with
             // one entry per provider.
             "uninstall_claude_hooks" => {
-                let _ = uninstall_hooks(
-                    app.clone(),
-                    app.state::<AppState>(),
-                    "claude".into(),
-                );
+                let _ = uninstall_hooks(app.clone(), app.state::<AppState>(), "claude".into());
             }
             "quit" => {
                 let state = app.state::<AppState>();

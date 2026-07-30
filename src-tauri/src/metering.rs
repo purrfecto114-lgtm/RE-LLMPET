@@ -491,9 +491,7 @@ impl UsageLedger {
         // aggregate cache_creation_input_tokens; we attribute the full
         // remainder to 5m (Anthropic's default TTL is 5 minutes), matching
         // upstream metering.js usageSnapshot().
-        let cache_creation_obj = usage
-            .get("cache_creation")
-            .and_then(Value::as_object);
+        let cache_creation_obj = usage.get("cache_creation").and_then(Value::as_object);
         let explicit_5m = cache_creation_obj
             .and_then(|o| number(o, &["ephemeral_5m_input_tokens"]))
             .unwrap_or(0);

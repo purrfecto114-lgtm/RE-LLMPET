@@ -701,7 +701,9 @@ fn write_text_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
                 if had_original {
                     let _ = fs::rename(&backup, path);
                 }
-                Err(format!("failed to replace config; original restored: {error}"))
+                Err(format!(
+                    "failed to replace config; original restored: {error}"
+                ))
             }
         }
     }
