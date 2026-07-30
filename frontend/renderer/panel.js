@@ -923,7 +923,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('provider-list').addEventListener('change', (e) => {
     if (!e.target.matches('input[data-id]')) return;
     const id = e.target.dataset.id;
-    const { active } = config.providers || { active: ['claude'] };
+    const { active } = config.providers || { active: [] }; // R22: default empty (was ['claude'])
     const newActive = e.target.checked
       ? [...active, id]
       : active.filter((a) => a !== id);

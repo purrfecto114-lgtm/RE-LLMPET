@@ -1620,7 +1620,7 @@ function renderSessions(sessions) {
   if (radialOpen) updateRadialBadge();
 }
 
-let activeProviders = ['claude'];
+let activeProviders = []; // R22: empty until config arrives (was ['claude'])
 
 window.pet.onConfig((cfg) => {
   if (!cfg) return;
