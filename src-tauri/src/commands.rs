@@ -606,18 +606,31 @@ fn executable_candidates(command: &str) -> Vec<OsString> {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_else(|| vec![".com".into(), ".exe".into(), ".bat".into(), ".cmd".into()]);
-        // R22 (2026-07-30): try extensions FIRST, then bare name.
-        // On npm Windows installs, both "codewhale" (bash script, no ext)
-        // and "codewhale.cmd" exist. The old code tried the bare name first,
-        // found the bash script, and passed it to wt.exe which failed with
-        // 0x800700c1 (STATUS_INVALID_IMAGE_FORMAT). By trying .exe/.cmd/.bat
-        // first, we find the right executable for the Windows shell.
-        let mut values: Vec<OsString> = extensions
-            .into_iter()
-            .map(|extension| format!("{command}{extension}").into())
-            .collect();
-        values.push(OsString::from(command));
-        values
+        // R22 (2026-07-30): try extensions ONLY on Windows.
+        // npm creates both "codewhale" (bash script, no extension) and
+        // "codewhale.cmd" (Windows batch). The bare-name file cannot be
+        // executed by wt.exe or cmd.exe directly — it causes
+        // 0x800700c1 (STATUS_INVALID_IMAGE_FORMAT). By trying ONLY
+        // extensioned candidates, we guarantee the correct .cmd/.exe is
+        // found. On non-Windows, the bare name is still valid (POSIX
+        // executables have no extension).
+        #[cfg(windows)]
+        {
+            return extensions
+                .into_iter()
+                .map(|extension| format!("{command}{extension}").into())
+                .collect();
+        }
+        #[cfg(not(windows))]
+        {
+            let mut values = vec![OsString::from(command)];
+            values.extend(
+                extensions
+                    .into_iter()
+                    .map(|extension| format!("{command}{extension}").into()),
+            );
+            values
+        }
     }
     #[cfg(not(windows))]
     {
@@ -646,12 +659,29 @@ fn is_executable_file(path: &Path) -> bool {
 /// Resolve through the application's inherited PATH without invoking a shell.
 /// This deliberately returns an absolute path so terminal launch never reparses
 /// renderer-controlled text as a command line.
+
+/// R22 (2026-07-30): canonicalize a path and strip the Windows `\\?\` prefix.
+/// The prefix is added by `std::fs::canonicalize` when resolving symlinks or
+/// long paths. Windows Terminal (`wt.exe`) and `cmd.exe` cannot handle the
+/// `\\?\` prefix for `.cmd`/`.bat` script files — they treat it as a native
+/// executable and fail with `0x800700c1` (STATUS_INVALID_IMAGE_FORMAT).
+/// Stripping the prefix restores compatibility with all Windows shell tools.
+fn canonicalize_path(path: &Path) -> Option<PathBuf> {
+    let canonical = std::fs::canonicalize(path).ok().or_else(|| Some(path.to_path_buf()))?;
+    #[cfg(windows)]
+    {
+        let s = canonical.to_string_lossy();
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            return Some(PathBuf::from(stripped));
+        }
+    }
+    Some(canonical)
+}
+
 fn which(command: &str) -> Option<PathBuf> {
     let command_path = Path::new(command);
     if command_path.components().count() > 1 && is_executable_file(command_path) {
-        return std::fs::canonicalize(command_path)
-            .ok()
-            .or_else(|| Some(command_path.to_path_buf()));
+        return canonicalize_path(command_path);
     }
     let candidates = executable_candidates(command);
     if let Some(path_value) = std::env::var_os("PATH") {
@@ -659,7 +689,7 @@ fn which(command: &str) -> Option<PathBuf> {
             for candidate in &candidates {
                 let path = directory.join(candidate);
                 if is_executable_file(&path) {
-                    return std::fs::canonicalize(&path).ok().or(Some(path));
+                    return canonicalize_path(&path);
                 }
             }
         }

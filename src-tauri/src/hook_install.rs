@@ -4,6 +4,23 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// R22 (2026-07-30): get the current executable path with the Windows
+/// `\\?\` prefix stripped. The prefix is added by `std::env::current_exe()`
+/// on Windows for long-path support, but it breaks hook command execution
+/// because CodeWhale's `cmd /C` wrapper and Claude's direct execution both
+/// fail to parse the `\\?\` prefix correctly in quoted paths.
+fn current_exe_clean() -> Result<PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    {
+        let s = exe.to_string_lossy();
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            return Ok(PathBuf::from(stripped));
+        }
+    }
+    Ok(exe)
+}
+
 const MAX_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
 const MARKER: &str = "--octopus-hook";
 // Install only observer-safe lifecycle events. Claude Code exposes additional
@@ -237,7 +254,7 @@ pub fn install_claude(
     let settings_path = home_dir().join(".claude").join("settings.json");
     let mut settings = read_json_object(&settings_path, "Claude settings")?;
     let hooks = ensure_object(&mut settings, "hooks")?;
-    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let executable = current_exe_clean().map_err(|e| e.to_string())?;
     let command = hook_command(&executable, "claude", None, false);
     let mut result = InstallResult {
         path: settings_path.clone(),
@@ -278,7 +295,7 @@ fn uninstall_claude() -> Result<PathBuf, String> {
 
 fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
     let path = codewhale_config_path();
-    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let executable = current_exe_clean().map_err(|e| e.to_string())?;
     let mut block = String::from(CW_BEGIN);
     block.push('\n');
     for event in CODEWHALE_EVENTS {
@@ -321,7 +338,7 @@ fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
         .or_insert(json!("Octopus multi-agent desktop integration"));
     let hooks = ensure_object(&mut root, "hooks")?;
     remove_all_ours(hooks);
-    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let executable = current_exe_clean().map_err(|e| e.to_string())?;
     for event in CODEX_EVENTS {
         let permission = event == "PermissionRequest";
         let command = hook_command(&executable, "codex", Some(event), permission);
@@ -412,7 +429,7 @@ fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
             line.trim()
         ));
     }
-    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let executable = current_exe_clean().map_err(|e| e.to_string())?;
     let command = hook_command(&executable, "aider", Some("turn_end"), false);
     // YAML key: notifications_command (underscore). The CLI flag is
     // --notifications-command (hyphen), but the config file uses underscore.
