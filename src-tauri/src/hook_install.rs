@@ -30,7 +30,7 @@ const MARKER: &str = "--octopus-hook";
 // MessageDisplay and PostToolBatch are also intentionally excluded because they
 // may contain rendered conversation/tool payloads that are unnecessary for pet
 // state and expand the privacy/size surface.
-const CLAUDE_EVENTS: [&str; 18] = [
+const CLAUDE_EVENTS: [&str; 23] = [
     "SessionStart",
     "SessionEnd",
     "UserPromptSubmit",
@@ -49,6 +49,15 @@ const CLAUDE_EVENTS: [&str; 18] = [
     "TaskCreated",
     "TaskCompleted",
     "TeammateIdle",
+    // R27 (2026-07-30): 5 new observer events added in Claude Code v2.1.219+.
+    // These are non-blocking observer events — the hook runs in background
+    // and the result is discarded. PermissionRequest is NOT here because it
+    // is already installed separately with a 600s timeout and --permission flag.
+    "Setup",
+    "InstructionsLoaded",
+    "CwdChanged",
+    "WorktreeRemove",
+    "DirectoryAdded",
 ];
 const CODEX_EVENTS: [&str; 11] = [
     "SessionStart",

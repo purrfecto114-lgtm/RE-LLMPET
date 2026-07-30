@@ -28,7 +28,12 @@
       "PermissionDenied",
       "TaskCreated",
       "TaskCompleted",
-      "TeammateIdle"
+      "TeammateIdle",
+      "Setup",
+      "InstructionsLoaded",
+      "CwdChanged",
+      "WorktreeRemove",
+      "DirectoryAdded"
     ],
     "codewhaleEvents": [
       "session_start",
@@ -60,7 +65,11 @@
       "tool.execute.before",
       "tool.execute.after",
       "session.idle",
-      "session.error"
+      "session.error",
+      "session.created",
+      "session.compacted",
+      "session.deleted",
+      "session.status"
     ],
     "aiderNeedles": [
       "notifications_command:",

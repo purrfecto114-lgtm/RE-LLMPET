@@ -15,6 +15,8 @@ const EVENTS = [
   'SubagentStart', 'SubagentStop', 'PreCompact', 'PostCompact',
   'Notification', 'Elicitation', 'ElicitationResult',
   'PermissionDenied', 'TaskCreated', 'TaskCompleted', 'TeammateIdle',
+  // R27 (2026-07-30): 5 new observer events from Claude Code v2.1.219+
+  'Setup', 'InstructionsLoaded', 'CwdChanged', 'WorktreeRemove', 'DirectoryAdded',
 ];
 const MARKER = '--octopus-hook';
 
