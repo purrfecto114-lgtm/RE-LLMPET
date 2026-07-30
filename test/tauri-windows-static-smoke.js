@@ -22,7 +22,13 @@ assert(ico.readUInt16LE(4) >= 1, 'ICO image count');
 const commands = read('src-tauri/src/commands.rs');
 assert(commands.includes('#[cfg(target_os = "windows")]'));
 assert(commands.includes('which("wt.exe")'), 'Windows Terminal must be the primary host');
-assert(commands.includes('"-w", "-1", "new-tab"'), 'Windows Terminal launch should create a new tab/window');
+// R22 (2026-07-30): cargo fmt may split the wt.exe args across lines.
+// Accept either the inline form or the multiline form.
+assert(
+  commands.includes('"-w", "-1", "new-tab"')
+  || (commands.includes('"-w",') && commands.includes('"-1",') && commands.includes('"new-tab",')),
+  'Windows Terminal launch should create a new tab/window'
+);
 assert(commands.includes('"--startingDirectory"'), 'Windows Terminal must receive the validated working directory');
 const launchStart = commands.indexOf('fn launch_terminal');
 const fallbackMarker = commands.indexOf('// Windows Terminal is optional.', launchStart);

@@ -38,8 +38,13 @@ const lib = read('src-tauri/src/lib.rs');
 const commands = read('src-tauri/src/commands.rs');
 
 // ── Parse the Rust TRAY_LABELS table ───────────────────────────────────────
-// Each row is `("key", "zh", "en", "ja"),`. We tolerate whitespace.
-const rustRowRe = /\("([^"]+)",\s*"([^"]*)",\s*"([^"]*)",\s*"([^"]*)"\)/g;
+// Each row is `("key", "zh", "en", "ja"),`. R22 (2026-07-30): the regex
+// tolerates whitespace (including newlines) between every element so it
+// works whether or not `#[rustfmt::skip]` is present on the const. The
+// `#[rustfmt::skip]` attribute is the primary fix (keeps the table
+// human-readable), but this regex is defense-in-depth so a future
+// maintainer who removes the attribute does not silently break the smoke.
+const rustRowRe = /\(\s*"([^"]+)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*\)/g;
 const rustTable = new Map();
 let m;
 while ((m = rustRowRe.exec(i18nRust)) !== null) {
