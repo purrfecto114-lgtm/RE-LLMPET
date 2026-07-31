@@ -1,4 +1,5 @@
 mod commands;
+mod emotion;
 pub mod hook_client;
 mod hook_install;
 mod http_server;

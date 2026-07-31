@@ -69,11 +69,34 @@ fn run() -> Result<(), String> {
         parent_process_id().unwrap_or_else(std::process::id),
     ));
 
-    let event = object
+    // R29 (2026-07-31): detect emotion from the message text and inject
+    // it into the event body. The frontend (pet.js) already consumes
+    // ev.emotion to show matching expressions. This is a lightweight
+    // keyword-based sniffer — never blocks, returns None when in doubt.
+    let event_name = object
         .get("hook_event_name")
         .or_else(|| object.get("event"))
         .and_then(Value::as_str)
         .unwrap_or("");
+    let text = object
+        .get("text")
+        .or_else(|| object.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let role = if event_name == "UserPromptSubmit" || event_name == "message_submit" {
+        "user"
+    } else if event_name == "PostToolUse" || event_name == "turn_end" || event_name == "Stop" {
+        "assistant"
+    } else {
+        ""
+    };
+    if !text.is_empty() && !role.is_empty() {
+        if let Some(emotion) = crate::emotion::detect_emotion(text, role) {
+            object.insert("emotion".into(), Value::from(emotion.as_str()));
+        }
+    }
+
+    let event = event_name;
     let permission = force_permission
         || event == "PermissionRequest"
         || (provider == "codewhale" && event == "PreToolUse");
