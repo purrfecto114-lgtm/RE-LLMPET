@@ -681,10 +681,10 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
 /// systems don't have corner rounding anyway.
 #[cfg(target_os = "windows")]
 fn disable_dwm_corner_rounding(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::Graphics::Dwm::{
         DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
     };
-    use windows_sys::Win32::Foundation::HWND;
 
     let hwnd = window.hwnd().unwrap_or_default();
     if hwnd.is_invalid() {
