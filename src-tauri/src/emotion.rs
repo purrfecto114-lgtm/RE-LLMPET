@@ -81,7 +81,14 @@ const EMOTIONS: &[EmotionDef] = &[
 fn neighbor_negation(text: &str, idx: usize) -> bool {
     // Take the last 8 chars before idx (char-level, not byte-level).
     let before: Vec<char> = text.chars().take(idx).collect();
-    let window: String = before.iter().rev().take(8).collect::<Vec<_>>().iter().rev().collect();
+    let window: String = before
+        .iter()
+        .rev()
+        .take(8)
+        .collect::<Vec<_>>()
+        .iter()
+        .rev()
+        .collect();
     // Check CN negation chars
     for ch in window.chars() {
         if NEGATION_RE_CN.contains(&ch) {
@@ -128,7 +135,10 @@ fn find_one(text: &str, words: &[&str], is_cn: bool) -> bool {
 fn role_allows(role: &str, emotion: Emotion) -> bool {
     match role {
         "user" => matches!(emotion, Emotion::Loved | Emotion::Sad | Emotion::Excited),
-        "assistant" => matches!(emotion, Emotion::Sorry | Emotion::Puzzled | Emotion::Excited),
+        "assistant" => matches!(
+            emotion,
+            Emotion::Sorry | Emotion::Puzzled | Emotion::Excited
+        ),
         _ => true, // Unknown role: allow all
     }
 }
