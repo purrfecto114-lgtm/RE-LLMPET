@@ -16,8 +16,7 @@ const NEGATION_RE_CN: &[char] = &['不', '没', '别', '勿', '无'];
 
 /// English negation words (case-insensitive).
 const NEGATION_WORDS_EN: &[&str] = &[
-    "not ", "no ", "don't ", "doesn't ", "isn't ", "wasn't ", "never ",
-    "hardly ", "barely ",
+    "not ", "no ", "don't ", "doesn't ", "isn't ", "wasn't ", "never ", "hardly ", "barely ",
 ];
 
 /// Emotion type.
@@ -49,6 +48,7 @@ struct EmotionDef {
     en: &'static [&'static str],
 }
 
+#[rustfmt::skip]
 const EMOTIONS: &[EmotionDef] = &[
     EmotionDef {
         emotion: Emotion::Loved,
