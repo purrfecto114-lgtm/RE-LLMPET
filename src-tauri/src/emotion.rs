@@ -161,7 +161,13 @@ pub fn detect_emotion(text: &str, role: &str) -> Option<Emotion> {
     // The old code &t[t.len() - 1500..] could slice mid-UTF-8 character
     // (CJK = 3 bytes/char), causing a panic at runtime.
     let tail: String = if t.chars().count() > 500 {
-        t.chars().rev().take(500).collect::<Vec<_>>().iter().rev().collect()
+        t.chars()
+            .rev()
+            .take(500)
+            .collect::<Vec<_>>()
+            .iter()
+            .rev()
+            .collect()
     } else {
         t.to_string()
     };
