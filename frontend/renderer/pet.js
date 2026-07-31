@@ -1505,15 +1505,14 @@ window.pet.onEvent((ev) => {
     // CodeWhale terminal or presses Ctrl+C instead of clicking the pet bubble.
     case 'cancel': {
       if (ev.permId) {
-        // Remove from queue by permId
-        askQueue = askQueue.filter((c) => c.permId !== ev.permId);
-        // R25 (2026-07-30): use choiceKey() for consistent key format.
-        // The old code used a different key format (|sid||permId) than
-        // choiceKey() (sid|permId|project|question), so the safety net
-        // never matched and cancelled choices could re-appear from stale
-        // snapshots.
+        // R30 (2026-07-31): capture the choice BEFORE filtering it out.
+        // The old code did filter() then find() on the filtered array,
+        // which always returned undefined — making the cancel handler
+        // a no-op and cancelled choices re-appeared from stale snapshots.
         const cancelled = askQueue.find((c) => c.permId === ev.permId)
           || { sessionId: ev.sessionId, permId: ev.permId };
+        // Remove from queue by permId
+        askQueue = askQueue.filter((c) => c.permId !== ev.permId);
         answered.add(choiceKey(cancelled));
         // If the current ask panel is showing this permId, hide it / advance
         if (askActive && askQueue.length === 0) {

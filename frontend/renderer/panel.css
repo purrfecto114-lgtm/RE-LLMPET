@@ -5,9 +5,9 @@ html, body {
      The #card div provides the visible gradient background and
      CSS box-shadow (the only shadow — OS shadow is disabled). */
   background: transparent;
-  /* Padding gives room for the CSS box-shadow to render inside the
-     transparent window bounds. Without this, the shadow is clipped. */
-  padding: 12px;
+  /* R30 (2026-07-31): increased from 12px to 20px to give enough room
+     for the 32px-blur CSS box-shadow to render without clipping. */
+  padding: 20px;
   font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
   user-select: none; -webkit-user-select: none;
   color: #f3e7df;

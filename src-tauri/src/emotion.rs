@@ -120,8 +120,10 @@ fn find_one(text: &str, words: &[&str], is_cn: bool) -> bool {
             }
         } else {
             // Case-insensitive word-boundary match
-            let lower = text.to_lowercase();
-            if let Some(idx) = lower.find(&w.to_lowercase()) {
+            // R30: use char-based lowercasing to avoid byte-index mismatch
+            let lower_text = text.to_lowercase();
+            let lower_word = w.to_lowercase();
+            if let Some(idx) = lower_text.find(&lower_word) {
                 let char_idx = text[..idx].chars().count();
                 if !neighbor_negation(text, char_idx) {
                     return true;
@@ -155,11 +157,15 @@ pub fn detect_emotion(text: &str, role: &str) -> Option<Emotion> {
         return None;
     }
     // Emotion lives in the recent sentiment, not the whole essay.
-    let tail = if t.len() > 1500 {
-        &t[t.len() - 1500..]
+    // R30 (2026-07-31): use char-based truncation, not byte-based.
+    // The old code &t[t.len() - 1500..] could slice mid-UTF-8 character
+    // (CJK = 3 bytes/char), causing a panic at runtime.
+    let tail: String = if t.chars().count() > 500 {
+        t.chars().rev().take(500).collect::<Vec<_>>().iter().rev().collect()
     } else {
-        t
+        t.to_string()
     };
+    let tail = tail.as_str();
     for def in EMOTIONS {
         if !role_allows(role, def.emotion) {
             continue;

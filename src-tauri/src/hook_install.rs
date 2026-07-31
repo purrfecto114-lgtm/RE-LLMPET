@@ -14,6 +14,10 @@ fn current_exe_clean() -> Result<PathBuf, String> {
     #[cfg(windows)]
     {
         let s = exe.to_string_lossy();
+        // R30: handle \\?\UNC\ as well as \\?\
+        if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
+            return Ok(PathBuf::from(format!(r"\\{stripped}")));
+        }
         if let Some(stripped) = s.strip_prefix(r"\\?\") {
             return Ok(PathBuf::from(stripped));
         }

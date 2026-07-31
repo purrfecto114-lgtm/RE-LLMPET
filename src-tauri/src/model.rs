@@ -1387,6 +1387,10 @@ pub fn now_ms() -> u64 {
 /// 3. On success: remove the backup
 /// 4. On failure: restore the backup
 pub fn windows_safe_rename(src: &Path, dest: &Path) -> Result<(), String> {
+    // R30 (2026-07-31): if src and dest are the same path, do nothing.
+    if src == dest {
+        return Ok(());
+    }
     #[cfg(windows)]
     {
         let backup = dest.with_extension(format!("{}.{}.bak", std::process::id(), now_ms()));

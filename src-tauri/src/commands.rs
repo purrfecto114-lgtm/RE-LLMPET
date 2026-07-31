@@ -703,6 +703,12 @@ fn canonicalize_path(path: &Path) -> Option<PathBuf> {
     #[cfg(windows)]
     {
         let s = canonical.to_string_lossy();
+        // R30 (2026-07-31): handle both \\?\ and \\?\UNC\ prefixes.
+        // \\?\C:\path → C:\path
+        // \\?\UNC\server\share → \\server\share
+        if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
+            return Some(PathBuf::from(format!(r"\\{stripped}")));
+        }
         if let Some(stripped) = s.strip_prefix(r"\\?\") {
             return Some(PathBuf::from(stripped));
         }
