@@ -85,6 +85,7 @@ fn neighbor_negation(text: &str, idx: usize) -> bool {
         .iter()
         .rev()
         .take(8)
+        .copied()
         .collect::<Vec<_>>()
         .iter()
         .rev()

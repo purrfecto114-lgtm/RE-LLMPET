@@ -73,30 +73,35 @@ fn run() -> Result<(), String> {
     // it into the event body. The frontend (pet.js) already consumes
     // ev.emotion to show matching expressions. This is a lightweight
     // keyword-based sniffer — never blocks, returns None when in doubt.
-    let event_name = object
+    let event_name_str = object
         .get("hook_event_name")
         .or_else(|| object.get("event"))
         .and_then(Value::as_str)
-        .unwrap_or("");
+        .unwrap_or("")
+        .to_string();
     let text = object
         .get("text")
         .or_else(|| object.get("message"))
         .and_then(Value::as_str)
-        .unwrap_or("");
-    let role = if event_name == "UserPromptSubmit" || event_name == "message_submit" {
+        .unwrap_or("")
+        .to_string();
+    let role = if event_name_str == "UserPromptSubmit" || event_name_str == "message_submit" {
         "user"
-    } else if event_name == "PostToolUse" || event_name == "turn_end" || event_name == "Stop" {
+    } else if event_name_str == "PostToolUse"
+        || event_name_str == "turn_end"
+        || event_name_str == "Stop"
+    {
         "assistant"
     } else {
         ""
     };
     if !text.is_empty() && !role.is_empty() {
-        if let Some(emotion) = crate::emotion::detect_emotion(text, role) {
+        if let Some(emotion) = crate::emotion::detect_emotion(&text, role) {
             object.insert("emotion".into(), Value::from(emotion.as_str()));
         }
     }
 
-    let event = event_name;
+    let event = event_name_str;
     let permission = force_permission
         || event == "PermissionRequest"
         || (provider == "codewhale" && event == "PreToolUse");
