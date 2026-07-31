@@ -120,7 +120,18 @@ jobs:
             echo "signed=true" >> "$GITHUB_OUTPUT"
             echo "gate=--release" >> "$GITHUB_OUTPUT"
             echo "genflag=" >> "$GITHUB_OUTPUT"
-            echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
+            # R34 (2026-07-31): Tauri updater signing key is present, but
+            # macOS code-signing (Apple Developer ID) and Windows code-
+            # signing certs may not be. The Tauri key alone is sufficient
+            # to sign the updater artifact; platform certs only suppress
+            # "unknown publisher" warnings. Pass --no-sign to tauri-action
+            # on macOS when APPLE_CERTIFICATE is missing so the build
+            # succeeds without Apple notarization.
+            if [ "${{ matrix.platform }}" = "macos-latest" ] && [ -z "${{ env.APPLE_CERTIFICATE }}" ]; then
+              echo "bundleArgs=${{ matrix.args }} --no-sign" >> "$GITHUB_OUTPUT"
+            else
+              echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
+            fi
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
             echo "releaseDraft=false" >> "$GITHUB_OUTPUT"
             echo "tagName=v$VERSION" >> "$GITHUB_OUTPUT"

@@ -26,10 +26,41 @@ for(const wf of ['.github/workflows/ci.yml','.github/workflows/release.yml']){
 }
 if(mode==='release'){
  const platform=process.platform;
+ // R34 (2026-07-31): TAURI_SIGNING_PRIVATE_KEY is the HARD requirement
+ // for `--release` mode — it signs the Tauri updater artifact so auto-
+ // updates can be verified. Without it, tag pushes fail-closed (see
+ // .github/workflows/release.yml).
+ //
+ // Platform code-signing certs (Windows code-signing cert, Apple Developer
+ // ID + notarization) are a SEPARATE concern from Tauri updater signing.
+ // They suppress "unknown publisher" warnings and unlock OS-gated features
+ // (SmartScreen reputation, Gatekeeper notarization), but their absence
+ // does NOT make the build unverifiable — the Tauri signature still
+ // proves the binary came from us.
+ //
+ // The 0.5.7 audit (§P0-4) called out Tauri-signing-key-missing as a
+ // blocker because v0.5.7 published TRULY UNSIGNED binaries. With the
+ // Tauri key now configured, missing platform certs become a soft warn
+ // (production hardening, not a security hole). When platform certs are
+ // available, set them as GitHub secrets to silence the warning.
  const required=['TAURI_SIGNING_PRIVATE_KEY'];
- if(platform==='darwin') required.push('APPLE_CERTIFICATE','APPLE_CERTIFICATE_PASSWORD','APPLE_SIGNING_IDENTITY','APPLE_ID','APPLE_PASSWORD','APPLE_TEAM_ID');
- if(platform==='win32') required.push('WINDOWS_CERTIFICATE','WINDOWS_CERTIFICATE_PASSWORD');
  for(const name of required) check(Boolean(process.env[name]),`release secret present: ${name}`);
+ const platformCerts = {
+   darwin: ['APPLE_CERTIFICATE','APPLE_CERTIFICATE_PASSWORD','APPLE_SIGNING_IDENTITY','APPLE_ID','APPLE_PASSWORD','APPLE_TEAM_ID'],
+   win32: ['WINDOWS_CERTIFICATE','WINDOWS_CERTIFICATE_PASSWORD'],
+ };
+ const platformCertList = platformCerts[platform] || [];
+ for(const name of platformCertList){
+   const present = Boolean(process.env[name]);
+   if(present){
+     ok.push(`platform cert present: ${name}`);
+   } else {
+     // Soft warn — does not fail the build. Tauri updater signing is
+     // sufficient for the binary to be cryptographically attributable;
+     // platform certs only affect OS-level UX (SmartScreen/Gatekeeper).
+     console.error(`WARN     platform cert missing: ${name} (OS 'unknown publisher' warning will show; not a security blocker)`);
+   }
+ }
 }
 // 'release-draft' mode: build unsigned draft artifacts (no signing secrets).
 // Used for pre-release/testing builds. production signed releases use --release.
