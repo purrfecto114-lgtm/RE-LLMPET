@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.5.7 — R32 bridge error visibility + permission await + empty provider（2026-07-31）
+
+Hotfix release addressing 4 P0 regressions identified in the R30-recheck audit (`RE-LLMPET-v0.5.6-R30-recheck-roadmap.md`). All 4 share the same anti-pattern: *fix intent written in comments, behavior not actually landed at runtime*. This release closes that gap with real user-visible behavior and a regression smoke that locks the fixes.
+
+### P0-1: pet.js cat lazy preload ReferenceError
+
+- **Root cause**: `frontend/renderer/pet.js:136` referenced `config.skin`, but no `config` symbol exists at module scope. The actual skin state is the `skin` variable declared later in the file (line 1132). The `requestIdleCallback`/`setTimeout` callback threw `ReferenceError` on every startup, logging noise to the console and never preloading cat assets.
+- **Fix**: `config.skin` → `skin`. TDZ-safe because the deferred callback only runs after the entire `<script>` has finished parsing.
+
+### P0-2: panel.js empty provider UI locked despite comment saying unlocked
+
+- **Root cause**: `frontend/renderer/panel.js:940` had `if (newActive.length === 0) { e.target.checked = true; return; }` even though the comment at line 769 said *"users can now uncheck all"*. The R22 `model.rs::sanitize()` fix already allowed `providers=[]` as a first-class state, but the UI still refused to persist it.
+- **Fix**: Removed the revert branch. `setProviders(newActive)` is now called with a possibly-empty array. On IPC failure, the checkbox reverts and a toast fires. Loading state disables the checkbox during the await.
+
+### P0-3: tauri-bridge.js used send() for security-critical commands
+
+- **Root cause**: The bridge comment at line 23-25 said *"state-changing or security-critical operations MUST use call() and await"*, but `setProviders`, `decidePermission`, `decideCwPermission`, `decideCwPermissionBatch`, and `setSessionPrefs` all used `send()` (fire-and-forget). IPC failures were silently dropped; the UI showed success while the agent kept waiting.
+- **Fix**: All 5 commands upgraded `send()` → `call()`. The `send()` path still exists for genuinely fire-and-forget operations (telemetry, focus hints, etc.) and still emits `octopus:bridge-error` on failure (R30 contract preserved).
+
+### P0-4: pet.js removed choice card BEFORE IPC resolved
+
+- **Root cause**: `submitPerm`/`gotoSession`/elicitation submit called `decidePermission()` then immediately `finishChoice()`, which removed the card from `askQueue`. If IPC failed, the user saw an *"allowed/denied"* bubble while the agent was still blocked waiting for an answer.
+- **Fix**: New `submitDecision(choice, behavior, msg)` wrapper:
+  1. Disable all buttons (loading state).
+  2. `await routeDecision(choice, behavior)`.
+  3. On success: `finishChoice` (remove card, show bubble).
+  4. On failure: dispatch `octopus:bridge-error` toast, restore buttons, DO NOT add to `answered` (so the choice stays in the queue for retry).
+- All 6 submit sites (`elicitation-submit`, `plan-feedback`, `cw-batch`, `submitPerm`, `gotoSession`, `popPerm`) now route through `submitDecision` or its inline equivalent.
+
+### P0-5: Visible bridge-error toast UI
+
+- **Root cause**: R30 added the `octopus:bridge-error` `CustomEvent`, but `panel.js` listener only `console.warn`-ed with a `TODO` comment. `pet.js` had no listener at all.
+- **Fix**: New `frontend/shared/toast.js` auto-installs on script load, listens for `octopus:bridge-error`, and shows a real visible toast in the `#octopus-toast` element (added to both `panel.html` and `pet.html`).
+  - Auto-dismisses after 4.5s
+  - Click-to-dismiss-early
+  - `role="alert"` + `aria-live="assertive"` for screen readers
+  - CSS in both `panel.css` and `pet.css`
+- `panel.js` listener kept as a debug log; `toast.js` is the user-visible path.
+
+### Test coverage
+
+- New `test/tauri-r32-bridge-error-visibility-smoke.js` locks all 4 P0 fixes + toast UI + 7 contract assertions (35 lines).
+- Existing `tauri-panel-sesslist-r19-smoke.js` updated to expect `call()` instead of `send()` for `setSessionPrefs`.
+- `npm test`: 36/36 smoke ok (was 35).
+- `npm run check:static`: 22/22 PASS (JS syntax 56 files, was 55; +1 `toast.js`).
+
+### Verification
+
+- 4 P0 fixes verified by direct `grep` against source before any code change (no roadmap-as-truth).
+- CI: Tauri CI 4 jobs (Windows / macOS / Ubuntu / RustSec Cargo.lock audit) all green on `1d3e017`.
+- Local cargo not available; CI ran `cargo fmt --check` + `cargo check` + `cargo test` on all 3 platforms.
+
+### Not in this release (deferred to R33+)
+
+- `diagnose_agent` async refactor with progress channel (P1).
+- Hook install onboarding flow (path / diff / confirm / backup / rollback).
+- GitHub Actions pinned to full commit SHAs.
+- Performance gate thresholds (RSS / cold-start / long-task budgets).
+- `core:default` capability replacement with explicit `core:*:allow-*`.
+
+These are larger refactors tracked in the R30-recheck roadmap Phases 1-2.
+
+---
+
 ## 0.5.6 — R10-R21 visual migration complete + Windows cargo check clean（2026-07-30）
 
 This release completes the R9 roadmap's visual migration: **tray 18/18** and **panel 10/10** visual elements now match the upstream Electron layout. Windows `cargo check --target x86_64-pc-windows-gnu --locked` passes with 0 errors, 0 warnings (R20). All changes are source-level; Linux/macOS native compilation, real CLI execution, and signed bundles remain external gates per `docs/RELEASE.md`.
