@@ -20,9 +20,18 @@
     return invoke(command, args || {});
   }
 
+  // R30 (2026-07-31): send() is fire-and-forget for non-critical operations
+  // (telemetry, logging, UI state). For state-changing or security-critical
+  // operations, callers MUST use call() and await the result.
+  // send() now emits a 'bridge:error' event that the panel/pet can listen
+  // to for displaying user-visible error toasts, instead of silently
+  // logging to console only.
   function send(command, args) {
     void call(command, args).catch((err) => {
-      try { console.error(`[octopus] ${command} failed`, err); } catch (_) {}
+      const msg = String(err && (err.message || err) || 'unknown');
+      try { console.error(`[octopus] ${command} failed:`, msg); } catch (_) {}
+      // Emit a global error event so the UI can show a toast
+      try { window.dispatchEvent(new CustomEvent('octopus:bridge-error', { detail: { command, message: msg } })); } catch (_) {}
     });
   }
 

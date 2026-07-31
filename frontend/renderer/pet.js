@@ -120,6 +120,9 @@ const CAT_ASSET_FILES = Array.from(new Set([
   ...Object.values(CAT_POOLS).flat(),
 ]));
 const catAssetCache = new Map();
+// R30 (2026-07-31): lazy-load cat assets only when cat skin is selected.
+// The old code preloaded ALL cat GIFs on startup (~2.4MB) even when the
+// user chose mascot/pixel skin, wasting IO, decode and memory.
 function preloadCatAssets() {
   for (const file of CAT_ASSET_FILES) {
     const image = new Image();
@@ -128,8 +131,14 @@ function preloadCatAssets() {
     catAssetCache.set(file, image);
   }
 }
-if (typeof requestIdleCallback === 'function') requestIdleCallback(preloadCatAssets, { timeout: 1600 });
-else setTimeout(preloadCatAssets, 250);
+// R30: only preload if current skin is cat; otherwise defer until skin switch
+function maybePreloadCatAssets() {
+  if (config.skin === 'cat' && catAssetCache.size === 0) {
+    preloadCatAssets();
+  }
+}
+if (typeof requestIdleCallback === 'function') requestIdleCallback(maybePreloadCatAssets, { timeout: 1600 });
+else setTimeout(maybePreloadCatAssets, 250);
 
 const POOL_ROTATE_MS = 60 * 1000;
 let poolIdx = 0;
@@ -1693,9 +1702,13 @@ function applySkin(s) {
   document.body.classList.toggle('skin-pixel', skin === 'pixel');
   document.body.classList.toggle('skin-mascot', skin === 'mascot');
   document.body.classList.toggle('skin-cat', skin === 'cat');
+  // R30: lazy-load cat assets when switching to cat skin
+  if (skin === 'cat' && catAssetCache.size === 0) {
+    preloadCatAssets();
+  }
   if (skin === 'mascot') updateMascotEyes(state);
   if (skin === 'cat') updateCat(state);
-  else if (poolRot) { clearInterval(poolRot); poolRot = null; } // skin away from cat → stop rotation
+  else if (poolRot) { clearInterval(poolRot); poolRot = null; }
   requestAnimationFrame(reportPetVisualBounds);
 }
 

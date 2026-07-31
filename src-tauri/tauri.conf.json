@@ -4,7 +4,8 @@
   "version": "0.5.6",
   "identifier": "com.myunwang.octopus",
   "build": {
-    "frontendDist": "../frontend"
+    "frontendDist": "../frontend",
+    "removeUnusedCommands": true
   },
   "app": {
     "withGlobalTauri": true,

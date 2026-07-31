@@ -31,3 +31,12 @@ chrono = { version = "=0.4.38", default-features = false, features = ["clock", "
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Graphics_Dwm", "Win32_Foundation"] }
+
+# R30 (2026-07-31): release profile for smaller, faster binaries.
+# Per audit roadmap §7 — official Tauri recommended configuration.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

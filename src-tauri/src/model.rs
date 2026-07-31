@@ -116,9 +116,15 @@ impl AppConfig {
                 providers.push(p);
             }
         }
-        if providers.is_empty() {
-            providers.push("claude".into());
-        }
+        // R30 (2026-07-31): allow empty providers. The old code forced
+        // "claude" when providers was empty, which contradicted the user's
+        // explicit choice to disable all providers. This caused:
+        // - uninstall_hooks("all") clearing providers, then sanitize()
+        //   re-adding claude on the next config save
+        // - changing language/skin would silently select claude
+        // - hook resync would re-install claude hooks against user intent
+        // Now: empty is a valid first-class state. No provider hooks
+        // are installed; the pet still works as a passive observer.
         self.providers = providers;
         self
     }

@@ -988,6 +988,12 @@ function applyConfigUI() {
 // 事件
 window.pet.onPanelStats(render);
 window.pet.onPrice(renderPriceInfo);
+// R30 (2026-07-31): listen for bridge errors and show a toast
+window.addEventListener('octopus:bridge-error', (e) => {
+  const { command, message } = e.detail || {};
+  console.warn(`[octopus] bridge error in ${command}: ${message}`);
+  // TODO: add a visible toast/notification UI element
+});
 window.pet.onConfig((cfg) => {
   if (!cfg) return;
   config = { ...config, ...cfg };
