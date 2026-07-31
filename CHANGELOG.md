@@ -1,5 +1,94 @@
 # Changelog
 
+## 0.5.8 — R34 config transaction + structured provider result + signing fail-closed（2026-07-31）
+
+Hotfix release closing 4 P0 + 1 P1 issue from the 0.5.7 source audit. The audit identified a recurring anti-pattern: *failures were silently dropped or contradicted by documentation*. This release closes those gaps with real fail-closed behavior.
+
+### P0-1: Config save is now transactional (copy-on-write)
+
+- **Root cause**: `src-tauri/src/model.rs:420-428` mutated the shared `Mutex<AppConfig>` IN PLACE, then called `save_config()`. If `save_config()` failed (disk full, permission denied, antivirus lock, rename failure), the in-memory config was already the new value while the disk still held the old value. Subsequent `get_config()` / restart would see conflicting state.
+- **Fix**: `update_config()` now snapshots the current config into a local `candidate`, mutates the snapshot, sanitizes, **persists to disk FIRST**, and only commits to the shared `Mutex` if the disk write succeeded. The `Mutex` is held only for the snapshot+commit, NOT across file IO.
+- Files changed: `src-tauri/src/model.rs:420-455`.
+
+### P0-2: set_providers returns structured per-provider result
+
+- **Root cause**: `src-tauri/src/commands.rs:269-290` returned `Ok(())` even when individual provider hook installs failed — the panel's Promise resolved and the UI showed success while hooks were never written. Errors were only emitted as a side-effect `pet:event` that the user might miss.
+- **Fix**: `set_providers()` now returns `Result<Value, String>` with a structured JSON object:
+  ```json
+  {
+    "ok": true,
+    "selected": ["claude", "codex"],
+    "providers": [
+      {"id":"claude","selected":true,"installed":true,"state":"ready",...}
+    ]
+  }
+  ```
+  On any per-provider failure, it returns `Err(errors.join("；"))` so the panel's `call()` rejects → `octopus:bridge-error` toast fires AND the checkbox reverts. The `pet:event` is still emitted for inline pet-window visibility.
+- Files changed: `src-tauri/src/commands.rs:268-331`.
+
+### P0-3: uninstall_hooks('all') no longer swallows failures
+
+- **Root cause**: `src-tauri/src/commands.rs:150-170` used `if let Ok(path) = uninstall_provider_hooks(id)` which silently discarded every `Err`. The UI told the user "all hooks removed" while external config files still had Octopus hooks in them.
+- **Fix**: Now collects per-provider `results` array with `{provider, status, path|error}`. Returns:
+  ```json
+  {
+    "provider": "all",
+    "allSucceeded": false,
+    "results": [{"provider":"claude","status":"removed",...}, {"provider":"codex","status":"failed","error":"..."}],
+    "failures": ["codex: ..."],
+    "message": "Partial failure — ..."
+  }
+  ```
+  **Only clears `config.providers` if `allSucceeded`**. On partial failure, the broken state is surfaced to the user rather than hidden.
+- Files changed: `src-tauri/src/commands.rs:142-217`.
+
+### P0-4: Tag pushes fail-closed without signing key
+
+- **Root cause**: `.github/workflows/release.yml:110-122` published an **unsigned public prerelease** on every tag push when `TAURI_SIGNING_PRIVATE_KEY` was missing. This contradicted `README.md`'s promise that "tag 缺签名凭据会在构建前失败". The v0.5.7 release was actually published this way.
+- **Fix**: Tag pushes now `exit 1` with an `::error::` annotation when the signing key is missing, directing users to `workflow_dispatch` for unsigned draft builds. The signed path (`prerelease=false`, `releaseDraft=false`) is preserved.
+- Files changed: `.github/workflows/release.yml:103-126`.
+
+### P1-1: panel.js setSessionPrefs caller awaits + reverts on failure
+
+- **Root cause**: The R32 bridge upgrade changed `setSessionPrefs` from `send()` to `call()`, but the panel.js click handler still called it fire-and-forget. Failures silently dropped, the UI showed the new state, and disk held the old state.
+- **Fix**: The click handler now snapshots `prevPinned`/`prevArchived`, applies the optimistic update, awaits `setSessionPrefs()`, and on `.catch()` reverts the UI arrays + re-renders + dispatches `octopus:bridge-error`. The button is disabled during the await.
+- Files changed: `frontend/renderer/panel.js:506-548`.
+
+### Documentation drift fixed
+
+- `README_EN.md`: 0.5.6 → 0.5.7.
+- `docs/MIGRATION_STATUS.md`: header updated to reflect 0.5.7 + R32/R34 hotfixes.
+
+### Test coverage
+
+- New `test/tauri-r34-config-transaction-smoke.js` (84 lines) locks all 5 P0/P1 fixes.
+- Existing `test/release-supply-chain-smoke.js` updated: now asserts the fail-closed `exit 1` path instead of the old warning + unsigned prerelease path.
+- `npm test`: **37/37 smoke ok** (was 36; +1 R34 smoke).
+- `npm run check:static`: **22/22 PASS**.
+
+### Verification
+
+- All 5 P0/P1 fixes verified by direct `grep` against source before any code change.
+- CI will run `cargo fmt --check` + `cargo check` + `cargo test` on Windows / macOS / Ubuntu.
+- Release workflow `Signed Tauri Release` will now fail-closed if `TAURI_SIGNING_PRIVATE_KEY` is missing — tag pushes can no longer produce unsigned public binaries.
+
+### Not in this release (deferred to R35+)
+
+- `diagnose_agent` async refactor with progress channel (P1-3).
+- HTTP server permission waiter / `/state` capacity isolation (P1-4).
+- Performance gate thresholds — RSS / cold-start / long-task budgets (P1-6).
+- Hook install onboarding flow — path / diff / confirm / backup / rollback (P1-7).
+- GitHub Actions pinned to full commit SHAs (§5.2).
+- `core:default` capability replacement with explicit `core:*:allow-*` (§5.1).
+- Toast upgrade: persistent error center with retry / copy-details / open-log (§6.1).
+- Full dialog a11y: `role="dialog"` / Tab trap / Esc / focus restore (§6.3).
+- `prefers-reduced-motion` support (§6.4).
+- Process-tree performance benchmark vs Electron (§9).
+
+These are larger refactors tracked in the 0.5.7-source-audit-roadmap Phases R34-R36.
+
+---
+
 ## 0.5.7 — R32 bridge error visibility + permission await + empty provider（2026-07-31）
 
 Hotfix release addressing 4 P0 regressions identified in the R30-recheck audit (`RE-LLMPET-v0.5.6-R30-recheck-roadmap.md`). All 4 share the same anti-pattern: *fix intent written in comments, behavior not actually landed at runtime*. This release closes that gap with real user-visible behavior and a regression smoke that locks the fixes.

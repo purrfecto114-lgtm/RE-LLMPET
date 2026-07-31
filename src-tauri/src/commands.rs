@@ -147,26 +147,72 @@ pub fn uninstall_hooks(
 ) -> Result<Value, String> {
     let provider = provider.trim().to_lowercase();
     // R22: "all" cleans every provider + clears config.providers
+    // R34 (2026-07-31): collect per-provider result; do NOT silently drop
+    // failures. Previous `if let Ok(path) = ...` discarded every Err, so
+    // the UI told the user "all hooks removed" while external config files
+    // still had Octopus hooks in them. Now we return a structured result
+    // with `allSucceeded: false` and a `results` array so the caller can
+    // surface partial-failure to the user.
     if provider == "all" {
-        let mut paths = Vec::new();
+        let mut results = Vec::new();
+        let mut failures = Vec::new();
         for id in ["claude", "codewhale", "codex", "opencode", "aider"] {
-            if let Ok(path) = crate::hook_install::uninstall_provider_hooks(id) {
-                paths.push(json!({"provider": id, "path": path.to_string_lossy()}));
+            match crate::hook_install::uninstall_provider_hooks(id) {
+                Ok(path) => {
+                    results.push(json!({
+                        "provider": id,
+                        "status": "removed",
+                        "path": path.to_string_lossy(),
+                    }));
+                }
+                Err(err) => {
+                    let msg = err;
+                    results.push(json!({
+                        "provider": id,
+                        "status": "failed",
+                        "error": msg,
+                    }));
+                    failures.push(format!("{}: {}", id, msg));
+                }
             }
         }
-        state.runtime.update_config(|config| {
-            config.providers.clear();
-        })?;
-        state.runtime.write_log(
-            "tray",
-            "uninstalled ALL provider hooks + cleared config.providers",
-        );
+        let all_succeeded = failures.is_empty();
+        // Only clear config.providers if all uninstalled cleanly. If any
+        // failed, the user should see the failure and decide whether to
+        // retry; clearing config would hide the broken state.
+        if all_succeeded {
+            state.runtime.update_config(|config| {
+                config.providers.clear();
+            })?;
+            state.runtime.write_log(
+                "tray",
+                "uninstalled ALL provider hooks + cleared config.providers",
+            );
+        } else {
+            state.runtime.write_log(
+                "tray",
+                &format!(
+                    "uninstall_hooks('all') had partial failure: {}",
+                    failures.join("；")
+                ),
+            );
+        }
         let _ = crate::hook_install::resync_current(&state.runtime);
         emit_config(&app, &state);
+        let message = if all_succeeded {
+            "All Octopus hooks removed; config.providers cleared".to_string()
+        } else {
+            format!(
+                "Partial failure — some provider hooks could not be removed: {}",
+                failures.join("；")
+            )
+        };
         return Ok(json!({
             "provider": "all",
-            "paths": paths,
-            "message": "All Octopus hooks removed; config.providers cleared"
+            "allSucceeded": all_succeeded,
+            "results": results,
+            "failures": failures,
+            "message": message,
         }));
     }
     if !["claude", "codewhale", "codex", "opencode", "aider"].contains(&provider.as_str()) {
@@ -270,24 +316,64 @@ pub fn set_providers(
     app: AppHandle,
     state: State<'_, AppState>,
     ids: Vec<String>,
-) -> Result<(), String> {
+) -> Result<Value, String> {
+    // R34 (2026-07-31): return structured per-provider result instead of Ok(()).
+    //
+    // Previous implementation returned Ok(()) even when individual provider
+    // hook installs failed — the panel's Promise resolved and the UI showed
+    // success while hooks were never written. The errors were only emitted
+    // as a side-effect pet:event that the user might miss.
+    //
+    // Now we return a JSON object with:
+    //   ok: false if ANY provider failed to install
+    //   selected: the user's requested provider list
+    //   providers: per-provider { id, selected, installed, state, message }
+    //   errors: convenience list of "id: message" strings
+    //
+    // The panel's .catch() will fire on ok=false (we return Err), which
+    // triggers the bridge-error toast AND lets the UI revert the checkbox.
     state
         .runtime
-        .update_config(|config| config.providers = ids)?;
+        .update_config(|config| config.providers = ids.clone())?;
     let statuses = hook_install::resync_current(&state.runtime)?;
     emit_config(&app, &state);
+
+    let providers: Vec<Value> = statuses
+        .iter()
+        .map(|s| {
+            let selected = ids.iter().any(|id| id == &s.id);
+            json!({
+                "id": s.id,
+                "selected": selected,
+                "installed": s.installed,
+                "state": s.state,
+                "message": s.message,
+                "path": s.path,
+            })
+        })
+        .collect();
     let errors: Vec<String> = statuses
-        .into_iter()
+        .iter()
         .filter(|s| s.state == "error")
         .map(|s| format!("{}: {}", s.id, s.message))
         .collect();
-    if !errors.is_empty() {
+    let ok = errors.is_empty();
+
+    if !ok {
+        // Also emit a pet:event so pet window shows the error inline (R30 contract).
         let _ = app.emit(
             "pet:event",
             json!({"kind":"error","text":errors.join("；")}),
         );
+        // Return Err so the panel's call() rejects → toast + checkbox revert.
+        return Err(errors.join("；"));
     }
-    Ok(())
+
+    Ok(json!({
+        "ok": true,
+        "selected": ids,
+        "providers": providers,
+    }))
 }
 
 #[tauri::command]

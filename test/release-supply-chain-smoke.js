@@ -21,12 +21,15 @@ assert.match(ci, /working-directory: src-tauri[\s\S]*?run: cargo audit/);
 assert.match(release, /GITHUB_REF_TYPE" = "tag"/);
 assert.match(release, /GITHUB_REF_NAME" != "\$EXPECTED_TAG"/);
 assert.match(release, /does not match package version/);
-// Tag releases without TAURI_SIGNING_PRIVATE_KEY emit a warning and build
-// unsigned (prerelease=true, alpha candidate); with the secret they build
-// signed (prerelease=false, production). Both paths publish (releaseDraft=false).
-assert.match(release, /TAURI_SIGNING_PRIVATE_KEY is not set/);
-assert.match(release, /UNSIGNED PRERELEASE/);
-assert.match(release, /prerelease=true/);
+// R34 (2026-07-31): tag pushes MUST fail-closed when signing key is missing.
+// The previous behavior published unsigned public prereleases on every tag
+// push, contradicting README.md's promise. Now the workflow exits 1 with an
+// ::error:: annotation instead of a ::warning:: + unsigned prerelease path.
+assert.match(release, /Tag release v\$VERSION requires TAURI_SIGNING_PRIVATE_KEY/);
+assert.match(release, /Use workflow_dispatch for unsigned draft builds instead/);
+// The fail-closed branch must `exit 1`, not just warn.
+assert.match(release, /if \[ -z "\$\{\{ env\.TAURI_SIGNING_PRIVATE_KEY \}\}" \]; then[\s\S]*?exit 1/);
+// Signed tag path still publishes (prerelease=false, releaseDraft=false).
 assert.match(release, /prerelease=false/);
 assert.match(release, /releaseDraft: \$\{\{ steps\.mode\.outputs\.releaseDraft \}\}/);
 assert.match(release, /tagName: \$\{\{ steps\.mode\.outputs\.tagName \}\}/);

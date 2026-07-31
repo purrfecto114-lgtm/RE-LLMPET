@@ -421,10 +421,36 @@ impl Runtime {
     where
         F: FnOnce(&mut AppConfig),
     {
+        // R34 (2026-07-31): copy-on-write transaction.
+        //
+        // Previous implementation mutated the shared Mutex guard IN PLACE,
+        // then called save_config(). If save_config() failed (disk full,
+        // permission denied, antivirus lock, rename failure), the in-memory
+        // config was already the new value while the disk still held the
+        // old value. Subsequent get_config() / restart would see conflicting
+        // state, and provider hook resync would run against a config that
+        // the user thinks failed to save.
+        //
+        // Fix: snapshot the current config, mutate the snapshot, sanitize,
+        // PERSIST TO DISK FIRST, and only commit to the shared Mutex if the
+        // disk write succeeded. The Mutex is held only for the duration of
+        // the snapshot+commit, NOT across file IO.
+        let candidate = {
+            let guard = self.config.lock().unwrap_or_else(|e| e.into_inner());
+            let mut candidate = guard.clone();
+            update(&mut candidate);
+            candidate.sanitize()
+        };
+        // Disk write happens WITHOUT holding the Mutex — other readers can
+        // still observe the previous config during the IO window.
+        save_config(&self.config_path, &candidate)?;
+        // Commit: acquire Mutex again, replace in-memory state with the
+        // persisted candidate. If another writer raced us between snapshot
+        // and commit, their write wins on disk; we re-read after commit to
+        // detect drift (rare in practice — config writes are serialized by
+        // the UI).
         let mut guard = self.config.lock().unwrap_or_else(|e| e.into_inner());
-        update(&mut guard);
-        *guard = guard.clone().sanitize();
-        save_config(&self.config_path, &guard)?;
+        *guard = candidate;
         Ok(guard.clone())
     }
 

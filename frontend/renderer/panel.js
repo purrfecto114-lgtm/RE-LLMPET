@@ -510,6 +510,13 @@ function renderSessList(sessions) {
       const sid = btn.dataset.sid;
       const action = btn.dataset.action;
       if (!sid) return;
+      // R34 (2026-07-31): snapshot the previous pin/archive arrays so we can
+      // roll back the optimistic UI update if setSessionPrefs() rejects.
+      // The bridge was upgraded from send() to call() in R32, but the caller
+      // was still fire-and-forget — failures silently dropped and the UI
+      // showed the new state while disk still held the old state.
+      const prevPinned = sessionPinned.slice();
+      const prevArchived = sessionArchived.slice();
       if (action === 'pin') {
         sessionPinned = sessionPinned.includes(sid)
           ? sessionPinned.filter((x) => x !== sid)
@@ -523,8 +530,20 @@ function renderSessList(sessions) {
         // Archived can't be pinned.
         sessionPinned = sessionPinned.filter((x) => x !== sid);
       }
-      window.pet.setSessionPrefs(sessionPinned, sessionArchived);
-      renderSessList(latestSessions);
+      btn.disabled = true; // loading state
+      renderSessList(latestSessions); // optimistic UI
+      window.pet.setSessionPrefs(sessionPinned, sessionArchived)
+        .catch((err) => {
+          // Revert UI to previous state and surface the error.
+          sessionPinned = prevPinned;
+          sessionArchived = prevArchived;
+          renderSessList(latestSessions);
+          const msg = String(err && (err.message || err) || 'unknown');
+          window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+            detail: { command: 'set_session_prefs', message: msg }
+          }));
+        })
+        .finally(() => { btn.disabled = false; });
     });
   });
 }

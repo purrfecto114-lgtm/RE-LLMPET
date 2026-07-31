@@ -1,4 +1,4 @@
-# Migration status — 0.5.6 visual migration complete
+# Migration status — 0.5.7 visual migration complete + R32/R34 correctness hotfixes
 
 The active source tree is Tauri 2 / Rust only. The retired Electron/Node runtime is not retained as an in-tree rollback path. Three anonymized provider/pricing fixtures remain under `test/fixtures` and are pinned by SHA-256.
 
@@ -9,7 +9,7 @@ The active source tree is Tauri 2 / Rust only. The retired Electron/Node runtime
 - Parallel permission-card preservation with exact retry deduplication.
 - State ordering, metering, transcript tailing, pricing cache, focus adapters, and display/suspend recovery.
 - Split `pet` and `panel` Tauri capabilities, restrictive CSP, loopback HTTP hardening and release/source gates.
-- A committed `src-tauri/Cargo.lock`; package, Cargo and Tauri versions are aligned at `0.5.6`.
+- A committed `src-tauri/Cargo.lock`; package, Cargo and Tauri versions are aligned at `0.5.7`.
 - Core renderer language switching for simplified Chinese, English and Japanese.
 - **Native tray fully localized** (R11-R13): `i18n.rs` 29-key table, `refresh_tray_menu` rebuilds menu + tooltip on language switch.
 - **Tray visual elements 18/18 complete** (R10-R14): showPet, panel, language submenu, skin submenu, 5h budget submenu, mute toggle, settings placeholder, launch submenu (5 providers), openLog, uninstall hooks, shape submenu (pet/panel/hidePet), tooltip, left-click show, refreshTrayMenu. Duo-pet explicitly rejected (R8 unified panel); territory patrol deferred (1700 LOC).
