@@ -1060,3 +1060,76 @@ body.skin-cat #cat { display: flex; }
   flex: 1 1 auto;
   word-break: break-word;
 }
+
+/* ====================================================================
+   R35.1 (2026-07-31): Provider chooser modal
+   当多个 Provider 启用时，"新开"和 primaryAction 不再静默启动数组第一项，
+   而是弹出此 chooser 让用户明确选择。单个 Provider 时直接启动，不弹层。
+   0.5.11 deep-recheck P0-5 指出旧的「名称 +N」常驻标签 + 静默第一项启动
+   是 UX + 信任问题。
+   ==================================================================== */
+.provider-chooser {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+  -webkit-app-region: no-drag;
+}
+.provider-chooser.hidden { display: none; }
+.provider-chooser .pc-card {
+  min-width: 220px;
+  max-width: 320px;
+  background: rgba(36, 24, 20, 0.97);
+  border: 1px solid rgba(217, 119, 87, 0.35);
+  border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.provider-chooser .pc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px 7px;
+  border-bottom: 1px solid rgba(217, 119, 87, 0.18);
+}
+.provider-chooser .pc-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffe9dc;
+}
+.provider-chooser .pc-close {
+  width: 22px; height: 22px;
+  border: none; border-radius: 6px;
+  background: rgba(255,255,255,0.06);
+  color: #e9c9b8; cursor: pointer; font-size: 12px;
+  -webkit-app-region: no-drag;
+}
+.provider-chooser .pc-close:hover { background: rgba(255,255,255,0.16); }
+.provider-chooser .pc-list {
+  display: flex; flex-direction: column;
+  padding: 4px;
+  max-height: 280px; overflow-y: auto;
+}
+.provider-chooser .pc-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px;
+  border: none; border-radius: 8px;
+  background: transparent;
+  color: #f3e7df;
+  font: inherit; font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.provider-chooser .pc-item:hover { background: rgba(217, 119, 87, 0.18); }
+.provider-chooser .pc-item .pc-ic { font-size: 18px; flex-shrink: 0; }
+.provider-chooser .pc-item .pc-label { flex: 1 1 auto; min-width: 0; }
+.provider-chooser .pc-item .pc-status {
+  font-size: 9.5px; padding: 1px 6px; border-radius: 7px;
+  flex-shrink: 0;
+}
+.provider-chooser .pc-item .pc-status.ok { color: #7fd1a3; background: rgba(127,209,163,0.12); }
+.provider-chooser .pc-item .pc-status.warn { color: #f0c674; background: rgba(240,198,116,0.12); }
+.provider-chooser .pc-item .pc-status.off { color: #8a807a; background: rgba(138,128,122,0.10); }
+.provider-chooser .pc-item:disabled { opacity: 0.55; cursor: not-allowed; }

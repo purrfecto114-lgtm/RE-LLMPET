@@ -87,10 +87,16 @@ assert(!petCss.match(/#mascot\.happy\s*\{\s*animation:/),
 // pet.js: buildRadial reads #pet-anchor rect, not the skin element rect
 assert(petJs.includes("getElementById('pet-anchor')"),
   'buildRadial must read #pet-anchor bounding rect for the HUD center');
-// INTERACTIVE_HIT_SEL must include #pet-anchor so the native hit-test
-// region follows the stable anchor rect.
-assert(petJs.includes("'#pet-anchor,#pixel,#mascot,#cat,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player'"),
-  'INTERACTIVE_HIT_SEL must include #pet-anchor as the first hit-test target');
+// R35.1 (2026-07-31): INTERACTIVE_HIT_SEL was narrowed to ANCHOR-ONLY.
+// The 0.5.11 deep-recheck (P0-1 #3) flagged that including the animated
+// skin elements (#pixel/#mascot/#cat) in the hit-test union still caused
+// the click-through boundary to shift during state animations. R35.1
+// removed them. Assert the new anchor-only selector and the absence of
+// the animated skins in it.
+assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player'"),
+  'R35.1: INTERACTIVE_HIT_SEL must be anchor-only (no #pixel/#mascot/#cat)');
+assert(!petJs.includes("'#pet-anchor,#pixel,#mascot,#cat,#radial,"),
+  'R35.1: the old union selector (with animated skins) must be gone');
 // geometryBusy guard exists and is checked in openRadial
 assert(petJs.includes('let geometryBusy = false'),
   'pet.js must declare geometryBusy flag');

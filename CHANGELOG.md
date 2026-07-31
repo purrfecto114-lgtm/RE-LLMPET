@@ -1,5 +1,200 @@
 # Changelog
 
+## 0.5.12 — R35.1 correctness patch（2026-07-31）
+
+Patch release closing 5 of the 6 gaps flagged by the
+`RE-LLMPET-0.5.11-deep-recheck-roadmap.md`. The 0.5.11 release was a real
+hotfix (not surface patching), but the recheck found a common pattern:
+many "fixes" were simulated by fixed timers, frontend result-dropping,
+or source-string gates rather than real OS/process/window state
+confirmation. This release closes the most actionable gaps.
+
+### P0-1: hit-test anchor-only + single pending radial intent
+
+The 0.5.11 recheck (P0-1 #3) noted that `INTERACTIVE_HIT_SEL` still
+included the animated skin elements (`#pixel/#mascot/#cat`) alongside
+`#pet-anchor`, so the click-through boundary still shifted during state
+animations even though the anchor itself was stable.
+
+- `frontend/renderer/pet.js` — `INTERACTIVE_HIT_SEL` narrowed to
+  `#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player`
+  (animated skins removed). The pet body is now represented in the
+  hit-test ONLY by the stable anchor.
+- New `pendingRadialOpen` boolean replaces the recursive
+  `setTimeout(openRadial, 260)` (P0-1 #2). The old code queued multiple
+  delayed opens on repeated clicks; the new code records a single
+  intent that `markGeometryBusy`'s settle callback opens exactly once.
+- `closeRadial()`, the blur handler, and drag-start (pointerdown) all
+  clear `pendingRadialOpen` so a stale intent can't reopen the HUD
+  after dismissal.
+
+### P0-2: panel window-scoped listeners + reset on panel:shown
+
+The 0.5.11 recheck (P0-2 #1) flagged that the panel used the GLOBAL
+`__TAURI__.event.listen('tauri://resize', ...)` which receives events
+from ALL windows. Since the pet window resizes frequently, pet resize
+events would enter the panel listener and permanently set `userSized=true`,
+disabling auto-fit. Verified via web-search of Tauri 2 docs
+(v2.tauri.app/reference/javascript/api/namespacewindow): the
+window-scoped `getCurrentWindow().onResized(cb)` / `.onScaleChanged(cb)`
+/ `.onMoved(cb)` helpers fire ONLY for the current window.
+
+- `frontend/renderer/panel.js` — `installWindowModeListeners` rewritten
+  to use `getCurrentWindow().onResized/onScaleChanged/onMoved`. Unlisteners
+  are collected in `windowModeUnlisteners` and torn down on `beforeunload`.
+- New `resetAutoFitOnShow()` resets `userSized`, `lastFitHeight`, and
+  `lastFitRequestTs` (P0-2 #2 — these were never reset before). Called
+  on the new `panel:shown` event.
+- `src-tauri/src/commands.rs::open_panel` now emits `app.emit("panel:shown", ())`
+  after `show()+set_focus()`, giving the frontend an explicit "you've
+  been shown again" signal.
+- `onScaleChanged` resets `lastFitHeight` and re-fits (P0-2 #5 — DPI
+  monitor change no longer leaves stale cached height).
+
+### P0-3: async diagnose_agent with spawn_blocking
+
+The 0.5.11 recheck (P0-3) noted that `diagnose_agent` was still a
+synchronous Tauri command, freezing the IPC thread for the full
+duration of all probes (up to ~30s worst case). Verified via web-search
+of Tauri 2 docs (v2.tauri.app/develop/calling-rust, Jun 2026):
+"Asynchronous commands are preferred in Tauri ... use
+async_runtime::spawn" and `spawn_blocking` is the correct primitive for
+blocking work.
+
+- `src-tauri/src/commands.rs` — `diagnose_agent` is now
+  `pub async fn diagnose_agent(provider: String) -> Result<Value, String>`.
+  The body is extracted into `fn diagnose_agent_sync(provider)` and
+  offloaded via `tauri::async_runtime::spawn_blocking(move || diagnose_agent_sync(provider))`.
+  JoinError (panic) is mapped to an error string.
+- This unblocks the IPC thread so pet/panel stay responsive during a
+  diagnostic. The frontend's `diagnosticGeneration` counter (R35) still
+  handles stale-result suppression.
+- **Deferred to R36** (per the roadmap): per-step progress via Tauri
+  Channel, real cancellation via CancellationToken + child kill, and a
+  DiagnosticRegistry preventing duplicate concurrent runs. The R35.1
+  change is the minimum to unblock the IPC thread without a full
+  diagnostic-job-registry rewrite.
+
+### P0-5: provider chooser + removal of「名称 +N」
+
+The 0.5.11 recheck (P0-5) flagged that the `agent-tag` still displayed
+「第一个 Provider 名称 +N」 and "New Agent" still silently launched
+`activeProviders[0]`. This conflated "enabled providers" with "active
+provider" and was a trust issue.
+
+- `frontend/renderer/pet.html` — new `<div id="provider-chooser">` modal
+  with `role="dialog" aria-modal="true"`.
+- `frontend/renderer/pet.css` — `.provider-chooser` styles (card, list,
+  item with icon + label + status badge).
+- `frontend/renderer/pet.js` — new `chooseProviderAndLaunch()`:
+  - 0 enabled providers → do nothing (R22 preserved)
+  - 1 enabled provider → launch directly (no modal)
+  - 2+ enabled providers → open `#provider-chooser` modal; user picks
+- The `agent-tag`「+N」label is removed; the element is always hidden
+  but retains a tooltip summarizing enabled providers (accessible name
+  for screen readers).
+- `sl-new` click handler routes through `chooseProviderAndLaunch()`.
+- `src-tauri/src/commands.rs::primary_action` — when more than one
+  provider is enabled and no session is active, emits a
+  `pet:event { kind: "choose-provider" }` instead of silently launching
+  array[0]. The frontend `onEvent` handler opens the chooser.
+- The chooser supports ✕ close, outside-click close, Escape close, and
+  blur close (consistent with radial/sesslist).
+
+### P0-6: release.yml platform signing semantics
+
+The 0.5.11 recheck (P0-6) flagged that the release workflow conflated
+the Tauri updater signing key with platform code-signing. They are NOT
+the same: the Tauri key signs updater artifacts (which this project
+doesn't even produce — `createUpdaterArtifacts=false`), while Windows
+Authenticode and macOS Developer ID + notarization affect SmartScreen /
+Gatekeeper. The previous `signed=true` output was misleading.
+
+- `.github/workflows/release.yml` — new `PLATFORM_SIGNED` output per
+  platform. Windows missing `WINDOWS_CERTIFICATE` → prominent
+  `::warning::` saying "Tauri-updater-signed only (no Authenticode)".
+  macOS missing `APPLE_CERTIFICATE` → similar warning.
+- New `REQUIRE_PLATFORM_SIGNING` repo variable (default false). When
+  `true`, missing platform certs HARD-FAIL the stable tag build (the
+  audit's strict recommendation). When `false` (current default), the
+  build proceeds but with prominent warnings — this lets the project
+  enforce platform signing once certs are available without blocking
+  the current release pipeline.
+- The misleading "updater key = binary signed" language is corrected in
+  the warning text.
+
+### Web verification
+
+Before implementation, the following API claims were verified via
+web-search (z-ai web_search function, 2026-07-31):
+
+- **Tauri 2 window-scoped events**: `getCurrentWindow().onResized(cb)`
+  returns a `Promise<UnlistenFn>` that fires ONLY for the current
+  window — confirmed via v2.tauri.app/reference/javascript/api/namespacewindow
+  and a tauri-apps discussion ("appWindow.onResized which fires only
+  for that window").
+- **Tauri 2 async commands**: `async_runtime::spawn_blocking` is the
+  correct primitive for blocking work — confirmed via
+  v2.tauri.app/develop/calling-rust (Jun 2026) and docs.rs/tauri/latest.
+- **OpenCode `auth list`**: still the current command — confirmed via
+  opencode.ai/docs/cli ("Lists all the authenticated providers").
+- **CodeWhale `doctor --json` + `auth status`**: still current —
+  confirmed via github.com/Hmbown/CodeWhale/blob/main/docs/GUIDE.md.
+- **GitHub Actions SHA pinning**: still the official best practice;
+  GitHub now natively supports blocking non-SHA-pinned actions (Aug
+  2025) — confirmed via github.blog/changelog/2025-08-15.
+
+### Test coverage
+
+- New `test/tauri-r351-correctness-patch-smoke.js` (155 lines, 30
+  assertions) locks all 5 R35.1 patches.
+- Updated `test/tauri-cli-hardening-r3-smoke.js` and
+  `test/tauri-cli-resilience-r7-smoke.js` to accept both
+  `pub fn diagnose_agent` and `pub async fn diagnose_agent` (R35.1
+  changed the signature).
+- Updated `test/tauri-r35-correctness-hotfix-smoke.js` — the
+  `INTERACTIVE_HIT_SEL` assertion now expects the anchor-only selector
+  (R35.1 narrowed it).
+- 4 phase2 smokes: version assertions bumped 0.5.11 → 0.5.12.
+- `npm test`: 39/39 smoke ok (was 38; +1 R35.1 smoke)
+- `npm run check:static`: 22/22 PASS
+
+### What's NOT in this release
+
+Per the recheck's "R35.1 first, then R36" guidance, the following
+remain deferred to R36 (0.5.13) or R37:
+- Real diagnostic cancellation via CancellationToken + child kill (P0-3
+  full closure — R35.1 only unblocked the IPC thread)
+- Full Provider state split (enabled/installed/healthy/running/focused)
+  — R35.1 only added the chooser and removed the +N label
+- Hook install onboarding (plan/diff/backup/apply/verify/rollback)
+- Unified atomic writer for transcript/metering/http_server (P1-1)
+- Stats hot-path incremental aggregation (P1-2)
+- Permission waiter pool isolation (P1-3)
+- Cursor hit-test conditional wakeup (P1-4)
+- Hidden panel render suppression (P1-5)
+- Bootstrap degraded/retry UI (P1-6)
+- Full dialog a11y + prefers-reduced-motion (P1-7)
+- Capability minimization + CSP tightening (P1-8)
+- GitHub Actions full SHA pinning (deferred — requires careful per-action
+  migration; the R35.1 release.yml changes are compatible with both
+  tag-ref and SHA-pinned actions)
+
+### Known limitations
+
+- The Rust changes (async diagnose_agent, primary_action emit, open_panel
+  emit) cannot be `cargo check`'d in this dev container — no Rust
+  toolchain. Compilation will be verified by GitHub Actions on push.
+  The smoke tests assert source-level patterns only.
+- The provider chooser is a functional first cut. The audit's full
+  recommendation (icon stack for running providers, recent/focused
+  state, "remember last" toggle) is R36.
+- `REQUIRE_PLATFORM_SIGNING` defaults to `false` to avoid blocking the
+  current release. The project should set it to `true` once Windows
+  Authenticode and Apple Developer ID certs are configured.
+
+---
+
 ## 0.5.11 — R35 correctness hotfix（2026-07-31）
 
 Hotfix release closing 6 P0 issues identified by the

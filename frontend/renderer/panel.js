@@ -238,18 +238,24 @@ function fitPanelHeight() {
   });
 }
 
-// R35 (2026-07-31): detect maximize / fullscreen / manual resize.
+// R35.1 (2026-07-31): window-scoped event listeners, replacing the global
+// `__TAURI__.event.listen('tauri://resize', ...)` that the 0.5.11
+// deep-recheck (P0-2 #1) flagged as a cross-window leak. The global
+// listener receives events from ALL windows (pet + panel); since the pet
+// window resizes frequently (set_pet_size on every popup/HUD open), pet
+// resize events would have entered the panel listener and permanently
+// set `userSized=true`, disabling auto-fit.
 //
-// The Tauri 2 webview exposes `__TAURI__.window.getCurrent()` which has
-// `isMaximized()`, `isFullscreen()`, and resize/maximize/restore events.
-// We poll once on init, then subscribe to events so we stay in sync. When
-// the user maximizes, we add `body.window-maximized` so the CSS strips
-// the 20px transparent gutter, the border, the radius, and the shadow —
-// turning the panel into a normal fullscreen app surface.
+// Verified via web-search of Tauri 2 docs (v2.tauri.app/reference/
+// javascript/api/namespacewindow): `getCurrentWindow().onResized(cb)` /
+// `.onScaleChanged(cb)` / `.onMoved(cb)` return a Promise<UnlistenFn>
+// that fires ONLY for the current window's events. This is the
+// window-scoped API the audit recommended.
 //
-// On a manual resize (not triggered by our own setPanelHeight), we set
-// `userSized=true` so future stats renders don't snap the panel back to
-// content-fit height. The flag is reset when the panel is closed.
+// Unlisteners are stored and called on page teardown / beforeunload so
+// we don't leak handlers across panel reopens (the WebView JS context
+// persists across hide/show, so duplicate listeners would accumulate).
+let windowModeUnlisteners = [];
 function syncWindowMode() {
   const w = (window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrent)
     ? window.__TAURI__.window.getCurrent() : null;
@@ -268,42 +274,89 @@ function installWindowModeListeners() {
   const w = (window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrent)
     ? window.__TAURI__.window.getCurrent() : null;
   if (!w) return;
-  // Listen to Tauri 2 window events. The event module is at
-  // `__TAURI__.event.listen` (already used by the bridge). We use the
-  // window-scoped `onResized` / `onMaximized` etc. helpers if available;
-  // otherwise fall back to the global listen() with window-specific topics.
-  const ev = window.__TAURI__ && window.__TAURI__.event;
-  if (ev && typeof ev.listen === 'function') {
-    // Tauri 2 emits `tauri://resize`, `tauri://maximize`, `tauri://unmaximize`,
-    // `tauri://enter-full-screen`, `tauri://leave-full-screen` on the window.
-    // The window-scoped helpers (w.onResized, w.onMaximized, …) are nicer
-    // but not always present in the bundled global; the global listen()
-    // with topic strings is the stable fallback.
-    const topics = [
-      'tauri://resize',
-      'tauri://maximize',
-      'tauri://unmaximize',
-      'tauri://enter-full-screen',
-      'tauri://leave-full-screen',
-    ];
-    topics.forEach((topic) => {
-      try { ev.listen(topic, () => { syncWindowMode(); markUserSizedIfManual(topic); }); } catch (_) {}
-    });
+  // R35.1: use the window-scoped onResized/onScaleChanged/onMoved helpers.
+  // Each returns a Promise<UnlistenFn>; we collect them for teardown.
+  // These fire ONLY for the panel window — pet resize events no longer
+  // leak in. The `markUserSizedIfManual` heuristic still applies (resize
+  // echoes from our own setPanelHeight are filtered by the 750ms window).
+  const add = (method, handler) => {
+    if (typeof w[method] !== 'function') return;
+    try {
+      Promise.resolve(w[method](handler))
+        .then((unlisten) => {
+          if (typeof unlisten === 'function') windowModeUnlisteners.push(unlisten);
+        })
+        .catch(() => {});
+    } catch (_) {}
+  };
+  add('onResized', () => { syncWindowMode(); markUserSizedIfManual(); });
+  // R35.1: onScaleChanged fires when the window moves to a different-DPI
+  // monitor. Reset lastFitHeight + userSized so auto-fit re-engages with
+  // the new scale factor (the audit's P0-2 #5 concern).
+  add('onScaleChanged', () => {
+    syncWindowMode();
+    lastFitHeight = 0;
+    // Don't reset userSized here — a DPI change doesn't mean the user
+    // wants auto-fit back. But do re-fit if not userSized.
+    if (!userSized && !windowMaximized && !windowFullscreen) {
+      fitPanelHeight();
+    }
+  });
+  // R35.1: onMoved fires on monitor change too (in addition to scale).
+  // Re-sync mode in case the user dragged across monitors.
+  add('onMoved', () => { syncWindowMode(); });
+  // Maximize/unmaximize/fullscreen are also exposed as window-scoped
+  // helpers on some Tauri 2 builds; fall back to onResized which always
+  // fires on those transitions too.
+  add('onResized', () => { syncWindowMode(); });
+}
+function teardownWindowModeListeners() {
+  // R35.1: called on beforeunload so a WebView reload doesn't accumulate
+  // duplicate listeners. In practice Tauri hides (not destroys) the panel
+  // WebView, so this is defensive — but it's cheap and correct.
+  while (windowModeUnlisteners.length) {
+    const off = windowModeUnlisteners.pop();
+    try { off(); } catch (_) {}
   }
 }
-function markUserSizedIfManual(topic) {
-  // Maximize / fullscreen / unmaximize are NOT user-sized gestures — they
-  // don't change the "restored" size. Only `tauri://resize` from a drag
-  // handle counts. But the resize event also fires when WE call
-  // setPanelHeight (via Rust set_size). Distinguishing the two requires
-  // comparing against the height we just requested; if the event fires
-  // within ~750ms of our last IPC request, treat it as our own echo.
-  // Otherwise mark userSized and stop auto-fitting.
-  if (topic !== 'tauri://resize') return;
+function markUserSizedIfManual() {
+  // R35.1: now window-scoped, so we only see the panel's OWN resize
+  // events. The 750ms heuristic distinguishes our setPanelHeight echo
+  // from a real user drag. (The audit's P0-2 #4 suggested using a
+  // revision + expected-size comparison; that's R36 work — for now the
+  // time-window heuristic is preserved but no longer at risk of cross-
+  // window false positives.)
   if (windowMaximized || windowFullscreen) return;
   const now = Date.now();
   if (!lastFitRequestTs || now - lastFitRequestTs > 750) {
     userSized = true;
+  }
+}
+
+// R35.1 (2026-07-31): reset auto-fit state when the panel is shown again.
+// The 0.5.11 deep-recheck (P0-2 #2) noted that `userSized` was never
+// reset, so a single manual resize permanently disabled auto-fit until
+// process restart. Rust `close_panel` only hides the window (WebView JS
+// context persists), so we need an explicit signal to reset.
+//
+// We listen for the `panel:config` event which Rust emits on every
+// show_panel() call (via emit_config). On that event, if the panel was
+// previously hidden, we reset:
+//   userSized = false
+//   lastFitHeight = 0
+//   lastFitRequestTs = 0
+// This gives the user a fresh auto-fit cycle each time they reopen the
+// panel, while still respecting their manual resize within a single
+// show cycle.
+let panelWasHidden = true;
+function resetAutoFitOnShow() {
+  if (panelWasHidden) {
+    userSized = false;
+    lastFitHeight = 0;
+    lastFitRequestTs = 0;
+    panelWasHidden = false;
+    // Re-sync window mode in case it changed while hidden.
+    syncWindowMode();
   }
 }
 
@@ -1211,6 +1264,40 @@ window.pet.onConfig((cfg) => {
   sessionArchived = Array.isArray(cfg.archivedSessions) ? cfg.archivedSessions.slice(0, 200) : [];
   applyLanguage(config.lang);
   applyConfigUI();
+});
+
+// R35.1 (2026-07-31): listen for the panel:shown event emitted by Rust
+// open_panel(). This is the explicit "you've been shown again" signal
+// that lets us reset the auto-fit state. We use the bridge's subscribe
+// helper (same pattern as onConfig/onPanelStats). The reset is idempotent
+// — if the panel was already visible, panelWasHidden is false and the
+// reset is a no-op.
+//
+// We ALSO mark panelWasHidden=true on close_panel (via the close button
+// handler below) so the NEXT show triggers a reset.
+(function subscribePanelShown() {
+  const ev = window.__TAURI__ && window.__TAURI__.event;
+  if (!ev || typeof ev.listen !== 'function') return;
+  ev.listen('panel:shown', () => {
+    panelWasHidden = true;
+    resetAutoFitOnShow();
+  }).catch(() => {});
+})();
+
+// R35.1: mark panel as hidden when the user clicks the close button.
+// close_panel in Rust hides the window (WebView persists), so we set
+// panelWasHidden=true here so the next panel:shown event triggers a
+// resetAutoFitOnShow() call.
+const _origCloseHandler = $('close').onclick;
+$('close').addEventListener('click', () => {
+  panelWasHidden = true;
+});
+
+// R35.1: clean up window-scoped listeners on beforeunload so a WebView
+// reload doesn't accumulate duplicates. (Defensive — Tauri usually hides
+// rather than reloads, but this is cheap and correct.)
+window.addEventListener('beforeunload', () => {
+  teardownWindowModeListeners();
 });
 
 $('close').addEventListener('click', () => window.pet.closePanel());

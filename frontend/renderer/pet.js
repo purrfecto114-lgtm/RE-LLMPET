@@ -335,6 +335,15 @@ function markGeometryBusy() {
     // After the busy window closes, re-measure and re-emit visual bounds so
     // the native hit-test region snaps to the final size.
     requestAnimationFrame(reportPetVisualBounds);
+    // R35.1: if openRadial() was deferred during the busy window, open it
+    // exactly once now. The flag is cleared here and in closeRadial/blur/
+    // drag-start so a stale intent can't reopen the HUD after dismissal.
+    if (pendingRadialOpen) {
+      pendingRadialOpen = false;
+      if (!radialOpen && !todoPopOpen && !sessListOpen) {
+        openRadial();
+      }
+    }
   }, 260);
 }
 function setRequestedPetSize(width, height) {
@@ -1567,6 +1576,14 @@ window.pet.onEvent((ev) => {
       transient('greet', 2000, `👋 ${ev.project || ''} 新会话，你好！`, 2600);
       SOUND.greet();
       break;
+    case 'choose-provider': {
+      // R35.1 (2026-07-31): Rust primary_action emitted this when more
+      // than one provider is enabled and no session is active. Open the
+      // provider chooser modal so the user explicitly picks the target.
+      // (0.5.11 deep-recheck P0-5: no more silent first-item launch.)
+      openProviderChooser();
+      break;
+    }
     case 'longcmd':
       if (state !== 'waiting') showBubble('💦 这条命令有点久，稍等…', 3000);
       break;
@@ -1789,26 +1806,149 @@ function updateProviderUI() {
       slNew.style.display = 'none';
     } else {
       slNew.style.display = '';
-      slNew.textContent = currentLang === 'en'
-        ? `🚀 New ${label}`
-        : currentLang === 'ja' ? `🚀 ${label} を新規` : `🚀 新开 ${label}`;
+      // R35.1: when multiple providers are enabled, the button label no
+      // longer implies a specific provider (the old label was "🚀 新开
+      // <firstProvider>"). Use a generic "🚀 新开" so the user knows
+      // they'll be asked to choose. Single provider keeps the specific
+      // label since there's no ambiguity.
+      if (activeProviders.length > 1) {
+        slNew.textContent = currentLang === 'en' ? '🚀 New Agent'
+          : currentLang === 'ja' ? '🚀 新規エージェント' : '🚀 新开会话';
+      } else {
+        slNew.textContent = currentLang === 'en'
+          ? `🚀 New ${label}`
+          : currentLang === 'ja' ? `🚀 ${label} を新規` : `🚀 新开 ${label}`;
+      }
     }
   }
   const tpClaude = document.querySelector('.tp-ops [data-op="claude"]');
   if (tpClaude) tpClaude.textContent = currentLang === 'en'
     ? `💬 Launch ${label}`
     : currentLang === 'ja' ? `💬 ${label} を起動` : `💬 唤起 ${label}`;
+  // R35.1 (2026-07-31): the agent-tag NO LONGER displays「名称 +N」.
+  // The 0.5.11 deep-recheck P0-5 flagged this as conflating "enabled
+  // providers" with "active provider" and silently launching the first
+  // array item. The tag is now always hidden; provider selection goes
+  // through the #provider-chooser modal (see chooseProviderAndLaunch).
+  // We keep the element for tooltip/ARIA use if needed in R36.
   if (agentTag) {
-    if (activeProviders.length > 1) {
-      const icon = PROVIDER_ICONS[provider] || '•';
-      agentTag.innerHTML = `<span class="at-ic">${icon}</span><span>${esc(label)} +${activeProviders.length - 1}</span>`;
-      agentTag.className = `agent-tag provider-${provider}`;
-    } else {
-      agentTag.className = 'agent-tag hidden';
-      agentTag.textContent = '';
+    agentTag.className = 'agent-tag hidden';
+    agentTag.textContent = '';
+    // Provide a tooltip summarizing enabled providers (accessible name
+    // for screen readers, hover text for sighted users). This replaces
+    // the visual「+N」with a non-visual summary.
+    if (activeProviders.length > 0) {
+      const summary = activeProviders
+        .map((id) => PROVIDER_LABELS[id] || id)
+        .join(' · ');
+      agentTag.title = currentLang === 'en' ? `Enabled: ${summary}`
+        : currentLang === 'ja' ? `有効: ${summary}` : `已启用: ${summary}`;
     }
   }
 }
+
+// R35.1 (2026-07-31): Provider chooser — replaces the silent
+// "launch first array item" behavior. When the user clicks "新开" or
+// triggers primaryAction:
+//   - 0 enabled providers → do nothing (R22 behavior preserved)
+//   - 1 enabled provider → launch directly (no modal)
+//   - 2+ enabled providers → open #provider-chooser modal; user picks
+//
+// The modal lists each provider with icon, label, and a status badge
+// (ok/warn/off based on the same runtime status the panel uses). The
+// user can close with ✕, Escape, or by clicking outside. On select,
+// we launch the chosen provider and close the modal.
+//
+// This addresses the 0.5.11 deep-recheck P0-5: "New Agent 仍静默启动
+// 数组第一个 Provider". The audit's full recommendation (icon stack +
+// running/focused/recent state split) is R36; this R35.1 change closes
+// the "silent first-item launch" trust hole without a full UI rewrite.
+let providerChooserOpen = false;
+const providerChooserEl = document.getElementById('provider-chooser');
+const providerChooserList = document.getElementById('pc-list');
+const providerChooserClose = document.getElementById('pc-close');
+
+function chooseProviderAndLaunch() {
+  if (!activeProviders.length) return; // R22: no provider selected
+  if (activeProviders.length === 1) {
+    // Single provider — launch directly, no ambiguity.
+    const provider = activeProviders[0];
+    window.pet.launchAgent(provider);
+    rlog('launch', 'direct ' + provider);
+    return;
+  }
+  // Multiple providers — open the chooser.
+  openProviderChooser();
+}
+
+function openProviderChooser() {
+  if (!providerChooserEl || !providerChooserList) return;
+  if (providerChooserOpen) return;
+  // Build the list. We use the runtime provider status from the last
+  // stats snapshot if available; otherwise show all as "off".
+  const statuses = (lastStats && lastStats.providers && lastStats.providers.statuses) || {};
+  providerChooserList.innerHTML = activeProviders.map((id) => {
+    const icon = PROVIDER_ICONS[id] || '•';
+    const label = PROVIDER_LABELS[id] || id;
+    const st = statuses[id] || {};
+    const installed = st.installed != null ? !!st.installed : false;
+    const failed = st.state === 'error';
+    const cls = failed ? 'warn' : installed ? 'ok' : 'off';
+    const statusText = failed ? (currentLang === 'en' ? 'error' : currentLang === 'ja' ? 'エラー' : '错误')
+      : installed ? (currentLang === 'en' ? 'ready' : currentLang === 'ja' ? '準備' : '就绪')
+      : (currentLang === 'en' ? 'pending' : currentLang === 'ja' ? '保留中' : '待同步');
+    return `<button type="button" class="pc-item" data-provider="${esc(id)}">
+      <span class="pc-ic">${icon}</span>
+      <span class="pc-label">${esc(label)}</span>
+      <span class="pc-status ${cls}">${esc(statusText)}</span>
+    </button>`;
+  }).join('');
+  providerChooserEl.classList.remove('hidden');
+  providerChooserOpen = true;
+  syncUiBusy();
+}
+function closeProviderChooser() {
+  if (!providerChooserEl) return;
+  providerChooserEl.classList.add('hidden');
+  providerChooserOpen = false;
+  syncUiBusy();
+}
+// Wire up the chooser interactions. Close on ✕, on outside click, on
+// Escape. Launch on item click.
+if (providerChooserEl) {
+  if (providerChooserClose) {
+    providerChooserClose.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeProviderChooser();
+    });
+  }
+  providerChooserEl.addEventListener('click', (e) => {
+    // Outside-card click closes.
+    if (e.target === providerChooserEl) closeProviderChooser();
+  });
+  if (providerChooserList) {
+    providerChooserList.addEventListener('click', (e) => {
+      const btn = e.target.closest('.pc-item');
+      if (!btn) return;
+      e.stopPropagation();
+      const provider = btn.dataset.provider;
+      closeProviderChooser();
+      if (provider) {
+        window.pet.launchAgent(provider);
+        rlog('launch', 'chooser ' + provider);
+      }
+    });
+  }
+}
+window.addEventListener('keydown', (e) => {
+  if (providerChooserOpen && e.key === 'Escape') {
+    closeProviderChooser();
+  }
+});
+// R35.1: blur closes the chooser too (consistent with radial/sesslist).
+window.addEventListener('blur', () => {
+  if (providerChooserOpen) closeProviderChooser();
+});
 
 function applySkin(s) {
   skin = ['pixel', 'mascot', 'cat'].includes(s) ? s : 'mascot';
@@ -1825,14 +1965,20 @@ function applySkin(s) {
   requestAnimationFrame(reportPetVisualBounds);
 }
 
-// R35 (2026-07-31): #pet-anchor is included in the interactive hit-test
-// selector so the native click region follows the STABLE anchor rect,
-// not the (transformed) skin element's rect. The skin elements (#pixel,
-// #mascot, #cat) are also kept in the selector for backwards compat —
-// pointer events on the visible pet should still register — but the
-// anchor's rect is the one that stays invariant under state animations.
-// See reportPetVisualBounds() for how the union is computed.
-const INTERACTIVE_HIT_SEL = '#pet-anchor,#pixel,#mascot,#cat,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player';
+// R35.1 (2026-07-31): hit-test selector NO LONGER includes the animated
+// skin elements (#pixel/#mascot/#cat). The 0.5.11 deep-recheck flagged
+// that taking the union of #pet-anchor + animated skin rects meant the
+// click-through boundary still shifted during state animations
+// (happyJump translates -22px, attn rotates ±4deg, bob ±7px), even
+// though #pet-anchor itself is stable. The pet body is now represented
+// in the hit-test ONLY by #pet-anchor. HUD/popup elements are kept
+// because they're not animated and need their own click regions.
+//
+// Verified via web-search of Tauri 2 docs: reportPetVisualBounds feeds
+// the native set_visual_bounds which is used for click-through; a
+// shifting boundary during animations is exactly the "桌宠跳动" symptom
+// the audit traced to this union.
+const INTERACTIVE_HIT_SEL = '#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player';
 
 function reportPetVisualBounds() {
   const rects = Array.from(document.querySelectorAll(INTERACTIVE_HIT_SEL))
@@ -1921,6 +2067,9 @@ function attachDrag(el) {
   el.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
+    // R35.1: a drag start cancels any pending radial open — the user has
+    // switched intent from "click to open HUD" to "drag the pet".
+    pendingRadialOpen = false;
     setMouseIgnore(false);
     try { el.setPointerCapture(e.pointerId); } catch {}
     el.classList.add('dragging');
@@ -2001,15 +2150,19 @@ memePicker.addEventListener('contextmenu', (e) => e.stopPropagation());
 memePlayer.addEventListener('contextmenu', (e) => e.stopPropagation());
 // W26: '新开' button must ALWAYS launch a fresh CLI session, not call
 // primaryAction() — primaryAction() sees existing sessions and tries to focus
-// them or opens the panel instead of launching a new terminal. The button label
-// says "🚀 新开 <provider>", so it must launch the first active provider's CLI.
+// them or opens the panel instead of launching a new terminal.
+// R35.1 (2026-07-31): when multiple providers are enabled, route through
+// chooseProviderAndLaunch() so the user explicitly picks the target
+// instead of silently launching the first array item (0.5.11 deep-recheck
+// P0-5). Single provider still launches directly.
 document.getElementById('sl-new').addEventListener('click', (e) => {
   e.stopPropagation();
-  const provider = firstProviderId();
-  if (!provider) return; // R22: no provider selected — do nothing
-  window.pet.launchAgent(provider);
-  rlog('launch', 'new ' + provider);
-  closeSessList();
+  if (!activeProviders.length) return; // R22: no provider selected
+  chooseProviderAndLaunch();
+  // Only close the session list if we launched directly (single provider).
+  // The chooser modal is its own overlay; closing sesslist first would
+  // leave the chooser floating without context.
+  if (activeProviders.length === 1) closeSessList();
 });
 document.getElementById('sl-panel').addEventListener('click', (e) => { e.stopPropagation(); window.pet.openPanel(); closeSessList(); });
 sesslist.addEventListener('contextmenu', (e) => e.stopPropagation());
@@ -2125,16 +2278,27 @@ function updateRadialBadge() {
   });
 }
 
+// R35.1 (2026-07-31): a SINGLE pending radial intent flag, replacing the
+// recursive `setTimeout(openRadial, 260)` that could queue multiple
+// delayed opens on repeated clicks. The 0.5.11 deep-recheck (P0-1 #2)
+// noted that the old code had no retry count or pending token, so 5
+// rapid clicks would schedule 5 opens; if the user changed intent or
+// the geometry settled, stale timers would still fire.
+//
+// Semantics:
+//   - pendingRadialOpen is set to `true` by openRadial() when geometryBusy.
+//   - markGeometryBusy()'s settle callback checks the flag and opens ONCE.
+//   - closeRadial(), blur, drag start, and state changes clear the flag
+//     so a stale intent can't reopen the HUD after the user dismissed it.
+let pendingRadialOpen = false;
+
 function openRadial() {
-  // R35 (2026-07-31): if a geometry transaction (set_pet_size) is in flight,
-  // defer opening the radial menu. The audit's P0-1 traced the "HUD 错位"
-  // bug to clicking during the resize animation — the radial menu anchored
-  // at the intermediate window size, then stayed there after the resize
-  // settled. We wait one busy window (~260ms) and retry once. If the busy
-  // flag is still true on retry (stuck resize), we open anyway — better to
-  // show a slightly-off menu than to leave the click silently swallowed.
+  // R35.1: if a geometry transaction is in flight, record a SINGLE
+  // pending intent and return. The settle callback in markGeometryBusy()
+  // will open the radial exactly once when the resize completes. No
+  // recursive timer, no queue.
   if (geometryBusy) {
-    setTimeout(openRadial, 260);
+    pendingRadialOpen = true;
     return;
   }
   if (todoPopOpen) closeTodoPop();
@@ -2148,6 +2312,9 @@ function openRadial() {
   bubble.classList.add('hidden');
 }
 function closeRadial() {
+  // R35.1: clear any pending radial intent so a deferred open can't fire
+  // after the user (or blur) dismissed the radial.
+  pendingRadialOpen = false;
   radial.classList.add('hidden');
   radialOpen = false;
   syncUiBusy();
@@ -2157,7 +2324,15 @@ function toggleRadial() {
 }
 // 点遮罩空白处关闭
 radial.addEventListener('click', () => closeRadial());
-window.addEventListener('blur', () => { if (radialOpen) closeRadial(); if (memePickerOpen) closeMemePicker(); if (memePreviewOpen) closeMemePreview(); });
+// R35.1: blur must also clear the pending intent — otherwise a window
+// that loses focus mid-resize would reopen the radial when it regains
+// focus and the busy timer settles.
+window.addEventListener('blur', () => {
+  pendingRadialOpen = false;
+  if (radialOpen) closeRadial();
+  if (memePickerOpen) closeMemePicker();
+  if (memePreviewOpen) closeMemePreview();
+});
 
 // ---------- 初始化 ----------
 (async () => {

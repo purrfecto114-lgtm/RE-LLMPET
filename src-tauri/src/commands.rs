@@ -412,7 +412,17 @@ pub fn open_panel(app: AppHandle) -> Result<(), String> {
         .get_webview_window("panel")
         .ok_or("panel window missing")?;
     window.show().map_err(|e| e.to_string())?;
-    window.set_focus().map_err(|e| e.to_string())
+    window.set_focus().map_err(|e| e.to_string())?;
+    // R35.1 (2026-07-31): emit a panel:shown event so the frontend can
+    // reset its auto-fit state (userSized, lastFitHeight, lastFitRequestTs).
+    // The 0.5.11 deep-recheck (P0-2 #2) noted that close_panel only hides
+    // the window (WebView JS context persists), so userSized was never
+    // reset and a single manual resize permanently disabled auto-fit.
+    // This event gives the frontend an explicit "you've been shown again"
+    // signal to reset. We emit AFTER show()+set_focus() so the frontend
+    // sees the event only when the window is actually visible.
+    let _ = app.emit("panel:shown", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -1731,8 +1741,38 @@ fn executable_kind(path: &Path) -> &'static str {
     }
 }
 
+// R35.1 (2026-07-31): the public command is now `async` and offloads the
+// synchronous probe work to `tauri::async_runtime::spawn_blocking`. The
+// 0.5.11 deep-recheck (P0-3) noted that the previous synchronous command
+// froze the IPC thread for the full duration of all probes (up to ~30s
+// in the worst case: 5s version + 15s doctor + 8s auth + smaller probes).
+// During that window, pet/panel couldn't receive any other IPC responses.
+//
+// Verified via web-search of Tauri 2 docs (v2.tauri.app/develop/calling-rust,
+// Jun 2026): "Asynchronous commands are preferred in Tauri to perform heavy
+// work ... use async_runtime::spawn" and `spawn_blocking` is the correct
+// primitive for CPU/IO-bound blocking work that shouldn't run on the async
+// executor. The async command signature is `pub async fn ...` and Tauri
+// handles the rest.
+//
+// What this does NOT do yet (deferred to R36 / 0.5.12 per the roadmap):
+//   - Per-step progress via Tauri Channel (the audit's full recommendation)
+//   - Real cancellation via a CancellationToken + child kill
+//   - A DiagnosticRegistry that prevents duplicate concurrent runs
+// The frontend's `diagnosticGeneration` counter (R35) still handles stale-
+// result suppression; this R35.1 change just unblocks the IPC thread so
+// pet/panel stay responsive during a diagnostic.
+//
+// The body is extracted into `diagnose_agent_sync` (unchanged) so the
+// spawn_blocking closure can call it without holding the async runtime.
 #[tauri::command]
-pub fn diagnose_agent(provider: String) -> Result<Value, String> {
+pub async fn diagnose_agent(provider: String) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || diagnose_agent_sync(provider))
+        .await
+        .map_err(|join_error| format!("diagnostic task panicked: {join_error}"))?
+}
+
+fn diagnose_agent_sync(provider: String) -> Result<Value, String> {
     let spec = agent_spec(&provider)?;
     // Diagnostics intentionally use the application-owned working directory.
     // The always-on WebView cannot supply an arbitrary path and cause provider
@@ -2171,10 +2211,25 @@ pub fn primary_action(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
         // R22 (2026-07-30): if no providers are configured, open the panel
         // instead of defaulting to 'claude'. The user explicitly chose to
         // have zero providers; launching claude would be surprising.
-        let provider = state.runtime.config().providers.into_iter().next();
-        match provider {
-            Some(p) => launch_agent(p),
-            None => open_panel(app),
+        let providers = state.runtime.config().providers;
+        // R35.1 (2026-07-31): if MORE THAN ONE provider is enabled, do NOT
+        // silently launch the first one. The 0.5.11 deep-recheck (P0-5)
+        // flagged this as a trust issue: the user enabled multiple
+        // providers and primaryAction picked array[0] without asking.
+        // We emit a pet:event so the frontend opens its #provider-chooser
+        // modal (the frontend has the UI context to render a picker;
+        // Rust doesn't). Single provider still launches directly.
+        if providers.len() > 1 {
+            let _ = app.emit(
+                "pet:event",
+                json!({"kind":"choose-provider","providers":providers}),
+            );
+            Ok(())
+        } else {
+            match providers.into_iter().next() {
+                Some(p) => launch_agent(p),
+                None => open_panel(app),
+            }
         }
     }
 }

@@ -120,13 +120,50 @@ jobs:
             echo "signed=true" >> "$GITHUB_OUTPUT"
             echo "gate=--release" >> "$GITHUB_OUTPUT"
             echo "genflag=" >> "$GITHUB_OUTPUT"
-            # R34 (2026-07-31): Tauri updater signing key is present, but
-            # macOS code-signing (Apple Developer ID) and Windows code-
-            # signing certs may not be. The Tauri key alone is sufficient
-            # to sign the updater artifact; platform certs only suppress
-            # "unknown publisher" warnings. Pass --no-sign to tauri-action
-            # on macOS when APPLE_CERTIFICATE is missing so the build
-            # succeeds without Apple notarization.
+            # R35.1 (2026-07-31): The 0.5.11 deep-recheck (P0-6) flagged
+            # that the previous code conflated the Tauri updater signing
+            # key with platform code-signing. They are NOT the same:
+            #   - TAURI_SIGNING_PRIVATE_KEY signs updater artifacts (which
+            #     this project doesn't even produce — createUpdaterArtifacts=false).
+            #   - Windows Authenticode affects SmartScreen / publisher identity.
+            #   - macOS Developer ID + notarization affects Gatekeeper.
+            # The previous "signed=true" output was misleading. We now:
+            #   1. Emit prominent ::warning:: lines when platform certs are
+            #      missing, so the release is clearly marked "Tauri-updater-
+            #      signed only (no platform code-signing)".
+            #   2. Set a `platformSigned` output (true/false) that later
+            #      steps can use to label the GitHub Release body.
+            #   3. Honor a REQUIRE_PLATFORM_SIGNING env var (repo-level):
+            #      when true, missing platform certs HARD-FAIL the stable
+            #      tag build (the audit's strict recommendation). When
+            #      false (default, current behavior), the build proceeds
+            #      but with prominent warnings. This lets the project
+            #      enforce platform signing once certs are available
+            #      without blocking the current release pipeline.
+            PLATFORM_SIGNED="true"
+            if [ "${{ matrix.platform }}" = "windows-latest" ]; then
+              if [ -z "${{ env.WINDOWS_CERTIFICATE }}" ] || [ -z "${{ env.WINDOWS_CERTIFICATE_PASSWORD }}" ]; then
+                PLATFORM_SIGNED="false"
+                echo "::warning::Stable tag v$VERSION on Windows: WINDOWS_CERTIFICATE is missing. The .exe will be Tauri-updater-signed only (no Authenticode). SmartScreen will show 'unknown publisher'. Set REQUIRE_PLATFORM_SIGNING=true to fail-closed."
+              fi
+            fi
+            if [ "${{ matrix.platform }}" = "macos-latest" ]; then
+              if [ -z "${{ env.APPLE_CERTIFICATE }}" ] || [ -z "${{ env.APPLE_CERTIFICATE_PASSWORD }}" ] || [ -z "${{ env.APPLE_SIGNING_IDENTITY }}" ]; then
+                PLATFORM_SIGNED="false"
+                echo "::warning::Stable tag v$VERSION on macOS: APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY is missing. The .dmg will be Tauri-updater-signed only (no Developer ID / notarization). Gatekeeper will require right-click > Open. Set REQUIRE_PLATFORM_SIGNING=true to fail-closed."
+              fi
+            fi
+            echo "platformSigned=$PLATFORM_SIGNED" >> "$GITHUB_OUTPUT"
+            # R35.1: REQUIRE_PLATFORM_SIGNING (repo variable, default false)
+            # enforces the audit's strict policy when the project is ready.
+            if [ "${{ vars.REQUIRE_PLATFORM_SIGNING }}" = "true" ] && [ "$PLATFORM_SIGNED" = "false" ]; then
+              echo "::error::Stable tag v$VERSION on ${{ matrix.platform }} requires platform code-signing (REQUIRE_PLATFORM_SIGNING=true). Configure WINDOWS_CERTIFICATE / APPLE_CERTIFICATE secrets, or use workflow_dispatch for an unsigned draft."
+              exit 1
+            fi
+            # R34: macOS without APPLE_CERTIFICATE → pass --no-sign so the
+            # build succeeds (the .dmg just isn't Apple-signed). Windows
+            # doesn't need an equivalent flag — tauri-action handles missing
+            # WINDOWS_CERTIFICATE gracefully.
             if [ "${{ matrix.platform }}" = "macos-latest" ] && [ -z "${{ env.APPLE_CERTIFICATE }}" ]; then
               echo "bundleArgs=${{ matrix.args }} --no-sign" >> "$GITHUB_OUTPUT"
             else

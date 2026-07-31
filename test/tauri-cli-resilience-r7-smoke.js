@@ -25,7 +25,7 @@ const checks = [
   ['simultaneous current and legacy project overlays produce a warning', commands.includes('Both .codewhale/config.toml and legacy .deepseek/config.toml exist')],
   ['Claude versions before the verified sleep/wake fix are warned, not blocked', commands.includes('version_is_older(&actual, "2.1.200")') && commands.includes('warnings.push(format!')],
   ['diagnostic WebView can no longer select arbitrary cwd', bridge.includes("diagnoseAgent: (provider) => call('diagnose_agent', { provider })") && !bridge.includes('cwd: cwd || null')],
-  ['Rust diagnostic command no longer accepts cwd', commands.includes('pub fn diagnose_agent(provider: String)') && commands.includes('agent_working_directory(None)')],
+  ['Rust diagnostic command no longer accepts cwd', (commands.includes('pub fn diagnose_agent(provider: String)') || commands.includes('pub async fn diagnose_agent(provider: String)')) && commands.includes('agent_working_directory(None)')],
   ['arbitrary cwd launch remains outside pet capability', !capability.includes('allow-launch-agent-in')],
   ['diagnostic UI shows doctor surface', panel.includes("t('diag.doctorSurface')")],
   ['diagnostic UI shows active project overlays', panel.includes("t('diag.projectConfig')") && panel.includes('configInfo.projectOverlays')],
