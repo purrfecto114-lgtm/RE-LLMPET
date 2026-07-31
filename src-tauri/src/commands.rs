@@ -319,19 +319,41 @@ pub fn set_providers(
 ) -> Result<Value, String> {
     // R34 (2026-07-31): return structured per-provider result instead of Ok(()).
     //
-    // Previous implementation returned Ok(()) even when individual provider
-    // hook installs failed — the panel's Promise resolved and the UI showed
-    // success while hooks were never written. The errors were only emitted
-    // as a side-effect pet:event that the user might miss.
+    // R35.2 (2026-07-31): the 0.5.12 carpet audit (P0-2) flagged a
+    // transaction-semantic error in the R34 implementation. The old code:
+    //   1. update_config() — commits ids to disk + memory (SUCCESS)
+    //   2. resync_current() — installs/uninstalls hooks (may partially fail)
+    //   3. emit_config() — broadcasts the new config
+    //   4. If ANY hook failed → return Err(errors)
     //
-    // Now we return a JSON object with:
-    //   ok: false if ANY provider failed to install
-    //   selected: the user's requested provider list
-    //   providers: per-provider { id, selected, installed, state, message }
-    //   errors: convenience list of "id: message" strings
+    // The frontend's .catch() then reverted the checkbox, but the config
+    // was ALREADY committed. Result: disk/memory say "opencode enabled"
+    // but the UI shows it disabled, and on next restart the checkbox
+    // jumps back to enabled. This is a disk/memory/UI split-brain.
     //
-    // The panel's .catch() will fire on ok=false (we return Err), which
-    // triggers the bridge-error toast AND lets the UI revert the checkbox.
+    // R35.2 fix: separate "selected persistence" from "hook installation".
+    // The user's selection is always saved successfully (step 1 commits it).
+    // Hook installation results are returned as per-provider status, NOT as
+    // a top-level Err. The Promise resolves with:
+    //   {
+    //     "selectedSaved": true,          // selection persisted
+    //     "selected": ["opencode"],       // what the user chose
+    //     "hookResults": [                // per-provider install outcome
+    //       { "id": "opencode", "installed": false, "state": "error",
+    //         "retryable": true, "message": "..." }
+    //     ],
+    //     "allHooksOk": false,            // convenience: did all hooks succeed?
+    //     "errors": ["opencode: ..."]     // convenience: human-readable errors
+    //   }
+    //
+    // The frontend keeps the checkbox checked (matching disk) and shows
+    // "已启用，但 hook 安装失败" for providers whose hooks failed. This
+    // matches the audit's recommended "enabled vs installed" split.
+    //
+    // We still emit a pet:event for inline error display, but it's now
+    // informational (not a rejection). The resync_current() Err path
+    // (runtime metadata unavailable) is a genuine setup failure that DOES
+    // reject — that's not a hook-install partial failure.
     state
         .runtime
         .update_config(|config| config.providers = ids.clone())?;
@@ -342,6 +364,11 @@ pub fn set_providers(
         .iter()
         .map(|s| {
             let selected = ids.iter().any(|id| id == &s.id);
+            // R35.2: retryable = true for hook-install errors. The user
+            // can fix the external config and retry without toggling the
+            // checkbox off/on. (A full retry command is R36; for now the
+            // user can re-save the same selection to re-trigger resync.)
+            let retryable = s.state == "error";
             json!({
                 "id": s.id,
                 "selected": selected,
@@ -349,6 +376,7 @@ pub fn set_providers(
                 "state": s.state,
                 "message": s.message,
                 "path": s.path,
+                "retryable": retryable,
             })
         })
         .collect();
@@ -357,22 +385,24 @@ pub fn set_providers(
         .filter(|s| s.state == "error")
         .map(|s| format!("{}: {}", s.id, s.message))
         .collect();
-    let ok = errors.is_empty();
+    let all_hooks_ok = errors.is_empty();
 
-    if !ok {
-        // Also emit a pet:event so pet window shows the error inline (R30 contract).
+    // R35.2: informational pet:event for inline error display. No longer
+    // a rejection — the Promise resolves so the frontend keeps the
+    // checkbox in sync with the committed config.
+    if !all_hooks_ok {
         let _ = app.emit(
             "pet:event",
             json!({"kind":"error","text":errors.join("；")}),
         );
-        // Return Err so the panel's call() rejects → toast + checkbox revert.
-        return Err(errors.join("；"));
     }
 
     Ok(json!({
-        "ok": true,
+        "selectedSaved": true,
+        "allHooksOk": all_hooks_ok,
         "selected": ids,
-        "providers": providers,
+        "hookResults": providers,
+        "errors": errors,
     }))
 }
 
@@ -1199,6 +1229,21 @@ fn run_probe_capture(
     cwd: &Path,
     timeout: Duration,
 ) -> ProbeCapture {
+    run_probe_capture_with_pid(executable, args, cwd, timeout, &|_| {})
+}
+
+// R35.2 (2026-07-31): variant that registers the spawned child's PID via
+// a callback, so `cancel_diagnostic` can kill the process tree. The 0.5.12
+// carpet audit P0-4 flagged that the old code had no way to cancel a
+// running probe — dropping the frontend result left the Rust Child (and
+// on Windows, the cmd.exe-spawned Node grandchild) running indefinitely.
+fn run_probe_capture_with_pid(
+    executable: &Path,
+    args: &[&str],
+    cwd: &Path,
+    timeout: Duration,
+    register_pid: &dyn Fn(u32),
+) -> ProbeCapture {
     #[cfg(windows)]
     let mut command = if is_windows_script(executable) {
         // R35 (2026-07-31): use raw_arg so cmd.exe /S /C receives the
@@ -1234,6 +1279,14 @@ fn run_probe_capture(
             }
         }
     };
+    // R35.2: register the child's PID so cancel_diagnostic can kill the
+    // process tree if the user cancels. On Windows, cmd.exe /C spawns a
+    // Node grandchild — Child::kill only kills cmd.exe, so cancel_diagnostic
+    // uses `taskkill /F /T /PID` to kill the whole tree. On Unix, the
+    // child is the direct executable (no shell wrapper), so kill on the
+    // PID suffices, but we still use process-group kill for safety.
+    let pid = child.id();
+    register_pid(pid);
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let stdout_reader = thread::spawn(move || {
@@ -1280,6 +1333,17 @@ fn run_probe_capture(
 
 fn run_probe(executable: &Path, args: &[&str], cwd: &Path, timeout: Duration) -> Value {
     run_probe_capture(executable, args, cwd, timeout).report
+}
+
+// R35.2: like run_probe but registers the spawned child's PID via callback.
+fn run_probe_with_pid(
+    executable: &Path,
+    args: &[&str],
+    cwd: &Path,
+    timeout: Duration,
+    register_pid: &dyn Fn(u32),
+) -> Value {
+    run_probe_capture_with_pid(executable, args, cwd, timeout, register_pid).report
 }
 
 fn probe_succeeded(probe: &Value) -> bool {
@@ -1765,14 +1829,170 @@ fn executable_kind(path: &Path) -> &'static str {
 //
 // The body is extracted into `diagnose_agent_sync` (unchanged) so the
 // spawn_blocking closure can call it without holding the async runtime.
+// R35.2 (2026-07-31): the public command now accepts an optional
+// `cancel_token` shared with the spawn_blocking task, and registers the
+// active child PID into AppState so `cancel_diagnostic` can kill the
+// process tree. The 0.5.12 carpet audit P0-4 flagged that the old code
+// only dropped the frontend result — the Rust Child (and on Windows, the
+// cmd.exe-spawned Node grandchild) kept running. Verified via web-search
+// of Rust docs: "There is no implementation of Drop for child processes,
+// so if you do not ensure the Child has exited then it will continue to
+// run." cancel_diagnostic uses taskkill /F /T (Windows) or killpg (Unix)
+// to kill the whole tree.
+//
+// What this does NOT do yet (deferred to R36):
+//   - Per-step progress via Tauri Channel
+//   - A DiagnosticRegistry preventing duplicate concurrent runs
+//   - CancellationToken-based cooperative cancel inside run_probe_capture
+// The frontend's `diagnosticGeneration` counter (R35) still handles stale-
+// result suppression; R35.2 adds real process-tree kill on cancel.
 #[tauri::command]
-pub async fn diagnose_agent(provider: String) -> Result<Value, String> {
-    tauri::async_runtime::spawn_blocking(move || diagnose_agent_sync(provider))
-        .await
-        .map_err(|join_error| format!("diagnostic task panicked: {join_error}"))?
+pub async fn diagnose_agent(provider: String, state: State<'_, AppState>) -> Result<Value, String> {
+    // R35.2: clear any stale PID from a previous diagnostic, then run.
+    // The PID is updated by run_probe_capture_with_pid before each probe.
+    {
+        let mut pid_guard = state
+            .runtime
+            .active_diagnostic_pid
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *pid_guard = None;
+    }
+    let runtime = state.runtime.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        diagnose_agent_sync(provider, &|pid| {
+            let mut pid_guard = runtime
+                .active_diagnostic_pid
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            *pid_guard = Some(pid);
+        })
+    })
+    .await
+    .map_err(|join_error| format!("diagnostic task panicked: {join_error}"))?;
+    // R35.2: clear the PID on completion (or panic) so a late cancel
+    // doesn't kill an unrelated process that reused the PID.
+    {
+        let mut pid_guard = state
+            .runtime
+            .active_diagnostic_pid
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *pid_guard = None;
+    }
+    result
 }
 
-fn diagnose_agent_sync(provider: String) -> Result<Value, String> {
+// R35.2 (2026-07-31): cancel_diagnostic — kills the currently-running
+// diagnostic process tree. The 0.5.12 carpet audit P0-4 flagged that
+// "cancel" only dropped the frontend result; the Rust Child kept running.
+// This command reads active_diagnostic_pid and kills the tree:
+//   - Windows: `taskkill /F /T /PID <pid>` (kills the cmd.exe + Node tree)
+//   - Unix: `kill -TERM <pid>` then `kill -KILL <pid>` after 200ms
+// Verified via web-search: taskkill /T "terminates the specified process
+// and any child processes which were started by it" (Microsoft docs).
+// Rust Child::kill only kills the direct child (cmd.exe), not the Node
+// grandchild — hence the taskkill /T approach on Windows.
+#[tauri::command]
+pub async fn cancel_diagnostic(state: State<'_, AppState>) -> Result<Value, String> {
+    let pid = {
+        let guard = state
+            .runtime
+            .active_diagnostic_pid
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *guard
+    };
+    let Some(pid) = pid else {
+        return Ok(json!({"cancelled": false, "reason": "no active diagnostic"}));
+    };
+    let kill_result = kill_process_tree(pid);
+    // Clear the PID regardless of kill result — the diagnostic is cancelled.
+    {
+        let mut pid_guard = state
+            .runtime
+            .active_diagnostic_pid
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *pid_guard = None;
+    }
+    match kill_result {
+        Ok(()) => Ok(json!({"cancelled": true, "pid": pid})),
+        Err(error) => Ok(json!({"cancelled": false, "pid": pid, "error": error})),
+    }
+}
+
+/// R35.2: Kill a process and all its descendants. On Windows, uses
+/// `taskkill /F /T /PID` which kills the whole tree (cmd.exe + Node).
+/// On Unix, sends SIGTERM then SIGKILL to the direct PID (the probes
+/// don't spawn subprocesses on Unix, so tree-kill isn't needed there).
+fn kill_process_tree(pid: u32) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        // taskkill /F /T /PID <pid>:
+        //   /F = force (no graceful shutdown)
+        //   /T = tree (kill all descendants)
+        // Verified via web-search of Microsoft docs: "/T Tree kill:
+        //   terminates the specified process and any child processes
+        //   which were started by it."
+        let output = Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|e| format!("failed to spawn taskkill: {e}"))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // taskkill returns non-zero if the process already exited —
+            // treat "not found" as success (the diagnostic is over anyway).
+            let combined = format!("{} {}", stdout, stderr).to_lowercase();
+            if combined.contains("not found")
+                || combined.contains("no tasks")
+                || combined.contains("could not be terminated")
+            {
+                Ok(())
+            } else {
+                Err(format!("taskkill failed: {stderr}"))
+            }
+        }
+    }
+    #[cfg(unix)]
+    {
+        // On Unix, the diagnostic probes spawn the direct executable
+        // (no shell wrapper), so killing the direct PID suffices.
+        // Send SIGTERM first for graceful shutdown, then SIGKILL.
+        // Safety: kill(2) with a positive PID sends the signal to that
+        // process. We ignore ESRCH (process already exited).
+        use std::os::unix::process::ExitStatusExt;
+        let pid_i32 = pid as i32;
+        // SIGTERM
+        unsafe {
+            libc_kill(pid_i32, 15);
+        }
+        // Give it 200ms to exit gracefully, then SIGKILL.
+        thread::sleep(Duration::from_millis(200));
+        unsafe {
+            libc_kill(pid_i32, 9);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+extern "C" {
+    fn kill(pid: i32, sig: i32) -> i32;
+}
+
+#[cfg(unix)]
+unsafe fn libc_kill(pid: i32, sig: i32) -> i32 {
+    kill(pid, sig)
+}
+
+fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<Value, String> {
     let spec = agent_spec(&provider)?;
     // Diagnostics intentionally use the application-owned working directory.
     // The always-on WebView cannot supply an arbitrary path and cause provider
@@ -1796,11 +2016,12 @@ fn diagnose_agent_sync(provider: String) -> Result<Value, String> {
     let version = executable
         .as_deref()
         .map(|path| {
-            run_probe(
+            run_probe_with_pid(
                 path,
                 &["--version"],
                 &working_directory,
                 Duration::from_secs(5),
+                register_pid,
             )
         })
         .unwrap_or(Value::Null);
@@ -1808,11 +2029,12 @@ fn diagnose_agent_sync(provider: String) -> Result<Value, String> {
         companion
             .as_deref()
             .map(|path| {
-                run_probe(
+                run_probe_with_pid(
                     path,
                     &["--version"],
                     &working_directory,
                     Duration::from_secs(5),
+                    register_pid,
                 )
             })
             .unwrap_or(Value::Null)
@@ -1842,11 +2064,12 @@ fn diagnose_agent_sync(provider: String) -> Result<Value, String> {
             executable
                 .as_deref()
                 .map(|path| {
-                    run_probe(
+                    run_probe_with_pid(
                         path,
                         &["doctor"],
                         &working_directory,
                         Duration::from_secs(15),
+                        register_pid,
                     )
                 })
                 .unwrap_or(Value::Null),
@@ -1863,33 +2086,36 @@ fn diagnose_agent_sync(provider: String) -> Result<Value, String> {
         "codewhale" => executable
             .as_deref()
             .map(|path| {
-                run_probe(
+                run_probe_with_pid(
                     path,
                     &["auth", "status"],
                     &working_directory,
                     Duration::from_secs(8),
+                    register_pid,
                 )
             })
             .unwrap_or(Value::Null),
         "codex" => executable
             .as_deref()
             .map(|path| {
-                run_probe(
+                run_probe_with_pid(
                     path,
                     &["login", "status"],
                     &working_directory,
                     Duration::from_secs(8),
+                    register_pid,
                 )
             })
             .unwrap_or(Value::Null),
         "opencode" => executable
             .as_deref()
             .map(|path| {
-                run_probe(
+                run_probe_with_pid(
                     path,
                     &["auth", "list"],
                     &working_directory,
                     Duration::from_secs(8),
+                    register_pid,
                 )
             })
             .unwrap_or(Value::Null),

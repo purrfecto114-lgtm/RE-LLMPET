@@ -41,8 +41,11 @@ const release = read('.github/workflows/release.yml');
 // ──────────────────────────────────────────────────────────────────────────
 
 // INTERACTIVE_HIT_SEL no longer includes #pixel/#mascot/#cat (animated skins)
-assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player'"),
-  'R35.1: INTERACTIVE_HIT_SEL must be anchor-only (no animated skin elements)');
+// R35.2 (2026-07-31): the selector now ALSO includes #provider-chooser
+// (0.5.12 carpet audit P0-1 证据B). The R35.1 anchor-only assertion is
+// preserved but the expected string is updated to include #provider-chooser.
+assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player,#provider-chooser'"),
+  'R35.2: INTERACTIVE_HIT_SEL must be anchor-only + #provider-chooser');
 assert(!petJs.includes("'#pet-anchor,#pixel,#mascot,#cat,#radial,"),
   'R35.1: the old union selector with animated skins must be gone');
 
@@ -107,16 +110,23 @@ assert(panelJs.includes("ev.listen('panel:shown'"),
 // ──────────────────────────────────────────────────────────────────────────
 
 // The public command is now async
-assert(commands.includes('pub async fn diagnose_agent(provider: String)'),
+// R35.2 (2026-07-31): diagnose_agent signature now includes `state: State`
+// for the cancel_diagnostic PID registry. Accept all forms (single-line
+// and multi-line).
+assert(commands.includes('pub async fn diagnose_agent(provider: String)')
+     || commands.includes('pub async fn diagnose_agent(\n    provider: String,\n    state: State')
+     || commands.includes('pub async fn diagnose_agent(provider: String, state: State'),
   'R35.1: diagnose_agent must be `pub async fn` (was sync, froze IPC)');
 // It offloads to spawn_blocking
 assert(commands.includes('tauri::async_runtime::spawn_blocking'),
   'R35.1: diagnose_agent must use tauri::async_runtime::spawn_blocking');
 // The body is extracted into diagnose_agent_sync
-assert(commands.includes('fn diagnose_agent_sync(provider: String)'),
-  'R35.1: the sync body must be extracted into diagnose_agent_sync');
+// R35.2: the sync body now takes a register_pid callback for cancellation.
+assert(commands.includes('fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32))'),
+  'R35.1/R35.2: the sync body must be extracted into diagnose_agent_sync');
 // The async wrapper handles JoinError (panic)
-assert(/spawn_blocking\(move \|\| diagnose_agent_sync\(provider\)\)[\s\S]*?map_err\(\|join_error\|/.test(commands),
+// R35.2: the spawn_blocking closure now passes a register_pid closure.
+assert(/spawn_blocking\(move \|\|[\s\S]*?diagnose_agent_sync[\s\S]*?map_err\(\|join_error\|/.test(commands),
   'R35.1: async wrapper must map_err on JoinError (panic propagation)');
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -139,8 +149,10 @@ assert(petJs.includes('function openProviderChooser'),
 assert(petJs.includes('function closeProviderChooser'),
   'R35.1: pet.js must define closeProviderChooser');
 // Single provider launches directly; multiple opens chooser
-assert(/activeProviders\.length === 1[\s\S]*?window\.pet\.launchAgent/.test(petJs),
-  'R35.1: single provider must launch directly (no modal)');
+// R35.2: single-provider launch now uses launchProviderChecked (call)
+// instead of launchAgent (send), so failures surface.
+assert(/activeProviders\.length === 1[\s\S]{0,500}launchProviderChecked/.test(petJs),
+  'R35.1/R35.2: single provider must launch directly via launchProviderChecked (no modal)');
 // The「+N」label is gone from agent-tag
 assert(!/\+ \$\{activeProviders\.length - 1\}/.test(petJs),
   'R35.1: the「+N」label must be removed from agent-tag');

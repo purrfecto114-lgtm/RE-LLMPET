@@ -21,6 +21,7 @@
     "allow-close-panel",
     "allow-set-panel-height",
     "allow-diagnose-agent",
+    "allow-cancel-diagnostic",
     "allow-launch-agent",
     "allow-launch-agent-gui"
   ]

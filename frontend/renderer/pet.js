@@ -243,7 +243,12 @@ const isInteracting = () => askActive && (askHover || document.activeElement ===
 // Tauri 迁移：交互状态改为事件驱动，不再每 700ms 常驻轮询。
 let lastUiBusy = null;
 function syncUiBusy(force = false) {
-  const busy = !!(radialOpen || todoPopOpen || sessListOpen || memePickerOpen || memePreviewOpen || askActive || isInteracting());
+  // R35.2 (2026-07-31): added providerChooserOpen to the busy union.
+  // The 0.5.12 carpet audit (P0-1 证据A) flagged that the chooser was
+  // not in this list, so Rust's native click-through guard and the
+  // territory/blur branches didn't know the chooser was open — risking
+  // the chooser being treated as non-interactive while it was visible.
+  const busy = !!(radialOpen || todoPopOpen || sessListOpen || memePickerOpen || memePreviewOpen || askActive || providerChooserOpen || isInteracting());
   if (!force && busy === lastUiBusy) return;
   lastUiBusy = busy;
   try { window.pet.uiBusy(busy); } catch {}
@@ -1766,6 +1771,14 @@ function renderSessions(sessions) {
 }
 
 let activeProviders = []; // R22: empty until config arrives (was ['claude'])
+// R35.2 (2026-07-31): latestProviderStatuses — the per-provider install
+// status map, sourced from config_view()'s `providers.statuses` (NOT
+// from stats(), which the 0.5.12 carpet audit P0-1 证据C confirmed does
+// not include a `providers` field). The chooser reads this to show
+// ok/warn/off badges that match the panel. Before this fix, the chooser
+// read lastStats.providers.statuses which was always undefined, so every
+// provider showed as "pending/off" even when hooks were installed.
+let latestProviderStatuses = {};
 
 window.pet.onConfig((cfg) => {
   if (!cfg) return;
@@ -1776,6 +1789,11 @@ window.pet.onConfig((cfg) => {
   if (cfg.providers && Array.isArray(cfg.providers.active)) {
     activeProviders = cfg.providers.active;
     updateProviderUI();
+  }
+  // R35.2: save the full provider status map from config_view(). This is
+  // the authoritative source — Runtime::stats() does NOT include it.
+  if (cfg.providers && cfg.providers.statuses && typeof cfg.providers.statuses === 'object') {
+    latestProviderStatuses = cfg.providers.statuses;
   }
   // Currency config — persist across restarts
   if (cfg.currency === 'USD' || cfg.currency === 'CNY') {
@@ -1873,20 +1891,55 @@ function chooseProviderAndLaunch() {
   if (activeProviders.length === 1) {
     // Single provider — launch directly, no ambiguity.
     const provider = activeProviders[0];
-    window.pet.launchAgent(provider);
-    rlog('launch', 'direct ' + provider);
+    // R35.2: use launchAgentChecked (call) so a launch failure surfaces
+    // rather than fire-and-forget. The 0.5.12 carpet audit P0-1 证据D
+    // flagged that launchAgent (send) silently swallowed failures.
+    launchProviderChecked(provider);
     return;
   }
   // Multiple providers — open the chooser.
   openProviderChooser();
 }
 
+// R35.2 (2026-07-31): launchProviderChecked — awaits the launch IPC and
+// surfaces failures via toast + rlog. The 0.5.12 carpet audit P0-1 证据D
+// flagged that the old code used fire-and-forget launchAgent (send),
+// so a failed launch left the user with no feedback. We use
+// launchAgentChecked (call) which rejects on IPC failure.
+function launchProviderChecked(provider) {
+  if (!provider) return;
+  rlog('launch', 'checked ' + provider);
+  Promise.resolve()
+    .then(() => window.pet.launchAgentChecked(provider))
+    .catch((err) => {
+      const msg = String(err && (err.message || err) || 'unknown');
+      rlog('launch', 'failed ' + provider + ': ' + msg);
+      // Dispatch a bridge-error so the toast shows.
+      try {
+        window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+          detail: { command: 'launch_agent', message: `${provider}: ${msg}` }
+        }));
+      } catch {}
+    });
+}
+
 function openProviderChooser() {
   if (!providerChooserEl || !providerChooserList) return;
   if (providerChooserOpen) return;
-  // Build the list. We use the runtime provider status from the last
-  // stats snapshot if available; otherwise show all as "off".
-  const statuses = (lastStats && lastStats.providers && lastStats.providers.statuses) || {};
+  // R35.2 (2026-07-31): mutual exclusion — close other overlays before
+  // opening the chooser. The 0.5.12 carpet audit P0-1 证据E noted the
+  // chooser lacked strict mutual exclusion with radial/sesslist/todo/ask.
+  if (radialOpen) closeRadial();
+  if (sessListOpen) closeSessList();
+  if (todoPopOpen) closeTodoPop();
+  if (memePickerOpen) closeMemePicker();
+  if (memePreviewOpen) closeMemePreview();
+  // R35.2: read provider statuses from latestProviderStatuses (sourced
+  // from config_view() via onConfig), NOT from lastStats. The 0.5.12
+  // carpet audit P0-1 证据C confirmed Runtime::stats() does NOT include
+  // a `providers` field, so the old code always showed all providers as
+  // "pending/off" even when hooks were installed.
+  const statuses = latestProviderStatuses || {};
   providerChooserList.innerHTML = activeProviders.map((id) => {
     const icon = PROVIDER_ICONS[id] || '•';
     const label = PROVIDER_LABELS[id] || id;
@@ -1906,6 +1959,14 @@ function openProviderChooser() {
   providerChooserEl.classList.remove('hidden');
   providerChooserOpen = true;
   syncUiBusy();
+  // R35.2 (2026-07-31): focus the first item for keyboard accessibility.
+  // The audit P0-1 证据E flagged the missing focus management. We move
+  // focus to the first provider button so arrow-key/Enter navigation
+  // works and screen readers announce the dialog. Full focus trap is R36.
+  const firstItem = providerChooserList.querySelector('.pc-item');
+  if (firstItem) {
+    try { firstItem.focus(); } catch {}
+  }
 }
 function closeProviderChooser() {
   if (!providerChooserEl) return;
@@ -1932,11 +1993,41 @@ if (providerChooserEl) {
       if (!btn) return;
       e.stopPropagation();
       const provider = btn.dataset.provider;
-      closeProviderChooser();
-      if (provider) {
-        window.pet.launchAgent(provider);
-        rlog('launch', 'chooser ' + provider);
+      if (!provider) return;
+      // R35.2 (2026-07-31): await the launch BEFORE closing the chooser.
+      // The 0.5.12 carpet audit P0-1 证据D flagged that the old code
+      // closed the chooser first, then fire-and-forget launched — so a
+      // failed launch left no UI to retry from. Now we disable the
+      // clicked item, await launchAgentChecked, and only close on
+      // success. On failure we keep the chooser open + re-enable the
+      // item + show a toast, so the user can retry or pick another.
+      btn.disabled = true;
+      const originalLabel = btn.querySelector('.pc-label');
+      const originalText = originalLabel ? originalLabel.textContent : '';
+      if (originalLabel) {
+        originalLabel.textContent = currentLang === 'en' ? 'Launching…'
+          : currentLang === 'ja' ? '起動中…' : '启动中…';
       }
+      Promise.resolve()
+        .then(() => window.pet.launchAgentChecked(provider))
+        .then(() => {
+          rlog('launch', 'chooser ok ' + provider);
+          closeProviderChooser();
+        })
+        .catch((err) => {
+          const msg = String(err && (err.message || err) || 'unknown');
+          rlog('launch', 'chooser failed ' + provider + ': ' + msg);
+          // Restore the button label + re-enable for retry.
+          btn.disabled = false;
+          if (originalLabel) originalLabel.textContent = originalText;
+          // Show a toast so the user knows the launch failed.
+          try {
+            window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+              detail: { command: 'launch_agent', message: `${provider}: ${msg}` }
+            }));
+          } catch {}
+          // Keep the chooser open so the user can retry or pick another.
+        });
     });
   }
 }
@@ -1978,7 +2069,13 @@ function applySkin(s) {
 // the native set_visual_bounds which is used for click-through; a
 // shifting boundary during animations is exactly the "桌宠跳动" symptom
 // the audit traced to this union.
-const INTERACTIVE_HIT_SEL = '#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player';
+// R35.2 (2026-07-31): INTERACTIVE_HIT_SEL now includes #provider-chooser.
+// The 0.5.12 carpet audit (P0-1 证据B) flagged that the chooser card,
+// when it extends beyond #pet-anchor's rect, could fall into a transparent
+// click-through region — the buttons would appear but not reliably receive
+// mouse events. Adding #provider-chooser to the hit-test selector makes
+// Rust's native click-through guard keep the chooser's rect interactive.
+const INTERACTIVE_HIT_SEL = '#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player,#provider-chooser';
 
 function reportPetVisualBounds() {
   const rects = Array.from(document.querySelectorAll(INTERACTIVE_HIT_SEL))

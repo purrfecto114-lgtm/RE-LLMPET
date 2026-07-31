@@ -45,18 +45,30 @@ assert(model.includes('copy-on-write transaction'),
   'model.rs update_config must document the copy-on-write rationale');
 
 // ── P0-2: set_providers returns structured result ─────────────────────────
+// R35.2 (2026-07-31): set_providers no longer returns Err on partial hook
+// failure. The 0.5.12 carpet audit P0-2 flagged that the old Err-after-commit
+// caused disk/memory/UI split-brain. Now it ALWAYS returns Ok with
+// { selectedSaved, allHooksOk, selected, hookResults, errors }.
 assert(commands.includes('pub fn set_providers('),
   'commands.rs must define set_providers');
 assert(commands.match(/pub fn set_providers\([\s\S]*?\) -> Result<Value, String>/),
   'set_providers must return Result<Value, String> (was Result<(), String>)');
-assert(commands.includes('"providers": providers'),
-  'set_providers must return a JSON object with a `providers` array');
+// R35.2: the return shape changed from { ok, selected, providers } to
+// { selectedSaved, allHooksOk, selected, hookResults, errors }.
+assert(commands.includes('"selectedSaved": true'),
+  'R35.2: set_providers must return selectedSaved=true (selection always persists)');
+assert(commands.includes('"allHooksOk": all_hooks_ok'),
+  'R35.2: set_providers must return allHooksOk flag (hook results separated)');
+assert(commands.includes('"hookResults": providers'),
+  'R35.2: set_providers must return hookResults array (per-provider install outcome)');
 assert(commands.includes('"selected": ids'),
   'set_providers must echo back the user-requested `selected` list');
 assert(commands.includes('"installed": s.installed'),
   'set_providers must include per-provider `installed` flag');
-assert(commands.includes('return Err(errors.join'),
-  'set_providers must return Err on partial failure so panel .catch() fires');
+// R35.2: the old `return Err(errors.join(...))` is GONE — the Promise
+// resolves so the frontend keeps the checkbox in sync with disk.
+assert(!commands.includes('return Err(errors.join'),
+  'R35.2: set_providers must NOT return Err on partial hook failure (was split-brain)');
 
 // ── P0-3: uninstall_hooks('all') does not swallow failures ───────────────
 assert(commands.includes('"allSucceeded": all_succeeded'),

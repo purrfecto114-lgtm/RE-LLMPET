@@ -33,7 +33,11 @@ for (const id of ['claude', 'codewhale', 'codex', 'opencode', 'aider']) {
 }
 assert(pet.includes("const provIcon = PROVIDER_ICONS[s.provider] || '•';"), 'session HUD must not fall back to the Claude icon');
 assert(bridge.includes("launchAgent: (provider) => send('launch_agent', { provider })"));
-assert(pet.includes('window.pet.launchAgent(provider);'), 'new-session button must launch the selected provider');
+// R35.2: the new-session button now routes through chooseProviderAndLaunch
+// (which uses launchAgentChecked for single-provider or opens a chooser
+// for multi-provider). The old direct `window.pet.launchAgent(provider)`
+// call is gone. Assert the new routing function exists.
+assert(pet.includes('chooseProviderAndLaunch()'), 'new-session button must route through chooseProviderAndLaunch (R35.2)');
 assert(!pet.includes("if (pid === 'codewhale')"), 'provider-specific renderer launch branch must stay removed');
 assert(installer.includes('sync_enabled'));
 assert(installer.includes('resync_current'));

@@ -141,6 +141,7 @@ pub fn run() {
             decide_permission,
             decide_permission_batch,
             diagnose_agent,
+            cancel_diagnostic,
             launch_agent,
             launch_agent_in,
             launch_agent_gui,

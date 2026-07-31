@@ -1,5 +1,150 @@
 # Changelog
 
+## 0.5.13 — R35.2 correctness patch（2026-07-31）
+
+Patch release closing 5 P0 issues from the `RE-LLMPET-0.5.12-carpet-audit-roadmap.md`.
+The 0.5.12 carpet audit found a common pattern: "界面层已经出现'完成'的
+外观，但后端状态、系统窗口状态或子进程生命周期没有形成同一个事务".
+R35.2 closes these state-coherence gaps.
+
+### P0-1: provider chooser coherence
+
+The 0.5.12 carpet audit (P0-1) flagged that the chooser was not in
+`syncUiBusy`, not in `INTERACTIVE_HIT_SEL`, read status from the wrong
+source, and fire-and-forget launched.
+
+- `pet.js` — `syncUiBusy` now includes `providerChooserOpen` so Rust's
+  native click-through guard knows the chooser is open.
+- `pet.js` — `INTERACTIVE_HIT_SEL` now includes `#provider-chooser` so
+  the chooser card's rect is interactive (not click-through).
+- `pet.js` — new `latestProviderStatuses` sourced from `config_view()`
+  (NOT from `stats()`, which the audit confirmed does NOT include a
+  `providers` field). The chooser now shows correct ok/warn/off badges.
+- `pet.js` — `openProviderChooser` closes radial/sesslist/todo/meme
+  overlays first (mutual exclusion).
+- `pet.js` — `launchProviderChecked` uses `launchAgentChecked` (call)
+  so launch failures surface via toast. The chooser awaits the launch
+  and only closes on success; on failure it re-enables the item and
+  stays open for retry.
+- `pet.js` — first chooser item gets focus for keyboard accessibility.
+
+### P0-2: set_providers selected-vs-hook split
+
+The 0.5.12 carpet audit (P0-2) flagged that `set_providers` committed
+the config THEN returned `Err` on hook failure — the frontend reverted
+the checkbox, but disk/memory said "enabled". This was a split-brain.
+
+- `commands.rs` — `set_providers` no longer returns `Err` on partial
+  hook failure. It ALWAYS returns `Ok` with:
+  `{ selectedSaved, allHooksOk, selected, hookResults, errors }`.
+  The selection is always persisted; hook results are separated.
+- `panel.js` — the checkbox stays checked (matching disk) on hook
+  failure. A toast shows which hooks failed. The checkbox reverts ONLY
+  on genuine rejection (disk write failure, runtime metadata unavailable).
+
+### P0-3: panel setPanelHeight coherence
+
+The 0.5.12 carpet audit (P0-3) flagged: bridge used `send` (fire-and-
+forget), cache was set before IPC resolved, `onResized` was registered
+twice, and `resetAutoFitOnShow` didn't immediately fit.
+
+- `tauri-bridge.js` — `setPanelHeight` upgraded from `send` to `call`
+  (returns Promise).
+- `panel.js` — new `pendingFitHeight` tracks the in-flight height.
+  `lastFitHeight` is committed ONLY after the IPC Promise resolves.
+  On failure the cache is untouched so the next render retries.
+- `panel.js` — duplicate `onResized` registration removed (was firing
+  two callbacks per resize, doubling the userSized false-positive risk).
+- `panel.js` — `resetAutoFitOnShow` now awaits `syncWindowMode` then
+  calls `fitPanelHeight` immediately, so the panel appears at the
+  correct height on show (not at a stale height until next stats).
+
+### P0-4: real diagnostic cancel (process-tree kill)
+
+The 0.5.12 carpet audit (P0-4) flagged that "cancel" only dropped the
+frontend result — the Rust `Child` (and on Windows, the cmd.exe-spawned
+Node grandchild) kept running. Verified via web-search of Rust docs:
+"There is no implementation of Drop for child processes, so if you do
+not ensure the Child has exited then it will continue to run."
+
+- `model.rs` — new `active_diagnostic_pid: Mutex<Option<u32>>` field
+  on `Runtime`. Stores the PID of the currently-running diagnostic probe.
+- `commands.rs` — new `cancel_diagnostic` async command. Reads the PID
+  and calls `kill_process_tree`:
+  - Windows: `taskkill /F /T /PID` (kills cmd.exe + Node tree).
+    Verified via web-search: "/T Tree kill: terminates the specified
+    process and any child processes which were started by it."
+  - Unix: `kill(SIGTERM)` then `kill(SIGKILL)` after 200ms.
+- `commands.rs` — `run_probe_capture_with_pid` variant registers the
+  spawned child's PID via callback before each probe. `diagnose_agent_sync`
+  now takes a `register_pid: &dyn Fn(u32)` parameter and passes it to
+  all `run_probe_with_pid` calls.
+- `commands.rs` — `diagnose_agent` (async) clears the PID on start and
+  on completion (or panic) so a late cancel doesn't kill an unrelated
+  process that reused the PID.
+- `tauri-bridge.js` — new `cancelDiagnostic` bridge method.
+- `panel.js` — `clearDiagnostic` calls `cancelDiagnostic` when a
+  diagnostic is running (providerDiagnosticBusy), killing the process tree.
+- `lib.rs` + `build.rs` + `panel.json` + `cancel_diagnostic.toml` —
+  registered the new command + permission + capability.
+
+**Deferred to R36**: full DiagnosticRegistry (prevents duplicate
+concurrent runs), Tauri Channel progress, CancellationToken-based
+cooperative cancel inside `run_probe_capture`. R35.2's approach is
+best-effort: it kills the process tree on cancel, but a probe that's
+between spawn and PID registration (a ~1ms window) won't be killable.
+
+### P0-5: release.yml signing semantics (carried from R35.1)
+
+No changes — the R35.1 `PLATFORM_SIGNED` + `REQUIRE_PLATFORM_SIGNING`
+work is preserved and the R35.2 smoke verifies it's still in place.
+
+### Web verification (z-ai web_search, 2026-07-31)
+
+- **Rust Child drop = no kill**: confirmed via doc.rust-lang.org/std/
+  process/struct.Child.html — "There is no implementation of Drop for
+  child processes, so if you do not ensure the Child has exited then
+  it will continue to run."
+- **taskkill /T /PID kills tree**: confirmed via Microsoft docs —
+  "/T Tree kill: terminates the specified process and any child
+  processes which were started by it."
+- **Tauri 2 window-scoped events**: confirmed (carried from R35.1).
+- **OpenCode/CodeWhale CLI commands**: confirmed current (carried).
+
+### Test coverage
+
+- New `test/tauri-r352-correctness-patch-smoke.js` (155 lines, 35
+  assertions) locks all 5 R35.2 patches.
+- Updated 7 existing smokes for signature/behavior changes:
+  - `tauri-bridge-smoke.js` — added `cancelDiagnostic` to expected API
+  - `tauri-capability-boundary-smoke.js` — added `cancel_diagnostic` to build.rs
+  - `tauri-cli-hardening-r3-smoke.js` — accept `diagnose_agent` with `state` param
+  - `tauri-cli-resilience-r7-smoke.js` — same
+  - `tauri-provider-phase2-smoke.js` — sl-new now routes through chooseProviderAndLaunch
+  - `tauri-r34-config-transaction-smoke.js` — set_providers new return shape
+  - `tauri-r35-correctness-hotfix-smoke.js` — INTERACTIVE_HIT_SEL updated
+  - `tauri-r351-correctness-patch-smoke.js` — diagnose_agent signature + selector updated
+- 4 phase2 smokes: version assertions bumped 0.5.12 → 0.5.13.
+- `npm test`: 40/40 smoke ok (was 39; +1 R35.2 smoke)
+- `npm run check:static`: 22/22 PASS
+- Rust brace balance: commands.rs 491/491+1810/1810+159/159,
+  model.rs 327/327+1348/1348+54/54
+
+### Known limitations
+
+- No Rust toolchain in dev container; `cargo build` verified on GitHub Actions.
+- `cancel_diagnostic` has a ~1ms race window between spawn and PID
+  registration. A full DiagnosticRegistry with spawn_blocking-aware
+  cancellation is R36.
+- The provider chooser's full focus trap (Tab cycling, arrow-key
+  navigation, focus restore to trigger button) is R36. R35.2 only
+  focuses the first item.
+- `set_providers` does not yet have a per-provider retry command. The
+  user can re-save the same selection to re-trigger resync, but a
+  dedicated "retry install" button is R36.
+
+---
+
 ## 0.5.12 — R35.1 correctness patch（2026-07-31）
 
 Patch release closing 5 of the 6 gaps flagged by the

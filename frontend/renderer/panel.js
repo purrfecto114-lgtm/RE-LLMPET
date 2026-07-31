@@ -214,6 +214,13 @@ let windowMaximized = false;
 let windowFullscreen = false;
 let lastFitHeight = 0;
 let lastFitRequestTs = 0;
+// R35.2 (2026-07-31): pendingFitHeight tracks the height we just sent to
+// Rust but haven't yet confirmed. The 0.5.12 carpet audit P0-3 证据B
+// flagged that the old code cached lastFitHeight BEFORE the IPC resolved,
+// so if Rust rejected (window missing, work_area clamp), the cache was
+// stale and future same-height requests were silently skipped. Now we
+// only commit lastFitHeight AFTER the IPC Promise resolves.
+let pendingFitHeight = 0;
 function fitPanelHeight() {
   if (!window.pet || !window.pet.setPanelHeight) return;
   if (windowMaximized || windowFullscreen) return; // OS owns the size now
@@ -230,11 +237,29 @@ function fitPanelHeight() {
     // stats updates were repeatedly calling setPanelHeight with the same
     // value, causing the OS to redraw the window frame for no reason.
     if (h === lastFitHeight) return;
-    lastFitHeight = h;
+    // R35.2: track the pending height so we can confirm it on IPC success.
+    // We do NOT update lastFitHeight here — only after the Promise resolves.
+    pendingFitHeight = h;
     // R35: stamp the request time so markUserSizedIfManual() can recognise
     // the resize event that WE just caused (vs a real user drag).
     lastFitRequestTs = Date.now();
-    window.pet.setPanelHeight(h);
+    // R35.2: setPanelHeight is now call() (returns Promise). On success,
+    // commit the cache. On failure, leave the cache alone so the next
+    // render can retry.
+    Promise.resolve()
+      .then(() => window.pet.setPanelHeight(h))
+      .then(() => {
+        if (pendingFitHeight === h) {
+          lastFitHeight = h;
+          pendingFitHeight = 0;
+        }
+      })
+      .catch((err) => {
+        // IPC failed (window missing, Rust rejected). Don't update cache;
+        // next render will retry. Log for debugging.
+        pendingFitHeight = 0;
+        try { console.warn('[octopus] setPanelHeight failed:', String(err && (err.message || err) || 'unknown')); } catch {}
+      });
   });
 }
 
@@ -305,10 +330,13 @@ function installWindowModeListeners() {
   // R35.1: onMoved fires on monitor change too (in addition to scale).
   // Re-sync mode in case the user dragged across monitors.
   add('onMoved', () => { syncWindowMode(); });
-  // Maximize/unmaximize/fullscreen are also exposed as window-scoped
-  // helpers on some Tauri 2 builds; fall back to onResized which always
-  // fires on those transitions too.
-  add('onResized', () => { syncWindowMode(); });
+  // R35.2 (2026-07-31): REMOVED the duplicate `add('onResized', ...)` that
+  // was here. The 0.5.12 carpet audit P0-3 证据C flagged that onResized was
+  // registered twice (line 292 and here), so every resize fired two
+  // callbacks — doubling the markUserSizedIfManual check and increasing
+  // the chance of a false-positive userSized lock. onResized already
+  // fires on maximize/unmaximize/fullscreen transitions (Tauri 2 docs),
+  // so the "fall back to onResized" comment was redundant.
 }
 function teardownWindowModeListeners() {
   // R35.1: called on beforeunload so a WebView reload doesn't accumulate
@@ -354,9 +382,20 @@ function resetAutoFitOnShow() {
     userSized = false;
     lastFitHeight = 0;
     lastFitRequestTs = 0;
+    pendingFitHeight = 0;
     panelWasHidden = false;
-    // Re-sync window mode in case it changed while hidden.
-    syncWindowMode();
+    // R35.2 (2026-07-31): the 0.5.12 carpet audit P0-3 证据D flagged that
+    // resetAutoFitOnShow only cleared the cache but didn't immediately
+    // fit, so the panel could reappear at a stale height until the next
+    // stats/config/render cycle. Now we await syncWindowMode (to get the
+    // current maximize/fullscreen state) and then fit immediately if not
+    // maximized/fullscreen. This makes the panel appear at the correct
+    // height on show.
+    syncWindowMode().then(() => {
+      if (!windowMaximized && !windowFullscreen && !userSized) {
+        fitPanelHeight();
+      }
+    }).catch(() => {});
   }
 }
 
@@ -971,6 +1010,26 @@ async function diagnoseProvider(provider) {
 // any in-flight result is dropped. Called from the close button on a
 // finished result AND from the cancel button on the loading view.
 function clearDiagnostic() {
+  // R35.2 (2026-07-31): if a diagnostic is currently running (loading
+  // view), call cancel_diagnostic to kill the Rust process tree. The
+  // 0.5.12 carpet audit P0-4 flagged that the old "cancel" only dropped
+  // the frontend result — the Rust Child (and on Windows, the cmd.exe-
+  // spawned Node grandchild) kept running. We check providerDiagnosticBusy
+  // to distinguish "cancel a running diagnostic" from "close a finished
+  // result". On finished-result close, no Rust task is running, so
+  // cancel_diagnostic returns {cancelled:false, reason:"no active"}.
+  if (providerDiagnosticBusy && window.pet && window.pet.cancelDiagnostic) {
+    Promise.resolve()
+      .then(() => window.pet.cancelDiagnostic())
+      .then((result) => {
+        if (result && result.cancelled) {
+          try { console.info('[octopus] diagnostic process tree killed, pid=' + result.pid); } catch {}
+        }
+      })
+      .catch((err) => {
+        try { console.warn('[octopus] cancel_diagnostic failed:', String(err && (err.message || err) || 'unknown')); } catch {}
+      });
+  }
   diagnosticGeneration += 1;
   providerDiagnosticBusy = '';
   latestProviderDiagnostic = null;
@@ -1183,13 +1242,33 @@ document.addEventListener('DOMContentLoaded', () => {
     // below.
     const checkbox = e.target;
     checkbox.disabled = true; // loading state — prevents rapid double-click
+    // R35.2 (2026-07-31): the 0.5.12 carpet audit P0-2 flagged that the
+    // old code reverted the checkbox on ANY .catch(). But set_providers
+    // now ALWAYS commits the selection (selectedSaved=true) and returns
+    // hook-install results separately. So:
+    //   - Promise resolves → selection persisted; hookResults tell us if
+    //     any hooks failed. We KEEP the checkbox (matching disk) and show
+    //     a toast if hooks failed.
+    //   - Promise rejects → genuine setup failure (disk write, runtime
+    //     metadata). NOW we revert the checkbox.
     window.pet.setProviders(newActive)
-      .then(() => {
+      .then((result) => {
+        // result = { selectedSaved, allHooksOk, selected, hookResults, errors }
+        if (result && result.allHooksOk === false) {
+          // Hooks partially failed, but selection was saved. Show a toast
+          // so the user knows which hooks failed; do NOT revert checkbox.
+          const errs = Array.isArray(result.errors) && result.errors.length
+            ? result.errors.join('；') : 'hook install partial failure';
+          window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+            detail: { command: 'set_providers', message: errs }
+          }));
+        }
         // success: config snapshot will arrive via onConfig and refresh the
         // provider list; no explicit UI mutation needed here.
       })
       .catch((err) => {
-        // revert checkbox to previous state and surface error
+        // R35.2: genuine rejection (disk write failure, runtime metadata
+        // unavailable). Revert checkbox to previous state.
         checkbox.checked = !checkbox.checked;
         const msg = String(err && (err.message || err) || 'unknown');
         window.dispatchEvent(new CustomEvent('octopus:bridge-error', {

@@ -91,10 +91,11 @@ assert(petJs.includes("getElementById('pet-anchor')"),
 // The 0.5.11 deep-recheck (P0-1 #3) flagged that including the animated
 // skin elements (#pixel/#mascot/#cat) in the hit-test union still caused
 // the click-through boundary to shift during state animations. R35.1
-// removed them. Assert the new anchor-only selector and the absence of
-// the animated skins in it.
-assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player'"),
-  'R35.1: INTERACTIVE_HIT_SEL must be anchor-only (no #pixel/#mascot/#cat)');
+// removed them. R35.2 added #provider-chooser (0.5.12 carpet audit
+// P0-1 证据B). Assert the current selector and the absence of the
+// animated skins in it.
+assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player,#provider-chooser'"),
+  'R35.2: INTERACTIVE_HIT_SEL must be anchor-only + #provider-chooser');
 assert(!petJs.includes("'#pet-anchor,#pixel,#mascot,#cat,#radial,"),
   'R35.1: the old union selector (with animated skins) must be gone');
 // geometryBusy guard exists and is checked in openRadial

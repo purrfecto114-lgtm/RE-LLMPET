@@ -101,6 +101,11 @@
     launchOpenCode: () => send('launch_agent', { provider: 'opencode' }),
     launchAider: () => send('launch_agent', { provider: 'aider' }),
     diagnoseAgent: (provider) => call('diagnose_agent', { provider }),
+    // R35.2 (2026-07-31): cancel_diagnostic — kills the currently-running
+    // diagnostic process tree (taskkill /F /T on Windows, kill on Unix).
+    // The 0.5.12 carpet audit P0-4 flagged that the old "cancel" only
+    // dropped the frontend result; the Rust Child kept running.
+    cancelDiagnostic: () => call('cancel_diagnostic'),
     launchAgent: (provider) => send('launch_agent', { provider }),
     launchAgentChecked: (provider) => call('launch_agent', { provider }),
     launchAgentGui: (provider) => send('launch_agent_gui', { provider }),
@@ -118,7 +123,13 @@
     setPetTall: (tall) => send('set_pet_tall', { tall }),
     setPetBig: (on) => send('set_pet_big', { on }),
     setPetSize: (width, height) => call('set_pet_size', { width, height }),
-    setPanelHeight: (height) => send('set_panel_height', { height }),
+    // R35.2 (2026-07-31): upgraded to call() — the 0.5.12 carpet audit
+    // P0-3 证据A flagged that send() (fire-and-forget) meant the panel
+    // cached lastFitHeight BEFORE knowing if Rust applied the size. If
+    // Rust rejected (window missing, monitor work_area clamp changed),
+    // the cache was stale and future same-height requests were skipped.
+    // call() returns a Promise so the caller can confirm success.
+    setPanelHeight: (height) => call('set_panel_height', { height }),
     focusPet: () => send('focus_pet'),
     blurPet: () => send('blur_pet'),
     openLog: () => send('open_log'),

@@ -224,6 +224,24 @@ pub struct Runtime {
     pub transcripts: Mutex<TranscriptScanner>,
     pub price_sync_status: Mutex<Value>,
     pub price_refresh_tx: Mutex<Option<SyncSender<()>>>,
+    // R35.2 (2026-07-31): active diagnostic child PID for real cancellation.
+    //
+    // The 0.5.12 carpet audit P0-4 flagged that "cancel" only dropped the
+    // frontend result — the Rust Child (and on Windows, the cmd.exe-spawned
+    // Node grandchild) kept running. Verified via web-search of Rust docs
+    // (doc.rust-lang.org/std/process/struct.Child.html): "There is no
+    // implementation of Drop for child processes, so if you do not ensure
+    // the Child has exited then it will continue to run."
+    //
+    // This field stores the PID of the currently-running diagnostic probe
+    // child. `cancel_diagnostic` reads it and kills the process tree
+    // (taskkill /F /T on Windows, killpg on Unix). `diagnose_agent_sync`
+    // updates it before each probe spawn and clears it when the diagnostic
+    // completes. Only one diagnostic runs at a time per process (the
+    // frontend's diagnosticGeneration prevents new ones while one is
+    // pending); this is a single-slot registry, not a full DiagnosticRegistry
+    // (which is R36).
+    pub active_diagnostic_pid: Mutex<Option<u32>>,
     pub app_dir: PathBuf,
     pub config_path: PathBuf,
     pub runtime_path: PathBuf,
@@ -269,6 +287,7 @@ impl AppState {
                     "refreshHours":price_refresh_hours
                 })),
                 price_refresh_tx: Mutex::new(None),
+                active_diagnostic_pid: Mutex::new(None),
                 app_dir,
                 config_path,
                 runtime_path,
