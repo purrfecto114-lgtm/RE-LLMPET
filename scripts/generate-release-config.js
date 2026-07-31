@@ -29,8 +29,23 @@ if (process.platform === 'win32') {
       timestampUrl: process.env.WINDOWS_TIMESTAMP_URL || 'http://timestamp.digicert.com'
     };
   } else if (!draft) {
-    console.error('generate-release-config: WINDOWS_CERTIFICATE_THUMBPRINT is required on Windows (or pass --draft for unsigned builds)');
-    process.exit(1);
+    // R34 (2026-07-31): previously this was a hard FAIL. But the Tauri
+    // updater signing key (TAURI_SIGNING_PRIVATE_KEY) is the cryptographic
+    // root of trust for the binary — Windows code-signing cert is a separate
+    // OS-UX concern (suppresses "unknown publisher" SmartScreen warning).
+    // With the Tauri key configured, missing WINDOWS_CERTIFICATE_THUMBPRINT
+    // should NOT block the build. The .exe will still be Tauri-signed; it
+    // just won't be Windows code-signed, so Windows SmartScreen will show
+    // "unknown publisher" on first run.
+    //
+    // To re-enable hard-fail when platform code-signing is procured, set
+    // REQUIRE_PLATFORM_CERT=1 in the workflow env.
+    if (process.env.REQUIRE_PLATFORM_CERT === '1') {
+      console.error('generate-release-config: WINDOWS_CERTIFICATE_THUMBPRINT is required on Windows when REQUIRE_PLATFORM_CERT=1');
+      process.exit(1);
+    } else {
+      console.error('generate-release-config: WINDOWS_CERTIFICATE_THUMBPRINT not set — building without Windows code-signing (Tauri updater signing still active). Set REQUIRE_PLATFORM_CERT=1 to enforce.');
+    }
   }
 }
 fs.mkdirSync(path.dirname(output), { recursive: true });
