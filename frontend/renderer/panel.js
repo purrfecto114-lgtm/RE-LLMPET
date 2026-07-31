@@ -935,13 +935,30 @@ document.addEventListener('DOMContentLoaded', () => {
     const newActive = e.target.checked
       ? [...active, id]
       : active.filter((a) => a !== id);
-    // W22: allow disabling claude (to "unlock" it from the pet's hook). Only
-    // guard: must keep at least one active provider.
-    if (newActive.length === 0) {
-      e.target.checked = true; // revert checkbox
-      return;
-    }
-    window.pet.setProviders(newActive);
+    // R32 (2026-07-31): REMOVED `newActive.length === 0` revert branch.
+    // The R22 sanitize() fix in model.rs already allows `providers=[]` as a
+    // first-class state ("桌宠运行但不安装任何 Provider hook"). The previous
+    // UI guard contradicted the comment at line 769 ("users can now uncheck
+    // all") and silently re-checked the last box, hiding the empty state.
+    // Now we persist `[]` to Rust; if Rust rejects (rare: disk failure),
+    // the bridge-error toast fires and we revert via the catch handler
+    // below.
+    const checkbox = e.target;
+    checkbox.disabled = true; // loading state — prevents rapid double-click
+    window.pet.setProviders(newActive)
+      .then(() => {
+        // success: config snapshot will arrive via onConfig and refresh the
+        // provider list; no explicit UI mutation needed here.
+      })
+      .catch((err) => {
+        // revert checkbox to previous state and surface error
+        checkbox.checked = !checkbox.checked;
+        const msg = String(err && (err.message || err) || 'unknown');
+        window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+          detail: { command: 'set_providers', message: msg }
+        }));
+      })
+      .finally(() => { checkbox.disabled = false; });
   });
   $('provider-list').addEventListener('click', (e) => {
     const button = e.target.closest('button[data-provider]');
@@ -988,11 +1005,14 @@ function applyConfigUI() {
 // 事件
 window.pet.onPanelStats(render);
 window.pet.onPrice(renderPriceInfo);
-// R30 (2026-07-31): listen for bridge errors and show a toast
+// R30 (2026-07-31): listen for bridge errors and show a toast.
+// R32 (2026-07-31): the visible toast is now handled by ../shared/toast.js
+// (auto-installed on script load). This listener stays as a debug log so
+// devs can correlate timing in the devtools console; the user-visible UI
+// is the `#octopus-toast` element populated by toast.js.
 window.addEventListener('octopus:bridge-error', (e) => {
   const { command, message } = e.detail || {};
   console.warn(`[octopus] bridge error in ${command}: ${message}`);
-  // TODO: add a visible toast/notification UI element
 });
 window.pet.onConfig((cfg) => {
   if (!cfg) return;

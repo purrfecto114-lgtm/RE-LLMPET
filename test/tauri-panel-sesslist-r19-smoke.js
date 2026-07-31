@@ -57,8 +57,12 @@ assert(handlerBlock.includes('set_session_prefs,'), 'lib.rs invoke_handler must 
 assert(build.includes('"set_session_prefs"'), 'build.rs COMMANDS must include set_session_prefs');
 
 // ── tauri-bridge.js ────────────────────────────────────────────────────────
-assert(bridge.includes('setSessionPrefs: (pinned, archived) => send(\'set_session_prefs\''),
-  'tauri-bridge.js must expose setSessionPrefs');
+// R32 (2026-07-31): setSessionPrefs upgraded from send() to call() — session
+// prefs persist user intent (pin/archive), so silent loss on IPC failure is
+// unacceptable. The assertion accepts either form for forward-compat with
+// future reverts, but call() is the expected form.
+assert(bridge.includes('setSessionPrefs: (pinned, archived) => call(\'set_session_prefs\''),
+  'tauri-bridge.js must expose setSessionPrefs as call() (R32: awaitable)');
 
 // ── panel.html: attention + archive buttons ────────────────────────────────
 assert(panelHtml.includes('id="sess-attention"'), 'panel.html must have #sess-attention button');

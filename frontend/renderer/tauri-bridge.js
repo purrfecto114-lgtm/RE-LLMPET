@@ -78,9 +78,14 @@
     setBudget: (value) => send('set_budget', { value }),
     setCurrency: (currency) => send('set_currency', { currency }),
     // R19 (2026-07-30): persist session list pin/archive prefs.
-    setSessionPrefs: (pinned, archived) => send('set_session_prefs', { pinned, archived }),
+    // R32 (2026-07-31): upgraded to call() — session prefs persist user intent
+    // (pin/archive), so silent loss on IPC failure is unacceptable.
+    setSessionPrefs: (pinned, archived) => call('set_session_prefs', { pinned, archived }),
     toggleMute: () => send('toggle_mute'),
-    setProviders: (ids) => send('set_providers', { ids }),
+    // R32 (2026-07-31): upgraded to call() — provider list is a security-
+    // relevant state (controls which CLIs get hooks installed). Caller MUST
+    // await so failures can revert UI and surface a toast.
+    setProviders: (ids) => call('set_providers', { ids }),
     territoryRunNow: () => send('territory_run_now'),
     territoryToggleAuto: () => send('territory_toggle_auto'),
     quit: () => send('quit_app'),
@@ -99,9 +104,14 @@
     launchAgent: (provider) => send('launch_agent', { provider }),
     launchAgentChecked: (provider) => call('launch_agent', { provider }),
     launchAgentGui: (provider) => send('launch_agent_gui', { provider }),
-    decidePermission: (permId, behavior) => send('decide_permission', { permId, behavior }),
-    decideCwPermission: (permId, behavior) => send('decide_permission', { permId, behavior }),
-    decideCwPermissionBatch: (permId, mode) => send('decide_permission_batch', { permId, mode }),
+    // R32 (2026-07-31): upgraded to call() — permission decisions are the
+    // SECURITY-CRITICAL path. The previous send() (fire-and-forget) meant
+    // an IPC failure left the user thinking they had allowed/denied, while
+    // the agent kept waiting and the choice card was already removed.
+    // Now callers can await and only remove the card on actual success.
+    decidePermission: (permId, behavior) => call('decide_permission', { permId, behavior }),
+    decideCwPermission: (permId, behavior) => call('decide_permission', { permId, behavior }),
+    decideCwPermissionBatch: (permId, mode) => call('decide_permission_batch', { permId, mode }),
     focusSession: (sessionId) => send('focus_session', { sessionId }),
     primaryAction: () => send('primary_action'),
     setIgnoreMouse: (ignore) => send('set_ignore_mouse', { ignore }),

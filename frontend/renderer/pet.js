@@ -131,9 +131,15 @@ function preloadCatAssets() {
     catAssetCache.set(file, image);
   }
 }
-// R30: only preload if current skin is cat; otherwise defer until skin switch
+// R30: only preload if current skin is cat; otherwise defer until skin switch.
+// R32 (2026-07-31): BUG FIX — `config.skin` was a ReferenceError (no `config`
+// symbol exists at module scope; the actual skin state is the `skin` variable
+// declared later in this file). The idle callback would throw and log noise
+// to console every startup. Use the canonical `skin` variable instead; it is
+// hoisted as a `let` binding so referencing it from a deferred callback is
+// safe even though its declaration appears later in the file.
 function maybePreloadCatAssets() {
-  if (config.skin === 'cat' && catAssetCache.size === 0) {
+  if (skin === 'cat' && catAssetCache.size === 0) {
     preloadCatAssets();
   }
 }
@@ -249,12 +255,41 @@ const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 // Round 7: route permission decisions to the correct IPC channel based on provider.
 // Claude permissions → 'permission-decide', CodeWhale → 'cw-permission-decide'.
 const routeDecision = (choice, behavior) => {
-  if (choice && choice.provider === 'codewhale') {
-    window.pet.decideCwPermission(choice.permId, behavior);
-  } else {
-    window.pet.decidePermission(choice.permId, behavior);
+  // R32 (2026-07-31): CodeWhale batch authorization uses a different IPC.
+  // The behavior object carries __cw_batch='session'|'tool' as a marker.
+  if (behavior && behavior.__cw_batch) {
+    return window.pet.decideCwPermissionBatch(choice.permId, behavior.__cw_batch);
   }
+  if (choice && choice.provider === 'codewhale') {
+    return window.pet.decideCwPermission(choice.permId, behavior);
+  }
+  return window.pet.decidePermission(choice.permId, behavior);
 };
+// R32 (2026-07-31): wrapper that turns the old fire-and-forget decidePermission
+// pattern into await-then-finishChoice. The IPC must succeed BEFORE we remove
+// the choice card — otherwise an IPC failure leaves the user thinking they
+// answered while the agent is still blocked waiting.
+//
+// On failure: dispatch a toast event, restore the choice's interactive state,
+// and DO NOT add to `answered` (so it stays in the queue for retry).
+function submitDecision(choice, behavior, successMsg) {
+  const buttons = askOpts ? askOpts.querySelectorAll('button') : [];
+  buttons.forEach((b) => { b.disabled = true; });
+  Promise.resolve()
+    .then(() => routeDecision(choice, behavior))
+    .then(() => {
+      finishChoice(choice, successMsg);
+    })
+    .catch((err) => {
+      const msg = String(err && (err.message || err) || 'unknown');
+      rlog('ask', 'submitDecision failed: ' + msg);
+      window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+        detail: { command: 'decide_permission', message: msg }
+      }));
+      // restore interactive state
+      buttons.forEach((b) => { b.disabled = false; });
+    });
+}
 // 带上 sessionId：否则同一项目下两个并行会话若问了同样的问题，会共用一个 key，
 // 答掉一个就把另一个也标记成 answered 吞掉。choice 各构造处都带 sessionId。
 const choiceKey = (c) => (c && (c.sessionId || '') + '|' + (c.permId || '') + '|' + (c.project || '') + '|' + (c.question || '')) || '';
@@ -523,9 +558,8 @@ function elicNextOrSubmit(c) {
   if (q && q.question) elic.answers[q.question] = val;
   else elic.answers[c.question || '_'] = val;
   if (elic.qIdx < (qs.length || 1) - 1) { elic.qIdx++; renderElicitation(c); return; }
-  window.pet.decidePermission(c.permId, { type: 'elicitation-submit', answers: { ...elic.answers } });
-  rlog('ask', 'elicitation submit ' + Object.keys(elic.answers).length);
-  finishChoice(c, '✅ 已提交回答');
+  // R32 (2026-07-31): await IPC before removing the choice card.
+  submitDecision(c, { type: 'elicitation-submit', answers: { ...elic.answers } }, '✅ 已提交回答');
 }
 
 function elicBack(c) {
@@ -579,8 +613,8 @@ function renderPlan(c) {
   reject.className = 'ask-opt act deny';
   reject.innerHTML = '<span class="ask-ot"><span class="ask-ol">✏️ 打回并反馈</span></span>';
   reject.addEventListener('click', () => {
-    window.pet.decidePermission(c.permId, { type: 'plan-feedback', feedback: (askText.value || '').trim() });
-    finishChoice(c, '✏️ 已打回方案');
+    // R32 (2026-07-31): await IPC before removing the choice card.
+    submitDecision(c, { type: 'plan-feedback', feedback: (askText.value || '').trim() }, '✏️ 已打回方案');
   });
   askOpts.appendChild(reject);
   askInputRow.classList.remove('hidden');
@@ -603,26 +637,49 @@ function finishChoice(choice, bubbleMsg) {
   }
 }
 function submitPerm(key, choice, label) {
+  const msg = key === 'allow' ? '✅ 已允许' : key === 'deny' ? '⛔ 已拒绝' : '🔓 已记住（本会话）';
   // W11/W24: CodeWhale batch authorization keys.
+  // R32 (2026-07-31): all paths now go through submitDecision() so the IPC
+  // is awaited and the choice card is only removed on actual success.
   if (key === 'cw-allow-session') {
-    window.pet.decideCwPermissionBatch(choice.permId, 'session');
-    finishChoice(choice, '✅✅ 本轮全部自动允许');
+    submitDecision(choice, { __cw_batch: 'session' }, '✅✅ 本轮全部自动允许');
     return;
   }
   if (key === 'cw-allow-tool') {
-    window.pet.decideCwPermissionBatch(choice.permId, 'tool');
-    finishChoice(choice, '🔓 本会话内此工具自动允许');
+    submitDecision(choice, { __cw_batch: 'tool' }, '🔓 本会话内此工具自动允许');
     return;
   }
-  routeDecision(choice, key);
-  const msg = key === 'allow' ? '✅ 已允许' : key === 'deny' ? '⛔ 已拒绝' : '🔓 已记住（本会话）';
-  finishChoice(choice, msg);
+  submitDecision(choice, key, msg);
 }
 // Go to Terminal：去会话终端自己答（授权/elicitation 都回 deny，让 CC 在终端重问）
+// R32 (2026-07-31): focusSession is fire-and-forget (open terminal is best-
+// effort), but the deny decision MUST be awaited — otherwise an IPC failure
+// would leave the agent thinking we denied, while the user is in the terminal
+// re-answering, causing double-submit confusion.
 function gotoSession(choice) {
-  if (choice.permId) routeDecision(choice, 'deny');
-  window.pet.focusSession(choice.sessionId || '');
-  finishChoice(choice, '💬 已带你去终端');
+  if (!choice.permId) {
+    // No permission to deny — just focus the terminal and finish.
+    window.pet.focusSession(choice.sessionId || '');
+    finishChoice(choice, '💬 已带你去终端');
+    return;
+  }
+  // With a permission: await the deny, then focus the terminal and finish.
+  const buttons = askOpts ? askOpts.querySelectorAll('button') : [];
+  buttons.forEach((b) => { b.disabled = true; });
+  Promise.resolve()
+    .then(() => routeDecision(choice, 'deny'))
+    .then(() => {
+      window.pet.focusSession(choice.sessionId || '');
+      finishChoice(choice, '💬 已带你去终端');
+    })
+    .catch((err) => {
+      const msg = String(err && (err.message || err) || 'unknown');
+      rlog('ask', 'gotoSession deny failed: ' + msg);
+      window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+        detail: { command: 'decide_permission', message: msg }
+      }));
+      buttons.forEach((b) => { b.disabled = false; });
+    });
 }
 
 function hideAsk() {
@@ -753,11 +810,30 @@ function buildActCard(c) {
 }
 
 // 授权：回 CC 决策
+// R32 (2026-07-31): await IPC before marking answered — the todo popup card
+// stays interactive (the popup itself doesn't close on success, but if IPC
+// fails the choice must remain answerable).
 function popPerm(choice, key) {
-  routeDecision(choice, key);
-  answered.add(choiceKey(choice));
-  renderTodoPop();
-  maybeCloseEmptyPop();
+  const msg = key === 'allow' ? '✅ 已允许' : key === 'deny' ? '⛔ 已拒绝' : '🔓 已记住';
+  const todoPop = document.getElementById('todo-pop');
+  const buttons = todoPop ? todoPop.querySelectorAll('button') : [];
+  buttons.forEach((b) => { b.disabled = true; });
+  Promise.resolve()
+    .then(() => routeDecision(choice, key))
+    .then(() => {
+      answered.add(choiceKey(choice));
+      showBubble(msg, 2200);
+      renderTodoPop();
+      maybeCloseEmptyPop();
+    })
+    .catch((err) => {
+      const m = String(err && (err.message || err) || 'unknown');
+      rlog('ask', 'popPerm failed: ' + m);
+      window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+        detail: { command: 'decide_permission', message: m }
+      }));
+      buttons.forEach((b) => { b.disabled = false; });
+    });
 }
 // 对话类：定位并唤起该会话窗口
 function popGoto(choice) {

@@ -978,3 +978,49 @@ body.skin-cat #cat { display: flex; }
 .agent-tag.provider-codewhale { background: rgba(37,160,190,.20); color: #93e4f6; border-color: rgba(37,160,190,.45); }
 .agent-tag.provider-opencode { background: rgba(139,92,246,.20); color: #c9b4ff; border-color: rgba(139,92,246,.45); }
 .agent-tag.provider-aider { background: rgba(52,199,89,.18); color: #a4edb5; border-color: rgba(52,199,89,.4); }
+
+/* === R32 (2026-07-31): bridge-error toast === */
+.octopus-toast {
+  position: fixed;
+  bottom: 14px;
+  right: 14px;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 360px;
+  padding: 9px 14px;
+  border-radius: 9px;
+  background: rgba(180, 40, 30, 0.95);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.4;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  user-select: none;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: auto;
+}
+.octopus-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.octopus-toast[hidden] {
+  display: none;
+}
+.octopus-toast-tag {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+.octopus-toast-msg {
+  flex: 1 1 auto;
+  word-break: break-word;
+}
