@@ -28,6 +28,21 @@ pub fn run() {
         .manage(platform_state)
         .setup(move |app| {
             setup_tray(app)?;
+            // R28 (2026-07-30): Disable Windows 11 DWM automatic corner
+            // rounding for ALL windows. Windows 11 rounds ALL window corners
+            // via DWM, even borderless windows (decorations: false). When
+            // CSS also has border-radius, the user sees TWO rounded corner
+            // layers: the DWM round + the CSS round. Setting
+            // DWMWCP_DONOTROUND tells DWM to use sharp 90° corners, so
+            // only the CSS border-radius is visible.
+            #[cfg(target_os = "windows")]
+            {
+                for label in ["pet", "panel"] {
+                    if let Some(window) = app.get_webview_window(label) {
+                        disable_dwm_corner_rounding(&window);
+                    }
+                }
+            }
             let state = app.state::<AppState>();
             if let Some(position) = state.runtime.config().pet_position {
                 if let Some(window) = app.get_webview_window("pet") {
@@ -39,9 +54,8 @@ pub fn run() {
                     let scale = window.scale_factor().unwrap_or(1.0);
                     let phys_x = (position.x as f64 * scale).round() as i32;
                     let phys_y = (position.y as f64 * scale).round() as i32;
-                    let _ = window.set_position(Position::Physical(
-                        PhysicalPosition::new(phys_x, phys_y),
-                    ));
+                    let _ = window
+                        .set_position(Position::Physical(PhysicalPosition::new(phys_x, phys_y)));
                 }
             }
             if let Err(error) =
@@ -651,4 +665,39 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     // works without holding an extra managed handle. Keeping a second handle
     // would create ambiguous ownership on shutdown.
     Ok(())
+}
+
+/// R28 (2026-07-30): Disable Windows 11 DWM automatic corner rounding.
+///
+/// Windows 11 (build 22000+) rounds ALL window corners via DWM, even
+/// borderless windows with `decorations: false`. When CSS also has
+/// `border-radius`, the user sees two rounded corner layers. This function
+/// calls `DwmSetWindowAttribute(DWMWA_WINDOW_CORNER_PREFERENCE,
+/// DWMWCP_DONOTROUND)` to force sharp 90° corners at the OS level, so
+/// only the CSS border-radius is visible.
+///
+/// On Windows 10 or older, `DwmSetWindowAttribute` returns an error for
+/// this attribute (it doesn't exist), which we silently ignore — those
+/// systems don't have corner rounding anyway.
+#[cfg(target_os = "windows")]
+fn disable_dwm_corner_rounding(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+    };
+    use windows_sys::Win32::Foundation::HWND;
+
+    let hwnd = window.hwnd().unwrap_or_default();
+    if hwnd.is_invalid() {
+        return;
+    }
+    let raw_hwnd = hwnd.0 as HWND;
+    let preference = DWMWCP_DONOTROUND;
+    let _ = unsafe {
+        DwmSetWindowAttribute(
+            raw_hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            &preference as *const _ as *const _,
+            std::mem::size_of_val(&preference) as u32,
+        )
+    };
 }

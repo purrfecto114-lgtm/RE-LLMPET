@@ -200,10 +200,8 @@ impl PlatformState {
                             // PhysicalPosition; pet_position stores LOGICAL.
                             // Convert to match commit_win_pos's storage format.
                             let scale = window.scale_factor().unwrap_or(1.0);
-                            let logical_x =
-                                (position.x as f64 / scale).round() as i32;
-                            let logical_y =
-                                (position.y as f64 / scale).round() as i32;
+                            let logical_x = (position.x as f64 / scale).round() as i32;
+                            let logical_y = (position.y as f64 / scale).round() as i32;
                             let _ = runtime.update_config(|config| {
                                 config.pet_position = Some(crate::model::Point {
                                     x: logical_x,

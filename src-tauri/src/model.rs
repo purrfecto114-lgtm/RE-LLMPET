@@ -1389,11 +1389,7 @@ pub fn now_ms() -> u64 {
 pub fn windows_safe_rename(src: &Path, dest: &Path) -> Result<(), String> {
     #[cfg(windows)]
     {
-        let backup = dest.with_extension(format!(
-            "{}.{}.bak",
-            std::process::id(),
-            now_ms()
-        ));
+        let backup = dest.with_extension(format!("{}.{}.bak", std::process::id(), now_ms()));
         let had_original = dest.exists();
         if had_original {
             fs::rename(dest, &backup).map_err(|e| {
