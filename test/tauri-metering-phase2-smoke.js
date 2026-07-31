@@ -16,9 +16,9 @@ const cargo = read('src-tauri/Cargo.toml');
 const pkg = JSON.parse(read('package.json'));
 const tauri = JSON.parse(read('src-tauri/tauri.conf.json'));
 
-assert.strictEqual(pkg.version, '0.5.9', 'package version must match phase4');
-assert.strictEqual(tauri.version, '0.5.9', 'Tauri version must match phase4');
-assert.match(cargo, /version = "0\.5\.9"/, 'Rust package version must match phase4');
+assert.strictEqual(pkg.version, '0.5.10', 'package version must match phase4');
+assert.strictEqual(tauri.version, '0.5.10', 'Tauri version must match phase4');
+assert.match(cargo, /version = "0\.5\.10"/, 'Rust package version must match phase4');
 
 assert.strictEqual(fixture.native_event, 'turn_end');
 assert.ok(fixture.turn_id, 'fixture must carry an idempotency key');
