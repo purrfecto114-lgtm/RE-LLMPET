@@ -154,7 +154,11 @@ pub fn detect_emotion(text: &str, role: &str) -> Option<Emotion> {
         return None;
     }
     // Emotion lives in the recent sentiment, not the whole essay.
-    let tail = if t.len() > 1500 { &t[t.len() - 1500..] } else { t };
+    let tail = if t.len() > 1500 {
+        &t[t.len() - 1500..]
+    } else {
+        t
+    };
     for def in EMOTIONS {
         if !role_allows(role, def.emotion) {
             continue;
