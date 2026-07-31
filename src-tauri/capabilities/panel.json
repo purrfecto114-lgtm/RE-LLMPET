@@ -19,6 +19,9 @@
     "allow-set-providers",
     "allow-set-session-prefs",
     "allow-close-panel",
-    "allow-set-panel-height"
+    "allow-set-panel-height",
+    "allow-diagnose-agent",
+    "allow-launch-agent",
+    "allow-launch-agent-gui"
   ]
 }

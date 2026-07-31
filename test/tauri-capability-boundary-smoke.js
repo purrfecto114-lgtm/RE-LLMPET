@@ -36,11 +36,14 @@ const panelRequired = [
   'get_config', 'get_stats', 'get_price_info', 'refresh_model_prices',
   'set_price_auto_update', 'set_mode', 'set_skin', 'set_budget', 'set_providers',
   'close_panel', 'set_panel_height',
+  // R28 (2026-07-30): panel needs diagnose + launch for the provider
+  // diagnostic card and "launch checked" button.
+  'diagnose_agent', 'launch_agent', 'launch_agent_gui', 'set_session_prefs',
 ];
 for (const command of petRequired) assert(pet.permissions.includes(permission(command)), `pet missing ${command}`);
 for (const command of panelRequired) assert(panel.permissions.includes(permission(command)), `panel missing ${command}`);
 
-for (const privileged of ['decide_permission', 'decide_permission_batch', 'launch_agent', 'open_log', 'quit_app']) {
+for (const privileged of ['decide_permission', 'decide_permission_batch', 'open_log', 'quit_app']) {
   assert(!panel.permissions.includes(permission(privileged)), `panel unexpectedly exposes ${privileged}`);
 }
 for (const configuration of ['set_providers', 'refresh_model_prices', 'set_price_auto_update']) {

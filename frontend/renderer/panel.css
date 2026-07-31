@@ -1,11 +1,13 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
   width: 100%; height: 100%;
-  /* R22 (2026-07-30): transparent body so the window's transparent:true
-     works on Windows WebView2. The #card div provides the visible
-     gradient background. If body is opaque, WebView2 shows white
-     around rounded corners. */
+  /* R28 (2026-07-30): transparent body for WebView2 transparency.
+     The #card div provides the visible gradient background and
+     CSS box-shadow (the only shadow — OS shadow is disabled). */
   background: transparent;
+  /* Padding gives room for the CSS box-shadow to render inside the
+     transparent window bounds. Without this, the shadow is clipped. */
+  padding: 12px;
   font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
   user-select: none; -webkit-user-select: none;
   color: #f3e7df;
@@ -18,7 +20,9 @@ html, body {
   border: 1px solid rgba(217, 119, 87, 0.35);
   border-radius: 18px;
   overflow-y: auto; overflow-x: hidden;
-  box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+  /* R28: CSS box-shadow is the ONLY shadow (OS shadow disabled via
+     shadow: false in tauri.conf.json). This follows border-radius. */
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
 /* 子块不许被 flex 压缩：总高超出时 #card 整体滚动，下方区块（按模型/设置）不再被裁切 */
 #card > * { flex-shrink: 0; }
