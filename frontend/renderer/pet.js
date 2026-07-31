@@ -312,6 +312,31 @@ let fitPopupSeq = 0;
 let petSizeFrame = 0;
 let pendingPetSize = null;
 let petSizeChain = Promise.resolve();
+// R35 (2026-07-31): track the last size we actually sent to Rust so we can
+// dedupe identical consecutive requests. The audit's P0-1 noted that stats
+// updates were repeatedly calling set_pet_size with the same value, causing
+// the OS to redraw the window frame for no reason and producing the
+// "桌宠跳动" the user observed. Initialized to null so the first call always
+// goes through.
+let lastSentPetSize = null;
+// R35: geometryBusy is true for ~250ms after each set_pet_size call. During
+// that window we skip openRadial() / fitPopup() so the HUD doesn't anchor
+// to a half-resized window. The audit's P0-1 traced the "HUD 错位" bug to
+// exactly this: clicking during the resize animation anchored the radial
+// menu at the intermediate size.
+let geometryBusy = false;
+let geometryBusyTimer = 0;
+function markGeometryBusy() {
+  geometryBusy = true;
+  if (geometryBusyTimer) clearTimeout(geometryBusyTimer);
+  geometryBusyTimer = setTimeout(() => {
+    geometryBusy = false;
+    geometryBusyTimer = 0;
+    // After the busy window closes, re-measure and re-emit visual bounds so
+    // the native hit-test region snaps to the final size.
+    requestAnimationFrame(reportPetVisualBounds);
+  }, 260);
+}
 function setRequestedPetSize(width, height) {
   let w = Number(width) || 0;
   let h = Number(height) || 0;
@@ -326,6 +351,18 @@ function setRequestedPetSize(width, height) {
     const size = pendingPetSize;
     pendingPetSize = null;
     if (!size) return;
+    // R35: dedupe. If the new size matches the last size we actually sent,
+    // skip the IPC call entirely. This eliminates the repeated set_pet_size
+    // calls that stats updates were generating.
+    if (lastSentPetSize
+        && lastSentPetSize[0] === size[0]
+        && lastSentPetSize[1] === size[1]) {
+      return;
+    }
+    lastSentPetSize = size;
+    // R35: mark geometry busy so openRadial()/fitPopup() can defer their
+    // anchoring until the resize settles.
+    markGeometryBusy();
     // Tauri invoke calls are asynchronous. Serialize resize requests so a fast
     // open/close sequence cannot apply an older popup size after a newer reset.
     petSizeChain = petSizeChain
@@ -1788,7 +1825,14 @@ function applySkin(s) {
   requestAnimationFrame(reportPetVisualBounds);
 }
 
-const INTERACTIVE_HIT_SEL = '#pixel,#mascot,#cat,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player';
+// R35 (2026-07-31): #pet-anchor is included in the interactive hit-test
+// selector so the native click region follows the STABLE anchor rect,
+// not the (transformed) skin element's rect. The skin elements (#pixel,
+// #mascot, #cat) are also kept in the selector for backwards compat —
+// pointer events on the visible pet should still register — but the
+// anchor's rect is the one that stays invariant under state animations.
+// See reportPetVisualBounds() for how the union is computed.
+const INTERACTIVE_HIT_SEL = '#pet-anchor,#pixel,#mascot,#cat,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player';
 
 function reportPetVisualBounds() {
   const rects = Array.from(document.querySelectorAll(INTERACTIVE_HIT_SEL))
@@ -2016,7 +2060,15 @@ function toggleCurrency() {
 
 function buildRadial() {
   radial.innerHTML = '';
-  const el = curSkinEl();
+  // R35 (2026-07-31): read the STABLE #pet-anchor rect instead of the
+  // visible skin element's rect. The skin element (e.g. #mascot.happy)
+  // may be mid-animation (happyJump translates -22px, attn rotates ±4deg,
+  // bob translates ±7px). Reading its rect mid-frame would place the
+  // radial menu center at the pet's *transient* position, causing the
+  // "HUD 错位" the audit flagged. #pet-anchor never receives a transform,
+  // so its rect is invariant under all state animations.
+  const anchor = document.getElementById('pet-anchor');
+  const el = anchor || curSkinEl(); // fall back if anchor is somehow missing
   const sr = stage.getBoundingClientRect();
   const r = el.getBoundingClientRect();
   const cx = r.left - sr.left + r.width / 2;
@@ -2074,6 +2126,17 @@ function updateRadialBadge() {
 }
 
 function openRadial() {
+  // R35 (2026-07-31): if a geometry transaction (set_pet_size) is in flight,
+  // defer opening the radial menu. The audit's P0-1 traced the "HUD 错位"
+  // bug to clicking during the resize animation — the radial menu anchored
+  // at the intermediate window size, then stayed there after the resize
+  // settled. We wait one busy window (~260ms) and retry once. If the busy
+  // flag is still true on retry (stuck resize), we open anyway — better to
+  // show a slightly-off menu than to leave the click silently swallowed.
+  if (geometryBusy) {
+    setTimeout(openRadial, 260);
+    return;
+  }
   if (todoPopOpen) closeTodoPop();
   if (sessListOpen) closeSessList();
   if (memePickerOpen) closeMemePicker();

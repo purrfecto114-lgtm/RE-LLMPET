@@ -13,6 +13,23 @@ html, body {
   color: #f3e7df;
 }
 
+/* R35 (2026-07-31): when the panel window is maximized or fullscreen,
+   the 20px transparent padding becomes a visible "transparent border"
+   and the rounded/shadowed #card looks like a floating panel trapped
+   inside a fullscreen shell. The audit's P0-2 flagged this as a real
+   regression on Windows maximize. The body class is set by panel.js
+   after querying the Tauri window's isMaximized() / isFullscreen(). */
+body.window-maximized,
+body.window-fullscreen {
+  padding: 0;
+}
+body.window-maximized #card,
+body.window-fullscreen #card {
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+}
+
 #card {
   width: 100%; height: 100%;
   display: flex; flex-direction: column;

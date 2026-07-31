@@ -233,7 +233,24 @@ body.skin-pixel #pixel { display: flex; }
 body.skin-cat #mascot { display: none; }
 body.skin-cat #cat { display: flex; }
 
-/* ---------- 形象二：Claude Code 像素小怪兽 ---------- */
+/* ====================================================================
+   形象二：Claude Code 像素小怪兽
+   ==================================================================== */
+
+/* R35 (2026-07-31): #pet-anchor is the stable geometric anchor. It NEVER
+   receives a transform — state animations on #pixel / #mascot / #cat are
+   applied to the inner .pixel-sprite / #mascot-img / #cat-img instead.
+   This keeps the anchor's bounding rect (and therefore the HUD center,
+   the drag hit-test, and the native click region) invariant under
+   happy/waiting/working animations. See pet.html for the wrapper. */
+#pet-anchor {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* No transform, no animation, no filter on the anchor itself. */
+}
+
 .pixel {
   position: relative;
   flex-direction: column;
@@ -269,8 +286,14 @@ body.skin-cat #cat { display: flex; }
 /* ====================================================================
    等你处理（waiting）：抖动 + 发光，强提示
    ==================================================================== */
-#pixel.waiting { animation: attn 0.55s ease-in-out infinite; }
-#pixel.waiting .pixel-sprite { filter: drop-shadow(0 0 9px rgba(255, 190, 80, 0.95)); animation: none; }
+/* R35 (2026-07-31): the waiting animation previously targeted #pixel
+   directly, which meant `#pixel.getBoundingClientRect()` (and the
+   parent #pet-anchor rect derived from it) shifted by ±4px on every
+   frame. The audit's P0-1 traced the HUD-misalignment bug to exactly
+   this: `buildRadial()` read the skin element's transformed rect
+   mid-animation. Moving the animation to .pixel-sprite keeps the
+   outer #pixel — and therefore #pet-anchor — geometrically stable. */
+#pixel.waiting .pixel-sprite { animation: attn 0.55s ease-in-out infinite; filter: drop-shadow(0 0 9px rgba(255, 190, 80, 0.95)); }
 @keyframes attn {
   0%, 100% { transform: translateX(0) rotate(0); }
   20% { transform: translateX(-4px) rotate(-4deg); }
@@ -558,32 +581,45 @@ body.skin-cat #cat { display: flex; }
   width: 252px; height: 188px;   /* 跟统一画布 841×628 同比例；头显示 ~125px，与旧版一致 */
   cursor: grab; touch-action: none;
   flex-direction: column; align-items: center;
+  /* R35: drop-shadow filter is OK on #mascot — filters don't affect
+     getBoundingClientRect() the way transforms do. Only transform-based
+     animations need to be moved to the inner #mascot-img. */
   filter: drop-shadow(0 6px 10px rgba(150, 70, 40, 0.3));
 }
 #mascot img { width: 100%; height: 100%; object-fit: contain; -webkit-user-drag: none; }
 
-#mascot.idle { animation: bob 3.4s ease-in-out infinite; }
-#mascot.working { animation: bob 1.9s ease-in-out infinite; }
-#mascot.thinking { animation: ponder 2.6s ease-in-out infinite; }
+/* R35 (2026-07-31): all state animations previously targeted #mascot
+   directly. happyJump translates #mascot by -22px; attn rotates it ±4deg;
+   bob translates it ±7px. Each of these shifted #mascot's bounding rect
+   (and therefore #pet-anchor's rect, since the anchor wraps #mascot),
+   causing the HUD center to drift mid-animation. Moving every animation
+   to the inner #mascot-img keeps the outer #mascot — and therefore
+   #pet-anchor — geometrically invariant under all state animations. */
+#mascot.idle #mascot-img { animation: bob 3.4s ease-in-out infinite; }
+#mascot.working #mascot-img { animation: bob 1.9s ease-in-out infinite; }
+#mascot.thinking #mascot-img { animation: ponder 2.6s ease-in-out infinite; }
 #mascot.thinking #teyes { transform: translateY(-3px); }
-#mascot.happy { animation: happyJump 0.55s ease-in-out 3; }
-#mascot.sleeping { animation: breathe 4.5s ease-in-out infinite; }
+#mascot.happy #mascot-img { animation: happyJump 0.55s ease-in-out 3; }
+#mascot.sleeping #mascot-img { animation: breathe 4.5s ease-in-out infinite; }
 #mascot.sleeping #teyes { transform: scaleY(0.12); transform-origin: center 84px; }
-#mascot.waiting { animation: attn 0.55s ease-in-out infinite; filter: drop-shadow(0 0 10px rgba(255,190,80,0.95)) drop-shadow(0 6px 10px rgba(150,70,40,0.3)); }
-#mascot.error { animation: errShake 0.42s ease-in-out 3; }
+/* waiting keeps its filter on #mascot (filter is layout-stable); the
+   attn animation moves to #mascot-img. */
+#mascot.waiting { filter: drop-shadow(0 0 10px rgba(255,190,80,0.95)) drop-shadow(0 6px 10px rgba(150,70,40,0.3)); }
+#mascot.waiting #mascot-img { animation: attn 0.55s ease-in-out infinite; }
+#mascot.error #mascot-img { animation: errShake 0.42s ease-in-out 3; }
 #mascot.error #mascot-body { fill: #c9381a; }
-#mascot.greet { animation: greetWave 0.5s ease-in-out 4; transform-origin: bottom center; }
-#mascot.dragging { animation: grabbed 0.45s ease-in-out infinite; }
+#mascot.greet #mascot-img { animation: greetWave 0.5s ease-in-out 4; transform-origin: bottom center; }
+#mascot.dragging #mascot-img { animation: grabbed 0.45s ease-in-out infinite; }
 #mascot.blink #teyes { transform: scaleY(0.12); transform-origin: center 84px; }
 #mascot.glance #teyes { animation: glance 1.6s ease-in-out; }
-#mascot.act-type { animation: actType 0.22s ease-in-out infinite; }
-#mascot.act-read { animation: actRead 1.2s ease-in-out infinite; }
+#mascot.act-type #mascot-img { animation: actType 0.22s ease-in-out infinite; }
+#mascot.act-read #mascot-img { animation: actRead 1.2s ease-in-out infinite; }
 #mascot.act-read #teyes { animation: actScan 1.2s ease-in-out infinite; }
-#mascot.act-search { animation: actSearch 0.55s ease-in-out infinite; }
-#mascot.act-crank { animation: actCrank 0.14s linear infinite; }
-#mascot.act-web { animation: actWeb 1s ease-in-out infinite; }
-#mascot.act-summon { animation: actSummon 0.5s ease-in-out; }
-#mascot.act-check { animation: actNod 0.4s ease-in-out 2; }
+#mascot.act-search #mascot-img { animation: actSearch 0.55s ease-in-out infinite; }
+#mascot.act-crank #mascot-img { animation: actCrank 0.14s linear infinite; }
+#mascot.act-web #mascot-img { animation: actWeb 1s ease-in-out infinite; }
+#mascot.act-summon #mascot-img { animation: actSummon 0.5s ease-in-out; }
+#mascot.act-check #mascot-img { animation: actNod 0.4s ease-in-out 2; }
 
 /* ====================================================================
    月薪喵（cat）—— 猫 meme 表情包皮肤

@@ -578,10 +578,26 @@ pub fn set_panel_height(app: AppHandle, height: f64) -> Result<(), String> {
         .filter(|value| value.is_finite() && *value > 0.0)
         .unwrap_or(1.0);
     let current = window.outer_size().map_err(|error| error.to_string())?;
+    // R35 (2026-07-31): clamp the requested logical height to the current
+    // monitor's work area so the panel bottom edge never falls below the
+    // taskbar / off-screen on small displays. The audit's P0-2 noted that
+    // long diagnostics could push the panel past the work area boundary.
+    // We subtract a 48px safety margin to leave room for the titlebar and
+    // any OS chrome that the work_area calculation may not include.
+    let work_area_max_logical = window
+        .current_monitor()
+        .map_err(|error| error.to_string())?
+        .map(|monitor| {
+            let work = monitor.work_area();
+            // work_area is in physical pixels; convert to logical.
+            let work_logical_height = f64::from(work.size.height) / scale;
+            (work_logical_height - 48.0).max(480.0)
+        })
+        .unwrap_or(1200.0);
     let logical_height = if height <= 0.0 {
         720.0
     } else {
-        height.clamp(480.0, 1200.0)
+        height.clamp(480.0, work_area_max_logical)
     };
     let min_width = logical_to_physical(560.0, scale);
     window
@@ -962,14 +978,14 @@ fn redact_sensitive_json(value: &mut Value) {
 }
 
 fn sanitized_probe_json(bytes: &[u8]) -> Option<Value> {
-    let text = String::from_utf8_lossy(bytes);
+    let text = decode_subprocess_output(bytes);
     let mut value = serde_json::from_str::<Value>(text.trim()).ok()?;
     redact_sensitive_json(&mut value);
     Some(value)
 }
 
 fn bounded_probe_text(bytes: &[u8]) -> String {
-    let filtered: String = String::from_utf8_lossy(bytes)
+    let filtered: String = decode_subprocess_output(bytes)
         .chars()
         .filter(|ch| !ch.is_control() || *ch == '\n' || *ch == '\t')
         .take(16_384)
@@ -984,6 +1000,144 @@ fn bounded_probe_text(bytes: &[u8]) -> String {
         .collect()
 }
 
+/// R35 (2026-07-31): Decode Windows subprocess stdout/stderr with the
+/// fallback chain recommended by the deep-audit roadmap:
+///
+///   1. UTF-16 BOM (FF FE or FE FF) → UTF-16 LE/BE
+///   2. Strict UTF-8 (the modern ideal; what `--json` CLIs emit)
+///   3. OEM code page (cmd.exe default; CP437 on en-US, CP932 on ja, CP936 on zh)
+///   4. ANSI code page (Windows-1252 on en-US, etc.)
+///   5. Lossy UTF-8 (last resort, replaces undecodable bytes with U+FFFD)
+///
+/// Without this chain, Chinese Windows `cmd.exe` output (CP936 / GBK) would
+/// hit `String::from_utf8_lossy`, which replaces every non-ASCII byte with
+/// U+FFFD. The user-facing symptom in the audit screenshot was a flood of
+/// "�" replacement characters in the diagnostic panel.
+///
+/// On non-Windows platforms this collapses to: strict UTF-8 → lossy. Unix
+/// locales are normally UTF-8 already, and we have no portable way to query
+/// the locale's encoding from std. The platform-specific work is gated by
+/// `#[cfg(windows)]` and uses `windows-sys`'s `Win32_Globalization` API
+/// (`GetOEMCP`, `GetACP`, `MultiByteToWideChar`).
+fn decode_subprocess_output(bytes: &[u8]) -> String {
+    if bytes.is_empty() {
+        return String::new();
+    }
+    // (1) UTF-16 BOM — some Windows tools emit UTF-16 LE.
+    if bytes.starts_with(&[0xFF, 0xFE]) {
+        let utf16: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        if let Some(text) = String::from_utf16(&utf16).ok() {
+            return text;
+        }
+    }
+    if bytes.starts_with(&[0xFE, 0xFF]) {
+        let utf16: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+            .collect();
+        if let Some(text) = String::from_utf16(&utf16).ok() {
+            return text;
+        }
+    }
+    // (2) Strict UTF-8. Modern CLIs (opencode --version, codewhale doctor
+    // --json, etc.) emit UTF-8 even on Windows. This fast path avoids any
+    // platform-specific work in the common case.
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return text.to_string();
+    }
+    // (3) and (4): Windows-only OEM/ACP fallback.
+    #[cfg(windows)]
+    {
+        if let Some(text) = decode_windows_codepage(bytes) {
+            return text;
+        }
+    }
+    // (5) Lossy fallback. Anything we couldn't decode above becomes U+FFFD.
+    // This preserves the byte length and most of the ASCII content so the
+    // user still sees command names, exit codes, etc.
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// R35 (2026-07-31): Windows-only OEM + ANSI code page decode using
+/// `MultiByteToWideChar`. Returns `None` if both code pages fail (the caller
+/// will then fall back to lossy UTF-8).
+///
+/// The function tries the OEM code page first (what `cmd.exe` uses for
+/// stdout/stderr by default on Windows), then the ANSI code page (the
+/// GUI/system locale). Each call to `MultiByteToWideChar` is given a
+/// pre-allocated buffer sized to the worst case; on failure we move on to
+/// the next code page.
+#[cfg(windows)]
+fn decode_windows_codepage(bytes: &[u8]) -> Option<String> {
+    use windows_sys::Win32::Globalization::{
+        GetACP, GetOEMCP, MultiByteToWideChar, MB_ERR_INVALID_CHARS,
+    };
+
+    fn try_codepage(codepage: u32, bytes: &[u8]) -> Option<String> {
+        // MB_ERR_INVALID_CHARS makes MultiByteToWideChar fail (return 0)
+        // instead of silently substituting U+0000 or skipping bytes. That
+        // lets us detect "this code page is wrong" and try the next one.
+        let flags = MB_ERR_INVALID_CHARS;
+        // Safety: MultiByteToWideChar reads `cbMultiByte` bytes from
+        // `lpMultiByteStr`. We pass the slice pointer and exact length, so
+        // there is no out-of-bounds read. The function never writes to the
+        // input buffer.
+        //
+        // Note: the 5th parameter (lpWideCharStr) is `*mut u16` per the
+        // windows-sys 0.61 signature, so we pass `null_mut()` (not
+        // `null()`) when querying the required buffer size.
+        let needed = unsafe {
+            MultiByteToWideChar(
+                codepage,
+                flags,
+                bytes.as_ptr(),
+                bytes.len() as i32,
+                core::ptr::null_mut(),
+                0,
+            )
+        };
+        if needed <= 0 {
+            return None;
+        }
+        let mut buffer = vec![0u16; needed as usize];
+        let written = unsafe {
+            MultiByteToWideChar(
+                codepage,
+                flags,
+                bytes.as_ptr(),
+                bytes.len() as i32,
+                buffer.as_mut_ptr(),
+                needed,
+            )
+        };
+        if written <= 0 {
+            return None;
+        }
+        buffer.truncate(written as usize);
+        String::from_utf16(&buffer).ok()
+    }
+
+    // Try the OEM code page first (cmd.exe default). On en-US Windows this
+    // is CP437; on zh-CN it's CP936 (GBK); on ja-JP it's CP932 (Shift-JIS).
+    let oem_cp = unsafe { GetOEMCP() };
+    if oem_cp != 0 {
+        if let Some(text) = try_codepage(oem_cp, bytes) {
+            return Some(text);
+        }
+    }
+    // Then the system ANSI code page (Windows-1252 on en-US, CP936 on zh-CN).
+    let ansi_cp = unsafe { GetACP() };
+    if ansi_cp != 0 && ansi_cp != oem_cp {
+        if let Some(text) = try_codepage(ansi_cp, bytes) {
+            return Some(text);
+        }
+    }
+    None
+}
+
 #[cfg(windows)]
 fn cmd_quote_arg(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
@@ -994,6 +1148,26 @@ fn cmd_probe_call(path: &Path, args: &[&str]) -> String {
     let mut command_line = vec![cmd_call(path)];
     command_line.extend(args.iter().map(|value| cmd_quote_arg(*value)));
     command_line.join(" ")
+}
+
+/// R35 (2026-07-31): Pass a pre-built `cmd.exe /S /C` tail to the spawned
+/// process WITHOUT additional CreateProcessW quoting.
+///
+/// The previous code did `Command::new("cmd.exe").args(["/D","/S","/C"]).arg(tail)`.
+/// `Command::arg(tail)` re-escapes `tail` per CreateProcessW rules: it wraps
+/// the whole string in `"..."` and doubles internal quotes. That produced the
+/// literal `\"C:\\...\\file.cmd\"` pattern the audit flagged — cmd.exe then
+/// failed to invoke the .cmd shim correctly. The downstream symptom was that
+/// CodeWhale/OpenCode diagnostics could not parse their own `--version`
+/// output, even though the CLI itself was installed.
+///
+/// `CommandExt::raw_arg(tail)` appends `tail` to the command line as-is.
+/// Combined with `/S /C`, cmd.exe then strips the outermost quote pair (if
+/// any) from `tail` and executes the result verbatim — exactly what we want.
+#[cfg(windows)]
+fn append_cmd_tail(command: &mut Command, tail: String) {
+    use std::os::windows::process::CommandExt;
+    command.args(["/D", "/S", "/C"]).raw_arg(tail);
 }
 
 struct ProbeCapture {
@@ -1017,10 +1191,12 @@ fn run_probe_capture(
 ) -> ProbeCapture {
     #[cfg(windows)]
     let mut command = if is_windows_script(executable) {
+        // R35 (2026-07-31): use raw_arg so cmd.exe /S /C receives the
+        // unescaped `call "C:\path\file.cmd" "arg1" ...` tail. The previous
+        // `.arg(cmd_probe_call(...))` re-escaped the tail per CreateProcessW
+        // rules, producing literal `\"...\"` quotes that broke .cmd shims.
         let mut command = Command::new("cmd.exe");
-        command
-            .args(["/D", "/S", "/C"])
-            .arg(cmd_probe_call(executable, args));
+        append_cmd_tail(&mut command, cmd_probe_call(executable, args));
         command
     } else {
         let mut command = Command::new(executable);
@@ -1938,9 +2114,11 @@ fn open_gui_application(executable: &Path) -> Result<(), String> {
         // Windows. Execute only the already-resolved absolute allowlisted path
         // through cmd.exe; native .exe/.com files bypass the shell entirely.
         if is_windows_script(executable) {
-            return Command::new("cmd.exe")
-                .args(["/D", "/S", "/C"])
-                .arg(cmd_call(executable))
+            // R35 (2026-07-31): use raw_arg via append_cmd_tail so the .cmd
+            // shim is invoked without CreateProcessW re-quoting the call tail.
+            let mut command = Command::new("cmd.exe");
+            append_cmd_tail(&mut command, cmd_call(executable));
+            return command
                 .spawn()
                 .map(|_| ())
                 .map_err(|e| format!("failed to launch {}: {e}", executable.display()));
@@ -2082,10 +2260,17 @@ fn launch_terminal(spec: AgentSpec, executable: &Path, cwd: &Path) -> Result<(),
                 ])
                 .arg(cwd);
             if is_windows_script(executable) {
+                // R35 (2026-07-31): use raw_arg so cmd.exe /S /K receives the
+                // unescaped `call "C:\path\file.cmd" args...` tail. The previous
+                // `.arg(cmd_launch_call(...))` re-escaped the tail per
+                // CreateProcessW rules, producing literal `\"...\"` quotes that
+                // broke .cmd shims even when the CLI itself was installed.
+                // `/K` keeps the terminal open after the CLI exits.
+                use std::os::windows::process::CommandExt;
                 command
                     .arg("cmd.exe")
                     .args(["/D", "/S", "/K"])
-                    .arg(cmd_launch_call(executable, launch_args));
+                    .raw_arg(cmd_launch_call(executable, launch_args));
             } else {
                 command.arg(executable).args(launch_args.iter().copied());
             }
@@ -2106,18 +2291,20 @@ fn launch_terminal(spec: AgentSpec, executable: &Path, cwd: &Path) -> Result<(),
             parts.extend(launch_args.iter().map(|value| cmd_quote_arg(*value)));
             parts.join(" ")
         };
-        Command::new("cmd.exe")
-            .args(["/D", "/S", "/K"])
-            .arg(command_line)
-            .current_dir(cwd)
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| {
-                format!(
-                    "failed to launch {} in Windows Terminal or cmd.exe: {e}",
-                    spec.title
-                )
-            })
+        // R35: same raw_arg fix as the Windows Terminal path above. The
+        // `.args(["/D", "/S", "/K"]).arg(command_line)` form re-escaped
+        // command_line, producing literal `\"C:\\...\\file.cmd\"` quotes.
+        let mut command = Command::new("cmd.exe");
+        {
+            use std::os::windows::process::CommandExt;
+            command.args(["/D", "/S", "/K"]).raw_arg(command_line);
+        }
+        command.current_dir(cwd).spawn().map(|_| ()).map_err(|e| {
+            format!(
+                "failed to launch {} in Windows Terminal or cmd.exe: {e}",
+                spec.title
+            )
+        })
     }
     #[cfg(target_os = "macos")]
     {

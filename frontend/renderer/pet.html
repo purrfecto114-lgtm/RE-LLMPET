@@ -72,25 +72,35 @@
       <!-- 召唤 subagent 时弹出的小分身 -->
       <div id="sidekick" class="sidekick">🐙</div>
 
-      <!-- 形象二：Claude Code 像素小怪兽 -->
-      <div id="pixel" class="pixel idle">
-        <div class="pixel-zzz">💤</div>
-        <div class="pixel-sprite"></div>
-        <div class="pixel-ground"></div>
+      <!-- R35 (2026-07-31): stable geometric anchor. The three skin elements
+           (#pixel / #mascot / #cat) live INSIDE this anchor. State-class
+           animations are applied to the inner skin's image/sprite, NEVER to
+           the anchor itself, so the anchor's bounding rect is invariant
+           under happy/waiting/working transforms. buildRadial(),
+           reportPetVisualBounds(), and the drag hit-test read this anchor's
+           rect — they no longer read the (transformed) skin element's rect.
+           This is the fix for the audit's P0-1 "桌宠跳动 + HUD 错位". -->
+      <div id="pet-anchor">
+        <!-- 形象二：Claude Code 像素小怪兽 -->
+        <div id="pixel" class="pixel idle">
+          <div class="pixel-zzz">💤</div>
+          <div class="pixel-sprite"></div>
+          <div class="pixel-ground"></div>
+        </div>
+
+        <!-- 形象四：图标款小章鱼 —— 直接用 tray 图标同一套画法高清重渲的图，100% 还原 -->
+        <div id="mascot" class="mascot idle">
+          <img id="mascot-img" src="../assets/mascot.png" alt="mascot" draggable="false" />
+        </div>
+
+        <!-- 形象五：月薪喵（猫 meme 表情包皮肤，每个状态一张 GIF，动效由 GIF 自带） -->
+        <div id="cat" class="cat idle">
+          <img id="cat-img" src="../assets/cat/cat-idle.gif" alt="cat" draggable="false" />
+        </div>
       </div>
 
       <!-- 多会话状态点：每个点 = 一个并行任务，颜色 = 状态 -->
       <div id="sessions" class="sessions"></div>
-
-      <!-- 形象四：图标款小章鱼 —— 直接用 tray 图标同一套画法高清重渲的图，100% 还原 -->
-      <div id="mascot" class="mascot idle">
-        <img id="mascot-img" src="../assets/mascot.png" alt="mascot" draggable="false" />
-      </div>
-
-      <!-- 形象五：月薪喵（猫 meme 表情包皮肤，每个状态一张 GIF，动效由 GIF 自带） -->
-      <div id="cat" class="cat idle">
-        <img id="cat-img" src="../assets/cat/cat-idle.gif" alt="cat" draggable="false" />
-      </div>
 
       <!-- 常驻小额度条 -->
       <div id="chip" class="chip">

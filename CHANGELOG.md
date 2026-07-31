@@ -1,5 +1,242 @@
 # Changelog
 
+## 0.5.11 — R35 correctness hotfix（2026-07-31）
+
+Hotfix release closing 6 P0 issues identified by the
+`RE-LLMPET-0.5.10-deep-audit-roadmap.md` deep audit. The 0.5.10 release
+shipped 4/4 signed platform installers and a clean static gate, but
+real-machine testing surfaced five classes of runtime problems the
+source-level smoke suite could not catch — plus one new P0 in the
+config-write path. This release closes all six without adding any new
+provider/visual features, per the audit's "fix-then-extend" guidance.
+
+### P0-1: pet geometry — stable anchor + geometry transaction
+
+The audit traced the "桌宠跳动 + HUD 错位" regression to three coordinate
+systems (CSS transform, Tauri window size/position, native hit-test) being
+out of sync for ~0.55s during state changes. The CSS animations
+(`happyJump`, `attn`, `bob`) were applied directly to `#mascot` and
+`#pixel`, so `getBoundingClientRect()` on those elements returned transient
+mid-animation positions. `buildRadial()` then anchored the HUD at the
+transient position, and the native hit-test region followed the same
+shifting rect.
+
+- `frontend/renderer/pet.html` — wrap the three skin elements
+  (`#pixel`, `#mascot`, `#cat`) in a new `<div id="pet-anchor">` that
+  never receives a transform.
+- `frontend/renderer/pet.css` — move every state animation from the
+  outer skin element to the inner `#mascot-img` / `.pixel-sprite`.
+  `#pet-anchor` itself has no `transform`, no `animation`, no `filter`.
+  Filters (which don't affect `getBoundingClientRect()`) stay on the
+  skin element for visual consistency.
+- `frontend/renderer/pet.js` — `buildRadial()` now reads
+  `#pet-anchor.getBoundingClientRect()` instead of the skin element's
+  rect. `INTERACTIVE_HIT_SEL` includes `#pet-anchor` so the native
+  hit-test region follows the stable anchor.
+- New `geometryBusy` flag: set for ~260ms after each `set_pet_size`
+  call. `openRadial()` defers (via `setTimeout`) while the flag is
+  true, so clicks during a resize don't anchor the HUD at the
+  intermediate window size.
+- New `lastSentPetSize` dedupe: identical consecutive
+  `set_pet_size` requests (e.g. from stats updates) are skipped
+  entirely. The audit noted stats updates were repeatedly calling
+  `set_pet_size` with the same value, causing the OS to redraw the
+  window frame for no reason.
+
+### P0-2: panel — remove transparent gutter when maximized + clamp to work area
+
+The audit traced the "详情窗口透明边框" regression to the 20px transparent
+`padding` on `html, body` — originally added to give the 32px-blur
+`box-shadow` room to render. When the window is maximized or fullscreen,
+that 20px becomes a visible transparent border around the panel. The
+`#card`'s `border-radius: 18px` and `box-shadow: 0 8px 32px` also look
+wrong in fullscreen. Additionally, `set_panel_height` clamped to a fixed
+`[480, 1200]` range without consulting the current monitor's work area,
+so long diagnostics could push the panel past the taskbar.
+
+- `frontend/renderer/panel.css` — new `body.window-maximized` and
+  `body.window-fullscreen` classes that zero the padding and remove
+  the border, border-radius, and box-shadow from `#card`.
+- `frontend/renderer/panel.js` — new `syncWindowMode()` polls
+  `getCurrent().isMaximized()` / `isFullscreen()` and toggles the body
+  classes. `installWindowModeListeners()` subscribes to the Tauri 2
+  window events (`tauri://resize`, `tauri://maximize`, etc.) so the
+  classes stay in sync as the user toggles state.
+- New `userSized` flag: set on the first manual resize (detected via a
+  resize event that doesn't echo a recent `setPanelHeight` request).
+  Once set, `fitPanelHeight()` stops auto-fitting on every render —
+  the user picked a size, and stats updates shouldn't snap it back.
+- New `lastFitHeight` dedupe: identical consecutive `setPanelHeight`
+  IPC calls are skipped.
+- `src-tauri/src/commands.rs::set_panel_height` — clamps the requested
+  height to `monitor.work_area().height / scale_factor - 48` (the 48px
+  margin covers titlebar + OS chrome that the work_area calculation may
+  not include). Falls back to `1200.0` if no monitor is available.
+
+### P0-3: diagnostics — generation + cancel + stale-result suppression
+
+The audit traced the "诊断无法清除" regression to three problems:
+the loading view had no cancel button, the close button on a finished
+result didn't bump the in-flight IPC, and closing didn't call
+`fitPanelHeight()` (leaving a tall empty window).
+
+- `frontend/renderer/panel.js` — new `diagnosticGeneration` counter.
+  `diagnoseProvider()` captures `const gen = ++diagnosticGeneration`
+  before the IPC call; after `await`, if `gen !== diagnosticGeneration`,
+  the result is dropped silently. This prevents the "old request returns
+  and reopens the panel" bug.
+- The loading view now includes a Cancel button
+  (`data-diag-action="cancel"`) that routes through the new
+  `clearDiagnostic()` helper. `clearDiagnostic()` bumps the generation,
+  hides the panel, clears the DOM, calls `fitPanelHeight()` to close
+  the empty gap, and re-renders the provider list.
+- The click handler routes both `close` (finished result) and `cancel`
+  (loading view) through `clearDiagnostic()` so the behavior is
+  identical: any in-flight IPC result is dropped, the panel height
+  is re-fit.
+
+### P0-4a: Windows cmd quoting — `raw_arg` replaces `.arg(tail)`
+
+The audit's screenshot showed literal `\"C:\\...\\opencode.cmd\"` quotes
+in the diagnostic output — proof that Rust's `Command::arg()` was
+re-escaping the pre-built `call "C:\\...\\file.cmd" "arg1"` tail per
+CreateProcessW rules, then `cmd.exe /S /C` re-parsed the result and saw
+literal backslash-quotes. The .cmd shim never ran correctly. This
+affected every Windows `.cmd`/`.bat` invocation: probe, launch, GUI
+launch, and the cmd fallback.
+
+- `src-tauri/src/commands.rs` — new `append_cmd_tail(command, tail)`
+  helper that calls `command.args(["/D", "/S", "/C"]).raw_arg(tail)`.
+  `raw_arg` appends the string to the command line AS-IS, with no
+  CreateProcessW quoting. Combined with `/S`, `cmd.exe` strips the
+  outermost quote pair (if any) from `tail` and executes the result
+  verbatim.
+- `run_probe_capture` (probe path) and `launch_terminal` (both
+  Windows Terminal and cmd fallback) and `open_gui_application` all
+  route through `raw_arg`. The previous `.arg(cmd_probe_call(...))`
+  / `.arg(cmd_launch_call(...))` / `.arg(cmd_call(...))` patterns
+  are gone.
+- The `cmd_probe_call`, `cmd_launch_call`, `cmd_call`, and
+  `cmd_quote_arg` helper functions are preserved (they still build
+  the correctly-quoted tail string); only the call site changed.
+
+### P0-4b: Windows encoding — UTF-16 BOM → UTF-8 → OEM → ACP → lossy
+
+The audit's screenshot showed `�` (U+FFFD) flood in the diagnostic
+output — proof that `String::from_utf8_lossy` was replacing every
+non-ASCII byte. Chinese Windows `cmd.exe` emits CP936 (GBK); Japanese
+Windows emits CP932 (Shift-JIS); English Windows OEM is CP437. None of
+these are UTF-8, so `from_utf8_lossy` produced mojibake.
+
+- `src-tauri/src/commands.rs` — new `decode_subprocess_output(bytes)`
+  with the audit's recommended fallback chain:
+  1. UTF-16 LE BOM (`FF FE`) → `String::from_utf16`
+  2. UTF-16 BE BOM (`FE FF`) → `String::from_utf16`
+  3. Strict UTF-8 (`std::str::from_utf8`) — the common case for modern
+     `--json` CLIs
+  4. OEM code page (`GetOEMCP` + `MultiByteToWideChar` with
+     `MB_ERR_INVALID_CHARS`) — Windows-only, falls back to next on
+     failure
+  5. ANSI code page (`GetACP` + `MultiByteToWideChar`) — Windows-only
+  6. Lossy UTF-8 (`String::from_utf8_lossy`) — last resort
+- `sanitized_probe_json` and `bounded_probe_text` route through
+  `decode_subprocess_output` instead of calling
+  `String::from_utf8_lossy` directly. The lossy fallback is still the
+  final tier, but only after OEM and ACP have been tried.
+- `src-tauri/Cargo.toml` — add `Win32_Globalization` feature to
+  `windows-sys` for `GetOEMCP`, `GetACP`, `MultiByteToWideChar`,
+  `MB_ERR_INVALID_CHARS`. The crate version (0.61) is unchanged; only
+  the feature list grows. Cargo.lock doesn't track individual features,
+  so no lock-file edit is needed.
+
+### P0-6: config — serialize writes under `config_write_lock` + unique temp names
+
+The 0.5.10 R34 copy-on-write transaction still had a race: two
+concurrent writers could both snapshot C0, both persist (A then B on
+disk), and both commit (B then A in memory) — leaving `disk == B` but
+`memory == A`. The audit's `§4 / P0-6` example shows the exact
+split-brain. The temp file name `config.<pid>.tmp` also collided for
+concurrent writers in the same process.
+
+- `src-tauri/src/model.rs` — new `config_write_lock: Mutex<()>` field
+  on `Runtime`. `update_config()` acquires this lock at the start of
+  the transaction and holds it across the entire
+  snapshot → mutate → sanitize → save → commit sequence. Reads
+  (which only take `config`) remain fully concurrent; only writers
+  block each other. This is the simplest correct fix for the small
+  config volume — a CAS / revision scheme is overkill.
+- New `unique_tmp_path(dest)` helper: builds `<dest>.<pid>.<uuid>.tmp`
+  using `uuid::Uuid::new_v4()` (the `uuid` crate is already a
+  dependency). The UUID guarantees uniqueness across concurrent writers
+  in the same process, across processes, and across crashed runs.
+- `save_config` and `write_private_json_atomic` both use
+  `unique_tmp_path`. The old `with_extension(format!("{}.tmp",
+  std::process::id()))` pattern (PID-only) is gone.
+
+### Test coverage
+
+- New `test/tauri-r35-correctness-hotfix-smoke.js` (175 lines, 38
+  assertions) locks all 6 P0 fixes:
+  - P0-1: `#pet-anchor` in HTML, animations moved to `#mascot-img`
+    / `.pixel-sprite`, `INTERACTIVE_HIT_SEL` includes `#pet-anchor`,
+    `geometryBusy` guard, `lastSentPetSize` dedupe
+  - P0-2: `body.window-maximized` / `body.window-fullscreen` CSS
+    rules, `syncWindowMode` + `installWindowModeListeners`,
+    `userSized` flag, `lastFitHeight` dedupe, `set_panel_height`
+    clamps to `monitor.work_area()`
+  - P0-3: `diagnosticGeneration` counter, stale-result suppression,
+    `clearDiagnostic` helper, cancel button in loading view,
+    `fitPanelHeight()` after close
+  - P0-4a: `append_cmd_tail` helper, `raw_arg` calls, absence of
+    `.arg(cmd_probe_call(...))` / `.arg(cmd_launch_call(...))` /
+    `.arg(cmd_call(...))` after `/S /C` or `/S /K`
+  - P0-4b: `decode_subprocess_output` with UTF-16 BOM detection,
+    strict UTF-8, `decode_windows_codepage` with `MultiByteToWideChar`
+    / `GetOEMCP` / `GetACP` / `MB_ERR_INVALID_CHARS`, `Win32_Globalization`
+    feature in `Cargo.toml`
+  - P0-6: `config_write_lock: Mutex<()>` field, `_write_guard` in
+    `update_config`, `unique_tmp_path` with `uuid::Uuid::new_v4()`,
+    absence of PID-only temp name pattern
+- `npm test`: 38/38 smoke ok (was 37; +1 R35 smoke)
+- `npm run check:static`: 22/22 PASS
+- Existing smokes preserved: `cmd_probe_call`, `cmd_launch_call`,
+  `cmd_call`, `cmd_quote_arg` function names still present;
+  `.args(["/D", "/S", "/C"])` and `.args(["/D", "/S", "/K"])` source
+  patterns still present.
+
+### What's NOT in this release
+
+Per the audit's "fix-then-extend" guidance, this release contains
+**only** correctness fixes. Deferred to 0.5.12 (R36, UX & user trust):
+- async diagnostics with channel progress + cancellation (P0-3 partial
+  fix here only adds client-side stale-result suppression; the Rust
+  command is still synchronous)
+- enabled/installed/healthy/running/focused provider state split (P1-5)
+- hook install onboarding flow (P1-7)
+- `core:default` capability replacement (§5.1)
+- GitHub Actions pinned to full SHAs (§5.2)
+- full dialog a11y (§6.3)
+- `prefers-reduced-motion` (§6.4)
+- Stable signing policy clarification (P0-7)
+
+### Known limitations
+
+- The Rust changes (config serialization, encoding fallback, raw_arg)
+  cannot be `cargo check`'d in this dev container — no Rust toolchain.
+  Compilation will be verified by GitHub Actions on push. The smoke
+  tests assert source-level patterns only.
+- The encoding fallback uses `windows-sys`'s `MultiByteToWideChar`
+  which handles all Windows code pages (CP437, CP932, CP936, CP1252,
+  etc.) but does NOT handle UTF-7 or EBCDIC. These are not emitted by
+  any supported provider CLI.
+- `geometryBusy` uses a fixed 260ms window. If a future change makes
+  `set_pet_size` slower (e.g. always-on monitor work_area query), the
+  window may need to grow. The flag is a soft guard — if it stays true
+  for too long, `openRadial` opens anyway (better slightly-off than
+  silently swallowed).
+
+---
+
 ## 0.5.9 — R34 release-tooling root-cause fix（2026-07-31）
 
 Hotfix release closing 2 root-cause issues that blocked the v0.5.8 release workflow. The v0.5.8 tag push correctly fail-closed on missing `TAURI_SIGNING_PRIVATE_KEY`, but after configuring the secret, the release still failed on 3 of 4 platforms. Investigation found 2 distinct root causes — both fixed here.

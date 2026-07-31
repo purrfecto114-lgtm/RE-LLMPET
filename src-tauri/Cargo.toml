@@ -1,6 +1,6 @@
 [package]
 name = "octopus"
-version = "0.5.10"
+version = "0.5.11"
 description = "Low-overhead multi-agent desktop pet"
 authors = ["Octopus contributors"]
 license = "MIT"
@@ -30,7 +30,13 @@ uuid = { version = "1", features = ["v4"] }
 chrono = { version = "=0.4.38", default-features = false, features = ["clock", "std"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Graphics_Dwm", "Win32_Foundation"] }
+# R35 (2026-07-31): Win32_Globalization adds GetOEMCP / GetACP / MultiByteToWideChar
+# so we can decode Windows subprocess stdout/stderr that is NOT UTF-8 (CP936
+# on Chinese Windows, CP437 on English OEM, CP1252 on Western ACP). Without
+# this, `String::from_utf8_lossy` would replace every non-ASCII byte with U+FFFD,
+# which the audit flagged as the second root cause of the CodeWhale/OpenCode
+# diagnostic "乱码" screenshot.
+windows-sys = { version = "0.61", features = ["Win32_Graphics_Dwm", "Win32_Foundation", "Win32_Globalization"] }
 
 # R30 (2026-07-31): release profile for smaller, faster binaries.
 # Per audit roadmap §7 — official Tauri recommended configuration.

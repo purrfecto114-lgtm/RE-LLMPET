@@ -198,9 +198,26 @@ function render(s) {
 
 // 面板按内容高度自适应：量出内容底边（footer 底）到卡片顶的距离，通知主进程调窗口高，
 // 避免固定高窗口在内容变短时露出大片空白。requestAnimationFrame 确保布局已完成。
+//
+// R35 (2026-07-31): two new guards to fix the audit's P0-2:
+//   1. `userSized` — set to true on the first manual resize event. Once
+//      the user has chosen a size, we stop auto-fitting on every render
+//      (otherwise stats updates would constantly fight the user's choice).
+//      Reset only on panel close/reopen.
+//   2. `windowMaximized` / `windowFullscreen` — when the window is in
+//      maximized or fullscreen mode, fit-to-content makes no sense; the
+//      OS already pinned the window to the work area. Skip the IPC call
+//      entirely so we don't fight the OS window manager.
 let fitRaf = 0;
+let userSized = false;
+let windowMaximized = false;
+let windowFullscreen = false;
+let lastFitHeight = 0;
+let lastFitRequestTs = 0;
 function fitPanelHeight() {
   if (!window.pet || !window.pet.setPanelHeight) return;
+  if (windowMaximized || windowFullscreen) return; // OS owns the size now
+  if (userSized) return; // user picked a size; don't fight them
   if (fitRaf) cancelAnimationFrame(fitRaf);
   fitRaf = requestAnimationFrame(() => {
     fitRaf = 0;
@@ -208,8 +225,86 @@ function fitPanelHeight() {
     const last = card && card.lastElementChild; // 内容最后一块（footer 已移除）
     if (!card || !last) return;
     const h = Math.ceil(last.getBoundingClientRect().bottom - card.getBoundingClientRect().top + card.scrollTop) + 14; // +底部呼吸留白
-    if (h > 0) window.pet.setPanelHeight(h);
+    if (h <= 0) return;
+    // R35: dedupe identical consecutive requests. The audit noted that
+    // stats updates were repeatedly calling setPanelHeight with the same
+    // value, causing the OS to redraw the window frame for no reason.
+    if (h === lastFitHeight) return;
+    lastFitHeight = h;
+    // R35: stamp the request time so markUserSizedIfManual() can recognise
+    // the resize event that WE just caused (vs a real user drag).
+    lastFitRequestTs = Date.now();
+    window.pet.setPanelHeight(h);
   });
+}
+
+// R35 (2026-07-31): detect maximize / fullscreen / manual resize.
+//
+// The Tauri 2 webview exposes `__TAURI__.window.getCurrent()` which has
+// `isMaximized()`, `isFullscreen()`, and resize/maximize/restore events.
+// We poll once on init, then subscribe to events so we stay in sync. When
+// the user maximizes, we add `body.window-maximized` so the CSS strips
+// the 20px transparent gutter, the border, the radius, and the shadow —
+// turning the panel into a normal fullscreen app surface.
+//
+// On a manual resize (not triggered by our own setPanelHeight), we set
+// `userSized=true` so future stats renders don't snap the panel back to
+// content-fit height. The flag is reset when the panel is closed.
+function syncWindowMode() {
+  const w = (window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrent)
+    ? window.__TAURI__.window.getCurrent() : null;
+  if (!w) return Promise.resolve();
+  return Promise.all([
+    w.isMaximized ? w.isMaximized() : Promise.resolve(false),
+    w.isFullscreen ? w.isFullscreen() : Promise.resolve(false),
+  ]).then(([max, full]) => {
+    windowMaximized = !!max;
+    windowFullscreen = !!full;
+    document.body.classList.toggle('window-maximized', windowMaximized);
+    document.body.classList.toggle('window-fullscreen', windowFullscreen);
+  }).catch(() => {});
+}
+function installWindowModeListeners() {
+  const w = (window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrent)
+    ? window.__TAURI__.window.getCurrent() : null;
+  if (!w) return;
+  // Listen to Tauri 2 window events. The event module is at
+  // `__TAURI__.event.listen` (already used by the bridge). We use the
+  // window-scoped `onResized` / `onMaximized` etc. helpers if available;
+  // otherwise fall back to the global listen() with window-specific topics.
+  const ev = window.__TAURI__ && window.__TAURI__.event;
+  if (ev && typeof ev.listen === 'function') {
+    // Tauri 2 emits `tauri://resize`, `tauri://maximize`, `tauri://unmaximize`,
+    // `tauri://enter-full-screen`, `tauri://leave-full-screen` on the window.
+    // The window-scoped helpers (w.onResized, w.onMaximized, …) are nicer
+    // but not always present in the bundled global; the global listen()
+    // with topic strings is the stable fallback.
+    const topics = [
+      'tauri://resize',
+      'tauri://maximize',
+      'tauri://unmaximize',
+      'tauri://enter-full-screen',
+      'tauri://leave-full-screen',
+    ];
+    topics.forEach((topic) => {
+      try { ev.listen(topic, () => { syncWindowMode(); markUserSizedIfManual(topic); }); } catch (_) {}
+    });
+  }
+}
+function markUserSizedIfManual(topic) {
+  // Maximize / fullscreen / unmaximize are NOT user-sized gestures — they
+  // don't change the "restored" size. Only `tauri://resize` from a drag
+  // handle counts. But the resize event also fires when WE call
+  // setPanelHeight (via Rust set_size). Distinguishing the two requires
+  // comparing against the height we just requested; if the event fires
+  // within ~750ms of our last IPC request, treat it as our own echo.
+  // Otherwise mark userSized and stop auto-fitting.
+  if (topic !== 'tauri://resize') return;
+  if (windowMaximized || windowFullscreen) return;
+  const now = Date.now();
+  if (!lastFitRequestTs || now - lastFitRequestTs > 750) {
+    userSized = true;
+  }
 }
 
 // 按模型明细：每模型一行 = 名称 + 占比条 + $花费 + token/占比；下方灰字给出
@@ -757,23 +852,87 @@ function renderProviderDiagnosticError(provider, error) {
   });
 }
 
+// R35 (2026-07-31): diagnostic generation tracking.
+//
+// The audit's P0-3 identified three problems with the previous implementation:
+//   1. The loading view had no cancel button — the user couldn't abort a
+//      long-running diagnostic.
+//   2. After the user clicked the close button on a finished result, an
+//      older in-flight request could still return and re-render the
+//      diagnostic panel, "reopening" what the user had just dismissed.
+//   3. Closing the result panel didn't call fitPanelHeight(), leaving a
+//      tall empty window where the diagnostic used to be.
+//
+// Fix: every diagnoseProvider() call captures a generation counter. The
+// async result is only rendered if the current generation still matches.
+// Closing the panel bumps the generation, so any in-flight result becomes
+// stale and is silently dropped. The loading view now has a cancel
+// button that bumps the generation and clears the UI immediately.
+let diagnosticGeneration = 0;
+
 async function diagnoseProvider(provider) {
-  if (!provider || providerDiagnosticBusy) return;
+  if (!provider) return;
+  // R35: bump generation on every new run. Any in-flight result from an
+  // older generation will be discarded by the `if (gen !== diagnosticGeneration)`
+  // check after the await.
+  const gen = ++diagnosticGeneration;
   providerDiagnosticBusy = provider;
   renderProviders();
   const el = $('provider-diagnostic');
   if (el) {
     el.classList.remove('hidden');
-    el.innerHTML = `<div class="diag-loading">${escapeHtml(t('diag.running'))}</div>`;
+    // R35: include a Cancel button in the loading view so the user can
+    // abort a long-running diagnostic. The button bumps the generation
+    // (via clearDiagnostic) so any late-arriving result is dropped.
+    el.innerHTML = `
+      <div class="diag-head">
+        <span class="diag-provider">${escapeHtml((PROVIDER_META[provider] || { icon: '•', label: provider }).icon)} ${escapeHtml((PROVIDER_META[provider] || { label: provider }).label)}</span>
+        <span class="diag-state warn">${escapeHtml(t('diag.running'))}</span>
+        <button type="button" class="diag-close" data-diag-action="cancel" title="${escapeHtml(t('diag.close'))}">✕</button>
+      </div>
+      <div class="diag-loading">${escapeHtml(t('diag.running'))}</div>`;
   }
   try {
-    renderProviderDiagnostic(await window.pet.diagnoseAgent(provider));
+    const result = await window.pet.diagnoseAgent(provider);
+    // R35: stale-result suppression. If the user has bumped the generation
+    // (by closing, cancelling, or starting a new diagnostic) since we
+    // started, drop this result silently. This prevents the "old request
+    // returns and reopens the panel" bug.
+    if (gen !== diagnosticGeneration) return;
+    renderProviderDiagnostic(result);
   } catch (error) {
+    // Same stale-result suppression for the error path.
+    if (gen !== diagnosticGeneration) return;
     renderProviderDiagnosticError(provider, error);
   } finally {
-    providerDiagnosticBusy = '';
-    renderProviders();
+    // Only clear the busy flag if THIS generation is still current. If a
+    // newer diagnostic has started, leave its busy flag alone.
+    if (gen === diagnosticGeneration) {
+      providerDiagnosticBusy = '';
+      renderProviders();
+    }
   }
+}
+
+// R35 (2026-07-31): clear the diagnostic panel and bump the generation so
+// any in-flight result is dropped. Called from the close button on a
+// finished result AND from the cancel button on the loading view.
+function clearDiagnostic() {
+  diagnosticGeneration += 1;
+  providerDiagnosticBusy = '';
+  latestProviderDiagnostic = null;
+  const el = $('provider-diagnostic');
+  if (el) {
+    el.classList.add('hidden');
+    el.innerHTML = '';
+  }
+  const summary = $('provider-diag-summary');
+  if (summary) summary.textContent = '';
+  // R35: re-fit the panel height after clearing so the window doesn't
+  // leave a tall empty gap where the diagnostic used to be. The audit's
+  // P0-3 noted that close didn't call fitPanelHeight().
+  fitPanelHeight();
+  renderProviders();
 }
 
 function renderProviders() {
@@ -892,6 +1051,13 @@ function renderPriceInfo(message) {
 
 document.addEventListener('DOMContentLoaded', () => {
   applyLanguage(config.lang);
+  // R35 (2026-07-31): sync panel window mode (maximized/fullscreen) so the
+  // CSS can drop the 20px transparent gutter, border, radius, and shadow.
+  // Also installs listeners for resize/maximize/restore so the body class
+  // stays in sync as the user toggles window state. See fitPanelHeight()
+  // for the userSized flag that stops auto-fit after a manual drag.
+  syncWindowMode();
+  installWindowModeListeners();
   const language = $('language');
   if (language) language.addEventListener('change', (event) => {
     const lang = String(event.target.value || 'zh');
@@ -991,10 +1157,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!button) return;
     const action = button.dataset.diagAction;
     const provider = button.dataset.provider || (latestProviderDiagnostic && latestProviderDiagnostic.provider);
-    if (action === 'close') {
-      $('provider-diagnostic').classList.add('hidden');
-      $('provider-diag-summary').textContent = '';
-      latestProviderDiagnostic = null;
+    if (action === 'close' || action === 'cancel') {
+      // R35 (2026-07-31): route both close (finished result) and cancel
+      // (loading view) through clearDiagnostic() so the generation counter
+      // is bumped, any in-flight IPC result is dropped, and the panel
+      // height is re-fit. Previously close only hid the element and left
+      // a stale in-flight request that could re-render itself.
+      clearDiagnostic();
     } else if (action === 'rerun') {
       diagnoseProvider(provider);
     } else if (action === 'launch') {

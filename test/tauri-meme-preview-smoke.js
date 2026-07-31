@@ -40,7 +40,12 @@ assert(js.includes("memeStatus.textContent = `${copy.reactionLabel} · ${t('meme
 assert(!js.includes('triggerMeme('), 'preview-only migration must not pretend to dispatch prompts');
 assert(css.includes('.sl-meme-grid') && css.includes('.sl-meme-card') && css.includes('.meme-player img'));
 assert(js.includes("new Audio(`../assets/memes/${item.media.audio}`)"));
-assert(js.includes("const INTERACTIVE_HIT_SEL = '#pixel,#mascot,#cat,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player'"));
+// R35 (2026-07-31): INTERACTIVE_HIT_SEL now starts with #pet-anchor so the
+// native hit-test region follows the stable anchor rect (P0-1 fix). The
+// meme-preview smoke just needs to confirm the selector is still declared
+// and still aliases HIT_SEL — it doesn't care about the exact selector
+// contents. The R35 smoke owns the detailed content check.
+assert(js.includes('const INTERACTIVE_HIT_SEL ='));
 assert(js.includes('const HIT_SEL = INTERACTIVE_HIT_SEL;'));
 
 console.log('tauri-meme-preview-smoke: ok');

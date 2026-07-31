@@ -200,6 +200,22 @@ pub struct ProviderStatus {
 
 pub struct Runtime {
     pub config: Mutex<AppConfig>,
+    // R35 (2026-07-31): dedicated writer-side lock for `update_config`.
+    //
+    // The R34 copy-on-write transaction snapshots the config, mutates the
+    // snapshot, persists to disk, then commits to the Mutex. Without a
+    // separate writer-side lock, two concurrent writers can both snapshot
+    // the same C0, both persist (A then B), and both commit — the in-memory
+    // state ends up as A while disk is B. The audit's P0-6 example:
+    //   A snapshot C0 → candidate A → A writes disk A → A commits memory A
+    //   B snapshot C0 → candidate B → B writes disk B → B commits memory B
+    //   final: disk B, memory A  ← split-brain.
+    //
+    // `config_write_lock` serializes the entire snapshot→mutate→save→commit
+    // sequence. Reads still take `config` directly and remain concurrent;
+    // only writers block each other. This is the simplest correct fix for
+    // the small config volume — a CAS / revision scheme is overkill here.
+    pub config_write_lock: Mutex<()>,
     pub sessions: Mutex<HashMap<String, Session>>,
     pub pending: Mutex<HashMap<String, PendingPermission>>,
     pub batch_rules: Mutex<Vec<BatchRule>>,
@@ -239,6 +255,7 @@ impl AppState {
         Self {
             runtime: Arc::new(Runtime {
                 config: Mutex::new(config),
+                config_write_lock: Mutex::new(()),
                 sessions: Mutex::new(HashMap::new()),
                 pending: Mutex::new(HashMap::new()),
                 batch_rules: Mutex::new(Vec::new()),
@@ -435,20 +452,32 @@ impl Runtime {
         // PERSIST TO DISK FIRST, and only commit to the shared Mutex if the
         // disk write succeeded. The Mutex is held only for the duration of
         // the snapshot+commit, NOT across file IO.
+        //
+        // R35 (2026-07-31): serialize the entire snapshot→mutate→save→commit
+        // sequence under `config_write_lock`. Without this, two concurrent
+        // writers can both snapshot C0, both persist (A then B on disk), and
+        // both commit (B then A in memory) — leaving disk==B but memory==A.
+        // The audit's P0-6 example shows this exact split-brain. Reads are
+        // unaffected: they only take `config` and remain fully concurrent.
+        let _write_guard = self
+            .config_write_lock
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let candidate = {
             let guard = self.config.lock().unwrap_or_else(|e| e.into_inner());
             let mut candidate = guard.clone();
             update(&mut candidate);
             candidate.sanitize()
         };
-        // Disk write happens WITHOUT holding the Mutex — other readers can
-        // still observe the previous config during the IO window.
+        // Disk write happens WITHOUT holding the read Mutex — other readers
+        // can still observe the previous config during the IO window. The
+        // writer-side `config_write_lock` is still held, so no other writer
+        // can race us between snapshot and commit.
         save_config(&self.config_path, &candidate)?;
-        // Commit: acquire Mutex again, replace in-memory state with the
-        // persisted candidate. If another writer raced us between snapshot
-        // and commit, their write wins on disk; we re-read after commit to
-        // detect drift (rare in practice — config writes are serialized by
-        // the UI).
+        // Commit: acquire the read Mutex again, replace in-memory state with
+        // the persisted candidate. Because `config_write_lock` is still
+        // held, no other writer can interleave between our save and our
+        // commit — disk and memory are now guaranteed to agree.
         let mut guard = self.config.lock().unwrap_or_else(|e| e.into_inner());
         *guard = candidate;
         Ok(guard.clone())
@@ -1500,7 +1529,18 @@ fn write_private_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
     if bytes.len() > 1024 * 1024 {
         return Err("metadata exceeds 1 MiB".into());
     }
-    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
+    // R35 (2026-07-31): unique temp file name per write attempt (PID + UUID).
+    //
+    // The old name `config.<pid>.tmp` (and pending.<pid>.tmp) collided when
+    // two writers in the same process tried to persist concurrently. The
+    // second `fs::write` would clobber the first, and the subsequent
+    // `rename` would either race (losing one writer's bytes) or fail
+    // outright. The `config_write_lock` in `update_config` already
+    // serializes config writes, but `write_private_json_atomic` is also
+    // called from the pending-permission path (which has its own locking)
+    // — making the temp name globally unique eliminates the collision
+    // class regardless of caller.
+    let tmp = unique_tmp_path(path);
     fs::write(&tmp, bytes).map_err(|error| error.to_string())?;
     #[cfg(unix)]
     {
@@ -1531,7 +1571,8 @@ pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {
         secure_create_dir(parent).map_err(|e| e.to_string())?;
     }
     let bytes = serde_json::to_vec_pretty(config).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
+    // R35: same unique-temp-name rationale as write_private_json_atomic.
+    let tmp = unique_tmp_path(path);
     fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
@@ -1540,6 +1581,33 @@ pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {
     }
     // R25: use windows_safe_rename to avoid remove-then-rename data loss
     crate::model::windows_safe_rename(&tmp, path)
+}
+
+/// R35 (2026-07-31): Build a temp path next to `dest` with a globally-unique
+/// name combining PID + UUID v4. The `.tmp` suffix is preserved so existing
+/// cleanup heuristics and `.gitignore` patterns keep working.
+///
+/// Format: `<dest>.<pid>.<uuid>.tmp`
+///   e.g. `config.json.1234.7c1a9e3b-...-b6f2.tmp`
+///
+/// The UUID guarantees uniqueness across:
+///   - two concurrent writers in the same process (same PID)
+///   - two writers in different processes (different PIDs anyway, but UUID
+///     is still a stable second factor)
+///   - a stalled temp from a previous crashed run (UUID differs)
+fn unique_tmp_path(dest: &Path) -> PathBuf {
+    let pid = std::process::id();
+    let id = uuid::Uuid::new_v4();
+    let mut name = dest
+        .file_name()
+        .map(|value| value.to_os_string())
+        .unwrap_or_else(|| std::ffi::OsString::from("file"));
+    name.push(".");
+    name.push(pid.to_string());
+    name.push(".");
+    name.push(id.to_string());
+    name.push(".tmp");
+    dest.with_file_name(name)
 }
 
 fn clean_text(value: Option<&Value>, max: usize) -> Option<String> {
