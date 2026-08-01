@@ -299,8 +299,7 @@ function fitPanelHeight() {
 // persists across hide/show, so duplicate listeners would accumulate).
 let windowModeUnlisteners = [];
 function syncWindowMode() {
-  const w = (window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrent)
-    ? window.__TAURI__.window.getCurrent() : null;
+  const w = getCurrentTauriWindow();
   if (!w) return Promise.resolve();
   return Promise.all([
     w.isMaximized ? w.isMaximized() : Promise.resolve(false),
@@ -313,8 +312,7 @@ function syncWindowMode() {
   }).catch(() => {});
 }
 function installWindowModeListeners() {
-  const w = (window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrent)
-    ? window.__TAURI__.window.getCurrent() : null;
+  const w = getCurrentTauriWindow();
   if (!w) return;
   // R35.1: use the window-scoped onResized/onScaleChanged/onMoved helpers.
   // Each returns a Promise<UnlistenFn>; we collect them for teardown.
@@ -1386,6 +1384,26 @@ window.pet.onConfig((cfg) => {
     panelWasHidden = true;
     resetAutoFitOnShow();
   }).catch(() => {});
+  // R38 (2026-08-01): listen for panel:hidden so the frontend can set
+  // panelVisible=false regardless of how the panel was hidden (close button,
+  // tray toggle, programmatic close_panel). The 0.5.15 full audit (P0-4)
+  // flagged that only the close button handler set panelVisible=false.
+  ev.listen('panel:hidden', () => {
+    panelVisible = false;
+    panelWasHidden = true;
+  }).catch(() => {});
+  // R38: also check initial visibility — the panel may have been shown
+  // before the JS loaded, in which case panel:shown already fired and was
+  // missed. Query the actual window state.
+  const w = getCurrentTauriWindow();
+  if (w && typeof w.isVisible === 'function') {
+    Promise.resolve(w.isVisible()).then((visible) => {
+      if (visible) {
+        panelVisible = true;
+        panelWasHidden = false;
+      }
+    }).catch(() => {});
+  }
 })();
 
 // R35.1: mark panel as hidden when the user clicks the close button.

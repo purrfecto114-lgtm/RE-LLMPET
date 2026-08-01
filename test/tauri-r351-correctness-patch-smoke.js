@@ -75,10 +75,10 @@ assert(/pointerdown[\s\S]*?pendingRadialOpen = false/.test(petJs),
 // P0-2: panel window-scoped listeners + reset on panel:shown
 // ──────────────────────────────────────────────────────────────────────────
 
-// Window-scoped listeners use getCurrentWindow().onResized/onScaleChanged/onMoved
-// (NOT global event.listen('tauri://resize', ...))
-assert(panelJs.includes("getCurrent()") && panelJs.includes("onResized"),
-  'R35.1: panel.js must use getCurrentWindow().onResized (window-scoped)');
+// R38: the accessor was renamed from getCurrent() to getCurrentTauriWindow()
+// (a shared helper in tauri-bridge.js) to fix the Tauri 2 API call.
+assert(panelJs.includes("getCurrentTauriWindow()") && panelJs.includes("onResized"),
+  'R35.1/R38: panel.js must use getCurrentTauriWindow().onResized (window-scoped)');
 assert(panelJs.includes('onScaleChanged'),
   'R35.1: panel.js must subscribe to onScaleChanged for DPI monitor changes');
 assert(panelJs.includes('onMoved'),

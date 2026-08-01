@@ -8,6 +8,35 @@
  * Privileged work is implemented by named Rust commands; no raw Tauri handle is
  * re-exported through this compatibility object.
  */
+
+// R38 (2026-08-01): Correct Tauri 2 current-window API accessor.
+//
+// The 0.5.15 full audit (P0-1) flagged that the code used
+// `window.__TAURI__.window.getCurrent()` — a Tauri 1 class-method form
+// that does NOT exist in Tauri 2's namespace-level API. The correct call
+// is `getCurrentWindow()` (a function export, not a class method).
+//
+// Verified via web-search of Tauri 2 docs (v2.tauri.app/reference/
+// javascript/api/namespacewindow): "import { getCurrentWindow } from
+// '@tauri-apps/api/window'" — the global form is
+// `window.__TAURI__.window.getCurrentWindow()`.
+//
+// This broke ALL window-scoped listeners (onResized, onScaleChanged,
+// onMoved) and all isMaximized/isFullscreen queries in both pet.js and
+// panel.js — the R36 geometry revision/ack, R35.1 panel window-scoped
+// listeners, and R37 hidden-panel visibility all silently fell back to
+// their timer/flag fallbacks because the listeners were never registered.
+function getCurrentTauriWindow() {
+  var api = (typeof window !== 'undefined' && window.__TAURI__ && window.__TAURI__.window) || null;
+  if (!api) return null;
+  // Tauri 2: getCurrentWindow() is a function export.
+  if (typeof api.getCurrentWindow === 'function') return api.getCurrentWindow();
+  // Tauri 1 fallback: Window.getCurrent() class method (shouldn't be needed
+  // in Tauri 2, but kept for safety).
+  if (api.Window && typeof api.Window.getCurrent === 'function') return api.Window.getCurrent();
+  return null;
+}
+
 (function installOctopusBridge(global) {
   const tauri = global.__TAURI__;
   const invoke = tauri && tauri.core && tauri.core.invoke;

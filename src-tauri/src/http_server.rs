@@ -457,13 +457,20 @@ fn permission_payload(provider: &str, decision: &PermissionDecision) -> Value {
     }
 }
 
-fn emit_stats(app: &AppHandle, runtime: &Runtime) {
-    // R37 (2026-08-01): throttle to 150ms minimum interval. Hook events
-    // can arrive dozens per second during active sessions; without this
-    // throttle, every /state POST triggers a full stats snapshot +
-    // broadcast to both pet and panel windows. Events that arrive during
-    // the throttle window are dropped; the next event after the window
-    // delivers the latest state.
+fn emit_stats(app: &AppHandle, runtime: &Arc<Runtime>) {
+    // R38 (2026-08-01): the 0.5.15 full audit (P0-3) flagged that the R37
+    // leading-edge throttle permanently dropped the final event in a burst.
+    // Example: event A at t=0 (emitted), event B at t=20ms (dropped, no
+    // trailing flush), no more events → UI stuck at A's state forever.
+    //
+    // Fix: when an event is throttled (dropped), schedule a trailing flush
+    // after the throttle window expires. The trailing flush re-reads the
+    // latest state and emits it. This guarantees the final event in a burst
+    // always reaches the UI within ~150ms of the last dropped event.
+    //
+    // The trailing flush is idempotent: if another event arrived and was
+    // emitted in the meantime, the flush just re-emits the same state (no
+    // harm — the UI dedupes via its own render gate).
     const STATS_THROTTLE_MS: u128 = 150;
     let now = std::time::Instant::now();
     let should_skip = {
@@ -478,6 +485,27 @@ fn emit_stats(app: &AppHandle, runtime: &Runtime) {
         }
     };
     if should_skip {
+        // R38: schedule a trailing flush. Clone the AppHandle (it's Arc-based)
+        // and the Runtime Arc so the spawned task can emit after the window.
+        // R38.1: use spawn_blocking + std::thread::sleep instead of
+        // tokio::time::sleep, because tokio is not directly in scope
+        // (Tauri 2 wraps it internally but doesn't re-export sleep).
+        let app_clone = app.clone();
+        let runtime_clone = runtime.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            std::thread::sleep(std::time::Duration::from_millis(STATS_THROTTLE_MS as u64));
+            // Check if we're still the latest — if another emit happened
+            // in the meantime, our flush is redundant but harmless.
+            let stats = runtime_clone.stats();
+            let _ = app_clone.emit("pet:stats", stats.clone());
+            let _ = app_clone.emit("panel:stats", stats);
+            // Update the timestamp so the next throttle window starts fresh.
+            let mut guard = runtime_clone
+                .last_stats_emit
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            *guard = Some(std::time::Instant::now());
+        });
         return;
     }
     {

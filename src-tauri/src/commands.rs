@@ -494,7 +494,15 @@ pub fn close_panel(app: AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("panel")
         .ok_or("panel window missing")?;
-    window.hide().map_err(|e| e.to_string())
+    window.hide().map_err(|e| e.to_string())?;
+    // R38 (2026-08-01): emit panel:hidden so the frontend can set
+    // panelVisible=false and stop rendering. The 0.5.15 full audit (P0-4)
+    // flagged that only the close button handler set panelVisible=false;
+    // if the panel was hidden via tray or any other path, the frontend
+    // kept rendering on a hidden window. This event gives the frontend
+    // an explicit signal regardless of how the panel was hidden.
+    let _ = app.emit("panel:hidden", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -1884,13 +1892,19 @@ fn executable_kind(path: &Path) -> &'static str {
 // result suppression; R35.2 adds real process-tree kill on cancel.
 #[tauri::command]
 pub async fn diagnose_agent(provider: String, state: State<'_, AppState>) -> Result<Value, String> {
-    // R36 (2026-07-31): reject duplicate concurrent diagnostics for the SAME
-    // provider. The 0.5.12 carpet audit P0-4 noted that repeated "rerun"
-    // clicks could spawn multiple blocking jobs + CLI children + reader
-    // threads simultaneously. The frontend's diagnosticGeneration suppresses
-    // stale results, but the Rust side had no guard. Now we check
-    // active_diagnostic_provider; if it matches, return Err("busy") without
-    // spawning. Different providers can still run concurrently.
+    // R38 (2026-08-01): the 0.5.15 full audit (P0-2) flagged that the R36
+    // per-provider guard still allowed different providers to run concurrently,
+    // overwriting the shared PID/provider slot. This caused races:
+    //   1. Start Claude diag → provider=claude, pid=A
+    //   2. Start CodeWhale diag → provider=codewhale, pid=B (overwrites A)
+    //   3. Claude completes → clears global slot (B is now orphaned)
+    //   4. Cancel → can't find B, or kills wrong PID
+    //
+    // Fix: make diagnostics GLOBALLY mutually exclusive. Only one diagnostic
+    // can run at a time, regardless of provider. This is the simplest correct
+    // fix — a full DiagnosticRegistry with per-request-ID tracking is R38.1.
+    // The frontend only shows one diagnostic at a time anyway, so concurrent
+    // multi-provider diagnostics have no UI benefit.
     {
         let mut provider_guard = state
             .runtime
@@ -1898,11 +1912,9 @@ pub async fn diagnose_agent(provider: String, state: State<'_, AppState>) -> Res
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         if let Some(active) = provider_guard.as_ref() {
-            if active == &provider {
-                return Err(format!(
-                    "{provider} diagnostic already in progress; cancel it first or wait for completion"
-                ));
-            }
+            return Err(format!(
+                "{active} diagnostic already in progress; cancel it first or wait for completion"
+            ));
         }
         *provider_guard = Some(provider.clone());
     }
@@ -2045,7 +2057,6 @@ fn kill_process_tree(pid: u32) -> Result<(), String> {
         // Send SIGTERM first for graceful shutdown, then SIGKILL.
         // Safety: kill(2) with a positive PID sends the signal to that
         // process. We ignore ESRCH (process already exited).
-        use std::os::unix::process::ExitStatusExt;
         let pid_i32 = pid as i32;
         // SIGTERM
         unsafe {

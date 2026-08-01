@@ -356,8 +356,7 @@ function markGeometryBusy(expectedSize) {
     try { geometryAckUnlisten(); } catch {}
     geometryAckUnlisten = null;
   }
-  const w = (window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrent)
-    ? window.__TAURI__.window.getCurrent() : null;
+  const w = getCurrentTauriWindow();
   if (w && typeof w.onResized === 'function' && expectedPetSize) {
     try {
       Promise.resolve(w.onResized(() => {

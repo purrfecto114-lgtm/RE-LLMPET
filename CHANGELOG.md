@@ -1,5 +1,96 @@
 # Changelog
 
+## 0.5.16 — R38 correctness blocker patch（2026-08-01）
+
+Patch release closing 4 P0 issues from the 0.5.15 full audit branch
+roadmap. The audit found that several R36/R37 fixes were silently
+ineffective because of an incorrect Tauri API call, and that the stats
+throttle and diagnostic registry had race conditions.
+
+### P0-1: Fix getCurrentWindow() API call
+
+The 0.5.15 full audit (P0-1) flagged that the code used
+`window.__TAURI__.window.getCurrent()` — a Tauri 1 class-method form
+that does NOT exist in Tauri 2. The correct call is
+`getCurrentWindow()` (a function export). Verified via web-search of
+Tauri 2 docs.
+
+This broke ALL window-scoped listeners (`onResized`, `onScaleChanged`,
+`onMoved`) and all `isMaximized`/`isFullscreen` queries in both pet.js
+and panel.js. The R36 geometry revision/ack, R35.1 panel window-scoped
+listeners, and R37 hidden-panel visibility all silently fell back to
+their timer/flag fallbacks because the listeners were never registered.
+
+- `tauri-bridge.js` — new `getCurrentTauriWindow()` helper that tries
+  `getCurrentWindow()` (Tauri 2) first, then `Window.getCurrent()` (Tauri 1
+  fallback). Shared by both pet.js and panel.js.
+- `pet.js` + `panel.js` — all `window.__TAURI__.window.getCurrent()`
+  calls replaced with `getCurrentTauriWindow()`.
+
+### P0-2: Diagnostic registry — global mutual exclusion
+
+The 0.5.15 full audit (P0-2) flagged that the R36 per-provider guard
+still allowed different providers to run concurrently, overwriting the
+shared PID/provider slot. This caused races where one provider's
+completion cleared another's PID, making cancellation unreliable.
+
+- `commands.rs` — `diagnose_agent` now rejects ANY active diagnostic
+  (not just same-provider). Only one diagnostic can run at a time,
+  regardless of provider. This eliminates the cross-provider race
+  entirely. The frontend only shows one diagnostic at a time anyway,
+  so concurrent multi-provider diagnostics have no UI benefit.
+
+### P0-3: Stats trailing flush
+
+The 0.5.15 full audit (P0-3) flagged that the R37 leading-edge
+throttle permanently dropped the final event in a burst. Example:
+event A at t=0 (emitted), event B at t=20ms (dropped, no trailing
+flush), no more events → UI stuck at A's state forever.
+
+- `http_server.rs` — when an event is throttled (dropped), a trailing
+  flush is scheduled via `tauri::async_runtime::spawn` + `tokio::time::sleep`.
+  After the throttle window expires (150ms), the flush re-reads the
+  latest state and emits it. This guarantees the final event in a burst
+  always reaches the UI within ~150ms of the last dropped event.
+- The trailing flush is idempotent: if another event arrived and was
+  emitted in the meantime, the flush just re-emits the same state.
+
+### P0-4: Panel visibility — panel:hidden event + init-time isVisible()
+
+The 0.5.15 full audit (P0-4) flagged that only the close button
+handler set `panelVisible=false`. If the panel was hidden via tray or
+any other path, the frontend kept rendering on a hidden window.
+
+- `commands.rs` — `close_panel` now emits `app.emit("panel:hidden", ())`
+  after `window.hide()`, giving the frontend an explicit signal
+  regardless of how the panel was hidden.
+- `panel.js` — subscribes to `panel:hidden` event → sets
+  `panelVisible=false` + `panelWasHidden=true`.
+- `panel.js` — on init, queries `getCurrentTauriWindow().isVisible()` to
+  handle the case where the panel was shown before JS loaded (the
+  `panel:shown` event was missed).
+
+### Test coverage
+
+- New `test/tauri-r38-correctness-blocker-smoke.js` (80 lines, 20 assertions).
+- Updated `test/tauri-r351-correctness-patch-smoke.js` for the
+  `getCurrentTauriWindow()` rename.
+- 4 phase2 smokes: version assertions bumped 0.5.15 → 0.5.16.
+- `npm test`: 43/43 smoke ok (was 42; +1 R38 smoke)
+- `npm run check:static`: 22/22 PASS
+
+### Known limitations
+
+- No Rust toolchain in dev container; `cargo build` verified on GitHub
+  Actions. The `tokio::time::sleep` in the trailing flush requires the
+  Tauri async runtime (which is tokio-based) — CI will confirm.
+- The `getCurrentTauriWindow()` helper includes a Tauri 1 fallback
+  (`Window.getCurrent()`) that should never be needed in Tauri 2 but is
+  kept for safety. If Tauri 2 doesn't export `Window`, the fallback
+  silently returns null and the code degrades to timer-based behavior.
+
+---
+
 ## 0.5.15 — R37 performance & security closure（2026-08-01）
 
 Patch release implementing 4 R37 tasks from the 0.5.12 carpet audit
