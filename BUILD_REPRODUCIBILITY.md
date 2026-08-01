@@ -1,15 +1,15 @@
-# Build Reproducibility — RE-LLMPET 0.5.21
+# Build Reproducibility — RE-LLMPET 0.5.23
 
 ## Source Provenance
 
 | Field | Value |
 |---|---|
-| Version | 0.5.21 |
-| Release name | R40.1 carpet audit closure |
-| Source revision | `re-llmpet-0.5.21` (this package) |
+| Version | 0.5.23 |
+| Release name | R40.4 package provenance rebuild |
+| Source revision | 40-hex git commit SHA (see SOURCE_REVISION) |
 | Source date epoch | See `SOURCE_DATE_EPOCH` |
-| Upstream base | `purrfecto114-lgtm/RE-LLMPET` commit `086dae4` (0.5.18 / R39) |
-| Audit input | `RE-LLMPET-0.5.19-carpet-audit-upstream-drift-roadmap.md` |
+| Upstream base | `purrfecto114-lgtm/RE-LLMPET` commit `dbd1409` (0.5.21 / R40.2) |
+| Audit input | `RE-LLMPET-0.5.22-package-regression-audit-roadmap.md` |
 | Build date | 2026-08-01 |
 
 ## How to Build

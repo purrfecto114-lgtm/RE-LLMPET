@@ -27,3 +27,8 @@ assets/_orig_mascot/
 .DS_Store
 *.log
 npm-debug.log*
+
+# R40.4: Environment files must never be committed
+.env
+.env.*
+!.env.example

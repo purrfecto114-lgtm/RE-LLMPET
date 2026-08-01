@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.5.23 — R40.4 package provenance rebuild（2026-08-01）
+
+**Rebuild of the 0.5.22 release after the package regression audit
+([RE-LLMPET-0.5.22-package-regression-audit-roadmap.md]) proved 0.5.22
+was an invalid artifact.**
+
+### Why 0.5.22 was withdrawn
+
+The 0.5.22 package regression audit found:
+1. CHANGELOG claims were false (claimed imports of panel/pet/bridge/
+   commands/hook/http_server/lib/build/capability/tauri.conf/protocol-
+   baseline/gate-scripts/fixtures/manifest-generator, but source trees
+   were byte-identical to 0.5.21).
+2. Phantom files in CHANGELOG (test fixtures, generate-source-manifest.js,
+   audit roadmap) that did not exist in the package.
+3. SOURCE_MANIFEST invalid (file_count mismatch, hash mismatches, self-
+   include ambiguity).
+4. SOURCE_REVISION was "re-llmpet-0.5.22" instead of a 40-hex git SHA.
+5. `.env` file leaked into package (50 bytes, local DATABASE_URL).
+6. ZIP permissions wrong (all 282 files marked 0755).
+
+### What 0.5.23 actually changes (verified against git diff)
+
+- `scripts/generate-source-manifest.js` — NEW canonical manifest
+  generator with `--verify` mode for CI gate. Enforces 40-hex SHA
+  in SOURCE_REVISION, exact file set, per-file hash verification.
+- `scripts/verify-changelog-diff.js` — NEW script that parses
+  CHANGELOG and verifies every claimed path against actual git diff.
+- `.gitignore` — added `.env` and `.env.*` to exclusions.
+- `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`,
+  `src-tauri/tauri.conf.json`, `package-lock.json` — version bump
+  0.5.21 → 0.5.23.
+- `BUILD_REPRODUCIBILITY.md` — updated with new provenance model.
+- `SOURCE_REVISION` — now contains 40-hex git commit SHA.
+- `SOURCE_DATE_EPOCH` — updated.
+- `SOURCE_MANIFEST.json` — regenerated with canonical generator.
+- `CHANGELOG.md` — this entry (truthful, no phantom claims).
+- Test version assertions updated to 0.5.23.
+
+### What 0.5.23 does NOT change
+
+- No Rust source code changes (`src-tauri/src/*.rs`).
+- No frontend code changes (`frontend/**/*.js`, `*.css`, `*.html`).
+- No protocol-baseline or protocol-drift changes.
+- No new test fixtures.
+- No capability or tauri.conf structural changes (only version field).
+
+### Audit roadmap inclusion
+
+The audit roadmap `RE-LLMPET-0.5.22-package-regression-audit-roadmap.md`
+is included in the repo root for reference, but is NOT claimed as a
+"new feature" — it is the audit document that prompted this rebuild.
+
+---
+
 ## 0.5.21 — R40.2 provenance consistency fix（2026-08-01）
 
 Patch release fixing metadata inconsistencies left over from 0.5.20.

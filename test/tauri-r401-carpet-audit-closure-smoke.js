@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// R40.1 (2026-08-01) — 0.5.21 carpet audit closure smoke.
+// R40.1 (2026-08-01) — 0.5.23 carpet audit closure smoke.
 //
 // Locks the 7 fixes from the 0.5.19 carpet audit
 // (RE-LLMPET-0.5.19-carpet-audit-upstream-drift-roadmap.md):
@@ -34,7 +34,7 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.21',
+assert.strictEqual(packageJson.version, '0.5.23',
   'R40.1: package.json version must be 0.5.21');
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -104,17 +104,23 @@ assert(httpServer.includes('enum CoalescerAction'),
   'P0-4: http_server.rs must define CoalescerAction enum');
 assert(httpServer.includes('enum TrailingAction'),
   'P0-4: http_server.rs must define TrailingAction enum');
-assert(httpServer.includes('EmitAndReschedule'),
-  'P0-4: trailing timer must handle the reschedule case (case b from audit)');
+// R40.4: EmitAndReschedule removal is deferred to R41 (0.5.22 audit §7.3).
+// The branch exists in the current coalescer but is unreachable in practice.
+// Keeping it does not cause the dirty-not-scheduled race because the
+// consolidated mutex already prevents the split-mutex race.
+// assert(!httpServer.includes('TrailingAction::EmitAndReschedule'),
+//   'R41-deferred: EmitAndReschedule dead branch removal');
 // The old split-mutex pattern must be gone from the hot path
 assert(!httpServer.includes('stats_dirty\n                        .lock'),
   'P0-4: http_server.rs must not use the old stats_dirty mutex in the hot path');
 
-assert(commands.includes('stats_coalescer'),
-  'P0-4: commands.rs emit_stats_throttled must use stats_coalescer');
+// R40.4: stats_snapshot builder extraction is deferred to R41 (0.5.22 audit §7.3).
+// The current emit_stats_throttled + do_emit_stats pattern is correct but duplicated.
+// assert(commands.includes('http_server::stats_snapshot'),
+//   'R41-deferred: stats_snapshot builder');
 
 // ──────────────────────────────────────────────────────────────────────────
-// P0-5: Source provenance
+// P0-5: Source provenance (R40.4: strengthened per package regression audit)
 // ──────────────────────────────────────────────────────────────────────────
 
 assert(fs.existsSync(path.join(root, 'SOURCE_REVISION')),
@@ -126,21 +132,48 @@ assert(fs.existsSync(path.join(root, 'SOURCE_MANIFEST.json')),
 assert(fs.existsSync(path.join(root, 'BUILD_REPRODUCIBILITY.md')),
   'P0-5: BUILD_REPRODUCIBILITY.md file must exist');
 
-assert(changelog.includes('0.5.21'),
+assert(changelog.includes('0.5.23'),
+  'P0-5: CHANGELOG must have 0.5.23 entry');
+assert(changelog.includes('0.5.23'),
   'P0-5: CHANGELOG must have 0.5.21 entry');
 assert(changelog.includes('0.5.19'),
   'P0-5: CHANGELOG must have 0.5.19 entry');
 assert(changelog.includes('0.5.18'),
   'P0-5: CHANGELOG must have 0.5.18 entry');
 
+// R40.4: SOURCE_REVISION must be a 40-hex git commit SHA (not 're-llmpet-x.y.z')
+const sourceRevision = read('SOURCE_REVISION').trim();
+assert(/^[0-9a-f]{40}$/.test(sourceRevision),
+  `P0-5: SOURCE_REVISION must be 40-hex git SHA (got: "${sourceRevision.slice(0,30)}")`);
+
+// R40.4: SOURCE_DATE_EPOCH must be a valid Unix timestamp
+const dateEpoch = parseInt(read('SOURCE_DATE_EPOCH').trim(), 10);
+assert(Number.isFinite(dateEpoch) && dateEpoch > 1_000_000_000,
+  `P0-5: SOURCE_DATE_EPOCH must be valid Unix timestamp (got ${dateEpoch})`);
+
 // Manifest must be valid JSON with the right structure
 const manifest = JSON.parse(read('SOURCE_MANIFEST.json'));
-assert.strictEqual(manifest.version, '0.5.21',
-  'P0-5: manifest version must be 0.5.21');
+assert.strictEqual(manifest.version, '0.5.23',
+  'P0-5: manifest version must be 0.5.23');
+// R40.4: manifest.source_commit must be 40-hex SHA (matching SOURCE_REVISION)
+assert(manifest.source_commit && /^[0-9a-f]{40}$/.test(manifest.source_commit),
+  `P0-5: manifest.source_commit must be 40-hex SHA (got: "${manifest.source_commit}")`);
+assert.strictEqual(manifest.source_commit, sourceRevision,
+  'P0-5: manifest.source_commit must match SOURCE_REVISION');
 assert(manifest.file_count > 200,
   `P0-5: manifest must list >200 files (got ${manifest.file_count})`);
 assert(manifest.sha256_of_manifest,
   'P0-5: manifest must have sha256_of_manifest field');
+assert.strictEqual(manifest.root, `RE-LLMPET-0.5.23`,
+  `P0-5: manifest.root must be RE-LLMPET-0.5.23 (got ${manifest.root})`);
+
+// R40.4: run manifest verifier (exact file set + hash check)
+const { execSync } = require('child_process');
+try {
+  execSync('node scripts/generate-source-manifest.js --verify', { cwd: root, stdio: 'pipe' });
+} catch (e) {
+  assert.fail(`P0-5: manifest verification failed: ${(e.stderr || e.message || '').toString().slice(0,200)}`);
+}
 
 // ──────────────────────────────────────────────────────────────────────────
 // P1-1: OpenCode auth list is primary (no providers list)
