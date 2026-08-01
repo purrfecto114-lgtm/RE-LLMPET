@@ -1,5 +1,146 @@
 # Changelog
 
+## 0.5.14 — R36 trust & interaction lifecycle（2026-07-31）
+
+Patch release implementing 5 R36 tasks from the 0.5.12 carpet audit
+roadmap §14. Focus: complete correctness, trust, and interaction
+lifecycle closures that R35.x started but couldn't finish in a single
+iteration.
+
+### R36-1: DiagnosticRegistry — single active job per provider
+
+The 0.5.12 carpet audit P0-4 noted that repeated "rerun" clicks could
+spawn multiple blocking jobs + CLI children + reader threads
+simultaneously for the same provider. R35.2 added `cancel_diagnostic`
++ process-tree kill, but had no guard against duplicate concurrent
+runs.
+
+- `model.rs` — new `active_diagnostic_provider: Mutex<Option<String>>`
+  field tracks which provider is currently being diagnosed.
+- `commands.rs` — `diagnose_agent` now checks: if
+  `active_diagnostic_provider == Some(provider)` and a new request
+  for the SAME provider arrives, returns `Err("... diagnostic already
+  in progress")` immediately without spawning. Different providers can
+  still run concurrently.
+- `cancel_diagnostic` and `diagnose_agent` (on completion) both clear
+  the provider flag so the same provider can be re-diagnosed.
+
+### R36-2: geometry revision/ack — onResized replaces 260ms timer
+
+The 0.5.12 carpet audit P1-1 flagged that `geometryBusy` was cleared
+by a fixed 260ms timer — a guess that's too short on slow machines
+(HUD opens before resize settles) and too long on fast machines (wasted
+wait). Verified via web-search: Tauri 2's `getCurrentWindow().onResized(cb)`
+fires when the OS actually applied the resize.
+
+- `pet.js` — new `geometryRevision` counter + `expectedPetSize` +
+  `geometryAckUnlisten`. `markGeometryBusy(expectedSize)` now registers
+  a one-shot `onResized` listener. When the window's inner size matches
+  the expected size (within 2px tolerance), `clearGeometryBusy` is
+  called immediately — no waiting for the timer.
+- The 260ms timer is kept as a FALLBACK for cases where `onResized`
+  never fires (Rust rejected the size, window hidden, OS didn't emit).
+- Overlapping resizes are handled by revision: a new `markGeometryBusy`
+  call supersedes the previous listener (unlistens it, increments
+  revision, registers a new one).
+
+### R36-3: hook verify-only on startup (no auto-modify external configs)
+
+The 0.5.12 carpet audit P1-3 flagged that startup called
+`sync_enabled` which INSTALLS/UNINSTALLS hooks into external provider
+configs (Claude's settings.json, CodeWhale's config.toml, etc.)
+without explicit user consent. This is a trust boundary issue.
+
+- `hook_install.rs` — new `verify_enabled(runtime, enabled)` function
+  that reads hook status WITHOUT writing anything. New
+  `is_hook_installed(id)` predicate checks each provider's config file
+  for the Octopus marker. Reports `"missing"` state (not `"error"`)
+  for enabled-but-uninstalled providers so the UI can prompt "click to
+  install" instead of silently installing.
+- `lib.rs` — startup now calls `verify_enabled` instead of
+  `sync_enabled`. Hook installation only happens when the user
+  explicitly calls `set_providers` (which triggers `resync_current`).
+- The `sync_enabled` function is preserved (still used by
+  `resync_current` for explicit installs) but no longer called at
+  startup.
+
+### R36-4: log rotation (5 files × 2 MiB)
+
+The 0.5.12 carpet audit P1-5 flagged that `write_log` appends
+indefinitely with no size limit, rotation, or retention. A long-running
+session could fill disk.
+
+- `model.rs` — `write_log` now checks the file size before each
+  append. If it exceeds 2 MiB, `rotate_log` is called:
+  `octopus.log → octopus.1.log → ... → octopus.4.log` (oldest deleted).
+  5 files × 2 MiB = max ~10 MiB total.
+- `rotate_log(path, max_files)` helper: deletes the oldest file,
+  shifts each file up by one, renames current to `.1.log`. Best-effort
+  — if rotation fails (permissions, disk full), the append still
+  proceeds.
+
+### R36-5: prefers-reduced-motion CSS
+
+The 0.5.12 carpet audit §9.1 flagged that GIF, jump, attn, bob, pulse,
+and confetti animations don't respect the system reduced-motion
+setting. Users with vestibular disorders need a way to disable
+animations.
+
+- `pet.css` + `panel.css` — new `@media (prefers-reduced-motion:
+  reduce)` block that sets `animation-duration: 0.001s !important` and
+  `transition-duration: 0.001s !important` on all elements. This
+  effectively disables all CSS animations (bob, attn, happyJump,
+  errShake, breathe, badgePulse, slideIn, etc.) when the OS reports
+  reduced motion.
+- GIF-based cat skin animations are NOT affected by CSS (they're image
+  animations). Swapping GIFs for static frames is deferred to a future
+  release; the CSS fix covers all transform/opacity animations.
+
+### Test coverage
+
+- New `test/tauri-r36-lifecycle-smoke.js` (130 lines, 30 assertions)
+  locks all 5 R36 fixes.
+- Updated 2 existing smokes:
+  - `tauri-native-core-smoke.js` — accept `verify_enabled` OR
+    `sync_enabled` in lib.rs startup
+  - `tauri-provider-phase2-smoke.js` — same
+- 4 phase2 smokes: version assertions bumped 0.5.13 → 0.5.14.
+- `npm test`: 41/41 smoke ok (was 40; +1 R36 smoke)
+- `npm run check:static`: 22/22 PASS
+- Rust brace balance: commands.rs 497/497+1828/1828+159/159,
+  model.rs 335/335+1379/1379+54/54, hook_install.rs 214/214+595/595+40/40
+
+### What's NOT in this release (deferred to R37 / 0.5.15)
+
+Per the roadmap §14, the following remain deferred:
+- Full Provider six-layer state model (enabled/installed/healthy/
+  running/focused/recent) — R36 only added the diagnostic provider
+  guard
+- Hook plan/diff/backup/apply/verify/rollback lifecycle
+- Unified atomic writer for transcript/metering/http_server
+- All config mutations await + rollback (language/mode/skin/budget/
+  currency/mute still fire-and-forget)
+- Unified dialog accessibility (focus trap, Tab cycling, focus restore)
+- Full i18n + brand unification
+- Panel 400-420px single-column responsive breakpoint
+
+### Known limitations
+
+- No Rust toolchain in dev container; `cargo build` verified on GitHub
+  Actions.
+- `is_hook_installed` checks for the Octopus marker string in each
+  provider's config file. If the user manually edited the config and
+  removed the marker (but the hook still works via a different
+  mechanism), `verify_enabled` will report "missing" — a false
+  positive. This is acceptable: the user can re-save providers to
+  re-install.
+- The geometry `onResized` ack uses `window.innerWidth/innerHeight`
+  which are CSS pixels. Rust's `set_pet_size` takes logical pixels
+  too, so the comparison is in the same unit. A 2px tolerance handles
+  sub-pixel rounding.
+
+---
+
 ## 0.5.13 — R35.2 correctness patch（2026-07-31）
 
 Patch release closing 5 P0 issues from the `RE-LLMPET-0.5.12-carpet-audit-roadmap.md`.

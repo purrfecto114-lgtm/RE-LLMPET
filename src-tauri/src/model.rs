@@ -242,6 +242,18 @@ pub struct Runtime {
     // pending); this is a single-slot registry, not a full DiagnosticRegistry
     // (which is R36).
     pub active_diagnostic_pid: Mutex<Option<u32>>,
+    // R36 (2026-07-31): the provider currently being diagnosed. Used by
+    // `diagnose_agent` to reject duplicate concurrent runs for the SAME
+    // provider — the 0.5.12 carpet audit P0-4 noted "用户反复点击'重新
+    // 诊断'可能同时创建多组 blocking jobs / CLI child / reader threads".
+    // The frontend's `diagnosticGeneration` already suppresses stale
+    // results, but the Rust side had no guard against duplicate spawns.
+    // Now if `active_diagnostic_provider == Some("claude")` and a new
+    // `diagnose_agent("claude")` arrives, we return Err("busy") immediately
+    // without spawning. Different providers can run concurrently (the
+    // single PID slot is shared, but that's acceptable since the frontend
+    // only shows one diagnostic at a time).
+    pub active_diagnostic_provider: Mutex<Option<String>>,
     pub app_dir: PathBuf,
     pub config_path: PathBuf,
     pub runtime_path: PathBuf,
@@ -288,6 +300,7 @@ impl AppState {
                 })),
                 price_refresh_tx: Mutex::new(None),
                 active_diagnostic_pid: Mutex::new(None),
+                active_diagnostic_provider: Mutex::new(None),
                 app_dir,
                 config_path,
                 runtime_path,
@@ -1233,6 +1246,20 @@ impl Runtime {
             .take(4096)
             .collect();
         let line = format!("{} [{}] {}\n", now_ms(), safe_tag, safe_message);
+        // R36 (2026-07-31): log rotation. The 0.5.12 carpet audit P1-5
+        // flagged that write_log appends indefinitely with no size limit,
+        // rotation, or retention. A long-running session could fill disk.
+        // Now we check the file size before each append; if it exceeds
+        // 2 MiB, we rotate: octopus.log → octopus.1.log → ... → octopus.4.log
+        // (5 files total, max ~10 MiB). The rotation is best-effort — if
+        // it fails (permissions, disk full), we still try to append.
+        const MAX_LOG_SIZE: u64 = 2 * 1024 * 1024; // 2 MiB
+        const MAX_LOG_FILES: u8 = 5;
+        if let Ok(metadata) = fs::metadata(&self.log_path) {
+            if metadata.len() >= MAX_LOG_SIZE {
+                let _ = rotate_log(&self.log_path, MAX_LOG_FILES);
+            }
+        }
         let _ = fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -1509,6 +1536,34 @@ pub fn home_dir() -> PathBuf {
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+}
+
+/// R36 (2026-07-31): rotate a log file when it exceeds the size limit.
+/// Renames `path` → `path.1.log`, `path.1.log` → `path.2.log`, etc.,
+/// up to `max_files`. The oldest file (`path.{max_files-1}.log`) is
+/// deleted. Best-effort: errors are ignored (the caller falls back to
+/// appending to the original file).
+///
+/// Example with max_files=5 and path="octopus.log":
+///   octopus.4.log → deleted
+///   octopus.3.log → octopus.4.log
+///   octopus.2.log → octopus.3.log
+///   octopus.1.log → octopus.2.log
+///   octopus.log   → octopus.1.log
+/// Then octopus.log is recreated by the caller's OpenOptions::create(true).
+fn rotate_log(path: &Path, max_files: u8) -> std::io::Result<()> {
+    // Delete the oldest file if it exists.
+    let oldest = path.with_extension(format!("{}.log", max_files - 1));
+    let _ = fs::remove_file(&oldest);
+    // Shift each file up by one, starting from the second-oldest.
+    for i in (1..max_files - 1).rev() {
+        let from = path.with_extension(format!("{}.log", i));
+        let to = path.with_extension(format!("{}.log", i + 1));
+        let _ = fs::rename(&from, &to);
+    }
+    // Rename the current log to .1.log.
+    let first = path.with_extension("1.log");
+    fs::rename(path, &first)
 }
 
 pub fn secure_create_dir(path: &Path) -> std::io::Result<()> {

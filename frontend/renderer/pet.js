@@ -324,32 +324,96 @@ let petSizeChain = Promise.resolve();
 // "桌宠跳动" the user observed. Initialized to null so the first call always
 // goes through.
 let lastSentPetSize = null;
-// R35: geometryBusy is true for ~250ms after each set_pet_size call. During
-// that window we skip openRadial() / fitPopup() so the HUD doesn't anchor
-// to a half-resized window. The audit's P0-1 traced the "HUD 错位" bug to
-// exactly this: clicking during the resize animation anchored the radial
-// menu at the intermediate size.
+// R36 (2026-07-31): geometry revision/ack — replaces the fixed 260ms timer
+// as the PRIMARY clear mechanism for geometryBusy. The 0.5.12 carpet audit
+// P1-1 flagged that 260ms is a guess: slow machines / cross-monitor / high
+// DPI may exceed it (HUD opens before resize settles), fast machines waste
+// time waiting. Now we register a window-scoped onResized listener that
+// fires when the OS actually applied the resize. When the reported size
+// matches what we sent, we clear geometryBusy immediately. The 260ms timer
+// is kept as a FALLBACK in case onResized never fires (e.g. Rust rejected
+// the size, or the window was hidden).
+//
+// Verified via web-search of Tauri 2 docs: getCurrentWindow().onResized(cb)
+// returns a Promise<UnlistenFn> that fires ONLY for the current window.
+// The callback receives no payload (Tauri 2 limitation), so we read the
+// current size via window.innerWidth/innerHeight and compare to expected.
+let geometryRevision = 0;
+let expectedPetSize = null;
+let geometryAckUnlisten = null;
 let geometryBusy = false;
 let geometryBusyTimer = 0;
-function markGeometryBusy() {
+function markGeometryBusy(expectedSize) {
   geometryBusy = true;
+  // R36: store the expected size so onResized can confirm it matched.
+  expectedPetSize = expectedSize || null;
+  geometryRevision += 1;
+  const myRevision = geometryRevision;
   if (geometryBusyTimer) clearTimeout(geometryBusyTimer);
+  // R36: register a one-shot onResized listener for this revision.
+  // If a previous listener exists (overlapping resize), unlisten it first.
+  if (geometryAckUnlisten) {
+    try { geometryAckUnlisten(); } catch {}
+    geometryAckUnlisten = null;
+  }
+  const w = (window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrent)
+    ? window.__TAURI__.window.getCurrent() : null;
+  if (w && typeof w.onResized === 'function' && expectedPetSize) {
+    try {
+      Promise.resolve(w.onResized(() => {
+        // Only handle if this is still the current revision.
+        if (myRevision !== geometryRevision) return;
+        // Check if the window's inner size matches what we sent (within 2px
+        // tolerance for sub-pixel rounding). innerWidth/Height are CSS px.
+        const actualW = Math.round(window.innerWidth || 0);
+        const actualH = Math.round(window.innerHeight || 0);
+        if (expectedPetSize
+            && Math.abs(actualW - expectedPetSize[0]) <= 2
+            && Math.abs(actualH - expectedPetSize[1]) <= 2) {
+          clearGeometryBusy(myRevision);
+        }
+      })).then((off) => {
+        // If a newer revision superseded us, unlisten immediately.
+        if (myRevision !== geometryRevision && typeof off === 'function') {
+          try { off(); } catch {}
+        } else if (typeof off === 'function') {
+          geometryAckUnlisten = off;
+        }
+      }).catch(() => {});
+    } catch {}
+  }
+  // Fallback timer: clear busy after 260ms even if onResized didn't fire.
+  // This handles the case where Rust rejected the size, the window is
+  // hidden, or the OS didn't emit a resize event. The fallback ensures we
+  // never permanently lock openRadial().
   geometryBusyTimer = setTimeout(() => {
-    geometryBusy = false;
-    geometryBusyTimer = 0;
-    // After the busy window closes, re-measure and re-emit visual bounds so
-    // the native hit-test region snaps to the final size.
-    requestAnimationFrame(reportPetVisualBounds);
-    // R35.1: if openRadial() was deferred during the busy window, open it
-    // exactly once now. The flag is cleared here and in closeRadial/blur/
-    // drag-start so a stale intent can't reopen the HUD after dismissal.
-    if (pendingRadialOpen) {
-      pendingRadialOpen = false;
-      if (!radialOpen && !todoPopOpen && !sessListOpen) {
-        openRadial();
-      }
+    if (myRevision === geometryRevision) {
+      clearGeometryBusy(myRevision);
     }
   }, 260);
+}
+function clearGeometryBusy(myRevision) {
+  if (myRevision !== geometryRevision) return;
+  geometryBusy = false;
+  geometryBusyTimer = 0;
+  expectedPetSize = null;
+  // R36: unlisten the onResized listener — we got our ack (or timed out).
+  if (geometryAckUnlisten) {
+    try { geometryAckUnlisten(); } catch {}
+    geometryAckUnlisten = null;
+  }
+  // After the busy window closes, re-measure and re-emit visual bounds so
+  // the native hit-test region snaps to the final size.
+  requestAnimationFrame(reportPetVisualBounds);
+  // R35.1: if openRadial() was deferred during the busy window, open it
+  // exactly once now. The flag is cleared here and in closeRadial/blur/
+  // drag-start so a stale intent can't reopen the HUD after dismissal.
+  if (pendingRadialOpen) {
+    pendingRadialOpen = false;
+    if (!radialOpen && !todoPopOpen && !sessListOpen) {
+      openRadial();
+    }
+  }
 }
 function setRequestedPetSize(width, height) {
   let w = Number(width) || 0;
@@ -374,9 +438,9 @@ function setRequestedPetSize(width, height) {
       return;
     }
     lastSentPetSize = size;
-    // R35: mark geometry busy so openRadial()/fitPopup() can defer their
-    // anchoring until the resize settles.
-    markGeometryBusy();
+    // R36: mark geometry busy with the expected size so onResized can
+    // confirm the OS actually applied it. The 260ms timer is a fallback.
+    markGeometryBusy(size);
     // Tauri invoke calls are asynchronous. Serialize resize requests so a fast
     // open/close sequence cannot apply an older popup size after a newer reset.
     petSizeChain = petSizeChain

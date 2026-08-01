@@ -75,17 +75,25 @@ pub fn run() {
                         &format!("Tauri core ready on port {}", server.port),
                     );
                     let config = state.runtime.config();
-                    let statuses = hook_install::sync_enabled(
-                        &state.runtime,
-                        server.port,
-                        &server.token,
-                        config.perm_hook,
-                        &config.providers,
-                    );
-                    for status in statuses.iter().filter(|status| status.state == "error") {
+                    // R36 (2026-07-31): startup now uses verify_enabled
+                    // (read-only) instead of sync_enabled (which installs/
+                    // uninstalls hooks into external provider configs).
+                    // The 0.5.12 carpet audit P1-3 flagged that auto-
+                    // modifying external configs on every launch is a
+                    // trust boundary issue. Now startup only CHECKS hook
+                    // status and reports drift; the user must explicitly
+                    // call set_providers (→ resync_current) to install.
+                    let statuses = hook_install::verify_enabled(&state.runtime, &config.providers);
+                    for status in statuses
+                        .iter()
+                        .filter(|status| status.state == "missing" || status.state == "error")
+                    {
                         state.runtime.write_log(
                             "hooks",
-                            &format!("{} hook sync failed: {}", status.id, status.message),
+                            &format!(
+                                "{} hook drift at startup: {} ({})",
+                                status.id, status.state, status.message
+                            ),
                         );
                     }
                 }

@@ -413,3 +413,16 @@ body.window-fullscreen #card {
   flex: 1 1 auto;
   word-break: break-word;
 }
+
+/* ====================================================================
+   R36 (2026-07-31): prefers-reduced-motion — accessibility.
+   Disable all CSS animations and transitions when the OS reports
+   prefers-reduced-motion: reduce. Covers badgePulse, slideIn, etc.
+   ==================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001s !important;
+  }
+}

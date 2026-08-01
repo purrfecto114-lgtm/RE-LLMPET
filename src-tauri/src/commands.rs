@@ -1848,6 +1848,28 @@ fn executable_kind(path: &Path) -> &'static str {
 // result suppression; R35.2 adds real process-tree kill on cancel.
 #[tauri::command]
 pub async fn diagnose_agent(provider: String, state: State<'_, AppState>) -> Result<Value, String> {
+    // R36 (2026-07-31): reject duplicate concurrent diagnostics for the SAME
+    // provider. The 0.5.12 carpet audit P0-4 noted that repeated "rerun"
+    // clicks could spawn multiple blocking jobs + CLI children + reader
+    // threads simultaneously. The frontend's diagnosticGeneration suppresses
+    // stale results, but the Rust side had no guard. Now we check
+    // active_diagnostic_provider; if it matches, return Err("busy") without
+    // spawning. Different providers can still run concurrently.
+    {
+        let mut provider_guard = state
+            .runtime
+            .active_diagnostic_provider
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(active) = provider_guard.as_ref() {
+            if active == &provider {
+                return Err(format!(
+                    "{provider} diagnostic already in progress; cancel it first or wait for completion"
+                ));
+            }
+        }
+        *provider_guard = Some(provider.clone());
+    }
     // R35.2: clear any stale PID from a previous diagnostic, then run.
     // The PID is updated by run_probe_capture_with_pid before each probe.
     {
@@ -1859,8 +1881,9 @@ pub async fn diagnose_agent(provider: String, state: State<'_, AppState>) -> Res
         *pid_guard = None;
     }
     let runtime = state.runtime.clone();
+    let provider_for_closure = provider.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        diagnose_agent_sync(provider, &|pid| {
+        diagnose_agent_sync(provider_for_closure, &|pid| {
             let mut pid_guard = runtime
                 .active_diagnostic_pid
                 .lock()
@@ -1879,6 +1902,15 @@ pub async fn diagnose_agent(provider: String, state: State<'_, AppState>) -> Res
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         *pid_guard = None;
+    }
+    // R36: clear the active provider so the same provider can be diagnosed again.
+    {
+        let mut provider_guard = state
+            .runtime
+            .active_diagnostic_provider
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *provider_guard = None;
     }
     result
 }
@@ -1915,6 +1947,16 @@ pub async fn cancel_diagnostic(state: State<'_, AppState>) -> Result<Value, Stri
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         *pid_guard = None;
+    }
+    // R36: also clear the active provider so the same provider can be
+    // re-diagnosed after cancellation.
+    {
+        let mut provider_guard = state
+            .runtime
+            .active_diagnostic_provider
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *provider_guard = None;
     }
     match kill_result {
         Ok(()) => Ok(json!({"cancelled": true, "pid": pid})),

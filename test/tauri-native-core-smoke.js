@@ -74,7 +74,10 @@ for (const needle of [
 ]) assert(installer.includes(needle), `missing Rust hook installer behavior: ${needle}`);
 
 const lib = read('src-tauri/src/lib.rs');
-assert(lib.includes('hook_install::sync_enabled'));
+// R36 (2026-07-31): startup now uses verify_enabled (read-only) instead
+// of sync_enabled (which auto-modifies external configs). Accept either.
+assert(lib.includes('hook_install::verify_enabled') || lib.includes('hook_install::sync_enabled'),
+  'startup must call hook_install::verify_enabled or sync_enabled');
 assert(lib.includes('http_server::start'));
 // R10 (2026-07-30): tray is registered via `TrayIconBuilder::with_id("main-tray")`
 // and looked up at shutdown via `tray_by_id("main-tray")`. The redundant

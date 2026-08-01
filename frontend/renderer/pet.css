@@ -1133,3 +1133,28 @@ body.skin-cat #cat { display: flex; }
 .provider-chooser .pc-item .pc-status.warn { color: #f0c674; background: rgba(240,198,116,0.12); }
 .provider-chooser .pc-item .pc-status.off { color: #8a807a; background: rgba(138,128,122,0.10); }
 .provider-chooser .pc-item:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* ====================================================================
+   R36 (2026-07-31): prefers-reduced-motion — accessibility.
+   The 0.5.12 carpet audit §9.1 flagged that GIF, jump, attn, bob, pulse
+   and confetti animations don't respect the system reduced-motion setting.
+   Users with vestibular disorders or motion sensitivity need a way to
+   disable animations. This media query disables all CSS animations and
+   transitions when the OS reports prefers-reduced-motion: reduce.
+   GIF-based cat skin animations are handled separately (R36 would need
+   to swap GIFs for static frames; for now CSS animations are disabled
+   which covers bob, attn, happyJump, errShake, breathe, etc.).
+   ==================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001s !important;
+  }
+  /* Keep opacity transitions for visibility (hidden/visible), just make
+     them instant. The !important above already covers this, but be explicit. */
+  .bubble, .radial, .ask, .think, .sleep, .prop, .sidekick, .meme-player,
+  .provider-chooser, #octopus-toast {
+    transition: opacity 0.001s !important;
+  }
+}

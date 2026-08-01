@@ -42,7 +42,8 @@ assert(!pet.includes("if (pid === 'codewhale')"), 'provider-specific renderer la
 assert(installer.includes('sync_enabled'));
 assert(installer.includes('resync_current'));
 assert(commands.includes('hook_install::resync_current'));
-assert(lib.includes('hook_install::sync_enabled'));
+// R36: startup uses verify_enabled; sync_enabled still exists in hook_install.rs.
+assert(lib.includes('hook_install::verify_enabled') || lib.includes('hook_install::sync_enabled'));
 
 // CodeWhale: current TOML shape, current maintained events and fail-safe ask.
 for (const needle of [

@@ -158,6 +158,61 @@ pub fn resync_current(runtime: &Runtime) -> Result<Vec<ProviderStatus>, String> 
     ))
 }
 
+/// R36 (2026-07-31): verify-only startup check. The 0.5.12 carpet audit
+/// P1-3 flagged that the old startup path called `sync_enabled` which
+/// INSTALLS/UNINSTALLS hooks into external provider configs (e.g. Claude's
+/// settings.json, CodeWhale's config.toml) without explicit user consent
+/// at startup. This is a trust boundary issue — the user may not want
+/// Octopus to modify external configs on every launch.
+///
+/// `verify_enabled` reads the same provider status (installed / missing /
+/// error) WITHOUT writing anything. It reports drift so the UI can show
+/// "hook missing — click to install" instead of silently installing.
+/// The user must explicitly call `set_providers` (which triggers
+/// `resync_current`) to actually install/uninstall.
+///
+/// The verify check uses the same `is_hook_installed` predicates that
+/// `install_provider` would use, so the reported state matches what a
+/// subsequent `resync_current` would produce.
+pub fn verify_enabled(runtime: &Runtime, enabled: &[String]) -> Vec<ProviderStatus> {
+    let selected: HashSet<&str> = enabled.iter().map(String::as_str).collect();
+    let mut statuses = Vec::new();
+    for id in ["claude", "codewhale", "codex", "opencode", "aider"] {
+        let is_selected = selected.contains(id);
+        let installed = is_hook_installed(id);
+        let (permission_mode, capabilities) = provider_capabilities(id);
+        let state = if !is_selected {
+            "disabled"
+        } else if installed {
+            "installed"
+        } else {
+            // R36: report "missing" state so the UI can prompt the user
+            // to install via set_providers. This is NOT an error — the
+            // user simply hasn't installed the hook yet.
+            "missing"
+        };
+        let message = if !is_selected {
+            "未启用".to_string()
+        } else if installed {
+            "Hook 已安装".to_string()
+        } else {
+            "已启用但 Hook 未安装；保存 Provider 选择或点击重试以安装".to_string()
+        };
+        let status = ProviderStatus {
+            id: id.into(),
+            installed,
+            state: state.into(),
+            message,
+            path: None,
+            permission_mode: permission_mode.into(),
+            capabilities,
+        };
+        runtime.set_provider_status(status.clone());
+        statuses.push(status);
+    }
+    statuses
+}
+
 fn install_provider(
     runtime: &Runtime,
     id: &str,
@@ -173,6 +228,54 @@ fn install_provider(
         "aider" => install_aider(runtime),
         _ => Err(format!("unknown provider: {id}")),
     }
+}
+
+/// R36 (2026-07-31): check whether a provider's hook is currently installed,
+/// WITHOUT modifying anything. Used by `verify_enabled` at startup so we
+/// don't auto-modify external provider configs (the 0.5.12 carpet audit
+/// P1-3 trust concern). Each provider has a different detection method:
+///   - claude: settings.json contains the Octopus hook block marker
+///   - codewhale: config.toml contains the CW_BEGIN marker
+///   - codex: config.toml contains the Octopus hook block marker
+///   - opencode: config file contains the OPENCODE_MARKER string
+///   - aider: .aider.conf.yml contains the AIDER_BEGIN marker
+fn is_hook_installed(id: &str) -> bool {
+    match id {
+        "claude" => {
+            // Claude hooks live in ~/.claude/settings.json under the
+            // hooks key. Check for the Octopus-owned marker.
+            let path = home_dir().join(".claude").join("settings.json");
+            file_contains(path, "octopus")
+        }
+        "codewhale" => {
+            let path = codewhale_config_path();
+            file_contains(path, CW_BEGIN)
+        }
+        "codex" => {
+            // Codex hooks live in ~/.codex/config.toml.
+            let path = home_dir().join(".codex").join("config.toml");
+            file_contains(path, "octopus")
+        }
+        "opencode" => {
+            // OpenCode plugin config — check for the marker string.
+            let path = home_dir().join(".opencode").join("config.json");
+            file_contains(path, OPENCODE_MARKER)
+        }
+        "aider" => {
+            let path = home_dir().join(".aider.conf.yml");
+            file_contains(path, AIDER_BEGIN)
+        }
+        _ => false,
+    }
+}
+
+/// Helper: read a file and check if it contains a marker string.
+/// Returns false if the file doesn't exist or can't be read (not an error —
+/// the hook simply isn't installed).
+fn file_contains(path: PathBuf, marker: &str) -> bool {
+    fs::read_to_string(&path)
+        .map(|content| content.contains(marker))
+        .unwrap_or(false)
 }
 
 fn uninstall_provider(id: &str) -> Result<PathBuf, String> {
