@@ -37,8 +37,8 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.20',
-  'R40: package.json version must be 0.5.20');
+assert.strictEqual(packageJson.version, '0.5.21',
+  'R40: package.json version must be 0.5.21');
 
 // ──────────────────────────────────────────────────────────────────────────
 // R40-1: OpenCode plugin — `session.status` must NOT map to UserPromptSubmit

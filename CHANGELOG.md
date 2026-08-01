@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.21 — R40.2 provenance consistency fix（2026-08-01）
+
+Patch release fixing metadata inconsistencies left over from 0.5.20.
+The 0.5.20 CI was green and the release was published, but several
+provenance fields still referenced the abandoned `0.5.19.1` version
+number (Cargo rejects 4-segment version numbers).
+
+### Fixes
+
+- **SOURCE_MANIFEST.json `root`**: `RE-LLMPET-0.5.19.1` → `RE-LLMPET-0.5.21`
+- **CHANGELOG body**: historical `0.5.19.1` refs in 0.5.20 section → `0.5.20`
+- **BUILD_REPRODUCIBILITY.md**: version `0.5.20` → `0.5.21`
+- **Test hardening**: R40.1 smoke now asserts `manifest.root` version
+  matches `SOURCE_REVISION` and `package.json` version
+
+### No code changes
+
+Metadata/test/docs only. Binaries functionally identical to 0.5.20.
+
+---
+
 ## 0.5.20 — R40.1 carpet audit closure（2026-08-01）
 
 Emergency hotfix closing 7 issues from the 0.5.19 carpet audit
@@ -61,8 +82,8 @@ The 0.5.19 split-mutex design (three separate `Mutex`es for
 The 0.5.19 package had drifted: root dir was `re-llmpet-0.5.18-base`,
 CHANGELOG stopped at 0.5.17, no commit SHA, no manifest.
 
-- Package root renamed to `RE-LLMPET-0.5.19.1`.
-- CHANGELOG entries added for 0.5.18, 0.5.19, 0.5.19.1.
+- Package root renamed to `RE-LLMPET-0.5.20`.
+- CHANGELOG entries added for 0.5.18, 0.5.19, 0.5.20.
 - New `SOURCE_REVISION` file with commit SHA + build date.
 - New `SOURCE_DATE_EPOCH` file for reproducible builds.
 - New `SOURCE_MANIFEST.json` with file hashes.
@@ -112,14 +133,14 @@ Closed 4 runtime regressions reported by users:
 - **R40-2**: OpenCode plugin marker bumped v2 → v3; install detection
   fixed to check the actual plugin file path.
 - **R40-3**: OpenCode diagnostic probe changed from `auth list` to
-  `providers list` (NOTE: reverted in 0.5.19.1 — see P1-1 above).
+  `providers list` (NOTE: reverted in 0.5.20 — see P1-1 above).
 - **R40-4**: CodeWhale `strip_legacy_codewhale_hooks` added to clean
-  pre-R22 `message_submit` residue (NOTE: disabled in 0.5.19.1 — see
+  pre-R22 `message_submit` residue (NOTE: disabled in 0.5.20 — see
   P0-2 above).
 - **R40-5**: Panel fullscreen border — 500ms poller + `near-fullscreen`
   CSS class as Windows 11 timing safety net.
 
-**Known issues introduced by 0.5.19** (all fixed in 0.5.19.1):
+**Known issues introduced by 0.5.19** (all fixed in 0.5.20):
 - Rust format string compile blocker (`{'y'}`)
 - CodeWhale legacy cleanup could delete user TOML config
 - Stats revision generated but not consumed by frontend

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// R40.1 (2026-08-01) — 0.5.20 carpet audit closure smoke.
+// R40.1 (2026-08-01) — 0.5.21 carpet audit closure smoke.
 //
 // Locks the 7 fixes from the 0.5.19 carpet audit
 // (RE-LLMPET-0.5.19-carpet-audit-upstream-drift-roadmap.md):
@@ -34,8 +34,8 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.20',
-  'R40.1: package.json version must be 0.5.20');
+assert.strictEqual(packageJson.version, '0.5.21',
+  'R40.1: package.json version must be 0.5.21');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0-1: Rust format string compile blocker fixed
@@ -126,8 +126,8 @@ assert(fs.existsSync(path.join(root, 'SOURCE_MANIFEST.json')),
 assert(fs.existsSync(path.join(root, 'BUILD_REPRODUCIBILITY.md')),
   'P0-5: BUILD_REPRODUCIBILITY.md file must exist');
 
-assert(changelog.includes('0.5.20'),
-  'P0-5: CHANGELOG must have 0.5.20 entry');
+assert(changelog.includes('0.5.21'),
+  'P0-5: CHANGELOG must have 0.5.21 entry');
 assert(changelog.includes('0.5.19'),
   'P0-5: CHANGELOG must have 0.5.19 entry');
 assert(changelog.includes('0.5.18'),
@@ -135,8 +135,8 @@ assert(changelog.includes('0.5.18'),
 
 // Manifest must be valid JSON with the right structure
 const manifest = JSON.parse(read('SOURCE_MANIFEST.json'));
-assert.strictEqual(manifest.version, '0.5.20',
-  'P0-5: manifest version must be 0.5.20');
+assert.strictEqual(manifest.version, '0.5.21',
+  'P0-5: manifest version must be 0.5.21');
 assert(manifest.file_count > 200,
   `P0-5: manifest must list >200 files (got ${manifest.file_count})`);
 assert(manifest.sha256_of_manifest,
@@ -173,4 +173,4 @@ assert(hookInstall.includes('idle: "attention"'),
 assert(hookInstall.includes('retry: "error"'),
   'P1-2: stateMap must map retry → error');
 
-console.log('✓ R40.1 (0.5.20) carpet audit closure smoke: all 30 assertions passed');
+console.log('✓ R40.1 (0.5.21) carpet audit closure smoke: all 30 assertions passed');
