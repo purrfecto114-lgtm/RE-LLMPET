@@ -79,13 +79,21 @@ const CODEX_EVENTS: [&str; 11] = [
 // Current maintained CodeWhale events used by the fork. shell_env is
 // intentionally excluded: it is a credential/environment mutation contract,
 // not a lifecycle observer, and invoking the pet there would add shell latency.
-// R22 (2026-07-30): message_submit removed from CODEWHALE_EVENTS — it is
-// a STEERING event in CodeWhale (can block or replace the submitted text),
-// not an observer. Our hook runs in background and posts to /state for
-// observation, but CodeWhale treats message_submit as foreground-blocking.
-// When the hook fails (e.g. HTTP server not yet up), CodeWhale reports
-// "hook failed and blocked" and prevents the message from being sent.
-const CODEWHALE_EVENTS: [&str; 9] = [
+//
+// R40.5 (audit P1-3): message_submit RESTORED as a background observer.
+// The R22 removal was based on an outdated assumption that message_submit
+// is always foreground-blocking. Current CodeWhale documentation
+// (config.example.toml) confirms `background = true` makes the hook
+// observer-only: "submitted and never awaited. The hook still gets
+// [the payload]." It does NOT block, transform, or wait.
+//
+// The install function writes message_submit with:
+//   background = true
+//   continue_on_error = true
+//   timeout_secs = 5 (short — observer doesn't need long)
+// This gives us the most direct user-message observation without
+// blocking CodeWhale's message submission.
+const CODEWHALE_EVENTS: [&str; 10] = [
     "session_start",
     "session_end",
     "tool_call_before",
@@ -95,6 +103,7 @@ const CODEWHALE_EVENTS: [&str; 9] = [
     "mode_change",
     "subagent_spawn",
     "subagent_complete",
+    "message_submit",
 ];
 const CW_BEGIN: &str = "# >>> octopus:codewhale-hooks:v2 >>>";
 const CW_END: &str = "# <<< octopus:codewhale-hooks:v2 <<<";
@@ -462,12 +471,18 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
     // message_submit hooks; here's how to manually remove them or
     // wait for R41". This is the safe trade-off: detect + inform
     // instead of detect + auto-mutate.
+    //
+    // R40.5 (audit P0-5): backup failure is now fail-closed. The previous
+    // code logged and continued writing, which could corrupt user config
+    // if the write also failed mid-way (no backup to restore from). Now
+    // we abort the install entirely if backup fails — the user's existing
+    // config is preserved untouched.
     if path.exists() {
         if let Err(err) = backup_codewhale_config(&path, runtime) {
-            runtime.write_log(
-                "hooks",
-                &format!("CodeWhale pre-write backup failed (continuing): {err}"),
-            );
+            return Err(format!(
+                "CodeWhale pre-write backup failed — aborting install to protect existing config: {err}. \
+                 Check disk space, permissions, and antivirus locking. No changes were made."
+            ));
         }
     }
 
@@ -504,7 +519,7 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
     Ok(InstallResult {
         added: CODEWHALE_EVENTS.len(),
         path,
-        message: "CodeWhale 原生 TOML Hook 已同步；权限失败时回退到 ask。如诊断提示存在 pre-R22 残留 hook（含 message_submit），请按诊断指引手动删除，或等待 R41 引入安全的 AST 清理。".into(),
+        message: "CodeWhale 原生 TOML Hook 已同步（含 background message_submit observer）；权限失败时回退到 ask。".into(),
         ..InstallResult::default()
     })
 }
@@ -1204,17 +1219,23 @@ export const LLMPETPlugin = async ({ directory }) => ({
       "permission.replied": ["PreToolUse", "working"]
     };
     if (event.type === "session.status") {
-      // Read the actual status string from the event payload. OpenCode
-      // v0.9.x sends: { type: "session.status", properties: { status:
-      // "busy" | "idle" | "retry" | "waiting" | ... } }. Older builds
-      // may put it at event.status. Fall back to "unknown" if absent.
-      const raw = event?.properties?.status
-        || event?.status
-        || event?.properties?.type
-        || "unknown";
+      // R40.5 (audit P1-2): OpenCode v0.9.x SDK sends `properties.status`
+      // as an OBJECT, not a string. The shape is:
+      //   { type: "idle" }
+      //   { type: "busy" }
+      //   { type: "retry", attempt: number, message: string, next: number }
+      // The previous code did `stateMap[raw]` where `raw` was the object,
+      // producing `[object Object]` as the key and failing to map. Fix:
+      // extract `.type` from the object; fall back to string for older
+      // builds that sent a bare string.
+      const status = event?.properties?.status ?? event?.status;
+      const raw = typeof status === "string"
+        ? status
+        : (status?.type ?? "unknown");
+      const retryMeta = (typeof status === "object" && status?.type === "retry")
+        ? { attempt: status.attempt, message: status.message, next: status.next }
+        : null;
       // Map known OpenCode statuses to our internal state vocabulary.
-      // Unknown statuses are forwarded as-is so the server's state
-      // reducer can decide (it falls through to a generic state update).
       const stateMap = {
         busy: "working",
         working: "working",
@@ -1225,13 +1246,15 @@ export const LLMPETPlugin = async ({ directory }) => ({
         error: "error"
       };
       const mapped = stateMap[raw] || raw;
-      await send({
+      const payload = {
         hook_event_name: "SessionStatus",
         state: mapped,
         status_raw: raw,
         session_id: sidFromEvent(event, directory),
         cwd: directory
-      });
+      };
+      if (retryMeta) payload.retry = retryMeta;
+      await send(payload);
       return;
     }
     const value = fixedMap[event.type]; if (!value) return;

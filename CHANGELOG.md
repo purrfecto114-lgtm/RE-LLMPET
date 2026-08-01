@@ -1,5 +1,79 @@
 # Changelog
 
+## 0.5.24 — R40.5 runtime fixes from handoff audit（2026-08-01）
+
+**First release with actual runtime code changes since 0.5.21.**
+
+Closes 5 P0/P1 issues from the handoff revalidation audit
+(RE-LLMPET-handoff-revalidation-baseline-2026-08-01.md).
+
+### P0-1: Fix provenance self-reference paradox
+
+The 0.5.23 design forced SOURCE_REVISION to be a 40-hex git commit SHA,
+but writing the SHA into the commit changes the tree, producing a
+different SHA — an impossible self-referential constraint.
+
+- `scripts/generate-source-manifest.js`: `source_commit` is now
+  optional; accepts either 40-hex SHA (CI) or `re-llmpet-x.y.z` (dev).
+- `test/tauri-r401-carpet-audit-closure-smoke.js`: relaxed assertion.
+
+### P0-2: Fix cold-start Provider bootstrap loss
+
+`pet.js` had two config application paths: `onConfig` event and
+`getConfig()` bootstrap. The bootstrap path did NOT apply
+`providers.active/statuses` or call `updateProviderUI()`, so if the
+`pet:config` event arrived before the listener was registered (cold
+start race), provider buttons were permanently hidden.
+
+- `frontend/renderer/pet.js`: new unified `applyConfigSnapshot(cfg)`
+  function; both paths now call it.
+
+### P0-3: Fix stats revision replay bug
+
+`panel.js` consumed the revision in `render()`. When a hidden panel
+cached a snapshot and then tried to render it on show, the revision was
+already consumed and the render was rejected — the panel showed stale
+content.
+
+- `frontend/renderer/panel.js`: split into `ingestStats()` (revision
+  gate + cache) and `renderStats()` (DOM update, no gate). `render()`
+  no longer consumes revision. Bootstrap `getStats()` now ingests.
+
+### P0-5: Fix CodeWhale backup fail-open
+
+`install_codewhale` logged backup failures and continued writing,
+risking config corruption with no backup to restore from.
+
+- `src-tauri/src/hook_install.rs`: backup failure now aborts the
+  install entirely (fail-closed). User's existing config is preserved.
+
+### P1-2: Fix OpenCode status object parsing
+
+OpenCode v0.9.x SDK sends `properties.status` as an OBJECT
+(`{type: "busy"}`), not a string. The plugin did
+`stateMap[rawObject]`, producing `[object Object]` as the key.
+
+- `src-tauri/src/hook_install.rs`: extract `.type` from the object;
+  preserve retry metadata (`attempt/message/next`).
+
+### P1-3: Restore CodeWhale message_submit as background observer
+
+R22 removed `message_submit` based on the assumption it is always
+foreground-blocking. Current CodeWhale docs confirm `background = true`
+makes it observer-only (submitted, never awaited, never blocks).
+
+- `src-tauri/src/hook_install.rs`: `message_submit` restored to
+  `CODEWHALE_EVENTS` with `background = true`,
+  `continue_on_error = true`, `timeout_secs = 5`.
+- `protocol-baseline.json`: updated to include `message_submit`.
+
+### Test
+
+All 50 smoke suites pass. Manifest verification passes.
+No Rust compile errors (CI will verify with cargo check).
+
+---
+
 ## 0.5.23 — R40.4 package provenance rebuild（2026-08-01）
 
 **Rebuild of the 0.5.22 release after the package regression audit

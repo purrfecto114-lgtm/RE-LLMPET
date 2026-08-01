@@ -1864,21 +1864,27 @@ let activeProviders = []; // R22: empty until config arrives (was ['claude'])
 // provider showed as "pending/off" even when hooks were installed.
 let latestProviderStatuses = {};
 
-window.pet.onConfig((cfg) => {
+// R40.5 (audit P0-2): Unified config snapshot application. Both the
+// onConfig event handler and the getConfig() bootstrap path MUST call
+// this function. The previous code only applied providers.active/statuses
+// in the onConfig path, so if the pet:config event arrived before the
+// listener was registered (cold start race), the provider buttons would
+// be permanently hidden until another config event happened.
+function applyConfigSnapshot(cfg) {
   if (!cfg) return;
   muted = !!cfg.muted;
   if (cfg.lang) applyLanguage(cfg.lang);
   territorySupported = !!cfg.territorySupported;
   if (cfg.skin) applySkin(cfg.skin);
+  // R40.5: providers.active + statuses applied in BOTH paths
   if (cfg.providers && Array.isArray(cfg.providers.active)) {
     activeProviders = cfg.providers.active;
-    updateProviderUI();
   }
-  // R35.2: save the full provider status map from config_view(). This is
-  // the authoritative source — Runtime::stats() does NOT include it.
   if (cfg.providers && cfg.providers.statuses && typeof cfg.providers.statuses === 'object') {
     latestProviderStatuses = cfg.providers.statuses;
   }
+  // R40.5: always update UI after applying providers (was only in onConfig)
+  updateProviderUI();
   // Currency config — persist across restarts
   if (cfg.currency === 'USD' || cfg.currency === 'CNY') {
     currentCurrency = cfg.currency;
@@ -1890,6 +1896,10 @@ window.pet.onConfig((cfg) => {
   if (cfg.petPosition && Number.isFinite(cfg.petPosition.x) && Number.isFinite(cfg.petPosition.y)) {
     lastWinPos = [cfg.petPosition.x, cfg.petPosition.y];
   }
+}
+
+window.pet.onConfig((cfg) => {
+  applyConfigSnapshot(cfg);
 });
 
 // Update button labels and actions to reflect the first active provider.
@@ -2518,14 +2528,12 @@ window.addEventListener('blur', () => {
 // ---------- 初始化 ----------
 (async () => {
   const cfg = await window.pet.getConfig();
-  if (cfg) {
-    muted = !!cfg.muted;
-    if (cfg.lang) applyLanguage(cfg.lang);
-    territorySupported = !!cfg.territorySupported;
-    applySkin(cfg.skin || 'mascot');
-    if (cfg.currency === 'USD' || cfg.currency === 'CNY') currentCurrency = cfg.currency;
-    if (Number.isFinite(cfg.fxRate) && cfg.fxRate > 0) currentFxRate = cfg.fxRate;
-  }
+  // R40.5 (audit P0-2): use unified applyConfigSnapshot so providers.active
+  // and updateProviderUI() are applied on cold start. The old code only
+  // applied muted/lang/territory/skin/currency/fxRate here, missing
+  // providers — so if pet:config event arrived before onConfig listener
+  // was registered, provider buttons would be permanently hidden.
+  if (cfg) applyConfigSnapshot(cfg);
   const s = await window.pet.getStats();
   // 有快照就按真实聚合态亮相；之前无条件 setState('idle') 会把刚算出的
   // working/waiting 盖掉，启动瞬间总是先闪一下空闲。getStats 落空但推送

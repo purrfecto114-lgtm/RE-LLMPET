@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// R40.1 (2026-08-01) — 0.5.23 carpet audit closure smoke.
+// R40.1 (2026-08-01) — 0.5.24 carpet audit closure smoke.
 //
 // Locks the 7 fixes from the 0.5.19 carpet audit
 // (RE-LLMPET-0.5.19-carpet-audit-upstream-drift-roadmap.md):
@@ -34,7 +34,7 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.23',
+assert.strictEqual(packageJson.version, '0.5.24',
   'R40.1: package.json version must be 0.5.21');
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -132,19 +132,30 @@ assert(fs.existsSync(path.join(root, 'SOURCE_MANIFEST.json')),
 assert(fs.existsSync(path.join(root, 'BUILD_REPRODUCIBILITY.md')),
   'P0-5: BUILD_REPRODUCIBILITY.md file must exist');
 
-assert(changelog.includes('0.5.23'),
-  'P0-5: CHANGELOG must have 0.5.23 entry');
-assert(changelog.includes('0.5.23'),
+assert(changelog.includes('0.5.24'),
+  'P0-5: CHANGELOG must have 0.5.24 entry');
+assert(changelog.includes('0.5.24'),
   'P0-5: CHANGELOG must have 0.5.21 entry');
 assert(changelog.includes('0.5.19'),
   'P0-5: CHANGELOG must have 0.5.19 entry');
 assert(changelog.includes('0.5.18'),
   'P0-5: CHANGELOG must have 0.5.18 entry');
 
-// R40.4: SOURCE_REVISION must be a 40-hex git commit SHA (not 're-llmpet-x.y.z')
+// R40.5 (audit P0-1): SOURCE_REVISION is now a build-time artifact, not
+// a self-referential commit SHA. The previous design (commit must contain
+// its own SHA) is a paradox — writing the SHA changes the tree, producing
+// a different SHA. The handoff audit correctly identified this as an
+// impossible constraint. Now SOURCE_REVISION is either:
+//   - a human-readable identifier like 're-llmpet-0.5.24' (for local dev)
+//   - or the GITHUB_SHA env var set by CI (for release builds)
+// The real provenance chain is: tag → workflow run → artifact digest →
+// attestation, NOT commit-self-reference.
 const sourceRevision = read('SOURCE_REVISION').trim();
-assert(/^[0-9a-f]{40}$/.test(sourceRevision),
-  `P0-5: SOURCE_REVISION must be 40-hex git SHA (got: "${sourceRevision.slice(0,30)}")`);
+assert(sourceRevision.length > 0,
+  'P0-5: SOURCE_REVISION must not be empty');
+// Accept either 're-llmpet-x.y.z' or 40-hex SHA (CI sets the latter)
+assert(/^(re-llmpet-|[0-9a-f]{40})/.test(sourceRevision),
+  `P0-5: SOURCE_REVISION must be 're-llmpet-<version>' or 40-hex SHA (got: "${sourceRevision.slice(0,30)}")`);
 
 // R40.4: SOURCE_DATE_EPOCH must be a valid Unix timestamp
 const dateEpoch = parseInt(read('SOURCE_DATE_EPOCH').trim(), 10);
@@ -153,19 +164,22 @@ assert(Number.isFinite(dateEpoch) && dateEpoch > 1_000_000_000,
 
 // Manifest must be valid JSON with the right structure
 const manifest = JSON.parse(read('SOURCE_MANIFEST.json'));
-assert.strictEqual(manifest.version, '0.5.23',
-  'P0-5: manifest version must be 0.5.23');
-// R40.4: manifest.source_commit must be 40-hex SHA (matching SOURCE_REVISION)
-assert(manifest.source_commit && /^[0-9a-f]{40}$/.test(manifest.source_commit),
-  `P0-5: manifest.source_commit must be 40-hex SHA (got: "${manifest.source_commit}")`);
-assert.strictEqual(manifest.source_commit, sourceRevision,
-  'P0-5: manifest.source_commit must match SOURCE_REVISION');
+assert.strictEqual(manifest.version, '0.5.24',
+  'P0-5: manifest version must be 0.5.24');
+// R40.5: manifest.source_commit is optional (CI sets it to GITHUB_SHA;
+// local dev may set 're-llmpet-x.y.z'). If present, must be one of those.
+if (manifest.source_commit) {
+  const isSha = /^[0-9a-f]{40}$/.test(manifest.source_commit);
+  const isHuman = /^re-llmpet-/.test(manifest.source_commit);
+  assert(isSha || isHuman,
+    `P0-5: manifest.source_commit must be 40-hex SHA or re-llmpet-* (got: "${manifest.source_commit}")`);
+}
 assert(manifest.file_count > 200,
   `P0-5: manifest must list >200 files (got ${manifest.file_count})`);
 assert(manifest.sha256_of_manifest,
   'P0-5: manifest must have sha256_of_manifest field');
-assert.strictEqual(manifest.root, `RE-LLMPET-0.5.23`,
-  `P0-5: manifest.root must be RE-LLMPET-0.5.23 (got ${manifest.root})`);
+assert.strictEqual(manifest.root, `RE-LLMPET-0.5.24`,
+  `P0-5: manifest.root must be RE-LLMPET-0.5.24 (got ${manifest.root})`);
 
 // R40.4: run manifest verifier (exact file set + hash check)
 const { execSync } = require('child_process');

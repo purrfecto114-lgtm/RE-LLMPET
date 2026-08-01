@@ -48,6 +48,13 @@ const EXCLUDE_DIRS = new Set([
   'dist',
   '.vscode',
   '.idea',
+  // R40.5: exclude non-project dirs that may leak from parent workspace
+  'skills',
+  'work',
+  'workspace',
+  'upload',
+  'tool-results',
+  'download',
 ]);
 
 function walk(dir, prefix = '') {
@@ -77,15 +84,16 @@ function sha256(filePath) {
 }
 
 function readRevision() {
+  // R40.5 (audit P0-1): SOURCE_REVISION is now flexible:
+  //   - 're-llmpet-x.y.z' (local dev, human-readable)
+  //   - 40-hex SHA (CI sets GITHUB_SHA)
+  //   - empty (not yet set)
+  // The previous design forced a 40-hex SHA, creating a self-referential
+  // paradox (commit must contain its own SHA, but writing it changes the
+  // SHA). Now we accept both forms; the real provenance chain is
+  // tag → workflow → artifact digest → attestation.
   const raw = fs.readFileSync(REVISION_PATH, 'utf8').trim();
-  if (!/^[0-9a-f]{40}$/.test(raw)) {
-    process.stderr.write(
-      `ERROR: SOURCE_REVISION must be a 40-hex git commit SHA (got: "${raw}").\n` +
-      `Run: git rev-parse HEAD > SOURCE_REVISION\n`
-    );
-    process.exit(1);
-  }
-  return raw;
+  return raw || null;
 }
 
 function generate() {
@@ -95,18 +103,22 @@ function generate() {
     entries[rel] = sha256(path.join(ROOT, rel));
   }
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const sourceCommit = readRevision();
   const manifest = {
     version: pkg.version,
     generated: Math.floor(Date.now() / 1000),
     root: `RE-LLMPET-${pkg.version}`,
-    source_commit: readRevision(),
     file_count: files.length,
     files: entries,
   };
+  if (sourceCommit) {
+    manifest.source_commit = sourceCommit;
+  }
   const sortedJson = JSON.stringify(entries, Object.keys(entries).sort(), 2);
   manifest.sha256_of_manifest = crypto.createHash('sha256').update(sortedJson).digest('hex');
   fs.writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + '\n');
-  console.log(`generate-source-manifest: wrote ${files.length} files, version=${pkg.version}, commit=${manifest.source_commit.slice(0,7)}`);
+  const commitStr = sourceCommit ? sourceCommit.slice(0,7) : '(none)';
+  console.log(`generate-source-manifest: wrote ${files.length} files, version=${pkg.version}, commit=${commitStr}`);
 }
 
 function verify() {
@@ -152,11 +164,18 @@ function verify() {
     }
   }
 
-  if (!manifest.source_commit || !/^[0-9a-f]{40}$/.test(manifest.source_commit)) {
-    process.stderr.write(
-      `ERROR: manifest.source_commit must be 40-hex SHA (got: "${manifest.source_commit}")\n`
-    );
-    errors++;
+  // R40.5: source_commit is optional. If present, must be either:
+  //   - 40-hex SHA (CI release build)
+  //   - 're-llmpet-x.y.z' (local dev)
+  if (manifest.source_commit) {
+    const isSha = /^[0-9a-f]{40}$/.test(manifest.source_commit);
+    const isHumanReadable = /^re-llmpet-/.test(manifest.source_commit);
+    if (!isSha && !isHumanReadable) {
+      process.stderr.write(
+        `ERROR: manifest.source_commit must be 40-hex SHA or 're-llmpet-*' (got: "${manifest.source_commit}")\n`
+      );
+      errors++;
+    }
   }
 
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));

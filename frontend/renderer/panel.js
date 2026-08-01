@@ -48,10 +48,12 @@ let calSummary = '';   // 日历默认读数
 // re-render without waiting for a new stats push.
 let usageMetric = 'tokens';
 let lastStats = null;
-// R40.1 (audit P0-3): monotonic revision guard for stats snapshots.
-// The backend stamps each stats payload with `__revision`. We reject
-// any snapshot whose revision is older than the last accepted one to
-// prevent UI regression (e.g. "completed" reverting to "working").
+// R40.5 (audit P0-3): split ingest (revision gate + cache) from render
+// (DOM update). The previous code consumed the revision in render(),
+// so when a hidden panel cached a snapshot and then tried to render it
+// on show, the revision was already consumed and the render was rejected.
+// Now ingestStats() handles revision + caching; renderStats() just
+// updates the DOM and can be called repeatedly with the same snapshot.
 let lastStatsRevisionPanel = -1;
 function acceptStatsRevisionPanel(s) {
   if (!s) return true;
@@ -60,6 +62,26 @@ function acceptStatsRevisionPanel(s) {
   if (rev <= lastStatsRevisionPanel) return false;  // stale — reject
   lastStatsRevisionPanel = rev;
   return true;
+}
+// R40.5: ingest = accept revision + cache. Does NOT render.
+function ingestStats(s) {
+  if (!s) return false;
+  if (!acceptStatsRevisionPanel(s)) return false;
+  lastStats = s;
+  if (!panelVisible) {
+    pendingStats = s;
+  }
+  return true;
+}
+// R40.5: render = DOM update only. No revision gate. Can be called
+// repeatedly with the same snapshot (e.g. on panel show).
+function renderStats(s) {
+  if (!s) return;
+  if (!panelVisible) {
+    pendingStats = s;
+    return;
+  }
+  render(s);
 }
 // R37 (2026-08-01): when the panel is hidden (close_panel → window.hide()),
 // we skip expensive DOM rebuilds on every panel:stats event. The WebView
@@ -113,19 +135,13 @@ function shortModel(m) {
 
 function render(s) {
   if (!s) return;
-  // R40.1 (audit P0-3): reject stale-revision snapshots. The backend
-  // stamps each stats payload with a monotonic `__revision`. Without
-  // this check, a late-arriving revision-41 "working" snapshot could
-  // overwrite a fresh revision-42 "completed" snapshot — the panel
-  // would visually regress from "done" to "working". Revisions < 0
-  // (missing field, e.g. from an outdated backend) are accepted
-  // unconditionally to preserve compatibility with older binaries.
-  if (!acceptStatsRevisionPanel(s)) return;
-  // R37: skip expensive DOM rebuild when panel is hidden. Cache the stats
-  // so we can render once when the panel is shown again.
+  // R40.5: revision gate moved to ingestStats(). render() is now a pure
+  // DOM update that can be called repeatedly with the same snapshot
+  // (e.g. on panel show after hidden period). This fixes the replay bug
+  // where a hidden panel consumed the revision, then rejected the same
+  // snapshot when trying to render it on show.
   if (!panelVisible) {
     pendingStats = s;
-    lastStats = s;
     return;
   }
   lastStats = s;
@@ -1428,7 +1444,12 @@ function applyConfigUI() {
 }
 
 // 事件
-window.pet.onPanelStats(render);
+// R40.5: ingest first (revision gate + cache), then render if visible.
+window.pet.onPanelStats((s) => {
+  if (ingestStats(s)) {
+    renderStats(s);
+  }
+});
 window.pet.onPrice(renderPriceInfo);
 // R30 (2026-07-31): listen for bridge errors and show a toast.
 // R32 (2026-07-31): the visible toast is now handled by ../shared/toast.js
@@ -1595,5 +1616,11 @@ $('cal').addEventListener('mouseleave', () => { $('cal-readout').innerHTML = cal
   const cfg = await window.pet.getConfig();
   if (cfg) { config = { ...config, ...cfg }; applyLanguage(config.lang); applyConfigUI(); }
   const s = await window.pet.getStats();
-  if (s) render(s);
+  // R40.5: ingest the bootstrap snapshot (sets revision baseline) then
+  // render. If getStats() returns no revision (older backend), the
+  // ingest accepts it unconditionally (rev < 0 = accept).
+  if (s) {
+    ingestStats(s);
+    renderStats(s);
+  }
 })();
