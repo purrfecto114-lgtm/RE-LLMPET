@@ -713,7 +713,7 @@ pub fn set_panel_height(app: AppHandle, height: f64) -> Result<(), String> {
     } else {
         height.clamp(480.0, work_area_max_logical)
     };
-    let min_width = logical_to_physical(560.0, scale);
+    let min_width = logical_to_physical(420.0, scale);
     window
         .set_size(Size::Physical(PhysicalSize::new(
             current.width.max(min_width),

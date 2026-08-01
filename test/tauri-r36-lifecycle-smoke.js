@@ -118,8 +118,9 @@ assert(model.includes('fs::rename(path, &first)'),
 
 assert(petCss.includes('@media (prefers-reduced-motion: reduce)'),
   'R36: pet.css must include prefers-reduced-motion media query');
-assert(petCss.includes('animation-duration: 0.001s !important'),
-  'R36: pet.css reduced-motion must set animation-duration to near-zero');
+// R39: changed from animation-duration:0.001s to animation:none (truly disables)
+assert(petCss.includes('animation: none !important'),
+  'R39: pet.css reduced-motion must use animation:none (not 0.001s)');
 assert(panelCss.includes('@media (prefers-reduced-motion: reduce)'),
   'R36: panel.css must include prefers-reduced-motion media query');
 

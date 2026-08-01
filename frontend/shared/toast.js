@@ -18,11 +18,28 @@
     return document.getElementById('octopus-toast');
   }
 
+  // R39 (2026-08-01): persistent error log. Critical errors (config write
+  // failure, hook install failure, launch failure) should NOT auto-dismiss.
+  // They stay visible until the user explicitly closes them, and they
+  // accumulate in a small log so the user can review multiple errors.
+  // The 0.5.16 full audit (§9.3) flagged that 4.5s auto-dismiss toasts
+  // are insufficient for persistent failures.
+  const errorLog = [];
+  const MAX_ERRORS = 10;
+
   function showToast(message, opts) {
     const el = getToastEl();
     if (!el) return;
-    const timeout = (opts && opts.timeout) || 4000;
+    const persistent = (opts && opts.persistent) || false;
+    const timeout = persistent ? 0 : ((opts && opts.timeout) || 4000);
     const cmd = (opts && opts.command) || '';
+
+    // R39: add to error log if persistent
+    if (persistent) {
+      errorLog.unshift({ message: String(message || ''), command: cmd, ts: Date.now() });
+      if (errorLog.length > MAX_ERRORS) errorLog.pop();
+    }
+
     el.innerHTML = '';
     if (cmd) {
       const tag = document.createElement('span');
@@ -34,17 +51,33 @@
     text.className = 'octopus-toast-msg';
     text.textContent = String(message || '');
     el.appendChild(text);
+
+    // R39: add close button for persistent errors
+    if (persistent) {
+      const closeBtn = document.createElement('button');
+      closeBtn.textContent = '✕';
+      closeBtn.style.cssText = 'background:rgba(255,255,255,0.2);border:none;color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;cursor:pointer;margin-left:6px;flex-shrink:0;';
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        el.classList.remove('show');
+        el.hidden = true;
+      });
+      el.appendChild(closeBtn);
+    }
+
     el.hidden = false;
     el.classList.add('show');
     // Clear any prior auto-hide timer
     if (el._octopusToastTimer) {
       clearTimeout(el._octopusToastTimer);
     }
-    el._octopusToastTimer = setTimeout(() => {
-      el.classList.remove('show');
-      // Keep `hidden` attribute in sync after the fade-out animation
-      setTimeout(() => { if (!el.classList.contains('show')) el.hidden = true; }, 250);
-    }, timeout);
+    if (timeout > 0) {
+      el._octopusToastTimer = setTimeout(() => {
+        el.classList.remove('show');
+        // Keep `hidden` attribute in sync after the fade-out animation
+        setTimeout(() => { if (!el.classList.contains('show')) el.hidden = true; }, 250);
+      }, timeout);
+    }
   }
 
   // Click anywhere on the toast to dismiss early
@@ -66,7 +99,11 @@
       const detail = (e && e.detail) || {};
       const message = detail.message || 'unknown error';
       const command = detail.command || '';
-      showToast(message, { command, timeout: 4500 });
+      // R39: critical commands use persistent toast (no auto-dismiss).
+      // Non-critical commands use the standard 4.5s auto-dismiss.
+      const criticalCommands = ['set_providers', 'set_session_prefs', 'close_panel', 'launch_agent'];
+      const persistent = criticalCommands.indexOf(command) >= 0;
+      showToast(message, { command, timeout: persistent ? 0 : 4500, persistent });
     });
     // Defer click-binding until DOMContentLoaded so #octopus-toast exists
     if (document.readyState === 'loading') {

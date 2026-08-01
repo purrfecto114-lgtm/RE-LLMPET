@@ -1005,7 +1005,8 @@ async function diagnoseProvider(provider) {
         <span class="diag-state warn">${escapeHtml(t('diag.running'))}</span>
         <button type="button" class="diag-close" data-diag-action="cancel" title="${escapeHtml(t('diag.close'))}">✕</button>
       </div>
-      <div class="diag-loading">${escapeHtml(t('diag.running'))}</div>`;
+      <div class="diag-loading">${escapeHtml(t('diag.running'))}</div>
+      <div class="diag-hint" style="font-size:9px;color:#8c6a5a;margin-top:4px;">${escapeHtml(currentLang === 'en' ? 'Click ✕ to hide result and stop background task' : currentLang === 'ja' ? '✕で結果を非表示にしバックグラウンド停止' : '点 ✕ 隐藏结果并停止后台任务')}</div>`;
   }
   try {
     const result = await window.pet.diagnoseAgent(provider);

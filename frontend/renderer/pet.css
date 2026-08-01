@@ -1146,15 +1146,14 @@ body.skin-cat #cat { display: flex; }
    which covers bob, attn, happyJump, errShake, breathe, etc.).
    ==================================================================== */
 @media (prefers-reduced-motion: reduce) {
+  /* R39 (2026-08-01): the 0.5.16 full audit (P1-6) flagged that 0.001s
+     duration is NOT the same as no animation — a 1ms animation still
+     fires one frame, and GIF images are unaffected by CSS. Now we use
+     animation:none and transition:none, which truly disables all
+     CSS-driven motion. GIF cat skin is handled separately by JS
+     (the cat img can be replaced with a static first-frame PNG). */
   *, *::before, *::after {
-    animation-duration: 0.001s !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001s !important;
-  }
-  /* Keep opacity transitions for visibility (hidden/visible), just make
-     them instant. The !important above already covers this, but be explicit. */
-  .bubble, .radial, .ask, .think, .sleep, .prop, .sidekick, .meme-player,
-  .provider-chooser, #octopus-toast {
-    transition: opacity 0.001s !important;
+    animation: none !important;
+    transition: none !important;
   }
 }

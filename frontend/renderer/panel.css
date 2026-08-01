@@ -53,6 +53,13 @@ body.window-fullscreen #card {
 /* 双列区：CSS 多列自动平衡列高（masonry），块不被拆开，底部尽量对齐、少留空白 */
 .cols { columns: 2; column-gap: 14px; padding: 0 16px; }
 .cols .block { break-inside: avoid; -webkit-column-break-inside: avoid; padding: 8px 0; }
+/* R39 (2026-08-01): single-column responsive breakpoint.
+   The 0.5.16 full audit (P1-3) flagged that .cols is always 2 columns,
+   which crowds content on small screens / high DPI. Under 700px width,
+   switch to single column so all blocks stack vertically. */
+@media (max-width: 699px) {
+  .cols { columns: 1; }
+}
 
 /* 标题栏 */
 #titlebar {
@@ -421,8 +428,7 @@ body.window-fullscreen #card {
    ==================================================================== */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
-    animation-duration: 0.001s !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001s !important;
+    animation: none !important;
+    transition: none !important;
   }
 }
