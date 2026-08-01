@@ -458,21 +458,15 @@ fn permission_payload(provider: &str, decision: &PermissionDecision) -> Value {
 }
 
 fn emit_stats(app: &AppHandle, runtime: &Arc<Runtime>) {
-    // R38 (2026-08-01): the 0.5.15 full audit (P0-3) flagged that the R37
-    // leading-edge throttle permanently dropped the final event in a burst.
-    // Example: event A at t=0 (emitted), event B at t=20ms (dropped, no
-    // trailing flush), no more events → UI stuck at A's state forever.
-    //
-    // Fix: when an event is throttled (dropped), schedule a trailing flush
-    // after the throttle window expires. The trailing flush re-reads the
-    // latest state and emits it. This guarantees the final event in a burst
-    // always reaches the UI within ~150ms of the last dropped event.
-    //
-    // The trailing flush is idempotent: if another event arrived and was
-    // emitted in the meantime, the flush just re-emits the same state (no
-    // harm — the UI dedupes via its own render gate).
+    // R38.1 (2026-08-01): Singleton StatsCoalescer. The 0.5.16 full audit
+    // (P0-1) flagged that the R38 trailing flush spawned a new
+    // spawn_blocking task PER throttled event — causing task storms.
+    // Now we use dirty+scheduled flags to ensure at most ONE trailing
+    // timer exists at any time.
     const STATS_THROTTLE_MS: u128 = 150;
     let now = std::time::Instant::now();
+
+    // Check if we're within the throttle window.
     let should_skip = {
         let guard = runtime
             .last_stats_emit
@@ -484,40 +478,86 @@ fn emit_stats(app: &AppHandle, runtime: &Arc<Runtime>) {
             false
         }
     };
+
     if should_skip {
-        // R38: schedule a trailing flush. Clone the AppHandle (it's Arc-based)
-        // and the Runtime Arc so the spawned task can emit after the window.
-        // R38.1: use spawn_blocking + std::thread::sleep instead of
-        // tokio::time::sleep, because tokio is not directly in scope
-        // (Tauri 2 wraps it internally but doesn't re-export sleep).
-        let app_clone = app.clone();
-        let runtime_clone = runtime.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            std::thread::sleep(std::time::Duration::from_millis(STATS_THROTTLE_MS as u64));
-            // Check if we're still the latest — if another emit happened
-            // in the meantime, our flush is redundant but harmless.
-            let stats = runtime_clone.stats();
-            let _ = app_clone.emit("pet:stats", stats.clone());
-            let _ = app_clone.emit("panel:stats", stats);
-            // Update the timestamp so the next throttle window starts fresh.
-            let mut guard = runtime_clone
-                .last_stats_emit
+        // Mark dirty and schedule a trailing flush IF one isn't already pending.
+        let already_scheduled = {
+            let mut dirty_guard = runtime
+                .stats_dirty
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            *guard = Some(std::time::Instant::now());
-        });
+            *dirty_guard = true;
+            drop(dirty_guard);
+            let mut sched_guard = runtime
+                .stats_scheduled
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let was = *sched_guard;
+            *sched_guard = true;
+            was
+        };
+        if !already_scheduled {
+            // Schedule exactly ONE trailing flush.
+            let app_clone = app.clone();
+            let runtime_clone = runtime.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                std::thread::sleep(std::time::Duration::from_millis(STATS_THROTTLE_MS as u64));
+                // Check if still dirty (another emit may have happened).
+                let is_dirty = {
+                    let mut g = runtime_clone
+                        .stats_dirty
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    let d = *g;
+                    *g = false;
+                    d
+                };
+                // Clear scheduled flag.
+                {
+                    let mut g = runtime_clone
+                        .stats_scheduled
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    *g = false;
+                }
+                if is_dirty {
+                    do_emit_stats(&app_clone, &runtime_clone);
+                }
+            });
+        }
         return;
     }
+
+    do_emit_stats(app, runtime);
+}
+
+/// R38.1: Actual emit — generates stats, bumps revision, emits to both windows.
+fn do_emit_stats(app: &AppHandle, runtime: &Arc<Runtime>) {
+    // Update last_emit timestamp.
     {
         let mut guard = runtime
             .last_stats_emit
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        *guard = Some(now);
+        *guard = Some(std::time::Instant::now());
     }
+    // Bump revision.
+    let revision = {
+        let mut guard = runtime
+            .stats_revision
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *guard += 1;
+        *guard
+    };
     let stats = runtime.stats();
-    let _ = app.emit("pet:stats", stats.clone());
-    let _ = app.emit("panel:stats", stats);
+    // Attach revision so frontend can reject stale messages.
+    let mut stats_with_rev = stats.clone();
+    if let Some(obj) = stats_with_rev.as_object_mut() {
+        obj.insert("__revision".into(), json!(revision));
+    }
+    let _ = app.emit("pet:stats", stats_with_rev.clone());
+    let _ = app.emit("panel:stats", stats_with_rev);
 }
 
 fn emit_hook_event(app: &AppHandle, body: &Value, session: &Session) {

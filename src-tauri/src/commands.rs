@@ -21,11 +21,13 @@ fn emit_stats(app: &AppHandle, state: &AppState) {
     emit_stats_throttled(app, state, false);
 }
 
-/// R37 (2026-08-01): throttled stats emit. Enforces a minimum 150ms interval
-/// between emits to prevent dozens of full-snapshot broadcasts per second
-/// during active agent sessions. Set `force=true` to bypass the throttle
-/// (used by user-initiated actions like decide_permission where immediate
-/// UI feedback is important).
+/// R38.1 (2026-08-01): throttled stats emit with revision. The 0.5.16
+/// full audit (P0-1) flagged that the old throttle had no trailing flush
+/// and no revision — final events could be permanently lost, and stale
+/// snapshots could overwrite newer ones. Now: force=true bypasses throttle
+/// and always emits with a bumped revision. force=false checks the throttle
+/// window; if within it, marks dirty so the http_server.rs coalescer's
+/// trailing flush will pick it up.
 fn emit_stats_throttled(app: &AppHandle, state: &AppState, force: bool) {
     const STATS_THROTTLE_MS: u128 = 150;
     if !force {
@@ -43,6 +45,13 @@ fn emit_stats_throttled(app: &AppHandle, state: &AppState, force: bool) {
             }
         };
         if should_skip {
+            // Mark dirty so the trailing flush picks it up.
+            let mut dirty_guard = state
+                .runtime
+                .stats_dirty
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            *dirty_guard = true;
             return;
         }
         let mut guard = state
@@ -52,9 +61,23 @@ fn emit_stats_throttled(app: &AppHandle, state: &AppState, force: bool) {
             .unwrap_or_else(|e| e.into_inner());
         *guard = Some(now);
     }
+    // Bump revision and emit.
+    let revision = {
+        let mut guard = state
+            .runtime
+            .stats_revision
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *guard += 1;
+        *guard
+    };
     let stats = state.runtime.stats();
-    let _ = app.emit("pet:stats", stats.clone());
-    let _ = app.emit("panel:stats", stats);
+    let mut stats_with_rev = stats.clone();
+    if let Some(obj) = stats_with_rev.as_object_mut() {
+        obj.insert("__revision".into(), json!(revision));
+    }
+    let _ = app.emit("pet:stats", stats_with_rev.clone());
+    let _ = app.emit("panel:stats", stats_with_rev);
 }
 
 fn emit_price(app: &AppHandle, state: &AppState) {
@@ -391,7 +414,15 @@ pub fn set_providers(
     state
         .runtime
         .update_config(|config| config.providers = ids.clone())?;
-    let statuses = hook_install::resync_current(&state.runtime)?;
+    // R38.1 (2026-08-01): the 0.5.16 full audit (P1-1) flagged that
+    // resync_current()? could top-level reject AFTER config was committed,
+    // causing the frontend to revert the checkbox while disk/memory had
+    // the new selection. Now we catch the error and return it as a
+    // structured field instead of rejecting the Promise.
+    let (statuses, infra_error) = match hook_install::resync_current(&state.runtime) {
+        Ok(s) => (s, None),
+        Err(e) => (Vec::new(), Some(e)),
+    };
     emit_config(&app, &state);
 
     let providers: Vec<Value> = statuses
@@ -433,10 +464,11 @@ pub fn set_providers(
 
     Ok(json!({
         "selectedSaved": true,
-        "allHooksOk": all_hooks_ok,
+        "allHooksOk": all_hooks_ok && infra_error.is_none(),
         "selected": ids,
         "hookResults": providers,
         "errors": errors,
+        "infrastructureError": infra_error,
     }))
 }
 
@@ -1987,7 +2019,15 @@ pub async fn cancel_diagnostic(state: State<'_, AppState>) -> Result<Value, Stri
         return Ok(json!({"cancelled": false, "reason": "no active diagnostic"}));
     };
     let kill_result = kill_process_tree(pid);
-    // Clear the PID regardless of kill result — the diagnostic is cancelled.
+    // R38.1 (2026-08-01): the 0.5.16 full audit (P0-2) flagged that
+    // cancel cleared the provider lock immediately, allowing a new
+    // diagnostic to start while the old spawn_blocking worker was still
+    // running its next probe. Now we ONLY clear the PID (so the worker's
+    // subsequent register_pid calls write to None — harmless). We do NOT
+    // clear active_diagnostic_provider here — that stays locked until the
+    // worker's spawn_blocking returns and the diagnose_agent async wrapper
+    // clears it in its completion block. This prevents new diagnostics
+    // from starting until the cancelled worker has fully terminated.
     {
         let mut pid_guard = state
             .runtime
@@ -1996,16 +2036,8 @@ pub async fn cancel_diagnostic(state: State<'_, AppState>) -> Result<Value, Stri
             .unwrap_or_else(|e| e.into_inner());
         *pid_guard = None;
     }
-    // R36: also clear the active provider so the same provider can be
-    // re-diagnosed after cancellation.
-    {
-        let mut provider_guard = state
-            .runtime
-            .active_diagnostic_provider
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *provider_guard = None;
-    }
+    // NOTE: active_diagnostic_provider is NOT cleared here. It is cleared
+    // by the diagnose_agent async wrapper when spawn_blocking returns.
     match kill_result {
         Ok(()) => Ok(json!({"cancelled": true, "pid": pid})),
         Err(error) => Ok(json!({"cancelled": false, "pid": pid, "error": error})),

@@ -1395,26 +1395,45 @@ window.pet.onConfig((cfg) => {
   // R38: also check initial visibility — the panel may have been shown
   // before the JS loaded, in which case panel:shown already fired and was
   // missed. Query the actual window state.
+  // R38.1 (2026-08-01): the 0.5.16 full audit (P0-3) flagged that the
+  // initial isVisible() check only set boolean flags without rendering
+  // cached stats. Now if visible, we also render pendingStats/lastStats
+  // and fit the panel height.
   const w = getCurrentTauriWindow();
   if (w && typeof w.isVisible === 'function') {
     Promise.resolve(w.isVisible()).then((visible) => {
       if (visible) {
         panelVisible = true;
         panelWasHidden = false;
+        // R38.1: render cached stats if available.
+        const cached = pendingStats || lastStats;
+        if (cached) {
+          pendingStats = null;
+          render(cached);
+        }
+        // R38.1: fit panel height for the initial show.
+        syncWindowMode().then(() => {
+          if (!windowMaximized && !windowFullscreen && !userSized) {
+            fitPanelHeight();
+          }
+        }).catch(() => {});
       }
     }).catch(() => {});
   }
 })();
 
-// R35.1: mark panel as hidden when the user clicks the close button.
-// close_panel in Rust hides the window (WebView persists), so we set
-// panelWasHidden=true here so the next panel:shown event triggers a
-// resetAutoFitOnShow() call.
-const _origCloseHandler = $('close').onclick;
+// R38.1 (2026-08-01): the 0.5.16 full audit (P0-4) flagged that
+// closePanel used send (fire-and-forget). If Rust hide failed, the
+// frontend still set panelVisible=false, causing the panel to appear
+// open but stop updating. Now we await the IPC and only set
+// panelVisible=false on success. On failure, the panel stays visible
+// and keeps rendering.
 $('close').addEventListener('click', () => {
+  // Don't set panelVisible=false yet — wait for Rust to confirm hide.
+  // The panel:hidden event (emitted by close_panel on success) will
+  // set panelVisible=false. If close_panel fails, the event won't fire
+  // and the panel stays in visible mode.
   panelWasHidden = true;
-  // R37: mark panel as hidden so render() skips expensive DOM rebuilds.
-  panelVisible = false;
 });
 
 // R35.1: clean up window-scoped listeners on beforeunload so a WebView

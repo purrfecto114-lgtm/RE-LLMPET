@@ -101,7 +101,10 @@ function getCurrentTauriWindow() {
     setPriceAutoUpdate: (enabled, refreshHours) => send('set_price_auto_update', { enabled, refreshHours }),
     setLanguage: (lang) => send('set_language', { lang }),
     openPanel: () => send('open_panel'),
-    closePanel: () => send('close_panel'),
+    // R38.1: upgraded to call() — the 0.5.16 full audit (P0-4) flagged
+    // that send() (fire-and-forget) meant hide failures were invisible.
+    // Now the caller can await and know if the hide succeeded.
+    closePanel: () => call('close_panel'),
     setMode: (mode) => send('set_mode', { mode }),
     setSkin: (skin) => send('set_skin', { skin }),
     setBudget: (value) => send('set_budget', { value }),

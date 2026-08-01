@@ -1,5 +1,88 @@
 # Changelog
 
+## 0.5.17 — R38.1 correctness closure（2026-08-01）
+
+Patch release closing 5 issues from the 0.5.16 full audit roadmap.
+
+### P0-1: Singleton StatsCoalescer (no task storm)
+
+The 0.5.16 full audit (P0-1) flagged that the R38 trailing flush spawned
+a new `spawn_blocking` task PER throttled event — 1000 events/s would
+spawn ~1000 sleeping tasks, all waking ~150ms later and each broadcasting
+a full snapshot.
+
+- `model.rs` — new `stats_dirty: Mutex<bool>`,
+  `stats_scheduled: Mutex<bool>`, `stats_revision: Mutex<u64>` fields.
+- `http_server.rs` — rewritten `emit_stats`: when an event is throttled,
+  sets `dirty=true` and checks `scheduled`. If not already scheduled,
+  spawns exactly ONE trailing flush. The flush checks `dirty` on wake,
+  clears it, and emits if still dirty. At most ONE timer exists at any
+  time regardless of event burst size.
+- `commands.rs` — `emit_stats_throttled` also marks `dirty=true` when
+  throttled (for the `force=false` path). Both paths now bump a monotonic
+  `__revision` and attach it to the stats payload so the frontend can
+  reject stale messages.
+- `do_emit_stats` helper: generates stats, bumps revision, attaches
+  `__revision` to the JSON, emits to both windows.
+
+### P0-2: Diagnostic cancel keeps provider locked until worker terminal
+
+The 0.5.16 full audit (P0-2) flagged that `cancel_diagnostic` cleared
+`active_diagnostic_provider` immediately, allowing a new diagnostic to
+start while the old `spawn_blocking` worker was still running its next
+probe.
+
+- `commands.rs` — `cancel_diagnostic` now ONLY clears `active_diagnostic_pid`
+  (so subsequent `register_pid` calls write to None — harmless). It does
+  NOT clear `active_diagnostic_provider`. The provider lock stays held
+  until the `diagnose_agent` async wrapper's completion block clears it
+  when `spawn_blocking` returns. This prevents new diagnostics from
+  starting until the cancelled worker has fully terminated.
+
+### P0-3: Panel init visibility renders cached stats
+
+The 0.5.16 full audit (P0-3) flagged that the initial `isVisible()` check
+only set boolean flags without rendering cached stats — the panel could
+appear blank/stale.
+
+- `panel.js` — when `isVisible()` returns true on init, now renders
+  `pendingStats || lastStats` and calls `fitPanelHeight()` after
+  `syncWindowMode()`. This ensures the panel shows content immediately
+  even if `panel:shown` was missed.
+
+### P0-4: closePanel uses call(), panelVisible deferred to event
+
+The 0.5.16 full audit (P0-4) flagged that `closePanel` used `send`
+(fire-and-forget). If Rust `hide()` failed, the frontend still set
+`panelVisible=false`, causing the panel to appear open but stop updating.
+
+- `tauri-bridge.js` — `closePanel` upgraded from `send` to `call`.
+- `panel.js` — close button handler no longer sets `panelVisible=false`
+  directly. Instead, it only sets `panelWasHidden=true`. The
+  `panel:hidden` event (emitted by `close_panel` on success) sets
+  `panelVisible=false`. If `close_panel` fails, the event won't fire
+  and the panel stays in visible mode, continuing to render.
+
+### P1-1: set_providers never top-level rejects after commit
+
+The 0.5.16 full audit (P1-1) flagged that `resync_current()?` could
+top-level reject AFTER config was committed, causing the frontend to
+revert the checkbox while disk/memory had the new selection.
+
+- `commands.rs` — `resync_current()` is now matched (not `?`), and its
+  error is returned as `infrastructureError` in the structured result.
+  The Promise always resolves after commit. `allHooksOk` is false if
+  either hook errors or infrastructure error exists.
+
+### Test coverage
+
+- New `test/tauri-r381-correctness-closure-smoke.js` (95 lines, 25 assertions).
+- 4 phase2 smokes: version assertions bumped 0.5.16 → 0.5.17.
+- `npm test`: 44/44 smoke ok (was 43; +1 R38.1 smoke)
+- `npm run check:static`: 22/22 PASS
+
+---
+
 ## 0.5.16 — R38 correctness blocker patch（2026-08-01）
 
 Patch release closing 4 P0 issues from the 0.5.15 full audit branch
