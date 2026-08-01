@@ -5,7 +5,7 @@
 (function attachPublicMemeCatalog(global) {
   const data = {
   "schemaVersion": 1,
-  "sourceSha256": "c49f3188a36ce2184876c2adb1973022c33c1f79355b54a566934b802625b46a",
+  "sourceSha256": "44db4685d9f4ebe6c45984cd3dc1d3d9c3b1e37f887e1031ab2a291d73563160",
   "items": [
     {
       "id": "huaqiang-guaranteed",

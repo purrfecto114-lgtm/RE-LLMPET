@@ -25,7 +25,7 @@ fn current_exe_clean() -> Result<PathBuf, String> {
     Ok(exe)
 }
 
-const MAX_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) const MAX_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
 const MARKER: &str = "--octopus-hook";
 // Install only observer-safe lifecycle events. Claude Code exposes additional
 // decision/replacement hooks (for example ConfigChange, UserPromptExpansion,
@@ -100,7 +100,12 @@ const CW_BEGIN: &str = "# >>> octopus:codewhale-hooks:v2 >>>";
 const CW_END: &str = "# <<< octopus:codewhale-hooks:v2 <<<";
 const AIDER_BEGIN: &str = "# >>> octopus:aider-notification:v2 >>>";
 const AIDER_END: &str = "# <<< octopus:aider-notification:v2 <<<";
-const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v2";
+// R40 (2026-08-01): bumped marker to v3 because the plugin source
+// changed in a backward-incompatible way (session.status mapping).
+// Existing v2 files are detected by `is_octopus_marker` and replaced
+// on the next sync_enabled() call — see `install_opencode()`.
+const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v3";
+const OPENCODE_MARKER_LEGACY: &[&str] = &["octopus-opencode-plugin-v2"];
 
 #[derive(Debug, Default)]
 pub struct InstallResult {
@@ -257,9 +262,26 @@ fn is_hook_installed(id: &str) -> bool {
             file_contains(path, "octopus")
         }
         "opencode" => {
-            // OpenCode plugin config — check for the marker string.
-            let path = home_dir().join(".opencode").join("config.json");
-            file_contains(path, OPENCODE_MARKER)
+            // R40: the install_opencode() function writes the plugin to
+            // `$OPENCODE_CONFIG_DIR/plugins/llmpet-octopus.js` (defaults to
+            // `~/.config/opencode/plugins/llmpet-octopus.js`). The previous
+            // check looked at `~/.opencode/config.json` — a path the
+            // installer NEVER writes — so the "installed?" probe always
+            // returned false, and the diagnostic silently misreported
+            // OpenCode as "not installed" even when the plugin was present.
+            // Fix: probe the actual plugin file path, and accept either the
+            // current v3 marker or any legacy v2 marker.
+            let base = std::env::var_os("OPENCODE_CONFIG_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
+            let path = base.join("plugins").join("llmpet-octopus.js");
+            match fs::read_to_string(&path) {
+                Ok(raw) => {
+                    raw.contains(OPENCODE_MARKER)
+                        || OPENCODE_MARKER_LEGACY.iter().any(|m| raw.contains(m))
+                }
+                Err(_) => false,
+            }
         }
         "aider" => {
             let path = home_dir().join(".aider.conf.yml");
@@ -417,6 +439,38 @@ fn uninstall_claude() -> Result<PathBuf, String> {
 fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
     let path = codewhale_config_path();
     let executable = current_exe_clean().map_err(|e| e.to_string())?;
+
+    // R40.1 (2026-08-01): the 0.5.19 `strip_legacy_codewhale_hooks` was
+    // DISABLED. The 0.5.19 carpet audit (P0-2) proved the line-oriented
+    // state machine could absorb user-owned `[provider]` / `[[models]]`
+    // / arbitrary TOML tables into a legacy `[[hooks.hooks]]` body and
+    // silently delete them when dropping the hook table. That is a data
+    // corruption bug — losing a `[provider] api_key = "..."` block is
+    // far worse than the original "message_submit blocked" symptom.
+    //
+    // Emergency closure for 0.5.20:
+    //   1. Do NOT auto-run the legacy cleanup.
+    //   2. Create a timestamped backup before any write.
+    //   3. The diagnostic (in commands.rs) still DETECTS stale
+    //      pre-R22 hooks and surfaces them as an issue with
+    //      instructions, so the user knows they exist.
+    //   4. A future R41 will reintroduce cleanup via a real TOML AST
+    //      editor with exact ownership metadata, not a line scanner.
+    //
+    // The diagnostic-side detection (`stalePreR22Hooks` field in
+    // commands.rs) is preserved — it tells the user "you have stale
+    // message_submit hooks; here's how to manually remove them or
+    // wait for R41". This is the safe trade-off: detect + inform
+    // instead of detect + auto-mutate.
+    if path.exists() {
+        if let Err(err) = backup_codewhale_config(&path, runtime) {
+            runtime.write_log(
+                "hooks",
+                &format!("CodeWhale pre-write backup failed (continuing): {err}"),
+            );
+        }
+    }
+
     let mut block = String::from(CW_BEGIN);
     block.push('\n');
     for event in CODEWHALE_EVENTS {
@@ -443,13 +497,206 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
     }
     block.push_str(CW_END);
     replace_marker_block(&path, CW_BEGIN, CW_END, &block)?;
-    runtime.write_log("hooks", "CodeWhale hooks synced");
+    runtime.write_log(
+        "hooks",
+        "CodeWhale hooks synced (v2); legacy cleanup disabled in R40.1 (see audit P0-2)",
+    );
     Ok(InstallResult {
         added: CODEWHALE_EVENTS.len(),
         path,
-        message: "CodeWhale 原生 TOML Hook 已同步；权限失败时回退到 ask".into(),
+        message: "CodeWhale 原生 TOML Hook 已同步；权限失败时回退到 ask。如诊断提示存在 pre-R22 残留 hook（含 message_submit），请按诊断指引手动删除，或等待 R41 引入安全的 AST 清理。".into(),
         ..InstallResult::default()
     })
+}
+
+/// R40.1: create a timestamped backup of the CodeWhale config before
+/// any write. Backups are placed alongside the original file with a
+/// `.octopus-backup-<unix_ms>.toml` suffix. Old backups older than
+/// 30 days are pruned on each call to prevent unbounded growth.
+fn backup_codewhale_config(path: &Path, runtime: &Runtime) -> Result<(), String> {
+    let parent = path.parent().ok_or("config path has no parent")?;
+    let now_ms = crate::model::now_ms();
+    let backup_name = format!(
+        ".{}-octopus-backup-{}.toml",
+        path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("config"),
+        now_ms
+    );
+    let backup_path = parent.join(backup_name);
+    fs::copy(path, &backup_path).map_err(|e| e.to_string())?;
+    runtime.write_log(
+        "hooks",
+        &format!("CodeWhale config backed up to {}", backup_path.display()),
+    );
+    // Prune backups older than 30 days. Best-effort — failure to prune
+    // must not block the install.
+    if let Ok(entries) = fs::read_dir(parent) {
+        let cutoff = now_ms.saturating_sub(30 * 24 * 60 * 60 * 1000);
+        for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            let name = match file_name.to_str() {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            if !name.contains("-octopus-backup-") {
+                continue;
+            }
+            // Extract the timestamp from the filename.
+            if let Some(ts_str) = name
+                .rsplit("-octopus-backup-")
+                .next()
+                .and_then(|s| s.strip_suffix(".toml"))
+                .and_then(|s| s.parse::<u64>().ok())
+            {
+                if ts_str < cutoff {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// R40: scan a CodeWhale config.toml and remove any `[[hooks.hooks]]`
+/// table whose `name` starts with `octopus-` BUT which is NOT inside the
+/// current v2 marker block. This catches legacy v1 marker blocks and
+/// any unmarked pre-R22 install residue (notably `octopus-message_submit`).
+///
+/// The function is intentionally line-oriented and tolerant of TOML
+/// formatting variations (single vs double quotes, leading whitespace)
+/// because pre-R22 installs were generated by different code paths and
+/// may not match the exact formatting of the current installer.
+fn strip_legacy_codewhale_hooks(path: &Path, messages: &mut Vec<String>) -> Result<(), String> {
+    let raw = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(_) => return Ok(()), // file doesn't exist yet — nothing to clean
+    };
+
+    // Two-pass approach for clarity:
+    //   Pass 1: walk lines, group each `[[hooks.hooks]]` table into a
+    //           contiguous block, classify it as KEEP / DROP.
+    //           - DROP if the table is OUTSIDE the v2 marker block AND
+    //             its `name` starts with `octopus-`.
+    //           - Otherwise KEEP.
+    //   Pass 2: emit the kept blocks (and all non-table lines) in order.
+    #[derive(Clone)]
+    enum Span {
+        Raw(String), // a non-table line, kept verbatim
+        Table {
+            header: String,
+            body: Vec<String>,
+            keep: bool,
+            name: String,
+        },
+    }
+
+    let mut spans: Vec<Span> = Vec::new();
+    let mut in_v2_block = false;
+    let mut current_table: Option<(String, Vec<String>)> = None;
+
+    let flush_table = |spans: &mut Vec<Span>, tbl: Option<(String, Vec<String>)>, in_v2: bool| {
+        if let Some((header, body)) = tbl {
+            let name = body
+                .iter()
+                .find_map(|l| parse_toml_string_value(l.trim(), "name"))
+                .unwrap_or_default();
+            let keep = in_v2 || !name.starts_with("octopus-");
+            spans.push(Span::Table {
+                header,
+                body,
+                keep,
+                name,
+            });
+        }
+    };
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed == CW_BEGIN {
+            in_v2_block = true;
+            // close any open table before the marker
+            let tbl = current_table.take();
+            flush_table(&mut spans, tbl, false); // not yet in v2
+            spans.push(Span::Raw(line.to_string()));
+            continue;
+        }
+        if trimmed == CW_END {
+            // close any open table before the end marker
+            let tbl = current_table.take();
+            flush_table(&mut spans, tbl, in_v2_block);
+            in_v2_block = false;
+            spans.push(Span::Raw(line.to_string()));
+            continue;
+        }
+        if trimmed.starts_with("[[hooks.hooks]]") {
+            // start a new table — flush the previous one first
+            let tbl = current_table.take();
+            flush_table(&mut spans, tbl, in_v2_block);
+            current_table = Some((line.to_string(), Vec::new()));
+            continue;
+        }
+        if let Some((_, body)) = current_table.as_mut() {
+            body.push(line.to_string());
+        } else {
+            spans.push(Span::Raw(line.to_string()));
+        }
+    }
+    // flush trailing table
+    flush_table(&mut spans, current_table.take(), in_v2_block);
+
+    let mut output = String::with_capacity(raw.len());
+    let mut changed = false;
+    for span in spans {
+        match span {
+            Span::Raw(s) => {
+                output.push_str(&s);
+                output.push('\n');
+            }
+            Span::Table {
+                header,
+                body,
+                keep,
+                name,
+            } => {
+                if keep {
+                    output.push_str(&header);
+                    output.push('\n');
+                    for b in &body {
+                        output.push_str(b);
+                        output.push('\n');
+                    }
+                } else {
+                    changed = true;
+                    messages.push(format!("removed legacy hook `{name}`"));
+                }
+            }
+        }
+    }
+    if changed {
+        write_text_atomic(path, output.as_bytes())?;
+    }
+    Ok(())
+}
+
+/// Parse `name = "value"` (or `name = 'value'`) from a single TOML line.
+/// Returns None if the line doesn't match `key = "..."`.
+fn parse_toml_string_value(line: &str, key: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let prefix = format!("{key} =");
+    if !trimmed.starts_with(&prefix) {
+        return None;
+    }
+    let rest = trimmed[prefix.len()..].trim_start();
+    if let Some(stripped) = rest.strip_prefix('"') {
+        let end = stripped.find('"')?;
+        return Some(stripped[..end].to_string());
+    }
+    if let Some(stripped) = rest.strip_prefix('\'') {
+        let end = stripped.find('\'')?;
+        return Some(stripped[..end].to_string());
+    }
+    None
 }
 
 fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
@@ -502,7 +749,16 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
     let path = base.join("plugins").join("llmpet-octopus.js");
     let source = opencode_plugin_source();
     if let Ok(existing) = fs::read_to_string(&path) {
-        if !existing.contains(OPENCODE_MARKER) {
+        // R40: accept the current marker OR any legacy marker we own.
+        // Legacy markers are listed in OPENCODE_MARKER_LEGACY; if the
+        // existing file matches one of them, we transparently overwrite
+        // with the v3 source. If it matches neither current nor legacy,
+        // the path is owned by another plugin — refuse to clobber.
+        let owns_current = existing.contains(OPENCODE_MARKER);
+        let owns_legacy = OPENCODE_MARKER_LEGACY
+            .iter()
+            .any(|marker| existing.contains(marker));
+        if !owns_current && !owns_legacy {
             return Err(format!(
                 "OpenCode plugin path already belongs to another plugin: {}",
                 path.display()
@@ -510,7 +766,7 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
         }
     }
     write_text_atomic(&path, source.as_bytes())?;
-    runtime.write_log("hooks", "OpenCode ESM plugin synced");
+    runtime.write_log("hooks", "OpenCode ESM plugin synced (v3)");
     Ok(InstallResult {
         added: 1,
         path,
@@ -525,7 +781,12 @@ fn uninstall_opencode() -> Result<PathBuf, String> {
         .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
     let path = base.join("plugins").join("llmpet-octopus.js");
     if let Ok(raw) = fs::read_to_string(&path) {
-        if raw.contains(OPENCODE_MARKER) {
+        // R40: uninstall accepts both current and legacy markers.
+        let owns_current = raw.contains(OPENCODE_MARKER);
+        let owns_legacy = OPENCODE_MARKER_LEGACY
+            .iter()
+            .any(|marker| raw.contains(marker));
+        if owns_current || owns_legacy {
             fs::remove_file(&path).map_err(|e| e.to_string())?;
         }
     }
@@ -858,7 +1119,38 @@ fn write_text_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn opencode_plugin_source() -> &'static str {
-    r#"// octopus-opencode-plugin-v2
+    r#"// octopus-opencode-plugin-v3
+// R40 (2026-08-01): rewrite of the OpenCode plugin event mapping.
+//
+// Root-cause analysis (systematic-debugging Phase 1):
+//   The v2 plugin mapped `session.status` -> `UserPromptSubmit`. OpenCode
+//   emits `session.status` for EVERY status transition (thinking → running
+//   → tool-use → thinking → idle), so every tool call indirectly fired
+//   `UserPromptSubmit`. The Rust http_server maps `UserPromptSubmit` to
+//   `{kind:"user-turn"}`, which the pet renders as the "📨 收到新任务！"
+//   bubble. Net effect: every tool call → "received new task" spam.
+//
+//   There is NO dedicated "user submitted prompt" event in OpenCode's
+//   plugin API (verified via web-search of opencode.ai/docs and
+//   smithery.ai skills). The closest semantic is `session.idle` AFTER
+//   user input, but that is itself fired whenever the agent goes idle
+//   (including after every assistant turn). So any mapping to
+//   `UserPromptSubmit` will over-fire.
+//
+// Fix:
+//   - DROP the `session.status -> UserPromptSubmit` mapping entirely.
+//     The pet still gets thinking/working/attention transitions via the
+//     dedicated `tool.execute.before/after` and `session.idle` hooks.
+//   - Map `session.status` to a generic `state` event with the raw
+//     status string, so the Rust server can do state aggregation without
+//     raising a fake "user-turn".
+//   - `tool.execute.before/after` are kept; they already produce the
+//     correct `{kind:"operation"}` payload on the Rust side.
+//   - `permission.asked/replied` are kept; they drive the waiting /
+//     needsinput UI.
+//   - Tighten `sid()` to read `input.metadata.sessionID` (the actual
+//     field OpenCode v0.9.x passes to tool hooks) before falling back
+//     to `input.sessionID` and the directory key.
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -873,22 +1165,97 @@ async function send(payload) {
     });
   } catch {}
 }
-function sid(event, directory) {
-  return event?.properties?.sessionID || event?.properties?.sessionId || event?.sessionID || `opencode:${directory}`;
+function sidFromEvent(event, directory) {
+  return event?.properties?.sessionID
+    || event?.properties?.sessionId
+    || event?.sessionID
+    || event?.metadata?.sessionID
+    || `opencode:${directory}`;
+}
+function sidFromToolInput(input, directory) {
+  // OpenCode v0.9.x: tool hooks receive { tool, metadata: { sessionID, ... } }
+  // Older builds used input.sessionID at the top level. Accept both.
+  return input?.metadata?.sessionID
+    || input?.sessionID
+    || input?.sessionId
+    || `opencode:${directory}`;
 }
 export const LLMPETPlugin = async ({ directory }) => ({
   event: async ({ event }) => {
-    const map = {
-      "session.created": ["SessionStart", "idle"], "session.compacted": ["PreCompact", "sweeping"],
-      "session.deleted": ["SessionEnd", "sleeping"], "session.error": ["StopFailure", "error"],
-      "session.idle": ["Stop", "attention"], "session.status": ["UserPromptSubmit", "thinking"],
-      "permission.asked": ["Notification", "needsinput"], "permission.replied": ["PreToolUse", "working"]
+    // R40: `session.status` MUST NOT be mapped to `UserPromptSubmit` —
+    // that caused the "every tool call = received new task" regression.
+    //
+    // R40.1 (audit P1-2): the 0.5.19 plugin hardcoded `state: "thinking"`
+    // for every `session.status` event, ignoring the actual status. This
+    // made idle/retry/busy transitions all look like "thinking" and could
+    // overwrite correct working/attention/error states. Fix: read the
+    // actual status from `event.properties.status` (OpenCode v0.9.x
+    // payload shape, verified via opencode.school lessons/plugins docs
+    // and the smithery.ai opencode-sdk-development skill). Map the raw
+    // status string to our internal state vocabulary; unknown values
+    // are forwarded as-is so the server can decide.
+    const fixedMap = {
+      "session.created": ["SessionStart", "idle"],
+      "session.compacted": ["PreCompact", "sweeping"],
+      "session.deleted": ["SessionEnd", "sleeping"],
+      "session.error": ["StopFailure", "error"],
+      "session.idle": ["Stop", "attention"],
+      "permission.asked": ["Notification", "needsinput"],
+      "permission.replied": ["PreToolUse", "working"]
     };
-    const value = map[event.type]; if (!value) return;
-    await send({ hook_event_name: value[0], state: value[1], session_id: sid(event, directory), cwd: directory });
+    if (event.type === "session.status") {
+      // Read the actual status string from the event payload. OpenCode
+      // v0.9.x sends: { type: "session.status", properties: { status:
+      // "busy" | "idle" | "retry" | "waiting" | ... } }. Older builds
+      // may put it at event.status. Fall back to "unknown" if absent.
+      const raw = event?.properties?.status
+        || event?.status
+        || event?.properties?.type
+        || "unknown";
+      // Map known OpenCode statuses to our internal state vocabulary.
+      // Unknown statuses are forwarded as-is so the server's state
+      // reducer can decide (it falls through to a generic state update).
+      const stateMap = {
+        busy: "working",
+        working: "working",
+        running: "working",
+        idle: "attention",
+        waiting: "waiting",
+        retry: "error",
+        error: "error"
+      };
+      const mapped = stateMap[raw] || raw;
+      await send({
+        hook_event_name: "SessionStatus",
+        state: mapped,
+        status_raw: raw,
+        session_id: sidFromEvent(event, directory),
+        cwd: directory
+      });
+      return;
+    }
+    const value = fixedMap[event.type]; if (!value) return;
+    await send({
+      hook_event_name: value[0],
+      state: value[1],
+      session_id: sidFromEvent(event, directory),
+      cwd: directory
+    });
   },
-  "tool.execute.before": async (input) => send({ hook_event_name: "PreToolUse", state: "working", session_id: input.sessionID || `opencode:${directory}`, cwd: directory, tool_name: input.tool }),
-  "tool.execute.after": async (input) => send({ hook_event_name: "PostToolUse", state: "working", session_id: input.sessionID || `opencode:${directory}`, cwd: directory, tool_name: input.tool })
+  "tool.execute.before": async (input) => send({
+    hook_event_name: "PreToolUse",
+    state: "working",
+    session_id: sidFromToolInput(input, directory),
+    cwd: directory,
+    tool_name: input?.tool || input?.toolName || "tool"
+  }),
+  "tool.execute.after": async (input) => send({
+    hook_event_name: "PostToolUse",
+    state: "working",
+    session_id: sidFromToolInput(input, directory),
+    cwd: directory,
+    tool_name: input?.tool || input?.toolName || "tool"
+  })
 });
 "#
 }

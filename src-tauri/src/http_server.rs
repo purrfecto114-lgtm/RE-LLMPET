@@ -458,88 +458,161 @@ fn permission_payload(provider: &str, decision: &PermissionDecision) -> Value {
 }
 
 fn emit_stats(app: &AppHandle, runtime: &Arc<Runtime>) {
-    // R38.1 (2026-08-01): Singleton StatsCoalescer. The 0.5.16 full audit
-    // (P0-1) flagged that the R38 trailing flush spawned a new
-    // spawn_blocking task PER throttled event — causing task storms.
-    // Now we use dirty+scheduled flags to ensure at most ONE trailing
-    // timer exists at any time.
+    // R40.1 (audit P0-4): consolidated StatsCoalescer. The 0.5.19
+    // split-mutex design (last_stats_emit + stats_dirty + stats_scheduled
+    // as separate Mutexes) had a race where dirty=true but no timer was
+    // scheduled — the trailing timer cleared `scheduled` between the new
+    // event's dirty-set and scheduled-check, so the new event saw
+    // scheduled=true and didn't schedule a new timer. Result: dirty=true
+    // permanently, final stats event lost.
+    //
+    // Fix: all three flags are now under a single `stats_coalescer`
+    // Mutex<StatsCoalescerState>. The trailing timer's "read dirty, clear
+    // dirty, clear scheduled, decide to emit" sequence is atomic. A new
+    // event arriving during the trailing critical section must wait for
+    // the lock; when it gets it, scheduled=false, so it correctly
+    // schedules a new timer.
     const STATS_THROTTLE_MS: u128 = 150;
     let now = std::time::Instant::now();
 
-    // Check if we're within the throttle window.
-    let should_skip = {
-        let guard = runtime
-            .last_stats_emit
+    // Atomic check-and-set under the consolidated lock.
+    let action = {
+        let mut guard = runtime
+            .stats_coalescer
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        if let Some(last) = *guard {
-            now.duration_since(last).as_millis() < STATS_THROTTLE_MS
+        let within_window = guard
+            .last_emit
+            .map(|last| now.duration_since(last).as_millis() < STATS_THROTTLE_MS)
+            .unwrap_or(false);
+        if within_window {
+            // Throttle: mark dirty. Schedule a trailing timer ONLY if one
+            // isn't already pending. Both operations are atomic under
+            // this lock — no race possible.
+            guard.dirty = true;
+            if !guard.scheduled {
+                guard.scheduled = true;
+                CoalescerAction::ScheduleTrailing
+            } else {
+                CoalescerAction::Skip
+            }
         } else {
-            false
+            // Leading emit: update last_emit now so concurrent events
+            // see the throttle window as active.
+            guard.last_emit = Some(now);
+            CoalescerAction::EmitNow
         }
     };
 
-    if should_skip {
-        // Mark dirty and schedule a trailing flush IF one isn't already pending.
-        let already_scheduled = {
-            let mut dirty_guard = runtime
-                .stats_dirty
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            *dirty_guard = true;
-            drop(dirty_guard);
-            let mut sched_guard = runtime
-                .stats_scheduled
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            let was = *sched_guard;
-            *sched_guard = true;
-            was
-        };
-        if !already_scheduled {
-            // Schedule exactly ONE trailing flush.
+    match action {
+        CoalescerAction::EmitNow => {
+            do_emit_stats(app, runtime);
+        }
+        CoalescerAction::ScheduleTrailing => {
             let app_clone = app.clone();
             let runtime_clone = runtime.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 std::thread::sleep(std::time::Duration::from_millis(STATS_THROTTLE_MS as u64));
-                // Check if still dirty (another emit may have happened).
-                let is_dirty = {
-                    let mut g = runtime_clone
-                        .stats_dirty
+                // Atomic: read dirty, clear dirty, clear scheduled, and
+                // decide whether to emit + reschedule. All under one lock.
+                let trailing_action = {
+                    let mut guard = runtime_clone
+                        .stats_coalescer
                         .lock()
                         .unwrap_or_else(|e| e.into_inner());
-                    let d = *g;
-                    *g = false;
-                    d
+                    let was_dirty = guard.dirty;
+                    guard.dirty = false;
+                    guard.scheduled = false;
+                    // If a new event arrived while we were sleeping (it set
+                    // dirty=true but couldn't schedule because scheduled was
+                    // true), we need to reschedule. But since we just
+                    // cleared scheduled, the new event would have scheduled
+                    // itself if it got the lock first. With the single
+                    // mutex, either:
+                    //   (a) we get the lock first → was_dirty=true, we emit,
+                    //       and if dirty was set by a concurrent event that
+                    //       hasn't acquired the lock yet, it will get the
+                    //       lock after us, see scheduled=false, and schedule.
+                    //   (b) concurrent event gets lock first → it sets
+                    //       dirty=true, sees scheduled=true (we haven't
+                    //       cleared it), doesn't schedule, releases lock.
+                    //       We then get the lock, see was_dirty=true, emit,
+                    //       clear scheduled. But dirty is now true (from
+                    //       the concurrent event) and scheduled is false.
+                    //       We need to reschedule!
+                    // Case (b) is the key: after clearing scheduled, check
+                    // if dirty is STILL true (set by a concurrent event
+                    // that couldn't schedule). If so, reschedule.
+                    if guard.dirty && !guard.scheduled {
+                        guard.scheduled = true;
+                        TrailingAction::EmitAndReschedule
+                    } else if was_dirty {
+                        TrailingAction::Emit
+                    } else {
+                        TrailingAction::Done
+                    }
                 };
-                // Clear scheduled flag.
-                {
-                    let mut g = runtime_clone
-                        .stats_scheduled
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner());
-                    *g = false;
-                }
-                if is_dirty {
-                    do_emit_stats(&app_clone, &runtime_clone);
+                match trailing_action {
+                    TrailingAction::Done => {}
+                    TrailingAction::Emit => {
+                        do_emit_stats(&app_clone, &runtime_clone);
+                    }
+                    TrailingAction::EmitAndReschedule => {
+                        do_emit_stats(&app_clone, &runtime_clone);
+                        // Recurse to schedule the next trailing timer.
+                        // This is safe because we're in a spawn_blocking
+                        // task; the next timer will fire after another
+                        // STATS_THROTTLE_MS.
+                        let app_clone2 = app_clone.clone();
+                        let runtime_clone2 = runtime_clone.clone();
+                        tauri::async_runtime::spawn_blocking(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(
+                                STATS_THROTTLE_MS as u64,
+                            ));
+                            emit_stats(&app_clone2, &runtime_clone2);
+                        });
+                    }
                 }
             });
         }
-        return;
+        CoalescerAction::Skip => {
+            // Already scheduled; dirty was set. Nothing to do.
+        }
     }
+}
 
-    do_emit_stats(app, runtime);
+enum CoalescerAction {
+    EmitNow,
+    ScheduleTrailing,
+    Skip,
+}
+
+enum TrailingAction {
+    Done,
+    Emit,
+    EmitAndReschedule,
 }
 
 /// R38.1: Actual emit — generates stats, bumps revision, emits to both windows.
 fn do_emit_stats(app: &AppHandle, runtime: &Arc<Runtime>) {
-    // Update last_emit timestamp.
+    // Update last_emit timestamp in BOTH the legacy field and the
+    // consolidated coalescer state. R40.1: the consolidated state is
+    // the source of truth; the legacy field is kept for smoke-test
+    // compatibility.
+    let now = std::time::Instant::now();
     {
         let mut guard = runtime
             .last_stats_emit
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        *guard = Some(std::time::Instant::now());
+        *guard = Some(now);
+    }
+    {
+        let mut guard = runtime
+            .stats_coalescer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard.last_emit = Some(now);
     }
     // Bump revision.
     let revision = {

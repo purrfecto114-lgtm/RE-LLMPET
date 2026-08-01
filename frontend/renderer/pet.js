@@ -1746,6 +1746,7 @@ function perfNow() {
 
 // ---------- 统计 + 聚合状态 ----------
 let lastStats = null; // 最近一次快照：transient 到期时用它立即重算聚合态
+let lastStatsRevision = -1; // R40.1: monotonic revision guard — reject stale stats
 let sayToken = 0;     // say 接棒 happy 的排队令牌（新事件作废旧排队）
 // Format cost in the current currency (same logic as panel.js).
 function fmtCost(cost) {
@@ -1757,8 +1758,28 @@ function fmtCost(cost) {
   return sym + display.toFixed(1);
 }
 
+// R40.1 (audit P0-3): the backend stamps each stats payload with a
+// monotonic `__revision` (see commands.rs::do_emit_stats and
+// http_server.rs). The 0.5.19 plugin generated revisions but the
+// frontend never checked them, so a late-arriving revision-41
+// "working" snapshot could overwrite a fresh revision-42 "completed"
+// snapshot — the UI would visually regress from "done" to "working".
+// Fix: reject any snapshot whose revision is older than the last
+// accepted one. Revisions < 0 (missing field, e.g. from an outdated
+// backend) are accepted unconditionally to preserve compatibility.
+function acceptStatsRevision(s) {
+  if (!s) return true;
+  const rev = Number(s.__revision);
+  if (!Number.isFinite(rev) || rev < 0) return true; // backend without revision — accept
+  if (rev <= lastStatsRevision) return false;       // stale — reject
+  lastStatsRevision = rev;
+  return true;
+}
+
 function applyStats(s) {
   if (!s) return;
+  // R40.1: reject stale-revision snapshots to prevent UI regression.
+  if (!acceptStatsRevision(s)) return;
   lastStats = s;
   chipCost.textContent = fmtCost(s.today.cost || 0);
   chipWindow.textContent = '5h ' + fmtCost(s.window5h.cost || 0);

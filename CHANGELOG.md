@@ -1,5 +1,148 @@
 # Changelog
 
+## 0.5.20 — R40.1 carpet audit closure（2026-08-01）
+
+Emergency hotfix closing 7 issues from the 0.5.19 carpet audit
+(`RE-LLMPET-0.5.19-carpet-audit-upstream-drift-roadmap.md`).
+
+### P0-1: Fix Rust format string compile blocker
+
+The 0.5.19 `install_codewhale` log message used `{'y'}` inside a
+`format!` string — invalid Rust format syntax that would fail
+`cargo check`. Fixed to plain `entries`.
+
+### P0-2: Disable unsafe CodeWhale legacy TOML cleanup
+
+The 0.5.19 `strip_legacy_codewhale_hooks` line-state-machine could
+absorb user-owned `[provider]` / `[[models]]` / arbitrary TOML tables
+into a legacy `[[hooks.hooks]]` body and silently delete them when
+dropping the hook table. This is a data corruption bug worse than the
+original "message_submit blocked" symptom.
+
+- `install_codewhale` no longer calls `strip_legacy_codewhale_hooks`.
+- New `backup_codewhale_config` creates a timestamped `.toml` backup
+  before any write, with 30-day pruning of old backups.
+- Diagnostic still DETECTS stale pre-R22 hooks and surfaces them as
+  an ISSUE with manual removal instructions.
+- R41 will reintroduce cleanup via a real TOML AST editor.
+
+### P0-3: Frontend rejects stale stats revisions
+
+The backend stamps each stats payload with `__revision`, but the 0.5.19
+frontend never checked it — a late-arriving revision-41 "working"
+snapshot could overwrite a fresh revision-42 "completed" snapshot.
+
+- `pet.js` — new `lastStatsRevision` + `acceptStatsRevision()` guard.
+- `panel.js` — new `lastStatsRevisionPanel` + `acceptStatsRevisionPanel()`.
+- Revisions < 0 (missing field, e.g. from an older backend) are
+  accepted unconditionally for backward compatibility.
+
+### P0-4: Consolidated StatsCoalescer state machine
+
+The 0.5.19 split-mutex design (three separate `Mutex`es for
+`last_stats_emit`, `stats_dirty`, `stats_scheduled`) had a race where
+`dirty=true` but no timer was scheduled — the trailing timer cleared
+`scheduled` between the new event's dirty-set and scheduled-check.
+
+- `model.rs` — new `StatsCoalescerState` struct + `stats_coalescer:
+  Mutex<StatsCoalescerState>` field. All three flags (last_emit, dirty,
+  scheduled) are under one lock.
+- `http_server.rs::emit_stats` — rewritten to use the consolidated
+  state. The trailing timer's "read dirty, clear dirty, clear
+  scheduled, decide to emit" sequence is atomic. Case (b) from the
+  audit (concurrent event gets lock first, sets dirty, can't schedule)
+  is handled by checking `guard.dirty` after clearing `scheduled` and
+  rescheduling if still dirty.
+- `commands.rs::emit_stats_throttled` — updated to use the same
+  consolidated state.
+
+### P0-5: Source package provenance
+
+The 0.5.19 package had drifted: root dir was `re-llmpet-0.5.18-base`,
+CHANGELOG stopped at 0.5.17, no commit SHA, no manifest.
+
+- Package root renamed to `RE-LLMPET-0.5.19.1`.
+- CHANGELOG entries added for 0.5.18, 0.5.19, 0.5.19.1.
+- New `SOURCE_REVISION` file with commit SHA + build date.
+- New `SOURCE_DATE_EPOCH` file for reproducible builds.
+- New `SOURCE_MANIFEST.json` with file hashes.
+- New `BUILD_REPRODUCIBILITY.md` with build instructions.
+
+### P1-1: Revert OpenCode `auth list` as primary diagnostic command
+
+The 0.5.19 "fix" changed the OpenCode auth probe from `auth list` to
+`providers list` (primary) with `auth list` fallback. The carpet audit
+proved `opencode auth list` is still the official command (verified
+via opencode.ai docs, anomalyco-opencode mintlify CLI overview, and
+GitHub issue #4533). The `providers` command is a SEPARATE command for
+managing provider configurations, not a replacement for `auth list`.
+
+- `commands.rs` — reverted to `auth list` as the single primary probe.
+  No fallback — inventing unverified fallbacks is what caused the
+  0.5.19 mistake.
+
+### P1-2: Read actual OpenCode `session.status` payload
+
+The 0.5.19 plugin hardcoded `state: "thinking"` for every
+`session.status` event, ignoring the actual status. This made
+idle/retry/busy transitions all look like "thinking" and could
+overwrite correct working/attention/error states.
+
+- `hook_install.rs::opencode_plugin_source` — `session.status` now
+  reads `event.properties.status` (OpenCode v0.9.x payload shape) and
+  maps known statuses (busy→working, idle→attention, retry→error,
+  etc.) to our internal state vocabulary. Unknown statuses are
+  forwarded as-is so the server's state reducer can decide.
+
+### Test
+
+New `test/tauri-r401-carpet-audit-closure-smoke.js` (30 assertions)
+locks all 7 fixes. Existing smoke tests updated for version + new
+field compatibility.
+
+---
+
+## 0.5.19 — R40 runtime regression closure（2026-08-01）
+
+Closed 4 runtime regressions reported by users:
+
+- **R40-1**: OpenCode plugin `session.status → UserPromptSubmit`
+  mapping caused "收到新任务" on every tool call. Fixed by mapping
+  to `SessionStatus` instead.
+- **R40-2**: OpenCode plugin marker bumped v2 → v3; install detection
+  fixed to check the actual plugin file path.
+- **R40-3**: OpenCode diagnostic probe changed from `auth list` to
+  `providers list` (NOTE: reverted in 0.5.19.1 — see P1-1 above).
+- **R40-4**: CodeWhale `strip_legacy_codewhale_hooks` added to clean
+  pre-R22 `message_submit` residue (NOTE: disabled in 0.5.19.1 — see
+  P0-2 above).
+- **R40-5**: Panel fullscreen border — 500ms poller + `near-fullscreen`
+  CSS class as Windows 11 timing safety net.
+
+**Known issues introduced by 0.5.19** (all fixed in 0.5.19.1):
+- Rust format string compile blocker (`{'y'}`)
+- CodeWhale legacy cleanup could delete user TOML config
+- Stats revision generated but not consumed by frontend
+- StatsCoalescer dirty-not-scheduled race
+- Source provenance drift
+
+---
+
+## 0.5.18 — R39 UX & accessibility（2026-08-01）
+
+4 UX/accessibility fixes from the 0.5.16 full audit roadmap §12 R39:
+
+- **R39-1**: `prefers-reduced-motion` — `animation:none` instead of
+  `0.001s` (0.001s still fires one frame).
+- **R39-2**: Panel responsive — `minWidth` 520 → 420, single-column
+  breakpoint at `max-width: 699px`.
+- **R39-3**: Diagnostic loading hint text explaining ✕ button behavior.
+- **R39-4**: Persistent error center stub — critical commands use
+  `persistent=true` (no auto-dismiss); persistent errors get a ✕ close
+  button; `errorLog` array tracks last 10 persistent errors.
+
+---
+
 ## 0.5.17 — R38.1 correctness closure（2026-08-01）
 
 Patch release closing 5 issues from the 0.5.16 full audit roadmap.

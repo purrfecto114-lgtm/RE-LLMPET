@@ -1,5 +1,4 @@
-# R35.2 (2026-07-31): permission for cancel_diagnostic command.
-# Auto-generated format matching diagnose_agent.toml.
+# Automatically generated - DO NOT EDIT!
 
 [[permission]]
 identifier = "allow-cancel-diagnostic"

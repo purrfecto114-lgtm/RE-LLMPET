@@ -30,6 +30,26 @@ body.window-fullscreen #card {
   box-shadow: none;
 }
 
+/* R40 (2026-08-01): CSS-level safety net for the "全屏窗口还是有边框"
+   regression. The body.window-maximized / body.window-fullscreen classes
+   are set by panel.js after querying Tauri's isMaximized()/isFullscreen().
+   On Windows 11, the maximize animation can fire onResized BEFORE
+   isMaximized() reflects the new state, so the JS toggle lags by one
+   frame and the user briefly sees the orange border + 20px padding in
+   fullscreen. panel.js now also runs a 500ms poller AND toggles a
+   `near-fullscreen` body class when the viewport fills >= 96% of the
+   screen (see applyNearFullscreenClass() in panel.js). This CSS rule
+   is the third line of defense — it suppresses the border / padding /
+   shadow whenever either class is present. */
+body.near-fullscreen {
+  padding: 0;
+}
+body.near-fullscreen #card {
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+}
+
 #card {
   width: 100%; height: 100%;
   display: flex; flex-direction: column;

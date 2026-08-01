@@ -30,36 +30,51 @@ fn emit_stats(app: &AppHandle, state: &AppState) {
 /// trailing flush will pick it up.
 fn emit_stats_throttled(app: &AppHandle, state: &AppState, force: bool) {
     const STATS_THROTTLE_MS: u128 = 150;
+    // R40.1 (audit P0-4): use the consolidated `stats_coalescer` state
+    // to avoid the split-mutex race. When force=true, bypass the throttle
+    // and emit immediately. When force=false, check the throttle window
+    // atomically; if within it, mark dirty and let the http_server.rs
+    // trailing timer pick it up.
     if !force {
         let now = Instant::now();
         let should_skip = {
             let guard = state
                 .runtime
-                .last_stats_emit
+                .stats_coalescer
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            if let Some(last) = *guard {
-                now.duration_since(last).as_millis() < STATS_THROTTLE_MS
-            } else {
-                false
-            }
+            guard
+                .last_emit
+                .map(|last| now.duration_since(last).as_millis() < STATS_THROTTLE_MS)
+                .unwrap_or(false)
         };
         if should_skip {
-            // Mark dirty so the trailing flush picks it up.
-            let mut dirty_guard = state
+            // Mark dirty so the trailing flush picks it up. This is
+            // atomic with the scheduled check in http_server.rs because
+            // both use the same `stats_coalescer` mutex.
+            let mut guard = state
                 .runtime
-                .stats_dirty
+                .stats_coalescer
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            *dirty_guard = true;
+            guard.dirty = true;
             return;
         }
+        // Update last_emit in both the legacy field and the consolidated state.
         let mut guard = state
+            .runtime
+            .stats_coalescer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard.last_emit = Some(now);
+        drop(guard);
+        // Also update the legacy field for smoke-test compatibility.
+        let mut legacy_guard = state
             .runtime
             .last_stats_emit
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        *guard = Some(now);
+        *legacy_guard = Some(now);
     }
     // Bump revision and emit.
     let revision = {
@@ -1737,8 +1752,29 @@ fn codewhale_config_candidates(cwd: &Path) -> Value {
     })
 }
 
+/// R40: parse `key = "value"` (or `key = 'value'`) from a single TOML line.
+/// Used by the diagnostic to scan for stale CodeWhale hook events like
+/// `message_submit` that pre-date the R22 fix. Tolerates leading
+/// whitespace and either quote style.
+fn parse_codewhale_toml_string(line: &str, key: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let prefix = format!("{key} =");
+    if !trimmed.starts_with(&prefix) {
+        return None;
+    }
+    let rest = trimmed[prefix.len()..].trim_start();
+    if let Some(stripped) = rest.strip_prefix('"') {
+        let end = stripped.find('"')?;
+        return Some(stripped[..end].to_string());
+    }
+    if let Some(stripped) = rest.strip_prefix('\'') {
+        let end = stripped.find('\'')?;
+        return Some(stripped[..end].to_string());
+    }
+    None
+}
+
 fn codewhale_config_compatibility(path: &Path) -> Value {
-    const MAX_CONFIG_BYTES: u64 = 256 * 1024;
     let metadata = match std::fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(_) => {
@@ -1749,7 +1785,9 @@ fn codewhale_config_compatibility(path: &Path) -> Value {
             })
         }
     };
-    if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() > MAX_CONFIG_BYTES
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() > crate::hook_install::MAX_CONFIG_BYTES
     {
         return json!({
             "readable": false,
@@ -2231,6 +2269,25 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
         "opencode" => executable
             .as_deref()
             .map(|path| {
+                // R40.1 (2026-08-01): REVERTED the 0.5.19 "providers list"
+                // experiment. The 0.5.19 carpet audit (P1-1) proved
+                // `opencode auth list` is still the official command
+                // (verified via opencode.ai docs, anomalyco-opencode
+                // mintlify CLI overview, and GitHub issue #4533 which
+                // references `opencode auth list` output). The 0.5.19
+                // "fix" was based on a misreading of `opencode --help`
+                // — `opencode providers` is a SEPARATE command for
+                // managing provider configurations, not a replacement
+                // for `opencode auth list`. Using `providers list` as
+                // the primary probe caused every healthy install to
+                // run a failing command first, adding latency + noise.
+                //
+                // R40.1 fix: `auth list` is primary (the official
+                // credential-listing command). No fallback — if a
+                // future OpenCode build renames it, the diagnostic
+                // will surface the failure and we'll add a fixture
+                // then. Inventing unverified fallbacks is what got
+                // us here.
                 run_probe_with_pid(
                     path,
                     &["auth", "list"],
@@ -2370,9 +2427,89 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
             warnings.push("Legacy CodeWhale project overlay .deepseek/config.toml is active in the diagnostic workspace; migrate deliberately after comparing provider, model, approval, and sandbox settings".into());
         }
         let path = codewhale_config_path();
-        let hook_block = std::fs::read_to_string(&path)
-            .ok()
+        let config_raw = std::fs::read_to_string(&path).ok();
+        let hook_block = config_raw
+            .as_deref()
             .is_some_and(|raw| raw.contains("# >>> octopus:codewhale-hooks:v2 >>>"));
+        // R40 (2026-08-01): detect stale `message_submit` (and any other
+        // pre-R22) hooks that are still present in the user's config.toml
+        // from installs done prior to the R22 fix. These hooks cause
+        // CodeWhale to report "message_submit hook failed and blocked"
+        // whenever the LLMPET HTTP server is briefly unavailable, which
+        // completely blocks the user's prompt from being submitted.
+        // The previous diagnostic only checked `hook_block` (the v2
+        // marker), so it reported "all good" while the user's CodeWhale
+        // was actually broken. This is the "诊断功能失效" failure mode
+        // the user reported.
+        let stale_hooks: Vec<String> = config_raw
+            .as_deref()
+            .map(|raw| {
+                // Look for any `event = "..."` line whose value is in
+                // the legacy/pre-R22 set AND which is NOT inside the v2
+                // marker block. The most common offender is
+                // `message_submit` (removed in R22).
+                let legacy_events = ["message_submit"];
+                let mut in_v2 = false;
+                let mut found: Vec<String> = Vec::new();
+                let mut current_table_events: Vec<String> = Vec::new();
+                let mut current_table_is_outside_v2 = false;
+                for line in raw.lines() {
+                    let t = line.trim();
+                    if t == "# >>> octopus:codewhale-hooks:v2 >>>" {
+                        in_v2 = true;
+                        continue;
+                    }
+                    if t == "# <<< octopus:codewhale-hooks:v2 <<<" {
+                        in_v2 = false;
+                        continue;
+                    }
+                    if t.starts_with("[[hooks.hooks]]") {
+                        // start new table
+                        current_table_events.clear();
+                        current_table_is_outside_v2 = !in_v2;
+                        continue;
+                    }
+                    if t.starts_with('[') && !t.starts_with("[[hooks.hooks]]") {
+                        // different section — flush
+                        if current_table_is_outside_v2 {
+                            for ev in &current_table_events {
+                                if legacy_events.contains(&ev.as_str()) {
+                                    found.push(ev.clone());
+                                }
+                            }
+                        }
+                        current_table_events.clear();
+                        current_table_is_outside_v2 = false;
+                        continue;
+                    }
+                    // capture `event = "..."` from inside a hooks table
+                    if let Some(val) = parse_codewhale_toml_string(t, "event") {
+                        current_table_events.push(val);
+                    }
+                }
+                // flush trailing
+                if current_table_is_outside_v2 {
+                    for ev in &current_table_events {
+                        if legacy_events.contains(&ev.as_str()) {
+                            found.push(ev.clone());
+                        }
+                    }
+                }
+                found
+            })
+            .unwrap_or_default();
+        if !stale_hooks.is_empty() {
+            // R40.1: the 0.5.19 auto-cleanup was disabled (audit P0-2).
+            // We surface the stale hooks as an ISSUE so the user knows
+            // exactly what to delete manually. The next install will
+            // create a timestamped backup before writing, so the user
+            // can safely edit ~/.codewhale/config.toml by hand.
+            issues.push(format!(
+                "CodeWhale config.toml 仍包含 pre-R22 残留 hook 事件: {}。这些 hook 会在 LLMPET HTTP 服务短暂不可用时让 CodeWhale 报 \"message_submit hook failed and blocked\" 并阻止消息发送。R40.1 已禁用自动清理（避免误删用户 TOML 配置）。请手动编辑 ~/.codewhale/config.toml，删除所有 event = \"{}\" 的 [[hooks.hooks]] 表（LLMPET 已在文件旁创建 .config-octopus-backup-*.toml 备份），或等待 R41 引入基于 TOML AST 的安全清理。",
+                stale_hooks.join(", "),
+                stale_hooks.join("\" 或 event = \"")
+            ));
+        }
         let compatibility = codewhale_config_compatibility(&path);
         if let Some(models) = compatibility
             .get("legacyModelIds")
@@ -2401,6 +2538,7 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
         if let Some(object) = report.as_object_mut() {
             object.insert("present".into(), Value::Bool(path.is_file()));
             object.insert("octopusHookBlock".into(), Value::Bool(hook_block));
+            object.insert("stalePreR22Hooks".into(), json!(stale_hooks));
             object.insert("compatibility".into(), compatibility);
         }
         report

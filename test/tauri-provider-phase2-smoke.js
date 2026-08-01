@@ -79,7 +79,10 @@ for (const needle of [
   'permissionBubble":false', 'llmpet-octopus.js',
 ]) assert(installer.includes(needle), `OpenCode migration missing: ${needle}`);
 assert(!installer.includes('module.exports'));
-const pluginMatch = installer.match(/r#"(\/\/ octopus-opencode-plugin-v2[\s\S]*?)"#\n}/);
+// R40: plugin marker was bumped from v2 -> v3 to flag the
+// session.status mapping rewrite. Accept either marker so the test
+// doesn't break on future version bumps.
+const pluginMatch = installer.match(/r#"(\/\/ octopus-opencode-plugin-v\d+[\s\S]*?)"#\n}/);
 assert(pluginMatch, 'embedded OpenCode plugin source not found');
 const temp = path.join(os.tmpdir(), `llmpet-opencode-${process.pid}.mjs`);
 fs.writeFileSync(temp, pluginMatch[1]);

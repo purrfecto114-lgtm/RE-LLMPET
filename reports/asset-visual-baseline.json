@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-28T14:32:42.612Z",
+  "generatedAt": "2026-08-01T04:58:21.166Z",
   "assetCount": 39,
   "byteIdenticalCount": 39,
   "optimizationApplied": false,
@@ -469,16 +469,16 @@
     {
       "path": "cat/CREDITS.md",
       "archived": {
-        "bytes": 2795,
-        "sha256": "b49c4ec367f5a212e25f9bc8e79010f3999b2d81073c785a9b1d7b1873a8ab25",
+        "bytes": 2757,
+        "sha256": "70ab95083923bd817f22e936ce5176497b0933e0d932c41db2e6e0ebd82bf0c8",
         "format": "md",
         "width": null,
         "height": null,
         "frames": null
       },
       "delivered": {
-        "bytes": 2795,
-        "sha256": "b49c4ec367f5a212e25f9bc8e79010f3999b2d81073c785a9b1d7b1873a8ab25",
+        "bytes": 2757,
+        "sha256": "70ab95083923bd817f22e936ce5176497b0933e0d932c41db2e6e0ebd82bf0c8",
         "format": "md",
         "width": null,
         "height": null,

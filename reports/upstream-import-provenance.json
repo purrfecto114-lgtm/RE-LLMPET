@@ -19,7 +19,7 @@
       "sourcePath": "assets/memes/catalog.json",
       "destinationPath": "resources/memes/catalog.json",
       "bytes": 9566,
-      "sha256": "c49f3188a36ce2184876c2adb1973022c33c1f79355b54a566934b802625b46a",
+      "sha256": "44db4685d9f4ebe6c45984cd3dc1d3d9c3b1e37f887e1031ab2a291d73563160",
       "byteIdentical": true
     },
     {
@@ -54,7 +54,7 @@
       "sourcePath": "assets/cat/CREDITS.md",
       "destinationPath": "frontend/assets/cat/CREDITS.md",
       "bytes": 2795,
-      "sha256": "b49c4ec367f5a212e25f9bc8e79010f3999b2d81073c785a9b1d7b1873a8ab25",
+      "sha256": "70ab95083923bd817f22e936ce5176497b0933e0d932c41db2e6e0ebd82bf0c8",
       "byteIdentical": true
     }
   ]

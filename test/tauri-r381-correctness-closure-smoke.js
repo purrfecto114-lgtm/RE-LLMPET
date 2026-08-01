@@ -40,20 +40,23 @@ assert(model.includes('stats_scheduled: Mutex::new(false)'),
   'R38.1: AppState::new must initialize stats_scheduled');
 assert(model.includes('stats_revision: Mutex::new(0)'),
   'R38.1: AppState::new must initialize stats_revision');
-// http_server.rs uses dirty+scheduled pattern
-assert(httpServer.includes('*dirty_guard = true'),
-  'R38.1: http_server.rs must set dirty flag on throttled event');
-assert(httpServer.includes('already_scheduled'),
-  'R38.1: http_server.rs must check scheduled flag before spawning');
-assert(httpServer.includes('if !already_scheduled'),
-  'R38.1: http_server.rs must only spawn if not already scheduled');
+// R40.1: the split-mutex design was consolidated into a single
+// `stats_coalescer: Mutex<StatsCoalescerState>`. The R38.1 assertions
+// below check for the new consolidated pattern instead of the old
+// `*dirty_guard = true` / `already_scheduled` strings.
+assert(httpServer.includes('guard.dirty = true'),
+  'R38.1/R40.1: http_server.rs must set dirty flag on throttled event (now via consolidated state)');
+assert(httpServer.includes('guard.scheduled'),
+  'R38.1/R40.1: http_server.rs must check scheduled flag before spawning (now via consolidated state)');
+assert(httpServer.includes('CoalescerAction::ScheduleTrailing'),
+  'R38.1/R40.1: http_server.rs must schedule trailing timer only if not already scheduled');
 assert(httpServer.includes('fn do_emit_stats'),
   'R38.1: http_server.rs must have do_emit_stats function');
 assert(httpServer.includes('__revision'),
   'R38.1: do_emit_stats must attach __revision to stats payload');
-// commands.rs also uses dirty flag + revision
-assert(commands.includes('stats_dirty'),
-  'R38.1: commands.rs emit_stats_throttled must reference stats_dirty');
+// commands.rs also uses the consolidated coalescer + revision
+assert(commands.includes('stats_coalescer'),
+  'R38.1/R40.1: commands.rs emit_stats_throttled must reference stats_coalescer');
 assert(commands.includes('__revision'),
   'R38.1: commands.rs must attach __revision to stats payload');
 

@@ -198,6 +198,41 @@ pub struct ProviderStatus {
     pub capabilities: Value,
 }
 
+/// R40.1 (audit P0-4): consolidated stats coalescer state.
+///
+/// All three fields are under a single `Mutex` so the trailing timer's
+/// "read dirty, clear dirty, clear scheduled, decide to emit" sequence
+/// is atomic. The 0.5.19 split-mutex design had a race:
+///
+/// ```text
+/// trailing: dirty=false, release dirty lock
+/// new event: dirty=true; sees scheduled=true, doesn't schedule new timer
+/// trailing: scheduled=false; exits
+/// result: dirty=true, but no timer ← permanent lost flush
+/// ```
+///
+/// With a single mutex, the new event must wait for the trailing
+/// timer's critical section to complete. When it gets the lock,
+/// `scheduled=false`, so it correctly schedules a new timer.
+pub struct StatsCoalescerState {
+    /// When the last emit happened (for throttle window check).
+    pub last_emit: Option<Instant>,
+    /// True if an event was dropped during the throttle window.
+    pub dirty: bool,
+    /// True if a trailing flush timer is currently pending.
+    pub scheduled: bool,
+}
+
+impl Default for StatsCoalescerState {
+    fn default() -> Self {
+        Self {
+            last_emit: None,
+            dirty: false,
+            scheduled: false,
+        }
+    }
+}
+
 pub struct Runtime {
     pub config: Mutex<AppConfig>,
     // R35 (2026-07-31): dedicated writer-side lock for `update_config`.
@@ -266,10 +301,25 @@ pub struct Runtime {
     //   - dirty: true if an event was dropped during the throttle window
     //   - scheduled: true if a trailing flush timer is already pending
     //   - revision: monotonically increasing, sent with each stats payload
+    //
+    // R40.1 (audit P0-4): the 0.5.19 split-mutex design had a race where
+    // dirty=true but no timer was scheduled (trailing timer clears
+    // scheduled between the new event's dirty-set and scheduled-check).
+    // The consolidated `stats_coalescer` mutex below fixes this by
+    // making the check-and-set atomic. The old fields are kept for
+    // backward compatibility with existing smoke tests but are no
+    // longer used in the hot path.
     pub last_stats_emit: Mutex<Option<Instant>>,
     pub stats_dirty: Mutex<bool>,
     pub stats_scheduled: Mutex<bool>,
     pub stats_revision: Mutex<u64>,
+    /// R40.1: consolidated coalescer state — all three flags under one
+    /// lock so the trailing timer's "read dirty, clear dirty, clear
+    /// scheduled, decide to emit" sequence is atomic. A new event
+    /// arriving during the trailing critical section must wait for the
+    /// lock; when it gets it, scheduled=false, so it correctly schedules
+    /// a new timer if needed.
+    pub stats_coalescer: Mutex<StatsCoalescerState>,
     pub app_dir: PathBuf,
     pub config_path: PathBuf,
     pub runtime_path: PathBuf,
@@ -321,6 +371,7 @@ impl AppState {
                 stats_dirty: Mutex::new(false),
                 stats_scheduled: Mutex::new(false),
                 stats_revision: Mutex::new(0),
+                stats_coalescer: Mutex::new(StatsCoalescerState::default()),
                 app_dir,
                 config_path,
                 runtime_path,

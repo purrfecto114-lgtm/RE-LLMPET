@@ -48,6 +48,19 @@ let calSummary = '';   // 日历默认读数
 // re-render without waiting for a new stats push.
 let usageMetric = 'tokens';
 let lastStats = null;
+// R40.1 (audit P0-3): monotonic revision guard for stats snapshots.
+// The backend stamps each stats payload with `__revision`. We reject
+// any snapshot whose revision is older than the last accepted one to
+// prevent UI regression (e.g. "completed" reverting to "working").
+let lastStatsRevisionPanel = -1;
+function acceptStatsRevisionPanel(s) {
+  if (!s) return true;
+  const rev = Number(s.__revision);
+  if (!Number.isFinite(rev) || rev < 0) return true; // backend without revision — accept
+  if (rev <= lastStatsRevisionPanel) return false;  // stale — reject
+  lastStatsRevisionPanel = rev;
+  return true;
+}
 // R37 (2026-08-01): when the panel is hidden (close_panel → window.hide()),
 // we skip expensive DOM rebuilds on every panel:stats event. The WebView
 // stays alive (Tauri hides, not destroys), so without this gate, a busy
@@ -100,6 +113,14 @@ function shortModel(m) {
 
 function render(s) {
   if (!s) return;
+  // R40.1 (audit P0-3): reject stale-revision snapshots. The backend
+  // stamps each stats payload with a monotonic `__revision`. Without
+  // this check, a late-arriving revision-41 "working" snapshot could
+  // overwrite a fresh revision-42 "completed" snapshot — the panel
+  // would visually regress from "done" to "working". Revisions < 0
+  // (missing field, e.g. from an outdated backend) are accepted
+  // unconditionally to preserve compatibility with older binaries.
+  if (!acceptStatsRevisionPanel(s)) return;
   // R37: skip expensive DOM rebuild when panel is hidden. Cache the stats
   // so we can render once when the panel is shown again.
   if (!panelVisible) {
@@ -298,6 +319,22 @@ function fitPanelHeight() {
 // we don't leak handlers across panel reopens (the WebView JS context
 // persists across hide/show, so duplicate listeners would accumulate).
 let windowModeUnlisteners = [];
+// R40 (2026-08-01): polling fallback. Tauri 2's onResized / onMoved /
+// onScaleChanged events are reliable on Linux & macOS, but on Windows
+// 11 the maximize → fullscreen transition sometimes fires ONLY
+// `onResized` with no payload, and the subsequent `isMaximized()`
+// query is racy with the OS animation (returns the previous state).
+// Net effect: `body.window-maximized` is set late or not at all, so
+// the `#card` keeps its visible orange border + 20px padding in
+// "fullscreen" — exactly what the user reported.
+//
+// Fix: in addition to the event-driven syncWindowMode(), start a
+// 500ms poller that re-queries isMaximized/isFullscreen and reconciles
+// the body classes. The poller is cheap (two IPC calls) and stops
+// itself when the page is torn down. The event-driven path remains
+// the primary trigger; the poller is a safety net for the Windows
+// timing gap.
+let windowModePollerHandle = null;
 function syncWindowMode() {
   const w = getCurrentTauriWindow();
   if (!w) return Promise.resolve();
@@ -305,11 +342,57 @@ function syncWindowMode() {
     w.isMaximized ? w.isMaximized() : Promise.resolve(false),
     w.isFullscreen ? w.isFullscreen() : Promise.resolve(false),
   ]).then(([max, full]) => {
-    windowMaximized = !!max;
-    windowFullscreen = !!full;
-    document.body.classList.toggle('window-maximized', windowMaximized);
-    document.body.classList.toggle('window-fullscreen', windowFullscreen);
+    applyWindowMode(!!max, !!full);
   }).catch(() => {});
+}
+function applyWindowMode(max, full) {
+  windowMaximized = !!max;
+  windowFullscreen = !!full;
+  document.body.classList.toggle('window-maximized', windowMaximized);
+  document.body.classList.toggle('window-fullscreen', windowFullscreen);
+  applyNearFullscreenClass();
+}
+// R40: a CSS-level safety net. Even when Tauri's isMaximized() /
+// isFullscreen() return false (e.g. user resized the window to fill
+// the screen manually, or the OS state query lags), if the panel
+// viewport itself fills >= 96% of the screen width AND height, we
+// add a `near-fullscreen` body class. panel.css then suppresses the
+// border / padding / shadow. This catches the "border in fullscreen"
+// regression on Windows 11 where the maximize animation races with
+// the JS state query.
+function applyNearFullscreenClass() {
+  const vw = window.innerWidth || 0;
+  const vh = window.innerHeight || 0;
+  const sw = window.screen ? (window.screen.availWidth || 0) : 0;
+  const sh = window.screen ? (window.screen.availHeight || 0) : 0;
+  let near = false;
+  if (sw > 0 && sh > 0 && vw > 0 && vh > 0) {
+    // 96% threshold leaves 4% grace for the OS chrome / taskbar.
+    near = (vw >= sw * 0.96) && (vh >= sh * 0.96);
+  }
+  // Don't fight the explicit window-maximized / window-fullscreen classes.
+  if (windowMaximized || windowFullscreen) near = true;
+  document.body.classList.toggle('near-fullscreen', near);
+}
+function startWindowModePoller() {
+  if (windowModePollerHandle !== null) return;
+  windowModePollerHandle = setInterval(() => {
+    // Don't re-query if the document is hidden (panel is hidden —
+    // no point burning IPC cycles). The next syncWindowMode() call
+    // from panel:shown will refresh state.
+    if (document.hidden) return;
+    syncWindowMode();
+    // R40: also re-apply the near-fullscreen class on every poll —
+    // a manual resize that crosses the 96% threshold without firing
+    // isMaximized() needs this to drop the border.
+    applyNearFullscreenClass();
+  }, 500);
+}
+function stopWindowModePoller() {
+  if (windowModePollerHandle !== null) {
+    clearInterval(windowModePollerHandle);
+    windowModePollerHandle = null;
+  }
 }
 function installWindowModeListeners() {
   const w = getCurrentTauriWindow();
@@ -345,13 +428,8 @@ function installWindowModeListeners() {
   // R35.1: onMoved fires on monitor change too (in addition to scale).
   // Re-sync mode in case the user dragged across monitors.
   add('onMoved', () => { syncWindowMode(); });
-  // R35.2 (2026-07-31): REMOVED the duplicate `add('onResized', ...)` that
-  // was here. The 0.5.12 carpet audit P0-3 证据C flagged that onResized was
-  // registered twice (line 292 and here), so every resize fired two
-  // callbacks — doubling the markUserSizedIfManual check and increasing
-  // the chance of a false-positive userSized lock. onResized already
-  // fires on maximize/unmaximize/fullscreen transitions (Tauri 2 docs),
-  // so the "fall back to onResized" comment was redundant.
+  // R40: start the poller as a Windows-timing safety net.
+  startWindowModePoller();
 }
 function teardownWindowModeListeners() {
   // R35.1: called on beforeunload so a WebView reload doesn't accumulate
@@ -361,6 +439,9 @@ function teardownWindowModeListeners() {
     const off = windowModeUnlisteners.pop();
     try { off(); } catch (_) {}
   }
+  // R40: also stop the poller so a page reload doesn't leave a stale
+  // interval running on a torn-down WebView.
+  stopWindowModePoller();
 }
 function markUserSizedIfManual() {
   // R35.1: now window-scoped, so we only see the panel's OWN resize
