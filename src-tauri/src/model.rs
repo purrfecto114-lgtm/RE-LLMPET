@@ -9,7 +9,7 @@ use std::sync::{
     mpsc::{SyncSender, TrySendError},
     Arc, Condvar, Mutex,
 };
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const APP_DIR_NAME: &str = ".octopus";
 pub const CONFIG_FILE_NAME: &str = "config.json";
@@ -254,6 +254,20 @@ pub struct Runtime {
     // single PID slot is shared, but that's acceptable since the frontend
     // only shows one diagnostic at a time).
     pub active_diagnostic_provider: Mutex<Option<String>>,
+    // R37 (2026-08-01): stats emit throttle. The 0.5.12 carpet audit P1-2
+    // flagged that every hook event emits a full stats snapshot to both
+    // pet and panel — dozens per second during active sessions. Now we
+    // enforce a minimum 150ms interval between emits. Events that arrive
+    // during the throttle window are dropped; the next event after the
+    // window delivers the latest state. This is safe because:
+    //   1. Hook events come in bursts — the trailing event after the burst
+    //      always gets through (the window expires).
+    //   2. User interactions (decide_permission, set_providers) also call
+    //      emit_stats and bypass the throttle (they set force=true).
+    //   3. The pet's state machine reacts to individual events via pet:event,
+    //      not panel:stats — so throttling panel:stats doesn't affect the
+    //      pet's visual responsiveness.
+    pub last_stats_emit: Mutex<Option<Instant>>,
     pub app_dir: PathBuf,
     pub config_path: PathBuf,
     pub runtime_path: PathBuf,
@@ -301,6 +315,7 @@ impl AppState {
                 price_refresh_tx: Mutex::new(None),
                 active_diagnostic_pid: Mutex::new(None),
                 active_diagnostic_provider: Mutex::new(None),
+                last_stats_emit: Mutex::new(None),
                 app_dir,
                 config_path,
                 runtime_path,

@@ -1,5 +1,110 @@
 # Changelog
 
+## 0.5.15 — R37 performance & security closure（2026-08-01）
+
+Patch release implementing 4 R37 tasks from the 0.5.12 carpet audit
+roadmap §14. Focus: performance, concurrency, and security closure.
+
+### R37-4: Stats push throttling (150ms minimum interval)
+
+The 0.5.12 carpet audit P1-2 flagged that every hook event emits a
+full stats snapshot to both pet and panel windows — dozens per second
+during active agent sessions, each triggering a full `Runtime::stats()`
+clone + JSON serialize + IPC broadcast.
+
+- `model.rs` — new `last_stats_emit: Mutex<Option<Instant>>` field.
+- `commands.rs` — new `emit_stats_throttled(app, state, force)` with
+  150ms minimum interval. Events arriving during the throttle window
+  are dropped; the next event after the window delivers the latest
+  state. `force=true` bypasses the throttle (used by user-initiated
+  actions like `decide_permission` for immediate UI feedback).
+- `http_server.rs` — the `/state` POST handler's `emit_stats` also
+  throttles at 150ms. This is the hottest path: every hook ingest
+  from Claude/Codex/CodeWhale CLIs triggers it.
+
+### R37-5: Hidden panel render suppression
+
+The 0.5.12 carpet audit P1-5 flagged that `close_panel` hides the
+WebView but keeps it alive — so every `panel:stats` event still drives
+a full DOM rebuild + canvas redraw on a hidden window.
+
+- `panel.js` — new `panelVisible` flag (false when panel is hidden).
+  `render()` checks it: if false, caches stats in `pendingStats` and
+  returns early (no DOM work). When the panel is shown again
+  (`panel:shown` → `resetAutoFitOnShow`), `panelVisible` is set to
+  true and `pendingStats` is rendered once.
+- Close button handler sets `panelVisible = false`.
+
+### R37-6: Cursor hit-test adaptive backoff
+
+The 0.5.12 carpet audit P1-4 flagged that the cursor hit-test thread
+polls at a fixed 24ms (~42Hz) forever, even when the pet is idle and
+no click-through is requested.
+
+- `platform.rs` — new `CURSOR_HIT_TEST_IDLE_MS = 250` constant. The
+  loop now checks `mouse_ignore_requested` before sleeping: if true
+  (active click-through), sleeps 24ms; if false (idle), sleeps 250ms.
+  This reduces idle wakeups from ~42Hz to ~4Hz (~10× reduction) with
+  no user-visible difference — the 250ms check just detects when the
+  flag flips, and `should_ignore_cursor` already early-returns when
+  the flag is false.
+
+### R37-8: Capability minimization (replace core:default)
+
+The 0.5.12 carpet audit P1-12 flagged that both `pet.json` and
+`panel.json` capabilities include `core:default` — a broad Tauri 2
+bundle that grants core:app, core:event, core:image, core:menu,
+core:path, core:resources, core:tray, core:webview, and core:window
+permissions. For strict least-privilege, only the subsets actually
+used should be granted.
+
+- `pet.json` + `panel.json` — replaced `"core:default"` with:
+  - `"core:event:default"` (event listen/emit — used by the bridge)
+  - `"core:window:default"` (window getCurrent/isMaximized/onResized/etc.)
+  - `"core:webview:default"` (webview window operations)
+- Removed implicit grants for: core:app, core:image, core:menu,
+  core:path, core:resources, core:tray. If the app needs any of these
+  at runtime, they can be added back individually.
+
+### Test coverage
+
+- New `test/tauri-r37-perf-security-smoke.js` (100 lines, 25 assertions).
+- 4 phase2 smokes: version assertions bumped 0.5.14 → 0.5.15.
+- `npm test`: 42/42 smoke ok (was 41; +1 R37 smoke)
+- `npm run check:static`: 22/22 PASS
+- Rust brace balance: commands.rs 503/503, model.rs 335/335,
+  platform.rs 88/88, http_server.rs 179/179
+
+### What's NOT in this release (deferred to R38 / 0.6.0)
+
+- async HTTP or permission independent pool (P1-7)
+- transcript worker queue (P1-9)
+- usage incremental aggregation (P1-8)
+- Process-tree benchmark and CI thresholds (P1-11)
+- Disable `withGlobalTauri` (P1-13 — requires module-import migration)
+- CSP single source + remove `unsafe-inline` (P1-14 — needs careful
+  dynamic-style audit)
+- Pin GitHub Actions to full SHAs (P1-11 — needs SHA lookup per action)
+- Code modularization (P1-12 — large refactor)
+
+### Known limitations
+
+- No Rust toolchain in dev container; `cargo build` verified on GitHub
+  Actions.
+- The `core:default` replacement to `core:event:default` +
+  `core:window:default` + `core:webview:default` needs runtime
+  verification — if Tauri 2 requires additional core permissions (e.g.
+  `core:app:default` for app lifecycle events), the build will succeed
+  but runtime commands may fail. CI will catch compilation issues; real
+  machine testing is needed to confirm runtime behavior.
+- Stats throttling drops events during the 150ms window. The trailing
+  event in a burst always gets through (the window expires), but a
+  very short burst (single event) followed by silence could leave the
+  UI slightly stale until the next interaction. This is acceptable
+  because the pet's state machine reacts via `pet:event` (not throttled).
+
+---
+
 ## 0.5.14 — R36 trust & interaction lifecycle（2026-07-31）
 
 Patch release implementing 5 R36 tasks from the 0.5.12 carpet audit

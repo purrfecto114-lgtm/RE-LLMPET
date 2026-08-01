@@ -48,6 +48,15 @@ let calSummary = '';   // 日历默认读数
 // re-render without waiting for a new stats push.
 let usageMetric = 'tokens';
 let lastStats = null;
+// R37 (2026-08-01): when the panel is hidden (close_panel → window.hide()),
+// we skip expensive DOM rebuilds on every panel:stats event. The WebView
+// stays alive (Tauri hides, not destroys), so without this gate, a busy
+// agent session drives dozens of full innerHTML + canvas redraws per
+// second on a hidden window — pure CPU waste. When the panel is shown
+// again (panel:shown event → resetAutoFitOnShow), we render the latest
+// cached stats once. The 0.5.12 carpet audit P1-5 flagged this.
+let panelVisible = false;
+let pendingStats = null;
 let latestSessions = [];
 let sessionProviderFilter = '';
 let sessionQuery = '';
@@ -91,6 +100,14 @@ function shortModel(m) {
 
 function render(s) {
   if (!s) return;
+  // R37: skip expensive DOM rebuild when panel is hidden. Cache the stats
+  // so we can render once when the panel is shown again.
+  if (!panelVisible) {
+    pendingStats = s;
+    lastStats = s;
+    return;
+  }
+  lastStats = s;
   // 头部
   if (s.active && s.active.project) {
     $('active-sub').textContent = `${s.active.project} · ${shortModel(s.active.model)}`;
@@ -384,6 +401,14 @@ function resetAutoFitOnShow() {
     lastFitRequestTs = 0;
     pendingFitHeight = 0;
     panelWasHidden = false;
+    // R37: mark the panel as visible so render() stops skipping.
+    panelVisible = true;
+    // R37: if stats arrived while hidden, render them now.
+    if (pendingStats) {
+      const cached = pendingStats;
+      pendingStats = null;
+      render(cached);
+    }
     // R35.2 (2026-07-31): the 0.5.12 carpet audit P0-3 证据D flagged that
     // resetAutoFitOnShow only cleared the cache but didn't immediately
     // fit, so the panel could reappear at a stale height until the next
@@ -1370,6 +1395,8 @@ window.pet.onConfig((cfg) => {
 const _origCloseHandler = $('close').onclick;
 $('close').addEventListener('click', () => {
   panelWasHidden = true;
+  // R37: mark panel as hidden so render() skips expensive DOM rebuilds.
+  panelVisible = false;
 });
 
 // R35.1: clean up window-scoped listeners on beforeunload so a WebView

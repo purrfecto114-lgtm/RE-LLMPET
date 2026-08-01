@@ -6,7 +6,9 @@
     "panel"
   ],
   "permissions": [
-    "core:default",
+    "core:event:default",
+    "core:window:default",
+    "core:webview:default",
     "allow-get-config",
     "allow-set-language",
     "allow-get-stats",

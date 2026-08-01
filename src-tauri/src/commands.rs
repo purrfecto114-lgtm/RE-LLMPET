@@ -18,6 +18,40 @@ fn emit_config(app: &AppHandle, state: &AppState) {
 }
 
 fn emit_stats(app: &AppHandle, state: &AppState) {
+    emit_stats_throttled(app, state, false);
+}
+
+/// R37 (2026-08-01): throttled stats emit. Enforces a minimum 150ms interval
+/// between emits to prevent dozens of full-snapshot broadcasts per second
+/// during active agent sessions. Set `force=true` to bypass the throttle
+/// (used by user-initiated actions like decide_permission where immediate
+/// UI feedback is important).
+fn emit_stats_throttled(app: &AppHandle, state: &AppState, force: bool) {
+    const STATS_THROTTLE_MS: u128 = 150;
+    if !force {
+        let now = Instant::now();
+        let should_skip = {
+            let guard = state
+                .runtime
+                .last_stats_emit
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(last) = *guard {
+                now.duration_since(last).as_millis() < STATS_THROTTLE_MS
+            } else {
+                false
+            }
+        };
+        if should_skip {
+            return;
+        }
+        let mut guard = state
+            .runtime
+            .last_stats_emit
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *guard = Some(now);
+    }
     let stats = state.runtime.stats();
     let _ = app.emit("pet:stats", stats.clone());
     let _ = app.emit("panel:stats", stats);
@@ -673,7 +707,8 @@ pub fn decide_permission(
     if !state.runtime.decide_value(&perm_id, &behavior)? {
         return Err("permission request no longer exists".into());
     }
-    emit_stats(&app, &state);
+    // R37: force=true — user-initiated, needs immediate UI feedback.
+    emit_stats_throttled(&app, &state, true);
     Ok(())
 }
 
@@ -687,7 +722,8 @@ pub fn decide_permission_batch(
     if !state.runtime.decide_batch(&perm_id, &mode) {
         return Err("permission request no longer exists".into());
     }
-    emit_stats(&app, &state);
+    // R37: force=true — user-initiated, needs immediate UI feedback.
+    emit_stats_throttled(&app, &state, true);
     Ok(())
 }
 

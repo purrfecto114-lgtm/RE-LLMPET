@@ -458,6 +458,35 @@ fn permission_payload(provider: &str, decision: &PermissionDecision) -> Value {
 }
 
 fn emit_stats(app: &AppHandle, runtime: &Runtime) {
+    // R37 (2026-08-01): throttle to 150ms minimum interval. Hook events
+    // can arrive dozens per second during active sessions; without this
+    // throttle, every /state POST triggers a full stats snapshot +
+    // broadcast to both pet and panel windows. Events that arrive during
+    // the throttle window are dropped; the next event after the window
+    // delivers the latest state.
+    const STATS_THROTTLE_MS: u128 = 150;
+    let now = std::time::Instant::now();
+    let should_skip = {
+        let guard = runtime
+            .last_stats_emit
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(last) = *guard {
+            now.duration_since(last).as_millis() < STATS_THROTTLE_MS
+        } else {
+            false
+        }
+    };
+    if should_skip {
+        return;
+    }
+    {
+        let mut guard = runtime
+            .last_stats_emit
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *guard = Some(now);
+    }
     let stats = runtime.stats();
     let _ = app.emit("pet:stats", stats.clone());
     let _ = app.emit("panel:stats", stats);

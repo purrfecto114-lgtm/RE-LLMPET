@@ -10,7 +10,16 @@ use tauri::{AppHandle, Manager, PhysicalPosition, Position};
 
 const MAX_PARENT_DEPTH: usize = 16;
 const HEALTH_CHECK_SECS: u64 = 30;
+// R37 (2026-08-01): adaptive cursor hit-test polling. The 0.5.12 carpet
+// audit P1-4 flagged that the fixed 24ms poll (~42Hz) runs forever even
+// when the pet is idle and no click-through is requested. Now we use:
+//   - CURSOR_HIT_TEST_MS (24ms) when mouse_ignore_requested is true
+//     (active click-through management — need responsive cursor tracking)
+//   - CURSOR_HIT_TEST_IDLE_MS (250ms) when mouse_ignore_requested is false
+//     (idle — just checking if the flag flipped, ~4Hz is sufficient)
+// This reduces idle wakeups by ~10× with no user-visible difference.
 const CURSOR_HIT_TEST_MS: u64 = 24;
+const CURSOR_HIT_TEST_IDLE_MS: u64 = 250;
 const CURSOR_HIT_PADDING: f64 = 6.0;
 const VISIBLE_MARGIN: i32 = 48;
 
@@ -54,7 +63,16 @@ impl PlatformState {
         let _ = thread::Builder::new()
             .name("octopus-cursor-hit-test".into())
             .spawn(move || loop {
-                thread::sleep(Duration::from_millis(CURSOR_HIT_TEST_MS));
+                // R37: adaptive sleep — 24ms when actively managing click-through
+                // (mouse_ignore_requested=true), 250ms when idle. This reduces
+                // idle CPU wakeups from ~42Hz to ~4Hz.
+                let requested = state.mouse_ignore_requested.load(Ordering::Acquire);
+                let sleep_ms = if requested {
+                    CURSOR_HIT_TEST_MS
+                } else {
+                    CURSOR_HIT_TEST_IDLE_MS
+                };
+                thread::sleep(Duration::from_millis(sleep_ms));
                 let Some(window) = app.get_webview_window("pet") else {
                     continue;
                 };
