@@ -8,7 +8,7 @@
     "removeUnusedCommands": true
   },
   "app": {
-    "withGlobalTauri": false,
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "pet",

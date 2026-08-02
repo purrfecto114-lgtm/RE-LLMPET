@@ -1,6 +1,6 @@
 {
   "version": "0.5.32",
-  "generated": 1785676198,
+  "generated": 1785682130,
   "root": "RE-LLMPET-0.5.32",
   "file_count": 280,
   "files": {
@@ -229,7 +229,7 @@
     "src-tauri/src/platform.rs": "4041178c8c9c188ee491c5025a90ae9d926ed33f6094d1d09fc05eb3fa362fab",
     "src-tauri/src/pricing_sync.rs": "ab97c7dff38395bf3586fd355c0ce1e08354492274238ae07aa4adfaac76f330",
     "src-tauri/src/transcript.rs": "bc9e5430c38e3b9a87d6c789e95bd44fda76a967e5d73ded8b48cba09174f7d6",
-    "src-tauri/tauri.conf.json": "6d4120857d05f49f7287d583dfbeb3a0df6acf037d1871f50d3b96c725291502",
+    "src-tauri/tauri.conf.json": "ca9842affa2895849e5341345f9cf65a17cae5c2f60bcb41bcababf6915c7f56",
     "src-tauri/tauri.linux.conf.json": "d82bedd08746ae0fe47cde39993b568486b552b32f3359641327d51487658cd2",
     "src-tauri/tauri.macos.conf.json": "836a67f119ce724d58dff3b2f3440498ea8208cb2b130249566848f5f84292ca",
     "src-tauri/tauri.windows.conf.json": "a1c3f1b30dc87c243b52ef0386964c3258490fd5e1b53a1742ac574947ec4f2a",
@@ -274,9 +274,9 @@
     "test/tauri-r38-correctness-blocker-smoke.js": "a9da0c366e4965c506d42f2498c9e717869abaa74018cbaada55d47d956b3675",
     "test/tauri-r381-correctness-closure-smoke.js": "204eb9aa385146b0a1aa87aaf73b40dbbd0191dd2bd1e917430780fd27090060",
     "test/tauri-r39-ux-accessibility-smoke.js": "2bb118a73538d0be02617cfa6ec558b5df080227c6c8fcd04534cbc00a0eccb7",
-    "test/tauri-r40-runtime-regressions-smoke.js": "02c8d36a2a9126d2d189bfc1a1d6f60af1a077c8dfdbe3bdbec4cebcf0f06cd2",
+    "test/tauri-r40-runtime-regressions-smoke.js": "7a2961b7f53e30af42ab3e1a045addeda8d28a88921ab5bb2c195e51ac8fbf5e",
     "test/tauri-r401-carpet-audit-closure-smoke.js": "446e2eccc460dbf9511510cff882297fb193ada12b2b4d9cdcc5d967c4c5ea64",
-    "test/tauri-static-smoke.js": "5b9041fafd99320ad3510493efc8360e77b5ff916e3515bb85a750ec26f53941",
+    "test/tauri-static-smoke.js": "c79e53e0596b460972fe6ea05339f317dcc4cd2342329be318d243295ab9db6c",
     "test/tauri-transcript-pricing-phase2-smoke.js": "8108d3881bfde040f9168d5ef6439502d723a86c8ebe73e3f0f4b2a574517ea5",
     "test/tauri-tray-extras-r13-smoke.js": "d748332af3f4725ac9fd4b7bd9375ca3ea74f351144a2d02a1e091a21184eaad",
     "test/tauri-tray-i18n-r11-smoke.js": "f76399273f588455bcf52a198dce4981cf0a705acf5c4f08887e907921b6e52c",
@@ -286,5 +286,5 @@
     "test/upstream-reconciliation-smoke.js": "d6fe28d0e413a4c4ca1fa9f79d539d420032db83bed17bafe24379e9b69f0862"
   },
   "source_commit": "re-llmpet-0.5.32",
-  "sha256_of_manifest": "df9339533316419e29ac4ab46e1eda8a4107810927f86f4d81dca8a40d677f98"
+  "sha256_of_manifest": "a79171ffcba65da535a9e1aa4686615bd74176ad5eeaa778644eedbea92a39f0"
 }

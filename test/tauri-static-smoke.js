@@ -15,7 +15,13 @@ assert(pkg.scripts.start.includes('cargo tauri dev'));
 assert(pkg.scripts.build.includes('cargo tauri build'));
 
 const config = JSON.parse(read('src-tauri/tauri.conf.json'));
-assert.strictEqual(config.app.withGlobalTauri, false);
+// withGlobalTauri must be `true`: the frontend is plain-script (no bundler,
+// no @tauri-apps/api npm import) and reads `window.__TAURI__` in
+// frontend/renderer/tauri-bridge.js:41. Per the Tauri 2 contract,
+// `withGlobalTauri: false` removes the global from non-module pages, which
+// silently breaks ALL IPC. `true` is REQUIRED until the ESM migration
+// (0.5.32) lands. (Flipped by the 0.5.31 audit closure, 2026-08-02.)
+assert.strictEqual(config.app.withGlobalTauri, true);
 assert.strictEqual(config.build.frontendDist, '../frontend');
 assert(config.app.windows.some((window) => window.label === 'pet' && window.transparent && window.decorations === false));
 assert(config.app.windows.some((window) => window.label === 'panel' && window.visible === false));
