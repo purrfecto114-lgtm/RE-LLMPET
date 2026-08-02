@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.31 — pet.js syntax fix + v0.5.30 tag realignment（2026-08-02）
+
+Fix release: v0.5.30 tag pointed to commit `b37febe` which contained
+an orphan closing brace in `pet.js` (from the R40.7 Provider button
+refactor). The fix was committed as `4cd4082` but the tag was not
+updated. This release realigns the tag with the fixed code.
+
+### Fix
+
+- `frontend/renderer/pet.js`: removed orphan `}` at line 1932 in
+  `updateProviderUI()`. The brace was left over from the old if/else
+  structure when the code was refactored to `if/else if/else` in
+  R40.7. Without this fix, `node --check pet.js` fails with
+  `SyntaxError: Unexpected token '}'`.
+
+### Verification
+
+- `node --check frontend/renderer/pet.js`: ✅ passes
+- `npm test`: 50/50 pass
+- `npm run check:static`: 22/22 pass
+- Tauri CI on `4cd4082`: ✅ 4/4 success
+
+---
+
 ## 0.5.30 — R43 CSP hardening + duplicate CSP removal（2026-08-02）
 
 Security hardening: remove `unsafe-inline` from CSP `style-src`.
