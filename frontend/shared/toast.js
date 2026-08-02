@@ -56,7 +56,7 @@
     if (persistent) {
       const closeBtn = document.createElement('button');
       closeBtn.textContent = '✕';
-      closeBtn.style.cssText = 'background:rgba(255,255,255,0.2);border:none;color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;cursor:pointer;margin-left:6px;flex-shrink:0;';
+      closeBtn.className = 'octopus-toast-close';
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         el.classList.remove('show');

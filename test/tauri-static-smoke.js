@@ -20,12 +20,21 @@ assert.strictEqual(config.build.frontendDist, '../frontend');
 assert(config.app.windows.some((window) => window.label === 'pet' && window.transparent && window.decorations === false));
 assert(config.app.windows.some((window) => window.label === 'panel' && window.visible === false));
 
+// R43: CSP is defined in tauri.conf.json (not duplicated in HTML meta tags)
+assert(config.app.security.csp.includes("connect-src ipc: http://ipc.localhost"),
+  'tauri.conf.json CSP must include connect-src ipc: http://ipc.localhost');
+// R43: unsafe-inline removed from style-src (was needed for transparent panel, now opaque)
+assert(!config.app.security.csp.includes("'unsafe-inline'"),
+  'tauri.conf.json CSP must NOT contain unsafe-inline');
+
 for (const htmlFile of ['frontend/renderer/pet.html', 'frontend/renderer/panel.html']) {
   const html = read(htmlFile);
   const bridge = html.indexOf('tauri-bridge.js');
   const appScript = htmlFile.endsWith('pet.html') ? html.indexOf('pet.js') : html.indexOf('panel.js');
   assert(bridge >= 0 && bridge < appScript, `${htmlFile}: bridge must load before renderer application`);
-  assert(html.includes("connect-src ipc: http://ipc.localhost"));
+  // R43: CSP meta tags removed from HTML (defined in tauri.conf.json only)
+  assert(!html.includes('Content-Security-Policy'),
+    `${htmlFile}: must NOT have CSP meta tag (defined in tauri.conf.json)`);
 }
 
 function walk(dir) {

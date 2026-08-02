@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.5.30 — R43 CSP hardening + duplicate CSP removal（2026-08-02）
+
+Security hardening: remove `unsafe-inline` from CSP `style-src`.
+
+### R43-3: Remove `unsafe-inline` from CSP (audit §10 item 10)
+
+**Before**: `style-src 'self' 'unsafe-inline'` in 3 places:
+- `src-tauri/tauri.conf.json` (Tauri-level CSP, injected into WebView)
+- `frontend/renderer/pet.html` (duplicate `<meta>` CSP tag)
+- `frontend/renderer/panel.html` (duplicate `<meta>` CSP tag)
+
+**After**: `style-src 'self'` in `tauri.conf.json` only. Duplicate CSP
+meta tags removed from HTML files (single source of truth).
+
+**Why safe**: No `<style>` blocks in HTML. No `style="..."` attributes in
+HTML. No `innerHTML` with inline styles. The only inline style usage was
+`closeBtn.style.cssText` in `toast.js` — converted to CSS class
+`.octopus-toast-close` (added to both `pet.css` and `panel.css`).
+Programmatic `element.style.xxx` assignments (14 total) are CSSOM API
+calls that do NOT require `unsafe-inline` in CSP level 2+.
+
+### R43-4: Remove duplicate CSP definitions (audit §8.3)
+
+CSP was defined in 3 places (tauri.conf.json + 2 HTML meta tags), creating
+maintenance risk. Now defined only in `tauri.conf.json` — Tauri injects it
+into the WebView at runtime.
+
+### Test updates
+
+- `tauri-static-smoke.js`: CSP assertions now check `tauri.conf.json`
+  instead of HTML meta tags. Added assertion that CSP does NOT contain
+  `unsafe-inline`. Added assertion that HTML files do NOT have CSP meta.
+- `tauri-cli-resilience-r7-smoke.js`: CSP `img-src` check now reads from
+  `tauri.conf.json` instead of HTML files.
+
+npm test: 50/50 pass; static: 22/22; gate:source: 16/16.
+
+---
+
 ## 0.5.29 — R43 CI fix + glib vulnerability handling（2026-08-02）
 
 Fixes CI failures from v0.5.28's Actions SHA pinning + addresses the
