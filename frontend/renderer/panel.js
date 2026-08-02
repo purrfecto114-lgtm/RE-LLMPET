@@ -350,7 +350,12 @@ let windowModeUnlisteners = [];
 // itself when the page is torn down. The event-driven path remains
 // the primary trigger; the poller is a safety net for the Windows
 // timing gap.
-let windowModePollerHandle = null;
+// R40.7 (audit §7.1/§10): panel is now an opaque, decorated window
+// (transparent=false, decorations=true in tauri.conf.json). The
+// 500ms poller, near-fullscreen heuristic, and 96% screen check were
+// all workarounds for the transparent-panel double-layer problem.
+// With a normal opaque window, the OS handles maximize/fullscreen
+// border suppression natively — no JS intervention needed.
 function syncWindowMode() {
   const w = getCurrentTauriWindow();
   if (!w) return Promise.resolve();
@@ -366,58 +371,10 @@ function applyWindowMode(max, full) {
   windowFullscreen = !!full;
   document.body.classList.toggle('window-maximized', windowMaximized);
   document.body.classList.toggle('window-fullscreen', windowFullscreen);
-  applyNearFullscreenClass();
-}
-// R40: a CSS-level safety net. Even when Tauri's isMaximized() /
-// isFullscreen() return false (e.g. user resized the window to fill
-// the screen manually, or the OS state query lags), if the panel
-// viewport itself fills >= 96% of the screen width AND height, we
-// add a `near-fullscreen` body class. panel.css then suppresses the
-// border / padding / shadow. This catches the "border in fullscreen"
-// regression on Windows 11 where the maximize animation races with
-// the JS state query.
-function applyNearFullscreenClass() {
-  const vw = window.innerWidth || 0;
-  const vh = window.innerHeight || 0;
-  const sw = window.screen ? (window.screen.availWidth || 0) : 0;
-  const sh = window.screen ? (window.screen.availHeight || 0) : 0;
-  let near = false;
-  if (sw > 0 && sh > 0 && vw > 0 && vh > 0) {
-    // 96% threshold leaves 4% grace for the OS chrome / taskbar.
-    near = (vw >= sw * 0.96) && (vh >= sh * 0.96);
-  }
-  // Don't fight the explicit window-maximized / window-fullscreen classes.
-  if (windowMaximized || windowFullscreen) near = true;
-  document.body.classList.toggle('near-fullscreen', near);
-}
-function startWindowModePoller() {
-  if (windowModePollerHandle !== null) return;
-  windowModePollerHandle = setInterval(() => {
-    // Don't re-query if the document is hidden (panel is hidden —
-    // no point burning IPC cycles). The next syncWindowMode() call
-    // from panel:shown will refresh state.
-    if (document.hidden) return;
-    syncWindowMode();
-    // R40: also re-apply the near-fullscreen class on every poll —
-    // a manual resize that crosses the 96% threshold without firing
-    // isMaximized() needs this to drop the border.
-    applyNearFullscreenClass();
-  }, 500);
-}
-function stopWindowModePoller() {
-  if (windowModePollerHandle !== null) {
-    clearInterval(windowModePollerHandle);
-    windowModePollerHandle = null;
-  }
 }
 function installWindowModeListeners() {
   const w = getCurrentTauriWindow();
   if (!w) return;
-  // R35.1: use the window-scoped onResized/onScaleChanged/onMoved helpers.
-  // Each returns a Promise<UnlistenFn>; we collect them for teardown.
-  // These fire ONLY for the panel window — pet resize events no longer
-  // leak in. The `markUserSizedIfManual` heuristic still applies (resize
-  // echoes from our own setPanelHeight are filtered by the 750ms window).
   const add = (method, handler) => {
     if (typeof w[method] !== 'function') return;
     try {
@@ -429,23 +386,14 @@ function installWindowModeListeners() {
     } catch (_) {}
   };
   add('onResized', () => { syncWindowMode(); markUserSizedIfManual(); });
-  // R35.1: onScaleChanged fires when the window moves to a different-DPI
-  // monitor. Reset lastFitHeight + userSized so auto-fit re-engages with
-  // the new scale factor (the audit's P0-2 #5 concern).
   add('onScaleChanged', () => {
     syncWindowMode();
     lastFitHeight = 0;
-    // Don't reset userSized here — a DPI change doesn't mean the user
-    // wants auto-fit back. But do re-fit if not userSized.
     if (!userSized && !windowMaximized && !windowFullscreen) {
       fitPanelHeight();
     }
   });
-  // R35.1: onMoved fires on monitor change too (in addition to scale).
-  // Re-sync mode in case the user dragged across monitors.
   add('onMoved', () => { syncWindowMode(); });
-  // R40: start the poller as a Windows-timing safety net.
-  startWindowModePoller();
 }
 function teardownWindowModeListeners() {
   // R35.1: called on beforeunload so a WebView reload doesn't accumulate
@@ -455,9 +403,6 @@ function teardownWindowModeListeners() {
     const off = windowModeUnlisteners.pop();
     try { off(); } catch (_) {}
   }
-  // R40: also stop the poller so a page reload doesn't leave a stale
-  // interval running on a torn-down WebView.
-  stopWindowModePoller();
 }
 function markUserSizedIfManual() {
   // R35.1: now window-scoped, so we only see the panel's OWN resize

@@ -119,8 +119,7 @@ assert(panelCss.includes('body.window-maximized'),
   'panel.css must define body.window-maximized class');
 assert(panelCss.includes('body.window-fullscreen'),
   'panel.css must define body.window-fullscreen class');
-assert(panelCss.match(/body\.window-maximized[^{]*\{[^}]*padding:\s*0/m),
-  'body.window-maximized must zero the transparent padding');
+// R40.7: panel is opaque now, no padding to zero. Border-radius check below suffices.
 assert(panelCss.match(/body\.window-maximized\s+#card[^{]*\{[^}]*border-radius:\s*0/m),
   '#card must lose border-radius when window is maximized');
 assert(panelCss.match(/body\.window-maximized\s+#card[^{]*\{[^}]*box-shadow:\s*none/m),

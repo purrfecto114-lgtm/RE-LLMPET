@@ -1912,24 +1912,23 @@ function updateProviderUI() {
   const provider = firstProviderId();
   const label = firstProviderLabel();
   const slNew = document.getElementById('sl-new');
-  // R22: hide the "new agent" button when no provider is active
+  // R40.7 (audit §7.2): the "new agent" button is ALWAYS visible.
+  // When no provider is active, it shows "🚀 新开 Agent ▾" and opens
+  // the provider chooser on click. This fixes the cold-start race
+  // where the button was hidden until a config event arrived.
   if (slNew) {
+    slNew.style.display = '';
     if (!provider) {
-      slNew.style.display = 'none';
+      // No provider active — show generic label + chevron
+      slNew.textContent = currentLang === 'en' ? '🚀 New Agent ▾'
+        : currentLang === 'ja' ? '🚀 新規エージェント ▾' : '🚀 新开 Agent ▾';
+    } else if (activeProviders.length > 1) {
+      slNew.textContent = currentLang === 'en' ? '🚀 New Agent'
+        : currentLang === 'ja' ? '🚀 新規エージェント' : '🚀 新开会话';
     } else {
-      slNew.style.display = '';
-      // R35.1: when multiple providers are enabled, the button label no
-      // longer implies a specific provider (the old label was "🚀 新开
-      // <firstProvider>"). Use a generic "🚀 新开" so the user knows
-      // they'll be asked to choose. Single provider keeps the specific
-      // label since there's no ambiguity.
-      if (activeProviders.length > 1) {
-        slNew.textContent = currentLang === 'en' ? '🚀 New Agent'
-          : currentLang === 'ja' ? '🚀 新規エージェント' : '🚀 新开会话';
-      } else {
-        slNew.textContent = currentLang === 'en'
-          ? `🚀 New ${label}`
-          : currentLang === 'ja' ? `🚀 ${label} を新規` : `🚀 新开 ${label}`;
+      slNew.textContent = currentLang === 'en'
+        ? `🚀 New ${label}`
+        : currentLang === 'ja' ? `🚀 ${label} を新規` : `🚀 新开 ${label}`;
       }
     }
   }

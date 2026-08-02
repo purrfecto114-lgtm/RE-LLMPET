@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.5.26 — R40.7 panel architecture + Provider button（2026-08-02）
+
+Closes 4 items from the 0.5.22 audit roadmap §7.1/§7.2/§10 (行为闭环).
+
+### P0-1: Panel is now an opaque, decorated window (audit §7.1)
+
+\`tauri.conf.json\` panel window: \`transparent: true → false\`,
+\`decorations: false → true\`, \`shadow: false → true\`.
+
+This eliminates the "double-layer window" problem where the user
+resized the outer transparent window but visually operated on the
+inner #card. The OS now handles maximize/fullscreen border suppression
+natively — no JS workarounds needed.
+
+### P0-2: Removed 500ms poller + near-fullscreen heuristic (audit §7.1/§10)
+
+With an opaque panel, the following workarounds are no longer needed
+and have been removed:
+- \`windowModePoller\` (500ms setInterval polling isMaximized/isFullscreen)
+- \`applyNearFullscreenClass\` (96% screen heuristic)
+- \`body.near-fullscreen\` CSS rule
+- 20px transparent gutter padding on html/body
+
+Saves ~2 IPC calls every 500ms and removes ~80 lines of workaround code.
+
+### P0-3: Provider launch button always visible (audit §7.2)
+
+\`pet.js updateProviderUI()\`: the "🚀 新开" button is no longer hidden
+when no provider is active. Instead it shows "🚀 新开 Agent ▾" and
+opens the provider chooser on click. This fixes the cold-start race
+where the button was hidden until a config event arrived.
+
+### P0-4: applyConfigSnapshot bootstrap handshake (audit §7.2, done in 0.5.24)
+
+Already closed in 0.5.24 (R40.5): both \`onConfig\` event and
+\`getConfig()\` bootstrap call \`applyConfigSnapshot()\`.
+
+### Test updates
+
+- \`tauri-r35-correctness-hotfix-smoke.js\`: removed padding:0 assertion
+  (panel is opaque, no gutter to zero).
+- \`tauri-r40-runtime-regressions-smoke.js\`: R40-5 section updated to
+  verify poller/near-fullscreen REMOVED + opaque panel config present.
+
+npm test: 50/50 pass; static: 22/22; gate:source: 16/16.
+
+---
+
 ## 0.5.25 — R40.6 runtime behavior closures（2026-08-01）
 
 Closes 3 P0/P1 items from the 0.5.22 package regression audit roadmap §7

@@ -37,8 +37,8 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.25',
-  'R40: package.json version must be 0.5.25');
+assert.strictEqual(packageJson.version, '0.5.26',
+  'R40: package.json version must be 0.5.26');
 
 // ──────────────────────────────────────────────────────────────────────────
 // R40-1: OpenCode plugin — `session.status` must NOT map to UserPromptSubmit
@@ -116,25 +116,28 @@ assert(commands.includes('fn parse_codewhale_toml_string'),
   'R40-4: commands.rs must have parse_codewhale_toml_string helper');
 
 // ──────────────────────────────────────────────────────────────────────────
-// R40-5: Panel fullscreen border — 500ms poller + near-fullscreen CSS class
+// R40-5/R40.7: Panel fullscreen border — opaque panel (poller removed)
 // ──────────────────────────────────────────────────────────────────────────
+// R40.7 (audit §7.1): panel is now opaque + decorated. The 500ms poller,
+// near-fullscreen heuristic, and 96% screen check were workarounds for
+// the transparent double-layer. With a normal opaque window, the OS
+// handles maximize/fullscreen border suppression natively.
 
-assert(panelJs.includes('startWindowModePoller'),
-  'R40-5: panel.js must start a window mode poller (Windows timing safety net)');
-assert(panelJs.includes('stopWindowModePoller'),
-  'R40-5: panel.js must stop the poller on teardown');
-assert(panelJs.includes('applyNearFullscreenClass'),
-  'R40-5: panel.js must compute a near-fullscreen CSS class fallback');
-assert(panelJs.includes('window.screen.availWidth'),
-  'R40-5: near-fullscreen check must read screen.availWidth');
-assert(panelJs.includes('window.screen.availHeight'),
-  'R40-5: near-fullscreen check must read screen.availHeight');
-assert(panelJs.includes('0.96'),
-  'R40-5: near-fullscreen threshold must be 96% (0.96) of available screen');
-
-assert(panelCss.includes('body.near-fullscreen'),
-  'R40-5: panel.css must define body.near-fullscreen rule');
-assert(panelCss.includes('body.near-fullscreen #card'),
-  'R40-5: panel.css must zero out #card border/radius/shadow when near-fullscreen');
+assert(!panelJs.includes('startWindowModePoller'),
+  'R40.7: panel.js must NOT have startWindowModePoller (removed — opaque panel)');
+assert(!panelJs.includes('applyNearFullscreenClass'),
+  'R40.7: panel.js must NOT have applyNearFullscreenClass (removed)');
+assert(!panelCss.includes('body.near-fullscreen'),
+  'R40.7: panel.css must NOT have body.near-fullscreen (removed)');
+const tauriConf = JSON.parse(read('src-tauri/tauri.conf.json'));
+const panelWin = tauriConf.app.windows.find(w => w.label === 'panel');
+assert.strictEqual(panelWin.transparent, false,
+  'R40.7: panel window must be transparent=false (opaque)');
+assert.strictEqual(panelWin.decorations, true,
+  'R40.7: panel window must have decorations=true (native titlebar)');
+assert(panelJs.includes('syncWindowMode'),
+  'R40.7: panel.js must still have syncWindowMode (event-driven)');
+assert(panelJs.includes('applyWindowMode'),
+  'R40.7: panel.js must still have applyWindowMode');
 
 console.log('✓ R40 (0.5.19) runtime regression closure smoke: all assertions passed');
