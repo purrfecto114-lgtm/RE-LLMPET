@@ -1,6 +1,6 @@
 {
   "name": "octopus",
-  "version": "0.5.26",
+  "version": "0.5.27",
   "productName": "Octopus",
   "description": "\u4f4e\u5360\u7528\u591a Agent \u684c\u9762\u5ba0\u7269\uff1aTauri 2 + Rust \u539f\u751f provider \u9002\u914d\u5c42\uff0c\u4fdd\u7559\u539f\u6709 Web UI \u4e0e\u56fe\u7247\u8d44\u6e90",
   "license": "MIT",

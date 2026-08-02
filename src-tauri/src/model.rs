@@ -289,6 +289,8 @@ pub struct Runtime {
     // single PID slot is shared, but that's acceptable since the frontend
     // only shows one diagnostic at a time).
     pub active_diagnostic_provider: Mutex<Option<String>>,
+    /// R41 (audit §10): cooperative cancellation flag for diagnose_agent.
+    pub diagnostic_cancelled: Arc<std::sync::atomic::AtomicBool>,
     // R38.1 (2026-08-01): Singleton StatsCoalescer state. The 0.5.16 full
     // audit (P0-1) flagged that the R38 trailing flush created a new
     // spawn_blocking task PER throttled event — 1000 events/s would spawn
@@ -367,6 +369,7 @@ impl AppState {
                 price_refresh_tx: Mutex::new(None),
                 active_diagnostic_pid: Mutex::new(None),
                 active_diagnostic_provider: Mutex::new(None),
+                diagnostic_cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 last_stats_emit: Mutex::new(None),
                 stats_dirty: Mutex::new(false),
                 stats_scheduled: Mutex::new(false),

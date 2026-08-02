@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.5.27 — R41 diagnostic cooperative cancel（2026-08-02）
+
+First R41 item: real cooperative cancellation for diagnostics.
+
+### P0-1: DiagnosticJob cooperative cancel token (audit §10 item 7)
+
+Before this fix, `cancel_diagnostic` only killed the current probe's
+PID. The diagnostic worker (`diagnose_agent_sync`) would continue
+running the remaining probes (version → doctor → auth → config),
+each taking up to 15 seconds. The user saw "cancelled" in the UI
+but the Rust worker kept running for 30+ seconds.
+
+Fix: new `diagnostic_cancelled: Arc<AtomicBool>` field in Runtime.
+- `cancel_diagnostic` sets it to `true`.
+- `diagnose_agent_sync` checks it between probes (after version,
+  after doctor/auth, before terminal/config).
+- When cancelled, the worker returns immediately with a
+  `{cancelled: true, issues: ["Diagnostic cancelled by user"]}`
+  result instead of continuing.
+- The flag is reset to `false` at the start of each new diagnostic.
+
+This does NOT replace process-tree kill (still needed for the current
+probe), but it prevents the worker from launching NEW probes after
+cancel.
+
+### Test
+
+- No new test file (existing r352/r36 tests cover cancel + process kill).
+- npm test: 50/50 pass; static: 22/22; gate:source: 16/16.
+
+---
+
 ## 0.5.26 — R40.7 panel architecture + Provider button（2026-08-02）
 
 Closes 4 items from the 0.5.22 audit roadmap §7.1/§7.2/§10 (行为闭环).
