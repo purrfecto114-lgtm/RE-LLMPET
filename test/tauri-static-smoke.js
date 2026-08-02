@@ -15,7 +15,7 @@ assert(pkg.scripts.start.includes('cargo tauri dev'));
 assert(pkg.scripts.build.includes('cargo tauri build'));
 
 const config = JSON.parse(read('src-tauri/tauri.conf.json'));
-assert.strictEqual(config.app.withGlobalTauri, true);
+assert.strictEqual(config.app.withGlobalTauri, false);
 assert.strictEqual(config.build.frontendDist, '../frontend');
 assert(config.app.windows.some((window) => window.label === 'pet' && window.transparent && window.decorations === false));
 assert(config.app.windows.some((window) => window.label === 'panel' && window.visible === false));

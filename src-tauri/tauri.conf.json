@@ -1,14 +1,14 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Octopus",
-  "version": "0.5.27",
+  "version": "0.5.28",
   "identifier": "com.myunwang.octopus",
   "build": {
     "frontendDist": "../frontend",
     "removeUnusedCommands": true
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
         "label": "pet",

@@ -27,6 +27,13 @@ fn current_exe_clean() -> Result<PathBuf, String> {
 
 pub(crate) const MAX_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
 const MARKER: &str = "--octopus-hook";
+/// R41 (audit §10): stable ownership tag embedded in every hook command.
+/// `remove_all_ours` checks for this to avoid matching user hooks that
+/// happen to contain "octopus" in their command string. Before this,
+/// ownership was inferred from `MARKER` ("--octopus-hook") + filename
+/// patterns ("octopus-hook.js"), which could false-positive on user
+/// hooks that mentioned octopus.
+const HOOK_OWNER: &str = "--owner re-llmpet";
 // Install only observer-safe lifecycle events. Claude Code exposes additional
 // decision/replacement hooks (for example ConfigChange, UserPromptExpansion,
 // WorktreeCreate and FileChanged), but registering a generic desktop observer
@@ -881,6 +888,8 @@ fn hook_command_with_flags(
     pretool: bool,
 ) -> String {
     let mut args = MARKER.to_string();
+    // R41: embed ownership tag so remove_all_ours can do exact matching.
+    args.push_str(&format!(" {HOOK_OWNER}"));
     if pretool {
         args.push_str(" --pretool");
     }
@@ -964,6 +973,12 @@ fn remove_all_ours(hooks: &mut Map<String, Value>) {
             entries.retain(|entry| {
                 let command = entry.get("command").and_then(Value::as_str).unwrap_or("");
                 let url = entry.get("url").and_then(Value::as_str).unwrap_or("");
+                // R41: primary ownership check — the --owner re-llmpet tag.
+                // This is exact and cannot false-positive on user hooks.
+                if command.contains("re-llmpet") {
+                    return false; // ours — remove
+                }
+                // Fallback: legacy markers for hooks installed before R41.
                 !command.contains(MARKER)
                     && !["octopus-hook.js", "pretool-hook.js", "llmpet-hook.js"]
                         .iter()

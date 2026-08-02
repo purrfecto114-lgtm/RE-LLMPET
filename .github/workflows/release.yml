@@ -48,7 +48,7 @@ jobs:
       WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
       WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7
 
       - name: Install Linux desktop dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -64,20 +64,22 @@ jobs:
             xdg-utils
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@e51e5fe84fc33b4c73ebe40526b2694712b5b858 # v7
         with:
           node-version: 24
           cache: npm
 
       - name: Setup Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
+        with:
+          toolchain: stable
 
       - name: Add macOS target
         if: matrix.target != ''
         run: rustup target add '${{ matrix.target }}'
 
       - name: Cache Rust build
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: './src-tauri -> target'
           key: ${{ matrix.id }}
@@ -215,7 +217,7 @@ jobs:
 
       - name: Build bundles and create release
         id: tauri
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@abbd19ad15b37f89667db9cc46ec1cb5419f22be # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_NET_OFFLINE: 'true'
@@ -257,7 +259,7 @@ jobs:
       # attestation API rejects as "duplicate subject". Listing concrete
       # extensions targets exactly the installable artifacts.
       - name: Attest build artifacts
-        uses: actions/attest@v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
           subject-path: |
             src-tauri/target/**/release/bundle/**/*.deb
@@ -267,7 +269,7 @@ jobs:
             src-tauri/target/**/release/bundle/**/*.dmg
 
       - name: Attest SBOM against build artifacts
-        uses: actions/attest@v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
           subject-path: |
             src-tauri/target/**/release/bundle/**/*.deb
@@ -287,7 +289,7 @@ jobs:
 
       - name: Upload release evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: release-evidence-${{ matrix.id }}
           path: |

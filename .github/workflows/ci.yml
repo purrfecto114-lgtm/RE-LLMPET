@@ -14,10 +14,12 @@ jobs:
     name: RustSec Cargo.lock audit
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7
 
       - name: Setup Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
+        with:
+          toolchain: stable
 
       - name: Install pinned cargo-audit
         run: cargo install cargo-audit --version 0.22.2
@@ -34,7 +36,7 @@ jobs:
         platform: [ubuntu-22.04, windows-latest, macos-latest]
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7
 
       - name: Install Linux desktop dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -50,18 +52,19 @@ jobs:
             xdg-utils
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@e51e5fe84fc33b4c73ebe40526b2694712b5b858 # v7
         with:
           node-version: 24
           cache: npm
 
       - name: Setup Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
         with:
+          toolchain: stable
           components: rustfmt
 
       - name: Cache Rust build
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: './src-tauri -> target'
 

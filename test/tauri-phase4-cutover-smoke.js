@@ -24,9 +24,9 @@ const providerGate = read('.github/workflows/provider-real-cli.yml');
 const desktopGate = read('.github/workflows/desktop-real-machine.yml');
 const realDesktopScript = read('scripts/real-desktop-gate.js');
 
-assert.strictEqual(pkg.version, '0.5.27');
-assert.strictEqual(tauri.version, '0.5.27');
-assert.match(cargo, /^version = "0\.5\.27"/m);
+assert.strictEqual(pkg.version, '0.5.28');
+assert.strictEqual(tauri.version, '0.5.28');
+assert.match(cargo, /^version = "0\.5\.28"/m);
 assert.strictEqual(tauri.bundle.createUpdaterArtifacts, false);
 
 for (const retired of ['main.js', 'preload.js', 'backend', 'providers', 'renderer', 'hook', 'shared']) {
@@ -69,8 +69,8 @@ assert.match(lib, /recover_windows/);
 
 // Current action generations, locked Rust gates and explicit signing/provenance.
 for (const workflow of [ci, release, providerGate, desktopGate]) {
-  assert.match(workflow, /actions\/checkout@v7/);
-  assert.match(workflow, /actions\/setup-node@v7/);
+  assert.match(workflow, /actions\/checkout@(v7|[0-9a-f]{12})/);
+  assert.match(workflow, /actions\/setup-node@(v7|[0-9a-f]{12})/);
 }
 assert.match(ci, /cargo check[^\n]*--locked/);
 assert.match(ci, /cargo test[^\n]*--locked/);
@@ -79,12 +79,12 @@ assert.match(release, /cargo fetch[^\n]*--locked/);
 assert.match(release, /CARGO_NET_OFFLINE/);
 assert.match(desktopGate, /cargo fetch[^\n]*--locked/);
 assert.match(desktopGate, /CARGO_NET_OFFLINE/);
-assert.match(ci, /actions\/upload-artifact@v7/);
-assert.match(release, /tauri-apps\/tauri-action@v1/);
+assert.match(ci, /actions\/upload-artifact@(v7|[0-9a-f]{12})/);
+assert.match(release, /tauri-apps\/tauri-action@(v1|[0-9a-f]{12})/);
 assert.match(release, /TAURI_SIGNING_PRIVATE_KEY/);
 assert.match(release, /APPLE_CERTIFICATE/);
 assert.match(release, /WINDOWS_CERTIFICATE/);
-assert.match(release, /actions\/attest@v4/g);
+assert.match(release, /actions\/attest@(v4|[0-9a-f]{12})/g);
 assert.match(providerGate, /self-hosted, provider-cli/);
 assert.match(desktopGate, /-\s+self-hosted[\s\S]*-\s+desktop/);
 assert.match(desktopGate, /real-desktop-gate\.js/);

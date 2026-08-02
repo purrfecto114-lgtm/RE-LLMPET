@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.5.28 — R41/R43 security hardening batch（2026-08-02）
+
+Closes 4 items from audit roadmap §10 (R41 hook ownership + R43 security).
+
+### R41-2: Hook ownership metadata (audit §10 item 8)
+
+New \`HOOK_OWNER = "--owner re-llmpet"\` constant. Every hook command now
+embeds this tag. \`remove_all_ours()\` checks for \`re-llmpet\` as the
+primary ownership signal (exact match), with legacy \`MARKER\` / filename
+patterns as fallback. This prevents false-positive removal of user hooks
+that happen to contain "octopus" in their command string.
+
+### R43-1: Close withGlobalTauri (audit §10 item 9)
+
+\`tauri.conf.json\`: \`withGlobalTauri: true → false\`. The narrow
+\`tauri-bridge.js\` already provides all needed IPC. Closing the global
+\`window.__TAURI__\` prevents renderer code from bypassing the bridge
+and calling privileged APIs directly.
+
+### R43-2: Pin GitHub Actions to commit SHA (audit §10 item 10)
+
+All third-party Actions in ci.yml + release.yml + protocol-drift.yml
+pinned to 12-char commit SHA with version comment:
+- \`actions/checkout@f548e57e544e # v7\`
+- \`actions/setup-node@e51e5fe84fc3 # v7\`
+- \`dtolnay/rust-toolchain@2c7215f132e9 # stable\`
+- \`swatinem/rust-cache@e18b497796c1 # v2\`
+- \`tauri-apps/tauri-action@abbd19ad15b3 # v1\`
+- \`actions/attest@508db95dd578 # v4\`
+- \`actions/upload-artifact@043fb46d1a93 # v7\`
+
+This prevents supply-chain attacks via tag rebinding (a malicious actor
+who compromises an Action repo can move the \`@v7\` tag to a malicious
+commit). SHA pinning ensures the exact commit is used.
+
+### Test updates
+
+- \`tauri-static-smoke.js\`: \`withGlobalTauri\` assertion updated to \`false\`.
+- \`tauri-phase4-cutover-smoke.js\`: Action version regexes updated to
+  accept both \`@v7\` and \`@<12-hex-sha>\` forms.
+
+npm test: 50/50 pass; static: 22/22; gate:source: 16/16.
+
+---
+
 ## 0.5.27 — R41 diagnostic cooperative cancel（2026-08-02）
 
 First R41 item: real cooperative cancellation for diagnostics.
