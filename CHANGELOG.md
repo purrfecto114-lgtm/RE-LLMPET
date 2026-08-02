@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.5.32 — emergency hotfix: restore Tauri bridge + fail-closed config（2026-08-02）
+
+Emergency hotfix per RE-LLMPET-0.5.31-full-audit-roadmap.md. 0.5.31 shipped
+`withGlobalTauri: false` while the frontend is plain-script (no bundler, no
+`@tauri-apps/api` import) — this silently broke ALL IPC.
+
+### P0 fixes
+
+- **P0-1**: `withGlobalTauri` restored to `true` (tauri.conf.json). The
+  frontend uses `window.__TAURI__` directly; closing global breaks all IPC.
+  Long-term fix: migrate to ESM imports (R44/R45).
+- **P0-2**: pet.js stats handling split into `ingestStats` (revision-gated)
+  / `renderPetState` (no gate). Internal replay sites now restore state
+  without being rejected by revision dedup.
+- **P0-3**: CodeWhale `backup_codewhale_config` is now fail-closed — if
+  backup fails, install aborts with error instead of continuing.
+- **P0-4**: `tauri-static-smoke.js` updated to expect `withGlobalTauri=true`.
+- **Version**: 0.5.31 → 0.5.32 (valid semver, not 0.5.31.1).
+
+### Verification
+
+- npm test: 50/50 ✅
+- npm run check:static: 22/22 ✅
+- cargo fmt --check: ✅
+- cargo check: ✅ (7 warnings, 0 errors)
+- All JS files: `node --check` ✅
+
+---
+
 ## 0.5.31 — pet.js syntax fix + v0.5.30 tag realignment（2026-08-02）
 
 Fix release: v0.5.30 tag pointed to commit `b37febe` which contained
