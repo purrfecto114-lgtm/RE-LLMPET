@@ -1,6 +1,6 @@
 {
   "version": "0.5.30",
-  "generated": 1785644898,
+  "generated": 1785648214,
   "root": "RE-LLMPET-0.5.30",
   "file_count": 280,
   "files": {
@@ -98,7 +98,7 @@
     "frontend/renderer/panel.js": "ece79e4b4cac756dcdb9e1de1bbb520eb57b16b6e00d9d2bbbbfb91b0206227d",
     "frontend/renderer/pet.css": "de2f44467b0a13e93eecdbe8718bdc55ffdcb3e3102bd2696944358eaf5373d9",
     "frontend/renderer/pet.html": "8b17e8405143cc51b36e15afe839ce45954c131afe35173f9dcac91fdc5faee7",
-    "frontend/renderer/pet.js": "0996e3b2680fb02e9ed3277ead10ff8135a92b863b146e119d8b784b9703e3dd",
+    "frontend/renderer/pet.js": "19e0a94290556d04fecda20f7f571720dcb05551b3431a234258cfe563af7fab",
     "frontend/renderer/tauri-bridge.js": "0c72dd24d462429f0001b2f03543dc2b7f4dea78d926a61294bff173c2175c17",
     "frontend/shared/i18n.js": "ea1ac6d22b4e1ee96d4e7d1e323f5445e27b4e626c2c24f33579c1ed6b1707f1",
     "frontend/shared/memes.js": "65ba703407b1c71fed7b29b894c2ac09b5cdb3e02e67e0603cec3d996a308e97",
@@ -286,5 +286,5 @@
     "test/upstream-reconciliation-smoke.js": "d6fe28d0e413a4c4ca1fa9f79d539d420032db83bed17bafe24379e9b69f0862"
   },
   "source_commit": "d38d931cca557b0e8966c5ee5e275d5be396072e",
-  "sha256_of_manifest": "265a956eb89301c54ae9a58b86eebd45e8d0b2822b6a5760e8840cb89c19daae"
+  "sha256_of_manifest": "b754841d45e133555a7c49e53f715e81952f7ab7d82579715a48b5bf4c0dd0b9"
 }

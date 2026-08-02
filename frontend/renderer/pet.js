@@ -1929,7 +1929,6 @@ function updateProviderUI() {
       slNew.textContent = currentLang === 'en'
         ? `🚀 New ${label}`
         : currentLang === 'ja' ? `🚀 ${label} を新規` : `🚀 新开 ${label}`;
-      }
     }
   }
   const tpClaude = document.querySelector('.tp-ops [data-op="claude"]');
