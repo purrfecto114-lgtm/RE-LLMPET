@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.5.29 — R43 CI fix + glib vulnerability handling（2026-08-02）
+
+Fixes CI failures from v0.5.28's Actions SHA pinning + addresses the
+Dependabot glib vulnerability alert.
+
+### CI Fix: Actions SHA pinning corrections
+
+- **protocol-drift.yml**: pinned checkout + setup-node to full 40-char SHA
+  (was still @v7).
+- **ci.yml**: fixed upload-artifact SHA from 12-char (invalid) to full 40-char.
+- **provider-real-cli.yml, desktop-real-machine.yml**: pinned all remaining
+  actions to full 40-char SHA.
+- **tauri-protocol-drift-smoke.js**: updated upload-artifact assertion to use
+  regex pattern (accepts 12-40 char SHA) instead of exact string match.
+
+### Security: glib vulnerability (GHSA-wrw7-89jp-8q8g) dismissed
+
+Dependabot alert #1 (glib 0.18.x unsoundness in VariantStrIter) dismissed
+with reasoning:
+- Vulnerable code path (glib::VariantStrIter) is NOT used in this project
+- glib 0.18.x is a transitive dependency pinned by Tauri 2.11.5 via gtk-rs 0.18
+- Fix requires glib 0.20.0 which needs a Tauri framework upgrade (gtk-rs 0.20+)
+- Severity: Moderate (6.9/10, unsoundness not RCE)
+- Will auto-resolve when Tauri upgrades its gtk-rs stack
+
+npm test: 50/50 pass; static: 22/22; gate:source: 16/16.
+
+---
+
 ## 0.5.28 — R41/R43 security hardening batch（2026-08-02）
 
 Closes 4 items from audit roadmap §10 (R41 hook ownership + R43 security).
