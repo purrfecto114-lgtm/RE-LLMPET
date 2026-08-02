@@ -2770,7 +2770,7 @@ fn agent_launch_args(spec: AgentSpec) -> &'static [&'static str] {
     // the provider-native flag so Windows Terminal and wrapper scripts cannot
     // silently reset the workspace to the user's home directory.
     match spec.id {
-        "opencode" => &["--dir", "."],
+        "opencode" => &["."],
         _ => &[],
     }
 }

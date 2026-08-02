@@ -22,7 +22,7 @@ const checks = [
   ['OpenCode zero-credential output is detected', commands.includes('fn opencode_auth_has_entries') && commands.includes('0 credentials')],
   ['authentication failures are warnings rather than installation failures', commands.includes('authentication status could not be confirmed') && commands.includes('warnings.push')],
   ['diagnostics expose auth and structured doctor summaries', commands.includes('"doctorSummary": doctor_summary') && commands.includes('"authProbe": auth')],
-  ['OpenCode uses its provider-native directory argument', commands.includes('"opencode" => &["--dir", "."]')],
+  ['OpenCode uses its positional project argument', commands.includes('"opencode" => &["."]')],
   ['Windows native and shim launch paths both receive provider arguments', commands.includes('cmd_launch_call(executable, launch_args)') && commands.includes('command.arg(executable).args(launch_args.iter().copied())')],
   ['Windows evidence script captures provider auth state', read('scripts/windows-cli-diagnostics.ps1').includes("@('login','status')") && read('scripts/windows-cli-diagnostics.ps1').includes("@('auth','list')")],
   ['macOS and Linux launch paths retain provider arguments', commands.includes('command.extend(agent_launch_args(spec)') && commands.includes('provider_args.iter().cloned()')],

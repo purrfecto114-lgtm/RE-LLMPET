@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.5.25 — R40.6 runtime behavior closures（2026-08-01）
+
+Closes 3 P0/P1 items from the 0.5.22 package regression audit roadmap §7
+that were not addressed in 0.5.24.
+
+### P0-3: get_stats() now returns a versioned snapshot (audit §7.3)
+
+`get_stats()` (bootstrap IPC response) previously returned
+`runtime.stats()` without a `__revision` field. An early bootstrap
+response could arrive after a versioned push event and overwrite the
+frontend state.
+
+Fix: new shared `stats_snapshot()` builder in commands.rs. Both
+`get_stats()` and `do_emit_stats()` (in http_server.rs) now call it,
+so bootstrap and push events have the same revision semantics.
+
+### P0-3: pet.js stats ingest/render split (audit §7.3)
+
+`applyStats(lastStats)` was called from transient timers (happy/error/
+territory) to re-derive pet state. But `acceptStatsRevision()` rejected
+the same revision, so the pet would get stuck in a transient state
+forever after the first stats push.
+
+Fix: split `applyStats()` into:
+- `applyStats(s)` — ingest (revision-gated, updates lastStats)
+- `renderStats(s)` — render (no revision gate, safe to replay)
+
+All 3 transient timer call sites now use `renderStats(lastStats)`.
+
+### P1-1: OpenCode launch args — replace --dir with positional (audit §7.4)
+
+`opencode --dir .` was based on an outdated reading of `--help`.
+OpenCode v0.9.x TUI accepts a positional project argument:
+`opencode [project]`. The `--dir` flag causes "unknown flag" errors
+on current builds.
+
+Fix: `agent_launch_args("opencode")` now returns `&["."]` (positional).
+`Command::current_dir(cwd)` (already set in launch_terminal) handles
+the working directory.
+
+### Test
+
+- Updated tauri-cli-auth-r6-smoke + tauri-cli-resilience-r7-smoke to
+  expect `"opencode" => &["."]` instead of `&["--dir", "."]`.
+- All other smoke tests unchanged.
+- npm test: 50/50 pass; static: 22/22; gate:source: 16/16.
+
+---
+
 ## 0.5.24 — R40.5 runtime fixes from handoff audit（2026-08-01）
 
 **First release with actual runtime code changes since 0.5.21.**
