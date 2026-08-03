@@ -12,7 +12,7 @@ The following files were copied byte-for-byte. No image or audio conversion was 
 
 | Upstream path | Destination | SHA-256 |
 |---|---|---|
-| `shared/i18n.js` | `frontend/shared/i18n.js` | `73506ebf26d625647209660639ef6ea59b336cf4805a86c633322f8c560c0f63` |
+| `shared/i18n.js` | `frontend/shared/i18n.js` | `6b00997e12df957546f9ddb9498915041c3ecdd36b165106ca693052f55de7bc` |
 | `assets/memes/catalog.json` | `resources/memes/catalog.json` | `c49f3188a36ce2184876c2adb1973022c33c1f79355b54a566934b802625b46a` |
 | `assets/memes/huaqiang-guaranteed/visual.gif` | `frontend/assets/memes/huaqiang-guaranteed/visual.gif` | `071b250823da30d6bdf80891a61cf5debe674f4e19cd8df35079d41cbe172481` |
 | `assets/memes/huaqiang-guaranteed/voice.mp3` | `frontend/assets/memes/huaqiang-guaranteed/voice.mp3` | `acd1b3d4a066d7a7d2d72a1fe3c2a15585c81ae3b95b12ae70b2fc25dcdf560d` |

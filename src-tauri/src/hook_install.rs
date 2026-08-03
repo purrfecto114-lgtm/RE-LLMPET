@@ -676,18 +676,28 @@ fn uninstall_claude() -> CleanupResult {
             detail: format!("write failed: {e}"),
         };
     }
-    // R44 0.5.39 §3: post-write verification — if the file STILL contains
-    // our marker after removal, `remove_all_ours` missed something (e.g.
-    // a hook entry in a format we don't recognize). Report Residue.
-    if let Ok(post_raw) = fs::read_to_string(&path) {
-        if post_raw.contains("re-llmpet") {
-            return CleanupResult::Residue {
-                path,
-                detail: "re-llmpet marker still present after remove_all_ours".into(),
-            };
+    // R44 0.5.40 (Roadmap v6 P0-05): post-write verification must NOT
+    // report Removed when the verify read fails. The 0.5.39 version used
+    // `if let Ok(post_raw) = ...` which silently fell through to
+    // `Removed` on read failure — that's a false positive. The new code
+    // explicitly handles the read-failure case as Unreadable (verify
+    // could not complete), so `allHooksVerifiedAbsent` in bulk uninstall
+    // won't count this as clean.
+    match fs::read_to_string(&path) {
+        Ok(post_raw) => {
+            if post_raw.contains("re-llmpet") {
+                return CleanupResult::Residue {
+                    path,
+                    detail: "re-llmpet marker still present after remove_all_ours".into(),
+                };
+            }
+            CleanupResult::Removed { path }
         }
+        Err(e) => CleanupResult::Unreadable {
+            path,
+            error: format!("post-clean verify read failed: {e}"),
+        },
     }
-    CleanupResult::Removed { path }
 }
 
 fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
@@ -1029,12 +1039,23 @@ fn uninstall_codex() -> CleanupResult {
             detail: format!("write failed: {e}"),
         };
     }
-    if let Ok(post_raw) = fs::read_to_string(&path) {
-        if post_raw.contains("re-llmpet") {
-            return CleanupResult::Residue {
+    // R44 0.5.40 (Roadmap v6 P0-05): post-clean verify must not report
+    // Removed on read failure — return Unreadable so bulk uninstall's
+    // allHooksVerifiedAbsent stays accurate.
+    match fs::read_to_string(&path) {
+        Ok(post_raw) => {
+            if post_raw.contains("re-llmpet") {
+                return CleanupResult::Residue {
+                    path,
+                    detail: "re-llmpet marker still present after remove_all_ours".into(),
+                };
+            }
+        }
+        Err(e) => {
+            return CleanupResult::Unreadable {
                 path,
-                detail: "re-llmpet marker still present after remove_all_ours".into(),
-            };
+                error: format!("post-clean verify read failed: {e}"),
+            }
         }
     }
     CleanupResult::Removed { path }
@@ -1434,17 +1455,25 @@ fn uninstall_marker_file(path: &Path, begin: &str, end: &str) -> CleanupResult {
             detail: format!("write failed: {e}"),
         };
     }
-    // Post-write verification: marker should be gone.
-    if let Ok(post) = fs::read_to_string(path) {
-        if post.contains(begin) {
-            return CleanupResult::Residue {
+    // R44 0.5.40 (Roadmap v6 P0-05): post-write verify must not report
+    // Removed on read failure — return Unreadable so bulk uninstall's
+    // allHooksVerifiedAbsent stays accurate.
+    match fs::read_to_string(path) {
+        Ok(post) => {
+            if post.contains(begin) {
+                return CleanupResult::Residue {
+                    path: path.to_path_buf(),
+                    detail: "marker still present after strip".into(),
+                };
+            }
+            CleanupResult::Removed {
                 path: path.to_path_buf(),
-                detail: "marker still present after strip".into(),
-            };
+            }
         }
-    }
-    CleanupResult::Removed {
-        path: path.to_path_buf(),
+        Err(e) => CleanupResult::Unreadable {
+            path: path.to_path_buf(),
+            error: format!("post-clean verify read failed: {e}"),
+        },
     }
 }
 

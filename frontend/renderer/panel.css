@@ -425,3 +425,112 @@ body.window-fullscreen #card {
     transition: none !important;
   }
 }
+
+/* ====================================================================
+   R44 0.5.40 (Roadmap v6 P0-01): config recovery overlay.
+   Full-screen modal shown when getConfigState() returns quarantined=true.
+   Hides normal panel content; forces user to backup-and-reset or close.
+   ==================================================================== */
+.recovery-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 28, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 16px;
+  box-sizing: border-box;
+}
+.recovery-overlay[hidden] { display: none; }
+
+.recovery-card {
+  background: #1e1e2a;
+  border: 1px solid #4a4a5e;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  color: #e8e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.recovery-icon {
+  font-size: 40px;
+  text-align: center;
+  margin-bottom: 8px;
+}
+.recovery-card h2 {
+  text-align: center;
+  margin: 0 0 12px 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.recovery-state {
+  text-align: center;
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  color: #ff9b6b;
+  font-family: monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.recovery-message {
+  text-align: center;
+  margin: 0 0 16px 0;
+  font-size: 12px;
+  color: #b8b8c8;
+  word-break: break-word;
+  max-height: 80px;
+  overflow-y: auto;
+}
+.recovery-explain {
+  margin: 0 0 20px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #c8c8d8;
+}
+.recovery-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.recovery-btn {
+  padding: 10px 16px;
+  border: 1px solid #4a4a5e;
+  background: #2a2a3a;
+  color: #e8e8f0;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.recovery-btn:hover { background: #3a3a4a; }
+.recovery-btn.primary {
+  background: #d97757;
+  border-color: #d97757;
+  color: #fff;
+  font-weight: 600;
+}
+.recovery-btn.primary:hover { background: #c56848; }
+.recovery-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.recovery-backup-path {
+  margin: 0 0 8px 0;
+  padding: 8px;
+  background: #16161e;
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: monospace;
+  color: #8a8a9a;
+  word-break: break-all;
+}
+.recovery-warn {
+  margin: 0;
+  font-size: 11px;
+  color: #8a8a9a;
+  text-align: center;
+}

@@ -1558,6 +1558,23 @@ $('cal').addEventListener('mouseleave', () => { $('cal-readout').innerHTML = cal
 
 // 初始化
 (async () => {
+  // R44 0.5.40 (Roadmap v6 P0-01): check config quarantine state FIRST.
+  // If quarantined, show recovery overlay and skip normal init (the
+  // user cannot use settings until they backup-and-reset or fix the
+  // file manually). This must run before getConfig() because getConfig
+  // returns defaults when quarantined — showing settings UI would be
+  // misleading.
+  try {
+    const cs = await window.pet.getConfigState();
+    if (cs && cs.quarantined) {
+      showRecoveryOverlay(cs);
+      return; // do NOT proceed to normal init
+    }
+  } catch (e) {
+    // If getConfigState fails (e.g. command not registered in older
+    // build), fall through to normal init. Don't block the panel.
+    console.warn('[re-llmpet] getConfigState failed, skipping quarantine check:', e);
+  }
   const cfg = await window.pet.getConfig();
   if (cfg) { config = { ...config, ...cfg }; applyLanguage(config.lang); applyConfigUI(); }
   const s = await window.pet.getStats();
@@ -1569,3 +1586,71 @@ $('cal').addEventListener('mouseleave', () => { $('cal-readout').innerHTML = cal
     renderStats(s);
   }
 })();
+
+// R44 0.5.40: Recovery overlay logic. Shows when config is quarantined.
+function showRecoveryOverlay(cs) {
+  const overlay = document.getElementById('recovery-overlay');
+  const card = document.getElementById('card');
+  if (!overlay || !card) return;
+  // Hide normal panel content
+  card.style.display = 'none';
+  overlay.hidden = false;
+  // Populate state + message
+  const stateEl = document.getElementById('recovery-state');
+  const msgEl = document.getElementById('recovery-message');
+  if (stateEl) stateEl.textContent = cs.state || 'unknown';
+  if (msgEl) msgEl.textContent = cs.message || '';
+  // Wire up buttons (idempotent — guard against double-bind)
+  const backupBtn = document.getElementById('recovery-backup-reset');
+  const retryBtn = document.getElementById('recovery-retry');
+  const closeBtn = document.getElementById('recovery-close');
+  const backupPathEl = document.getElementById('recovery-backup-path');
+  if (backupBtn && !backupBtn.dataset.bound) {
+    backupBtn.dataset.bound = '1';
+    backupBtn.addEventListener('click', async () => {
+      const confirmed = confirm(t('recovery.confirm'));
+      if (!confirmed) return;
+      backupBtn.disabled = true;
+      backupBtn.textContent = '...';
+      try {
+        const result = await window.pet.backupAndResetConfig();
+        if (result && result.backupCreated && result.backupPath) {
+          if (backupPathEl) {
+            backupPathEl.innerHTML = t('recovery.backupPathLabel') + '<br>' + result.backupPath;
+            backupPathEl.hidden = false;
+          }
+        }
+        alert(t('recovery.resetDone'));
+        // User must restart; close the panel
+        window.close();
+      } catch (e) {
+        alert(t('recovery.resetFailed', { error: String(e && e.message || e) }));
+        backupBtn.disabled = false;
+        backupBtn.textContent = t('recovery.backupReset');
+      }
+    });
+  }
+  if (retryBtn && !retryBtn.dataset.bound) {
+    retryBtn.dataset.bound = '1';
+    retryBtn.addEventListener('click', async () => {
+      retryBtn.disabled = true;
+      try {
+        const cs2 = await window.pet.getConfigState();
+        if (cs2 && !cs2.quarantined) {
+          // Recovered — reload the panel
+          window.location.reload();
+        } else {
+          if (stateEl) stateEl.textContent = cs2.state || 'unknown';
+          if (msgEl) msgEl.textContent = cs2.message || '';
+        }
+      } catch (e) {
+        console.warn('[re-llmpet] retry getConfigState failed:', e);
+      }
+      retryBtn.disabled = false;
+    });
+  }
+  if (closeBtn && !closeBtn.dataset.bound) {
+    closeBtn.dataset.bound = '1';
+    closeBtn.addEventListener('click', () => { window.close(); });
+  }
+}

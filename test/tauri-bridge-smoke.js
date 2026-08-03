@@ -50,6 +50,8 @@ const expected = [
   'decideCwPermissionBatch', 'focusSession', 'primaryAction', 'setIgnoreMouse',
   'setPetTall', 'setPetBig', 'setPetSize', 'setPanelHeight', 'focusPet',
   'blurPet', 'openLog', 'petLog', 'uiBusy', 'petVisualBounds',
+  // R44 0.5.40 (Roadmap v6 P0-01): config recovery closure.
+  'getConfigState', 'backupAndResetConfig', 'getInstallReceipts',
 ].sort();
 assert(api && typeof api === 'object');
 assert(Object.isFrozen(api), 'compatibility API must be frozen');

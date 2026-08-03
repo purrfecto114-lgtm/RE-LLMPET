@@ -1800,9 +1800,30 @@ fn write_private_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
 /// write, preventing the defaults from overwriting the user's real
 /// (but unreadable) config file.
 pub fn load_config(path: &Path) -> (AppConfig, ConfigState) {
-    let Ok(meta) = fs::metadata(path) else {
-        // File doesn't exist — new install, safe to return default.
-        return (AppConfig::default(), ConfigState::NotFound);
+    // R44 0.5.40 (Roadmap v6 P0-02): only ErrorKind::NotFound maps to
+    // ConfigState::NotFound. Other metadata errors (PermissionDenied,
+    // transient I/O, symlink/path issues, device errors) must map to
+    // Unreadable so writes are quarantined. The old code collapsed ALL
+    // metadata errors to NotFound, which re-allowed writes on permission
+    // errors — risking default-config overwrite of an inaccessible but
+    // present user config.
+    let meta = match fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // File genuinely doesn't exist — new install.
+            return (AppConfig::default(), ConfigState::NotFound);
+        }
+        Err(e) => {
+            eprintln!(
+                "[re-llmpet] ERROR: config.json metadata failed: {e}. Writes are quarantined."
+            );
+            return (
+                AppConfig::default(),
+                ConfigState::Unreadable {
+                    message: format!("metadata: {e}"),
+                },
+            );
+        }
     };
     if meta.len() > 1024 * 1024 {
         eprintln!(
@@ -1888,26 +1909,75 @@ impl Runtime {
     /// requests a reset; we back up the corrupt config, clear the state
     /// to NotFound (allowing writes), and save defaults. The backup lets
     /// the user recover fields manually if needed.
-    pub fn backup_and_reset_config(&self) -> Result<PathBuf, String> {
-        let backup = if self.config_path.exists() {
+    /// R44 0.5.40 (Roadmap v6 P0-04): backup-and-reset is now a proper
+    /// transaction. The 0.5.39 version had two bugs:
+    ///   1. It set state to NotFound BEFORE attempting the default write.
+    ///      If the write failed, state stayed NotFound, re-allowing writes
+    ///      and losing the quarantine reason.
+    ///   2. When the original file didn't exist, it returned config_path
+    ///      as the "backupPath" — but config_path is NOT a backup file.
+    ///      The UI would tell the user "backup saved to <config path>"
+    ///      which is misleading.
+    ///
+    /// The new flow:
+    ///   1. Snapshot old ConfigState (for rollback).
+    ///   2. Create + verify backup (if source exists).
+    ///   3. Write defaults to temp file.
+    ///   4. Atomic rename.
+    ///   5. Only then commit state to Healthy.
+    ///   6. On any failure, restore old state.
+    ///
+    /// Returns a structured result so the UI can distinguish "backup
+    /// created" from "no backup needed (file didn't exist)".
+    pub fn backup_and_reset_config(&self) -> Result<ResetResult, String> {
+        // Step 1: snapshot old state for rollback.
+        let old_state = self.config_state();
+        // Step 2: create backup if source exists.
+        let backup_path = if self.config_path.exists() {
             let ts = now_ms();
-            let backup_path = self
+            let bp = self
                 .config_path
                 .parent()
                 .ok_or("config path has no parent")?
                 .join(format!(".config.re-llmpet-bak-{ts}.json"));
-            fs::copy(&self.config_path, &backup_path).map_err(|e| e.to_string())?;
-            Some(backup_path)
+            fs::copy(&self.config_path, &bp).map_err(|e| {
+                // Rollback: restore old state (don't leave it in a half-reset limbo).
+                *self.config_state.lock().unwrap_or_else(|e| e.into_inner()) = old_state.clone();
+                format!("backup failed: {e}; state restored to {}", old_state.label())
+            })?;
+            Some(bp)
         } else {
             None
         };
-        // Clear the quarantine so the default-save can proceed.
-        *self.config_state.lock().unwrap_or_else(|e| e.into_inner()) = ConfigState::NotFound;
-        save_config_unchecked(&self.config_path, &AppConfig::default())?;
-        // After successful save, state is Healthy.
+        // Step 3: write defaults. If this fails, restore old state.
+        if let Err(e) = save_config_unchecked(&self.config_path, &AppConfig::default()) {
+            *self.config_state.lock().unwrap_or_else(|e| e.into_inner()) = old_state.clone();
+            return Err(format!(
+                "default write failed: {e}; state restored to {}",
+                old_state.label()
+            ));
+        }
+        // Step 4: commit Healthy state.
         *self.config_state.lock().unwrap_or_else(|e| e.into_inner()) = ConfigState::Healthy;
-        Ok(backup.unwrap_or_else(|| self.config_path.clone()))
+        Ok(ResetResult {
+            reset: true,
+            backup_created: backup_path.is_some(),
+            backup_path,
+        })
     }
+}
+
+/// R44 0.5.40 (Roadmap v6 P0-04): structured reset result replacing
+/// `Result<PathBuf, String>`. The old return type forced callers to
+/// interpret a PathBuf as "backup path" even when no backup was created
+/// (file didn't exist). The new struct explicitly distinguishes the
+/// three cases: reset succeeded with backup / reset succeeded without
+/// backup / reset failed (Err).
+#[derive(Debug, Clone)]
+pub struct ResetResult {
+    pub reset: bool,
+    pub backup_created: bool,
+    pub backup_path: Option<PathBuf>,
 }
 
 /// R44 0.5.39 (roadmap v5 §2): save_config free function kept for

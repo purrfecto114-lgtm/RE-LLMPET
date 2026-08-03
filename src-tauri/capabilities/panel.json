@@ -25,6 +25,9 @@
     "allow-diagnose-agent",
     "allow-cancel-diagnostic",
     "allow-launch-agent",
-    "allow-launch-agent-gui"
+    "allow-launch-agent-gui",
+    "allow-get-config-state",
+    "allow-backup-and-reset-config",
+    "allow-get-install-receipts"
   ]
 }

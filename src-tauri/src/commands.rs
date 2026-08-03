@@ -138,18 +138,26 @@ pub fn get_config_state(state: State<'_, AppState>) -> Value {
 /// the user where their old config was preserved.
 #[tauri::command]
 pub fn backup_and_reset_config(state: State<'_, AppState>) -> Result<Value, String> {
-    let backup_path = state.runtime.backup_and_reset_config()?;
+    let result = state.runtime.backup_and_reset_config()?;
     state.runtime.write_log(
         "config",
         &format!(
-            "backup_and_reset_config: backup at {}",
-            backup_path.display()
+            "backup_and_reset_config: reset={}, backup_created={}, backup_path={:?}",
+            result.reset,
+            result.backup_created,
+            result.backup_path
         ),
     );
     Ok(json!({
-        "backupPath": backup_path.to_string_lossy(),
+        "reset": result.reset,
+        "backupCreated": result.backup_created,
+        "backupPath": result.backup_path.map(|p| p.to_string_lossy().into_owned()),
         "state": "healthy",
-        "message": "Config backed up and reset to defaults; restart the app to reload"
+        "message": if result.backup_created {
+            "Config backed up and reset to defaults; restart the app to reload"
+        } else {
+            "Config reset to defaults (no backup needed — file did not exist); restart the app"
+        }
     }))
 }
 
@@ -279,29 +287,52 @@ pub fn uninstall_hooks(
     // JSON result object. Used by both single-provider and bulk paths.
     let run_one = |id: &str| -> (Value, bool, Option<String>) {
         // R44 Phase 0D (audit fix C9+C10): snapshot receipt + compute
-        // drift BEFORE calling uninstall_provider_hooks.
+        // R44 0.5.40 (Roadmap v6 P0-06): drift is now an enum, not a bool.
+        // The 0.5.39 version collapsed "no receipt", "receipt missing
+        // path/sig", and "file unreadable" all to `false`, hiding the
+        // reason from the UI. The new DriftStatus enum distinguishes:
+        //   unchanged — file hash matches receipt
+        //   changed   — file hash differs from receipt
+        //   missing   — file doesn't exist (was it deleted manually?)
+        //   unreadable — file exists but can't be read
+        //   noReceipt — no install receipt for this provider
+        //   invalidReceipt — receipt exists but lacks path/signature
         let prior_receipt = crate::hook_install::read_install_receipts()
             .get(id)
             .cloned();
-        let drift_detected = match &prior_receipt {
+        let drift_status = match &prior_receipt {
+            None => "noReceipt",
             Some(r) => {
                 let path_str = r.get("path").and_then(Value::as_str);
                 let receipt_sig = r.get("drift_signature").and_then(Value::as_str);
                 match (path_str, receipt_sig) {
+                    (None, _) | (_, None) => "invalidReceipt",
                     (Some(p), Some(saved)) => {
-                        let current = crate::hook_install::current_drift_signature(Path::new(p));
-                        current.as_deref() != Some(saved)
+                        match crate::hook_install::current_drift_signature(Path::new(p)) {
+                            None => {
+                                // current_drift_signature returns None when the file
+                                // can't be read. Distinguish "missing" from "unreadable"
+                                // by checking existence.
+                                if Path::new(p).exists() {
+                                    "unreadable"
+                                } else {
+                                    "missing"
+                                }
+                            }
+                            Some(current) if current == saved => "unchanged",
+                            Some(_) => "changed",
+                        }
                     }
-                    _ => false,
                 }
             }
-            None => false,
         };
+        let drift_detected = drift_status == "changed";
         let cleanup = crate::hook_install::uninstall_provider_hooks(id);
         let mut result_json = cleanup.to_json();
         if let Some(obj) = result_json.as_object_mut() {
             obj.insert("provider".into(), json!(id));
             obj.insert("driftDetected".into(), json!(drift_detected));
+            obj.insert("driftStatus".into(), json!(drift_status));
             if let Some(r) = &prior_receipt {
                 obj.insert("priorReceipt".into(), r.clone());
                 if let Some(ts) = r.get("installed_at").and_then(Value::as_u64) {

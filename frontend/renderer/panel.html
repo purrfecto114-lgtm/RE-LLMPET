@@ -185,6 +185,25 @@
         </section>
       </div>
     </div>
+    <!-- R44 0.5.40 (Roadmap v6 P0-01): config recovery overlay.
+         Shown when getConfigState returns quarantined=true.
+         Hides the normal card content via the renderer script. -->
+    <div id="recovery-overlay" class="recovery-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="recovery-title">
+      <div class="recovery-card">
+        <div class="recovery-icon" aria-hidden="true">⚠️</div>
+        <h2 id="recovery-title" data-i18n="recovery.title">配置文件损坏</h2>
+        <p id="recovery-state" class="recovery-state"></p>
+        <p id="recovery-message" class="recovery-message"></p>
+        <p class="recovery-explain" data-i18n="recovery.explain">RE-LLMPET 检测到配置文件无法安全读取。为防止默认配置覆盖您的现有设置，所有保存操作已被阻止。您可以备份当前文件并重置为默认配置。</p>
+        <div class="recovery-actions">
+          <button id="recovery-backup-reset" class="recovery-btn primary" data-i18n="recovery.backupReset">备份并重置</button>
+          <button id="recovery-retry" class="recovery-btn" data-i18n="recovery.retry">重新检测</button>
+          <button id="recovery-close" class="recovery-btn" data-i18n="recovery.close">关闭面板</button>
+        </div>
+        <p id="recovery-backup-path" class="recovery-backup-path" hidden></p>
+        <p class="recovery-warn" data-i18n="recovery.warn">重置后需重启应用以加载默认配置。</p>
+      </div>
+    </div>
     <!-- R32 (2026-07-31): visible bridge-error toast container. -->
     <div id="re-llmpet-toast" class="re-llmpet-toast" role="alert" aria-live="assertive" hidden></div>
     <script src="../shared/i18n.js"></script>

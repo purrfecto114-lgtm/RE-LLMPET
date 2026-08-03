@@ -168,5 +168,16 @@ function getCurrentTauriWindow() {
     petLog: (tag, message) => send('pet_log', { tag, message }),
     uiBusy: (on) => send('ui_busy', { on }),
     petVisualBounds: (rect) => send('pet_visual_bounds', { rect }),
+    // R44 0.5.40 (Roadmap v6 P0-01): config recovery closure. These three
+    // commands are registered in panel capability ONLY (not pet) because
+    // they are privileged operations that should not be reachable from
+    // the always-on pet window. The panel UI uses them to:
+    //   1. Query config quarantine state on startup → if quarantined,
+    //      show recovery page instead of normal settings.
+    //   2. Offer "backup and reset" button → calls backup_and_reset_config.
+    //   3. Display install receipts for diagnostics.
+    getConfigState: () => call('get_config_state'),
+    backupAndResetConfig: () => call('backup_and_reset_config'),
+    getInstallReceipts: () => call('get_install_receipts'),
   });
 })(window);
