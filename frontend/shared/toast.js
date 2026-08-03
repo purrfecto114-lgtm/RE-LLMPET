@@ -4,7 +4,7 @@
  * R32 (2026-07-31) — Shared toast helper for visible bridge errors.
  *
  * Before R32, `tauri-bridge.js` `send()` only `console.error`-ed failures.
- * The R30 partial-fix added a `octopus:bridge-error` CustomEvent, but the
+ * The R30 partial-fix added a `re-llmpet:bridge-error` CustomEvent, but the
  * panel listener still only `console.warn`-ed with a TODO. This helper turns
  * that event into a real user-visible toast that auto-dismisses after 4s,
  * can be dismissed early by click, and is announced to screen readers via
@@ -13,7 +13,7 @@
  * Both panel.js and pet.js install this listener on script load. The host
  * element (`#re-llmpet-toast`) is added to both panel.html and pet.html.
  */
-(function installOctopusToast(global) {
+(function installReLlmpetToast(global) {
   function getToastEl() {
     return document.getElementById('re-llmpet-toast');
   }
@@ -95,7 +95,7 @@
   function install() {
     if (global._reLlmpetToastInstalled) return;
     global._reLlmpetToastInstalled = true;
-    global.addEventListener('octopus:bridge-error', (e) => {
+    global.addEventListener('re-llmpet:bridge-error', (e) => {
       const detail = (e && e.detail) || {};
       const message = detail.message || 'unknown error';
       const command = detail.command || '';

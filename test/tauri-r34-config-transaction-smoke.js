@@ -107,6 +107,6 @@ assert(panelJs.includes('sessionPinned = prevPinned'),
 assert(panelJs.includes('sessionArchived = prevArchived'),
   'panel.js must revert sessionArchived on IPC failure');
 assert(panelJs.includes("command: 'set_session_prefs'"),
-  'panel.js must dispatch octopus:bridge-error with command=set_session_prefs');
+  'panel.js must dispatch re-llmpet:bridge-error with command=set_session_prefs');
 
 console.log('tauri-r34-config-transaction-smoke: ok (5 P0/P1 fixes locked)');

@@ -424,7 +424,7 @@ fn download_with_curl(
         "--max-time",
         "20",
         "--user-agent",
-        "Octopus/0.5.0 pricing-sync",
+        "RE-LLMPET/0.5.35 pricing-sync",
         "--dump-header",
     ]);
     command.arg(headers);

@@ -777,7 +777,7 @@ impl Runtime {
                         *lock.lock().unwrap_or_else(|e| e.into_inner()) =
                             Some(PermissionDecision {
                                 behavior: "deny".into(),
-                                message: Some("Octopus permission queue is full".into()),
+                                message: Some("RE-LLMPET permission queue is full".into()),
                                 updated_input: None,
                                 updated_permissions: Vec::new(),
                             });
@@ -1324,7 +1324,7 @@ impl Runtime {
         // flagged that write_log appends indefinitely with no size limit,
         // rotation, or retention. A long-running session could fill disk.
         // Now we check the file size before each append; if it exceeds
-        // 2 MiB, we rotate: octopus.log → octopus.1.log → ... → octopus.4.log
+        // 2 MiB, we rotate: re-llmpet.log → octopus.1.log → ... → octopus.4.log
         // (5 files total, max ~10 MiB). The rotation is best-effort — if
         // it fails (permissions, disk full), we still try to append.
         const MAX_LOG_SIZE: u64 = 2 * 1024 * 1024; // 2 MiB
@@ -1618,13 +1618,13 @@ pub fn home_dir() -> PathBuf {
 /// deleted. Best-effort: errors are ignored (the caller falls back to
 /// appending to the original file).
 ///
-/// Example with max_files=5 and path="octopus.log":
+/// Example with max_files=5 and path="re-llmpet.log":
 ///   octopus.4.log → deleted
 ///   octopus.3.log → octopus.4.log
 ///   octopus.2.log → octopus.3.log
 ///   octopus.1.log → octopus.2.log
-///   octopus.log   → octopus.1.log
-/// Then octopus.log is recreated by the caller's OpenOptions::create(true).
+///   re-llmpet.log   → octopus.1.log
+/// Then re-llmpet.log is recreated by the caller's OpenOptions::create(true).
 fn rotate_log(path: &Path, max_files: u8) -> std::io::Result<()> {
     // Delete the oldest file if it exists.
     let oldest = path.with_extension(format!("{}.log", max_files - 1));

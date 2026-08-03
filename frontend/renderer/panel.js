@@ -312,7 +312,7 @@ function fitPanelHeight() {
         // IPC failed (window missing, Rust rejected). Don't update cache;
         // next render will retry. Log for debugging.
         pendingFitHeight = 0;
-        try { console.warn('[octopus] setPanelHeight failed:', String(err && (err.message || err) || 'unknown')); } catch {}
+        try { console.warn('[re-llmpet] setPanelHeight failed:', String(err && (err.message || err) || 'unknown')); } catch {}
       });
   });
 }
@@ -791,7 +791,7 @@ function renderSessList(sessions) {
           sessionArchived = prevArchived;
           renderSessList(latestSessions);
           const msg = String(err && (err.message || err) || 'unknown');
-          window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+          window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
             detail: { command: 'set_session_prefs', message: msg }
           }));
         })
@@ -1089,11 +1089,11 @@ function clearDiagnostic() {
       .then(() => window.pet.cancelDiagnostic())
       .then((result) => {
         if (result && result.cancelled) {
-          try { console.info('[octopus] diagnostic process tree killed, pid=' + result.pid); } catch {}
+          try { console.info('[re-llmpet] diagnostic process tree killed, pid=' + result.pid); } catch {}
         }
       })
       .catch((err) => {
-        try { console.warn('[octopus] cancel_diagnostic failed:', String(err && (err.message || err) || 'unknown')); } catch {}
+        try { console.warn('[re-llmpet] cancel_diagnostic failed:', String(err && (err.message || err) || 'unknown')); } catch {}
       });
   }
   diagnosticGeneration += 1;
@@ -1325,7 +1325,7 @@ document.addEventListener('DOMContentLoaded', () => {
           // so the user knows which hooks failed; do NOT revert checkbox.
           const errs = Array.isArray(result.errors) && result.errors.length
             ? result.errors.join('；') : 'hook install partial failure';
-          window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+          window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
             detail: { command: 'set_providers', message: errs }
           }));
         }
@@ -1337,7 +1337,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // unavailable). Revert checkbox to previous state.
         checkbox.checked = !checkbox.checked;
         const msg = String(err && (err.message || err) || 'unknown');
-        window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+        window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
           detail: { command: 'set_providers', message: msg }
         }));
       })
@@ -1401,9 +1401,9 @@ window.pet.onPrice(renderPriceInfo);
 // (auto-installed on script load). This listener stays as a debug log so
 // devs can correlate timing in the devtools console; the user-visible UI
 // is the `#octopus-toast` element populated by toast.js.
-window.addEventListener('octopus:bridge-error', (e) => {
+window.addEventListener('re-llmpet:bridge-error', (e) => {
   const { command, message } = e.detail || {};
-  console.warn(`[octopus] bridge error in ${command}: ${message}`);
+  console.warn(`[re-llmpet] bridge error in ${command}: ${message}`);
 });
 window.pet.onConfig((cfg) => {
   if (!cfg) return;

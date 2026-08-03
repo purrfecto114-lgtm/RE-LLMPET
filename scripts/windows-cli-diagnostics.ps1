@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [string]$WorkingDirectory = $HOME,
-  [string]$OutputPath = (Join-Path $PWD 'octopus-cli-diagnostics.json')
+  [string]$OutputPath = (Join-Path $PWD 're-llmpet-cli-diagnostics.json')
 )
 $ErrorActionPreference = 'Stop'
 

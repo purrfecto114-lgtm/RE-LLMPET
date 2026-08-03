@@ -21,7 +21,7 @@
 //     / decideCwPermissionBatch / setSessionPrefs use call() not send()
 //   - pet.js: submitDecision wrapper exists + all submit sites use it
 //   - shared/toast.js + #re-llmpet-toast element exist in both windows
-//   - bridge send() still emits octopus:bridge-error (R30 contract preserved)
+//   - bridge send() still emits re-llmpet:bridge-error (R30 contract preserved)
 
 const assert = require('assert');
 const fs = require('fs');
@@ -67,8 +67,8 @@ assert(bridge.includes("decideCwPermission: (permId, behavior) => call('decide_p
 assert(bridge.includes("decideCwPermissionBatch: (permId, mode) => call('decide_permission_batch'"),
   'tauri-bridge.js decideCwPermissionBatch must use call()');
 // Confirm we did NOT break the R30 bridge-error contract on send()
-assert(bridge.includes("octopus:bridge-error"),
-  'tauri-bridge.js send() must still dispatch octopus:bridge-error (R30 contract)');
+assert(bridge.includes("re-llmpet:bridge-error"),
+  'tauri-bridge.js send() must still dispatch re-llmpet:bridge-error (R30 contract)');
 
 // ── P0-4: pet.js submitDecision wrapper exists + all sites use it ────────
 assert(petJs.includes('function submitDecision('),
@@ -77,8 +77,8 @@ assert(petJs.includes('routeDecision(choice, behavior)'),
   'pet.js submitDecision must call routeDecision (awaited)');
 assert(petJs.includes('finishChoice(choice, successMsg)'),
   'pet.js submitDecision must call finishChoice ONLY on success');
-assert(petJs.includes("'octopus:bridge-error'"),
-  'pet.js must dispatch octopus:bridge-error on IPC failure');
+assert(petJs.includes("'re-llmpet:bridge-error'"),
+  'pet.js must dispatch re-llmpet:bridge-error on IPC failure');
 // All submit sites must go through submitDecision (not direct decidePermission)
 assert(petJs.includes("submitDecision(c, { type: 'elicitation-submit'"),
   'pet.js elicitation submit must use submitDecision');
@@ -96,8 +96,8 @@ assert(petJs.match(/gotoSession[\s\S]{0,800}?routeDecision\(choice, 'deny'\)[\s\
 // ── P0-5: shared toast infrastructure ─────────────────────────────────────
 assert(fs.existsSync(path.join(root, 'frontend/shared/toast.js')),
   'frontend/shared/toast.js must exist');
-assert(toastJs.includes("octopus:bridge-error"),
-  'toast.js must listen for octopus:bridge-error');
+assert(toastJs.includes("re-llmpet:bridge-error"),
+  'toast.js must listen for re-llmpet:bridge-error');
 assert(toastJs.includes("getElementById('re-llmpet-toast')"),
   'toast.js must look up #re-llmpet-toast element');
 assert(toastJs.includes("role=\"alert\""),

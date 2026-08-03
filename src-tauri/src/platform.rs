@@ -61,7 +61,7 @@ impl PlatformState {
         }
         let state = self.clone();
         let _ = thread::Builder::new()
-            .name("octopus-cursor-hit-test".into())
+            .name("re-llmpet-cursor-hit-test".into())
             .spawn(move || loop {
                 // R37: adaptive sleep — 24ms when actively managing click-through
                 // (mouse_ignore_requested=true), 250ms when idle. This reduces

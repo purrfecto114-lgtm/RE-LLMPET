@@ -37,7 +37,7 @@ function getCurrentTauriWindow() {
   return null;
 }
 
-(function installOctopusBridge(global) {
+(function installReLlmpetBridge(global) {
   const tauri = global.__TAURI__;
   const invoke = tauri && tauri.core && tauri.core.invoke;
   const listen = tauri && tauri.event && tauri.event.listen;
@@ -58,9 +58,9 @@ function getCurrentTauriWindow() {
   function send(command, args) {
     void call(command, args).catch((err) => {
       const msg = String(err && (err.message || err) || 'unknown');
-      try { console.error(`[octopus] ${command} failed:`, msg); } catch (_) {}
+      try { console.error(`[re-llmpet] ${command} failed:`, msg); } catch (_) {}
       // Emit a global error event so the UI can show a toast
-      try { window.dispatchEvent(new CustomEvent('octopus:bridge-error', { detail: { command, message: msg } })); } catch (_) {}
+      try { window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', { detail: { command, message: msg } })); } catch (_) {}
     });
   }
 
@@ -74,7 +74,7 @@ function getCurrentTauriWindow() {
       if (!active) off();
       else unlisten = off;
     }).catch((err) => {
-      try { console.error(`[octopus] listen ${channel} failed`, err); } catch (_) {}
+      try { console.error(`[re-llmpet] listen ${channel} failed`, err); } catch (_) {}
     });
     return () => {
       active = false;

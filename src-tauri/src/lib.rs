@@ -162,7 +162,7 @@ pub fn run() {
             quit_app
         ])
         .build(tauri::generate_context!())
-        .expect("error while building Octopus");
+        .expect("error while building RE-LLMPET");
 
     app.run(move |app_handle, event| match event {
         RunEvent::ExitRequested { .. } => {
@@ -647,7 +647,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 let state = app.state::<AppState>();
                 state
                     .runtime
-                    .cancel_all_pending("Octopus is shutting down; permission denied");
+                    .cancel_all_pending("RE-LLMPET is shutting down; permission denied");
                 app.exit(0);
             }
             _ => {}

@@ -1,4 +1,4 @@
-# RE-LLMPET / Octopus — Tauri 2 desktop pet
+# RE-LLMPET — Tauri 2 desktop pet
 
 `0.5.7` is a Tauri 2 / Rust migration candidate reconciled against the current official LLMPET upstream and the earlier five-provider fork. The active runtime contains the Tauri frontend, Rust core, resources, tests and release gates; Electron main/preload/Node runtime code is not part of the execution path.
 

@@ -1,4 +1,4 @@
-# RE-LLMPET / Octopus — Tauri 2 桌面宠物
+# RE-LLMPET — Tauri 2 桌面宠物
 
 > **低占用多 Agent 桌面宠物**：Tauri 2 + Rust 原生 provider 适配层，保留原有 Web UI 与图片资源。
 >

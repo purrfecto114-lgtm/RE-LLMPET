@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.5.36 — R44 complete: all remaining octopus refs migrated + bug fix（2026-08-03）
+
+Completes the identity migration by fixing ALL remaining user-facing
+"octopus" references across Rust, frontend, tests, scripts, and docs.
+
+### Critical bug fix
+
+- `hook_install.rs`: OpenCode plugin source marker was `octopus-opencode-plugin-v3`
+  but `OPENCODE_MARKER` was `re-llmpet-opencode-plugin-v1`. Freshly installed
+  plugins would NOT be detected by the new marker. Now both match.
+
+### Complete identity migration (remaining refs)
+
+**Rust source** (20+ files):
+- All user-facing messages: "Octopus" → "RE-LLMPET"
+- Thread names: `octopus-cursor-hit-test` → `re-llmpet-cursor-hit-test`
+- Backup extensions: `octopus-backup` → `re-llmpet-backup`
+- HTTP user-agent: `Octopus/0.5.0` → `RE-LLMPET/0.5.35`
+- Error messages: "Octopus marker" → "RE-LLMPET marker"
+- Log rotation: `octopus.log` → `re-llmpet.log`
+- Pricing sync User-Agent updated
+
+**Frontend**:
+- Bridge function: `installOctopusBridge` → `installReLlmpetBridge`
+- Toast function: `installOctopusToast` → `installReLlmpetToast`
+- CustomEvent: `octopus:bridge-error` → `re-llmpet:bridge-error`
+- Console prefix: `[octopus]` → `[re-llmpet]`
+- HTML title: `octopus` → `RE-LLMPET`
+- i18n labels: "Octopus Hook" → "RE-LLMPET Hook"
+
+**Config**:
+- `package.json` name: `octopus` → `re-llmpet`
+- `tauri.conf.json` window titles: `Octopus` → `RE-LLMPET`
+- README titles: dropped "/ Octopus" alias
+
+**Scripts**:
+- SBOM: `SPDXRef-Package-Octopus` → `SPDXRef-Package-RE-LLMPET`
+- Protocol drift UA: `Octopus-protocol-drift` → `RE-LLMPET-protocol-drift`
+
+**Tests**: All assertions updated to match new strings.
+
+### Backward compat preserved
+
+- `OPENCODE_MARKER_LEGACY` still includes old v2/v3 markers for cleanup
+- `Cargo.toml` lib name kept as `octopus` for binary compatibility
+- Old `octopus-` prefixed hook names still detected for cleanup
+- Environment variables (`OCTOPUS_*`) kept as-is (breaking change deferred)
+- Mascot character name "Octopus" kept in skin labels (it's the animal, not the app)
+
+### Verification
+
+- npm test: 50/50 ✅
+- npm run check:static: 22/22 ✅
+- npm run gate:source: 16/16 ✅
+- cargo fmt --check: ✅
+- cargo check: ✅ (7 warnings, 0 errors)
+
+---
+
 ## 0.5.35 — R44 Phase 0B: identity migration（2026-08-03）
 
 Migrates RE-LLMPET from the shared LLMPET/octopus namespace to an

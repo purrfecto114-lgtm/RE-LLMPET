@@ -46,7 +46,7 @@ const settings = JSON.parse(fs.readFileSync(path.join(claudeDir, 'settings.json'
 const owned = (settings.hooks.PreToolUse || [])
   .flatMap((group) => group.hooks || [])
   .filter((hook) => typeof hook.command === 'string' && hook.command.includes('--re-llmpet-hook'));
-assert.strictEqual(owned.length, 1, 'PreToolUse must contain exactly one Octopus hook after repeated installation');
+assert.strictEqual(owned.length, 1, 'PreToolUse must contain exactly one RE-LLMPET hook after repeated installation');
 assert(owned[0].command.includes('--pretool PreToolUse'), 'installed PreToolUse hook is not the specialized command');
 assert.strictEqual(owned[0].timeout, 600, 'installed PreToolUse timeout must be 600 seconds');
 

@@ -725,7 +725,7 @@ fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
     let path = home_dir().join(".codex").join("hooks.json");
     let mut root = read_json_object(&path, "Codex hooks")?;
     root.entry("description")
-        .or_insert(json!("Octopus multi-agent desktop integration"));
+        .or_insert(json!("RE-LLMPET multi-agent desktop integration"));
     let hooks = ensure_object(&mut root, "hooks")?;
     remove_all_ours(hooks);
     let executable = current_exe_clean().map_err(|e| e.to_string())?;
@@ -940,7 +940,7 @@ fn command_hook(command: String, timeout: u64) -> Value {
     // `mut` is only used on Windows (to insert commandWindows); on other
     // platforms the value is never mutated, hence the allow.
     #[allow(unused_mut)]
-    let mut value = json!({"type":"command","command":command,"timeout":timeout,"statusMessage":"Updating Octopus"});
+    let mut value = json!({"type":"command","command":command,"timeout":timeout,"statusMessage":"Updating RE-LLMPET"});
     #[cfg(target_os = "windows")]
     if let Some(object) = value.as_object_mut() {
         object.insert("commandWindows".into(), json!(windows_command));
@@ -992,9 +992,13 @@ fn remove_all_ours(hooks: &mut Map<String, Value>) {
                 }
                 // Fallback: legacy markers for hooks installed before R41.
                 !command.contains(MARKER)
-                    && !["re-llmpet-hook.js", "re-llmpet-pretool-hook.js", "re-llmpet-llmpet-hook.js"]
-                        .iter()
-                        .any(|m| command.contains(m))
+                    && ![
+                        "re-llmpet-hook.js",
+                        "re-llmpet-pretool-hook.js",
+                        "re-llmpet-llmpet-hook.js",
+                    ]
+                    .iter()
+                    .any(|m| command.contains(m))
                     && !(url.starts_with("http://127.0.0.1:413") && url.contains("/permission"))
             });
             !entries.is_empty()
@@ -1072,7 +1076,7 @@ fn strip_marker_block(input: &str, begin: &str, end: &str) -> Result<String, Str
     for (index, line) in input.lines().enumerate() {
         if line.trim() == begin {
             if inside {
-                return Err(format!("nested Octopus marker at line {}", index + 1));
+                return Err(format!("nested RE-LLMPET marker at line {}", index + 1));
             }
             inside = true;
             continue;
@@ -1080,7 +1084,7 @@ fn strip_marker_block(input: &str, begin: &str, end: &str) -> Result<String, Str
         if line.trim() == end {
             if !inside {
                 return Err(format!(
-                    "unmatched Octopus marker end at line {}",
+                    "unmatched RE-LLMPET marker end at line {}",
                     index + 1
                 ));
             }
@@ -1093,7 +1097,7 @@ fn strip_marker_block(input: &str, begin: &str, end: &str) -> Result<String, Str
         }
     }
     if inside {
-        return Err("unterminated Octopus marker block; configuration was not modified".into());
+        return Err("unterminated RE-LLMPET marker block; configuration was not modified".into());
     }
     Ok(output)
 }
@@ -1172,7 +1176,7 @@ fn write_text_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn opencode_plugin_source() -> &'static str {
-    r#"// octopus-opencode-plugin-v3
+    r#"// re-llmpet-opencode-plugin-v1
 // R40 (2026-08-01): rewrite of the OpenCode plugin event mapping.
 //
 // Root-cause analysis (systematic-debugging Phase 1):

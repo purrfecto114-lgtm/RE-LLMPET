@@ -170,7 +170,7 @@ fn permission_fallback(provider: &str, permission: bool, reason: &str) -> Result
     if provider == "codewhale" && permission {
         let payload = serde_json::to_vec(&serde_json::json!({
             "decision":"ask",
-            "reason":format!("Octopus unavailable; use CodeWhale prompt ({})", reason.chars().take(160).collect::<String>())
+            "reason":format!("RE-LLMPET unavailable; use CodeWhale prompt ({})", reason.chars().take(160).collect::<String>())
         })).map_err(|e| e.to_string())?;
         std::io::stdout()
             .write_all(&payload)
@@ -427,9 +427,9 @@ fn run_pretool(provider: &str, body: &Value) -> Result<(), String> {
     let decision = pretool_decision(tool, input);
     if let Some(decision) = decision {
         let reason = if decision == "deny" {
-            "Octopus denied an unsafe or unsupported automatic operation"
+            "RE-LLMPET denied an unsafe or unsupported automatic operation"
         } else {
-            "Octopus auto-approved an explicitly read-only operation"
+            "RE-LLMPET auto-approved an explicitly read-only operation"
         };
         let output = serde_json::to_vec(&serde_json::json!({
             "hookSpecificOutput": {
