@@ -299,16 +299,56 @@ pub fn uninstall_hooks(
     if !["claude", "codewhale", "codex", "opencode", "aider"].contains(&provider.as_str()) {
         return Err(format!("unsupported provider: {provider}"));
     }
-    let path = crate::hook_install::uninstall_provider_hooks(&provider)?;
-    // R44 Phase 0D: snapshot the latest receipt BEFORE we (potentially)
-    // delete it below. The receipt carries the original install timestamp
-    // and backup_path, which we surface in the response so the frontend
-    // can show "你于 X 安装了 Claude；备份位于 Y" before destructive
-    // uninstall. If the receipt is absent (installed before 0.5.38),
-    // we still proceed — uninstall is the user's explicit request.
+    // R44 Phase 0D (audit fix C9+C10): snapshot the receipt AND compute
+    // drift BEFORE calling uninstall_provider_hooks. The previous code
+    // computed drift AFTER uninstall, which always reported drift=true
+    // because uninstall itself rewrites (or deletes) the config file —
+    // making the post-uninstall signature always differ from the
+    // install-time receipt signature.
+    //
+    // The correct order is:
+    //   1. Read the latest receipt (snapshot — defensive copy before any
+    //      destructive operation, even though uninstall doesn't delete
+    //      the receipt file).
+    //   2. Compute the PRE-uninstall signature of the config file.
+    //   3. Compare pre-uninstall sig to receipt's stored install-time sig.
+    //      If they differ, the user (or another tool) modified the config
+    //      between install and uninstall — surface a drift warning.
+    //   4. Call uninstall_provider_hooks (which rewrites the file).
+    //   5. Return the response with priorReceipt / installedAt /
+    //      backupPath / driftDetected.
+    //
+    // If uninstall itself fails (step 4 returns Err), the `?` propagates
+    // and the user gets a raw Err — but at least we didn't waste the
+    // receipt read. The frontend's .catch() handles the Err.
     let prior_receipt = crate::hook_install::read_install_receipts()
         .get(&provider)
         .cloned();
+    let (installed_at, backup_path, drift_detected) = match &prior_receipt {
+        Some(r) => {
+            let installed_at = r.get("installed_at").and_then(Value::as_u64);
+            let backup_path = r
+                .get("backup_path")
+                .and_then(Value::as_str)
+                .map(|s| s.to_string());
+            // Compute PRE-uninstall signature and compare to receipt's
+            // install-time signature. If the file was modified between
+            // install and now (but before our uninstall rewrites it),
+            // driftDetected=true.
+            let path_str = r.get("path").and_then(Value::as_str);
+            let receipt_sig = r.get("drift_signature").and_then(Value::as_str);
+            let drifted = match (path_str, receipt_sig) {
+                (Some(p), Some(saved)) => {
+                    let current = crate::hook_install::current_drift_signature(Path::new(p));
+                    current.as_deref() != Some(saved)
+                }
+                _ => false, // no signature in receipt → can't detect drift
+            };
+            (installed_at, backup_path, drifted)
+        }
+        None => (None, None, false),
+    };
+    let path = crate::hook_install::uninstall_provider_hooks(&provider)?;
     state.runtime.write_log(
         "tray",
         &format!("uninstalled hooks for {provider}: {}", path.display()),
@@ -323,32 +363,6 @@ pub fn uninstall_hooks(
     // updated) config and potentially re-install hooks for other providers.
     // For single-provider uninstall, we just emit the updated config.
     emit_config(&app, &state);
-    // R44 Phase 0D: surface the prior install receipt + drift check in
-    // the response. The frontend uses this to confirm "backup is at <path>;
-    // user config was last installed by RE-LLMPET on <date>" and to detect
-    // if the user (or another tool) modified the config after our install
-    // (drift_signature differs from current file state).
-    let (installed_at, backup_path, drift_detected) = match &prior_receipt {
-        Some(r) => {
-            let installed_at = r.get("installed_at").and_then(Value::as_u64);
-            let backup_path = r
-                .get("backup_path")
-                .and_then(Value::as_str)
-                .map(|s| s.to_string());
-            // Compute current drift signature and compare to receipt.
-            let path_str = r.get("path").and_then(Value::as_str);
-            let receipt_sig = r.get("drift_signature").and_then(Value::as_str);
-            let drifted = match (path_str, receipt_sig) {
-                (Some(p), Some(saved)) => {
-                    let current = crate::hook_install::current_drift_signature(Path::new(p));
-                    current.as_deref() != Some(saved)
-                }
-                _ => false, // no signature in receipt → can't detect drift
-            };
-            (installed_at, backup_path, drifted)
-        }
-        None => (None, None, false),
-    };
     Ok(json!({
         "provider": provider,
         "path": path.to_string_lossy(),

@@ -157,6 +157,21 @@ assert.ok(cwBackupSection.includes('-re-llmpet-backup-'),
   'P0C-4: backup_codewhale_config must sweep legacy -re-llmpet-backup- files');
 assert.ok(cwBackupSection.includes('BACKUP_RETENTION'),
   'P0C-4: legacy sweep must use BACKUP_RETENTION constant (not hardcoded 5)');
+// Phase 0D audit fix Minor #1: backup_codewhale_config must return
+// Result<Option<PathBuf>, String> so install_codewhale can propagate
+// the backup path into the receipt (previously the receipt's backup_path
+// was always None for CodeWhale).
+assert.ok(
+  cwBackupSection.includes('fn backup_codewhale_config(path: &Path, runtime: &Runtime) -> Result<Option<PathBuf>, String>'),
+  'P0C-4 (audit fix): backup_codewhale_config must return Result<Option<PathBuf>, String> so receipt can record backup_path'
+);
+// install_codewhale must propagate the backup path (not discard it)
+const codewhaleInstallSection = hookInstall.slice(
+  hookInstall.indexOf('fn install_codewhale('),
+  hookInstall.indexOf('fn install_codex(')
+);
+assert.ok(codewhaleInstallSection.includes('Ok(p) => p'),
+  'P0C-4 (audit fix): install_codewhale must propagate backup path via Ok(p) => p (not Ok(()) => None)');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0C-5: write_install_receipt exists + called by all 5 install_*

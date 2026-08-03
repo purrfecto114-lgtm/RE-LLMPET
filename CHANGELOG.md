@@ -132,6 +132,33 @@ where the user is making a deliberate decision about one provider.
   missing GTK system libs, but `cargo check --lib` on the modified
   file produces no new errors beyond the existing GTK dep cascade)
 
+### Audit fixes (post-Phase-0D subagent review)
+
+A subagent audit of the Phase 0C+0D implementation found 2 critical
+bugs and 1 minor issue, all fixed before release:
+
+- **C9+C10 (critical): drift detection false-positive on every uninstall.**
+  The original `uninstall_hooks` computed `current_drift_signature`
+  AFTER calling `uninstall_provider_hooks`, which always rewrites
+  (or deletes) the config file — so the post-uninstall signature
+  always differed from the install-time receipt, making
+  `driftDetected` always `true`. Fix: reorder so the receipt snapshot
+  AND drift computation happen BEFORE `uninstall_provider_hooks`.
+  The `tauri-r44d-uninstall-provenance-smoke.js` test now asserts
+  the ordering (receipt read + drift computation must precede the
+  uninstall call).
+
+- **Minor #1: CodeWhale receipt `backup_path` was always null.**
+  `backup_codewhale_config` returned `Result<(), String>` (no path),
+  so `install_codewhale` couldn't propagate the backup path into the
+  receipt. The backup file existed on disk but the uninstall
+  confirmation dialog couldn't tell the user where it was. Fix:
+  change signature to `Result<Option<PathBuf>, String>` and return
+  the path from `backup_config_file`. `install_codewhale` now
+  records the real backup path in the receipt. The
+  `tauri-r44c-backup-receipt-smoke.js` test asserts the new
+  signature and propagation.
+
 ---
 
 ## 0.5.37 — R44 Phase A: correctness closure（2026-08-03）

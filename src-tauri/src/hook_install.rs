@@ -528,20 +528,13 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
     // we abort the install entirely if backup fails — the user's existing
     // config is preserved untouched.
     //
-    // R44 Phase 0C: `backup_codewhale_config` now delegates to the generic
-    // `backup_config_file` and returns the backup path via the wrapper
-    // here so we can record it in the install receipt.
+    // R44 Phase 0C: `backup_codewhale_config` delegates to the generic
+    // `backup_config_file` and now returns `Option<PathBuf>` (Phase 0D
+    // audit fix Minor #1) so we can record the actual backup path in
+    // the install receipt.
     let backup_path: Option<PathBuf> = if path.exists() {
         match backup_codewhale_config(&path, runtime) {
-            Ok(()) => {
-                // The generic helper created `.<stem>.re-llmpet-bak-<ts>.toml`.
-                // We don't have the exact path back from the legacy wrapper,
-                // so receipts record `None` for CodeWhale's backup_path. The
-                // backup itself still exists on disk and is logged. Future
-                // cleanup can refactor `backup_codewhale_config` to return
-                // the path; for now the log entry is the source of truth.
-                None
-            }
+            Ok(p) => p,
             Err(err) => {
                 return Err(format!(
                     "CodeWhale pre-write backup failed — aborting install to protect existing config: {err}. \
@@ -713,8 +706,15 @@ fn prune_backups(parent: &Path, stem: &str, ext: &str) -> Result<(), String> {
 /// pruner scans for `.re-llmpet-bak-`. Both patterns coexist so old
 /// pre-0.5.38 backups are eventually cleaned up by the new pruner when
 /// the user runs another install, while new backups use the shorter name.
-fn backup_codewhale_config(path: &Path, runtime: &Runtime) -> Result<(), String> {
-    backup_config_file(path, runtime)?;
+///
+/// R44 Phase 0D (audit fix Minor #1): now returns `Result<Option<PathBuf>, String>`
+/// matching the generic helper's signature, so `install_codewhale` can
+/// propagate the actual backup path into the install receipt. Previously
+/// the receipt's `backup_path` was always `None` for CodeWhale, which
+/// meant the uninstall confirmation dialog couldn't show the user where
+/// their CodeWhale backup lived.
+fn backup_codewhale_config(path: &Path, runtime: &Runtime) -> Result<Option<PathBuf>, String> {
+    let backup_path = backup_config_file(path, runtime)?;
     // R44 Phase 0C: also clean up legacy-named backups (`-re-llmpet-backup-`)
     // left by 0.5.34–0.5.37. The new generic helper handles new-named
     // backups; this block is a one-time sweep that removes legacy-named
@@ -745,7 +745,7 @@ fn backup_codewhale_config(path: &Path, runtime: &Runtime) -> Result<(), String>
             }
         }
     }
-    Ok(())
+    Ok(backup_path)
 }
 
 /// R40: scan a CodeWhale config.toml and remove any `[[hooks.hooks]]`

@@ -72,18 +72,29 @@ assert.ok(commands.includes('crate::hook_install::read_install_receipts()'),
 // ──────────────────────────────────────────────────────────────────────────
 
 // The single-provider uninstall path (not "all") must snapshot the receipt
-// BEFORE calling uninstall_provider_hooks (so we still have it even if
-// uninstall fails — though in practice the receipt file isn't deleted by
-// uninstall, the snapshot is defensive).
-assert.ok(commands.includes('let prior_receipt = crate::hook_install::read_install_receipts()'),
-  'P0D-2: uninstall_hooks must snapshot prior_receipt before uninstall');
-assert.ok(commands.includes('"priorReceipt": prior_receipt'),
+// AND compute drift BEFORE calling uninstall_provider_hooks. The audit
+// (C9+C10) found that the original implementation computed drift AFTER
+// uninstall, which always returned driftDetected=true because uninstall
+// itself rewrites the config file. The fix reorders so the snapshot
+// happens first.
+const singleProviderSection = commands.slice(
+  commands.indexOf('if !["claude", "codewhale", "codex", "opencode", "aider"]'),
+  commands.indexOf('/// R44 Phase 0D: return the latest install receipt')
+);
+const receiptReadIdx = singleProviderSection.indexOf('let prior_receipt = crate::hook_install::read_install_receipts()');
+const uninstallIdx = singleProviderSection.indexOf('let path = crate::hook_install::uninstall_provider_hooks(&provider)?');
+assert.ok(receiptReadIdx >= 0 && uninstallIdx >= 0 && receiptReadIdx < uninstallIdx,
+  'P0D-2: prior_receipt snapshot MUST come before uninstall_provider_hooks call (audit fix C9)');
+const driftIdx = singleProviderSection.indexOf('crate::hook_install::current_drift_signature(Path::new(p))');
+assert.ok(driftIdx >= 0 && driftIdx < uninstallIdx,
+  'P0D-2: drift detection MUST happen before uninstall_provider_hooks (audit fix C10 — otherwise drift is always true)');
+assert.ok(singleProviderSection.includes('"priorReceipt": prior_receipt'),
   'P0D-2: uninstall_hooks response must include priorReceipt field');
-assert.ok(commands.includes('"installedAt": installed_at'),
+assert.ok(singleProviderSection.includes('"installedAt": installed_at'),
   'P0D-2: uninstall_hooks response must include installedAt field');
-assert.ok(commands.includes('"backupPath": backup_path'),
+assert.ok(singleProviderSection.includes('"backupPath": backup_path'),
   'P0D-2: uninstall_hooks response must include backupPath field');
-assert.ok(commands.includes('"driftDetected": drift_detected'),
+assert.ok(singleProviderSection.includes('"driftDetected": drift_detected'),
   'P0D-2: uninstall_hooks response must include driftDetected field');
 
 // ──────────────────────────────────────────────────────────────────────────
