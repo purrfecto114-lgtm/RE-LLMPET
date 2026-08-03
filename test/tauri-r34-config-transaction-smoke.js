@@ -13,7 +13,7 @@
 //   1. model.rs update_config: copy-on-write (snapshot → save → commit)
 //   2. commands.rs set_providers: returns structured { ok, selected, providers }
 //      and rejects on partial failure
-//   3. commands.rs uninstall_hooks('all'): returns { allSucceeded, results,
+//   3. commands.rs uninstall_hooks('all'): returns { allHooksRemoved, results,
 //      failures } and does NOT clear config.providers on partial failure
 //   4. release.yml: tag pushes without TAURI_SIGNING_PRIVATE_KEY exit 1
 //   5. panel.js setSessionPrefs caller: snapshot → optimistic update →
@@ -71,8 +71,8 @@ assert(!commands.includes('return Err(errors.join'),
   'R35.2: set_providers must NOT return Err on partial hook failure (was split-brain)');
 
 // ── P0-3: uninstall_hooks('all') does not swallow failures ───────────────
-assert(commands.includes('"allSucceeded": all_succeeded'),
-  'uninstall_hooks must return allSucceeded flag');
+assert(commands.includes('"allHooksRemoved": all_succeeded'),
+  'uninstall_hooks must return allHooksRemoved flag');
 assert(commands.includes('"results": results'),
   'uninstall_hooks must return per-provider results array');
 assert(commands.includes('"failures": failures'),
@@ -80,9 +80,9 @@ assert(commands.includes('"failures": failures'),
 assert(commands.includes('"status": "failed"'),
   'uninstall_hooks must mark failed providers with status=failed');
 assert(commands.includes('if all_succeeded'),
-  'uninstall_hooks must only clear config.providers when all_succeeded');
-assert(commands.includes('Partial failure'),
-  'uninstall_hooks must surface partial failure to the user');
+  'uninstall_hooks must check all_succeeded for reporting');
+assert(commands.includes('could not be removed'),
+  'uninstall_hooks must surface partial failure in message');
 
 // ── P0-4: release.yml tag pushes fail-closed without signing key ──────────
 assert(release.includes('Tag release v$VERSION requires TAURI_SIGNING_PRIVATE_KEY'),

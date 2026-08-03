@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.5.33 — R44 Phase 0A: uninstall fix + config safety（2026-08-03）
+
+First batch of fixes from the 0.5.32 full audit + Roadmap v2.
+
+### P0-01: uninstall_hooks("all") no longer reinstalls deleted hooks
+
+**Root cause**: `uninstall_hooks("all")` deleted each provider's hooks,
+then called `resync_current()`. But `resync_current()` reads
+`config.providers` (not yet cleared) and calls `sync_enabled()`, which
+**re-installs** the hooks we just deleted.
+
+**Fix** (Roadmap v2 P0-01):
+- Remove `resync_current()` call from both "all" and single-provider
+  uninstall paths.
+- Always clear `config.providers` (was conditional on all-succeeded).
+- Return `selectionCleared` + `allHooksRemoved` separately so the UI
+  can show "selection cleared, but some external files have residue".
+
+### P0-02: Config load fail-closed + error logging
+
+**Root cause**: `load_config()` used `unwrap_or_default()` on read and
+parse errors, silently returning defaults. The next `save_config()`
+would overwrite the user's real (but unreadable) config with defaults —
+irreversible data loss.
+
+**Fix** (audit P0-02):
+- `NotFound` → default (new install, safe)
+- Too large → default + `eprintln!` warning
+- Permission/IO error → default + `eprintln!` error
+- Invalid JSON → default + `eprintln!` error
+- Full unknown-field preservation deferred to Phase 0B.
+
+### P0-03: Aider + replace_marker_block fail-closed
+
+**Root cause**: `fs::read_to_string(path).unwrap_or_default()` treated
+unreadable files as empty, then wrote over them.
+
+**Fix** (audit P0-03):
+- Only `ErrorKind::NotFound` → empty string
+- All other errors → `Err(...)` with descriptive message
+- Applied to both `install_aider()` and `replace_marker_block()`
+
+### Verification
+
+- npm test: 50/50 ✅
+- npm run check:static: 22/22 ✅
+- cargo fmt --check: ✅
+- cargo check: ✅
+
+---
+
 ## 0.5.32 — emergency hotfix: restore Tauri bridge + fail-closed config（2026-08-02）
 
 Emergency hotfix per RE-LLMPET-0.5.31-full-audit-roadmap.md. 0.5.31 shipped
