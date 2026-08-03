@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.5.35 — R44 Phase 0B: identity migration（2026-08-03）
+
+Migrates RE-LLMPET from the shared LLMPET/octopus namespace to an
+independent identity, preventing conflicts when both are installed.
+
+### Identity changes
+
+| Field | Old | New |
+|---|---|---|
+| `identifier` | `com.myunwang.octopus` | `io.github.purrfecto114.rellmpet` |
+| `productName` | `Octopus` | `RE-LLMPET` |
+| `APP_DIR_NAME` | `.octopus` | `.re-llmpet` |
+| `SERVER_ID` | `octopus` | `re-llmpet` |
+| `MARKER` | `--octopus-hook` | `--re-llmpet-hook` |
+| `CW_BEGIN/END` | `octopus:codewhale-hooks:v2` | `re-llmpet:codewhale-hooks:v3` |
+| `AIDER_BEGIN/END` | `octopus:aider-notification:v2` | `re-llmpet:aider-notification:v3` |
+| `OPENCODE_MARKER` | `octopus-opencode-plugin-v3` | `re-llmpet-opencode-plugin-v1` |
+| `LOG_FILE_NAME` | `octopus.log` | `re-llmpet.log` |
+| HTTP headers | `x-octopus-token/server` | `x-re-llmpet-token/server` |
+| Thread names | `octopus-*` | `re-llmpet-*` |
+| Temp/backup files | `.octopus.*` | `.re-llmpet.*` |
+| CSS classes | `.octopus-toast` | `.re-llmpet-toast` |
+| HTML element IDs | `#octopus-toast` | `#re-llmpet-toast` |
+| Plugin filename | `llmpet-octopus.js` | `llmpet-hook.js` |
+| Hook names | `octopus-{event}` | `re-llmpet-{event}` |
+| `reLlmpetHookBlock` | `octopusHookBlock` | `reLlmpetHookBlock` |
+
+### Backward compatibility
+
+- `OPENCODE_MARKER_LEGACY` now includes both v2 and v3 old markers
+- Old `.octopus` directory is NOT automatically deleted
+- Old hooks with `octopus-` prefix are still detected for cleanup
+- `Cargo.toml` lib name kept as `octopus` for binary compatibility
+
+### Verification
+
+- npm test: 50/50 ✅
+- npm run check:static: 22/22 ✅
+- npm run gate:source: 16/16 ✅
+- cargo fmt --check: ✅
+
+---
+
 ## 0.5.34 — R44 Phase 0A continued: docs + CI + capability fixes（2026-08-03）
 
 Additional fixes from the 0.5.32 full audit + Roadmap v2.

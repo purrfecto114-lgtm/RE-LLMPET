@@ -13,9 +13,9 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-const SERVER_ID: &str = "octopus";
-const SERVER_HEADER: &str = "x-octopus-server";
-const TOKEN_HEADER: &str = "x-octopus-token";
+const SERVER_ID: &str = "re-llmpet";
+const SERVER_HEADER: &str = "x-re-llmpet-server";
+const TOKEN_HEADER: &str = "x-re-llmpet-token";
 const BASE_PORT: u16 = 41330;
 const PORT_COUNT: u16 = 5;
 const MAX_HEADER_BYTES: usize = 32 * 1024;
@@ -55,7 +55,7 @@ pub fn start(runtime: Arc<Runtime>, app: AppHandle) -> Result<ServerInfo, String
     let thread_token = token.clone();
     let active_clients = Arc::new(AtomicUsize::new(0));
     thread::Builder::new()
-        .name("octopus-http".into())
+        .name("re-llmpet-http".into())
         .spawn(move || {
             for incoming in listener.incoming() {
                 match incoming {
@@ -71,7 +71,7 @@ pub fn start(runtime: Arc<Runtime>, app: AppHandle) -> Result<ServerInfo, String
                         let token = thread_token.clone();
                         let guard = ActiveClient(active_clients.clone());
                         let spawn = thread::Builder::new()
-                            .name("octopus-http-client".into())
+                            .name("re-llmpet-http-client".into())
                             .spawn(move || {
                                 let _guard = guard;
                                 handle_client(stream, runtime, app, &token, port);

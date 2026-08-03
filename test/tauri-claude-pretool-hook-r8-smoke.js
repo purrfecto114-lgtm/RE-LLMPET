@@ -26,7 +26,7 @@ assert(installer.includes("sync(settings.hooks, 'PreToolUse', pretoolHook, isOur
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'octopus-pretool-r8-'));
 const claudeDir = path.join(home, '.claude');
 fs.mkdirSync(claudeDir, { recursive: true });
-const fakeBin = path.join(home, 'octopus-hook');
+const fakeBin = path.join(home, 're-llmpet-hook');
 fs.writeFileSync(fakeBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
 function install() {
@@ -45,7 +45,7 @@ for (let pass = 0; pass < 2; pass++) {
 const settings = JSON.parse(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf8'));
 const owned = (settings.hooks.PreToolUse || [])
   .flatMap((group) => group.hooks || [])
-  .filter((hook) => typeof hook.command === 'string' && hook.command.includes('--octopus-hook'));
+  .filter((hook) => typeof hook.command === 'string' && hook.command.includes('--re-llmpet-hook'));
 assert.strictEqual(owned.length, 1, 'PreToolUse must contain exactly one Octopus hook after repeated installation');
 assert(owned[0].command.includes('--pretool PreToolUse'), 'installed PreToolUse hook is not the specialized command');
 assert.strictEqual(owned[0].timeout, 600, 'installed PreToolUse timeout must be 600 seconds');

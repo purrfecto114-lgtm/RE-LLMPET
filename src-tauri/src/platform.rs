@@ -157,7 +157,7 @@ impl PlatformState {
         }
         let state = self.clone();
         let _ = thread::Builder::new()
-            .name("octopus-display-health".into())
+            .name("re-llmpet-display-health".into())
             .spawn(move || loop {
                 thread::sleep(Duration::from_secs(HEALTH_CHECK_SECS));
                 if let Err(error) = state.recover_windows(&app, &runtime, false) {

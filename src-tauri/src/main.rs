@@ -4,7 +4,7 @@
 )]
 
 fn main() {
-    if std::env::args().any(|arg| arg == "--octopus-hook") {
+    if std::env::args().any(|arg| arg == "--re-llmpet-hook") {
         octopus_lib::hook_client::entry();
         return;
     }

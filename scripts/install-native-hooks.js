@@ -18,7 +18,7 @@ const EVENTS = [
   // R27 (2026-07-30): 5 new observer events from Claude Code v2.1.219+
   'Setup', 'InstructionsLoaded', 'CwdChanged', 'WorktreeRemove', 'DirectoryAdded',
 ];
-const MARKER = '--octopus-hook';
+const MARKER = '--re-llmpet-hook';
 
 function quote(value) {
   const text = String(value);
@@ -34,8 +34,8 @@ function findBinary() {
     explicit,
     path.join(__dirname, '..', 'src-tauri', 'target', 'release', `octopus${suffix}`),
     path.join(__dirname, '..', 'src-tauri', 'target', 'debug', `octopus${suffix}`),
-    path.join(__dirname, '..', 'src-tauri', 'target', 'release', `octopus-hook${suffix}`),
-    path.join(__dirname, '..', 'src-tauri', 'target', 'debug', `octopus-hook${suffix}`),
+    path.join(__dirname, '..', 'src-tauri', 'target', 'release', `re-llmpet-hook${suffix}`),
+    path.join(__dirname, '..', 'src-tauri', 'target', 'debug', `re-llmpet-hook${suffix}`),
   ].filter(Boolean).map((p) => path.resolve(p));
   const found = candidates.find((candidate) => {
     try { return fs.statSync(candidate).isFile(); } catch { return false; }
@@ -112,18 +112,18 @@ function install() {
   if (!settings.hooks || typeof settings.hooks !== 'object') settings.hooks = {};
   const result = { added: 0, updated: 0, binary };
   for (const event of EVENTS) {
-    const command = `${quote(binary)} --octopus-hook --provider claude ${event}`;
+    const command = `${quote(binary)} --re-llmpet-hook --provider claude ${event}`;
     const desired = process.platform === 'win32'
       ? { type: 'command', shell: 'powershell', command, timeout: 5 }
       : { type: 'command', command, timeout: 5 };
     result[sync(settings.hooks, event, desired, isOurs)]++;
   }
-  const pretoolCommand = `${quote(binary)} --octopus-hook --provider claude --pretool PreToolUse`;
+  const pretoolCommand = `${quote(binary)} --re-llmpet-hook --provider claude --pretool PreToolUse`;
   const pretoolHook = process.platform === 'win32'
     ? { type: 'command', shell: 'powershell', command: pretoolCommand, timeout: 600 }
     : { type: 'command', command: pretoolCommand, timeout: 600 };
   result[sync(settings.hooks, 'PreToolUse', pretoolHook, isOurs)]++;
-  const permissionCommand = `${quote(binary)} --octopus-hook --provider claude --permission PermissionRequest`;
+  const permissionCommand = `${quote(binary)} --re-llmpet-hook --provider claude --permission PermissionRequest`;
   const permissionHook = process.platform === 'win32'
     ? { type: 'command', shell: 'powershell', command: permissionCommand, timeout: 600 }
     : { type: 'command', command: permissionCommand, timeout: 600 };
@@ -135,7 +135,7 @@ function install() {
 function uninstall() {
   const settings = readJson(SETTINGS, {});
   if (!settings.hooks) return { removed: 0 };
-  const backup = `${SETTINGS}.octopus-native-backup-${Date.now()}.bak`;
+  const backup = `${SETTINGS}.re-llmpet-native-backup-${Date.now()}.bak`;
   if (fs.existsSync(SETTINGS)) fs.copyFileSync(SETTINGS, backup);
   const removed = remove(settings.hooks);
   if (removed) writeAtomic(SETTINGS, settings);

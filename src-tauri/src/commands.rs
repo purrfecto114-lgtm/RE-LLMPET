@@ -2442,7 +2442,7 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
         let config_raw = std::fs::read_to_string(&path).ok();
         let hook_block = config_raw
             .as_deref()
-            .is_some_and(|raw| raw.contains("# >>> octopus:codewhale-hooks:v2 >>>"));
+            .is_some_and(|raw| raw.contains("# >>> re-llmpet:codewhale-hooks:v3 >>>"));
         // R40 (2026-08-01): detect stale `message_submit` (and any other
         // pre-R22) hooks that are still present in the user's config.toml
         // from installs done prior to the R22 fix. These hooks cause
@@ -2467,11 +2467,11 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
                 let mut current_table_is_outside_v2 = false;
                 for line in raw.lines() {
                     let t = line.trim();
-                    if t == "# >>> octopus:codewhale-hooks:v2 >>>" {
+                    if t == "# >>> re-llmpet:codewhale-hooks:v3 >>>" {
                         in_v2 = true;
                         continue;
                     }
-                    if t == "# <<< octopus:codewhale-hooks:v2 <<<" {
+                    if t == "# <<< re-llmpet:codewhale-hooks:v3 <<<" {
                         in_v2 = false;
                         continue;
                     }
@@ -2517,7 +2517,7 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
             // create a timestamped backup before writing, so the user
             // can safely edit ~/.codewhale/config.toml by hand.
             issues.push(format!(
-                "CodeWhale config.toml 仍包含 pre-R22 残留 hook 事件: {}。这些 hook 会在 LLMPET HTTP 服务短暂不可用时让 CodeWhale 报 \"message_submit hook failed and blocked\" 并阻止消息发送。R40.1 已禁用自动清理（避免误删用户 TOML 配置）。请手动编辑 ~/.codewhale/config.toml，删除所有 event = \"{}\" 的 [[hooks.hooks]] 表（LLMPET 已在文件旁创建 .config-octopus-backup-*.toml 备份），或等待 R41 引入基于 TOML AST 的安全清理。",
+                "CodeWhale config.toml 仍包含 pre-R22 残留 hook 事件: {}。这些 hook 会在 LLMPET HTTP 服务短暂不可用时让 CodeWhale 报 \"message_submit hook failed and blocked\" 并阻止消息发送。R40.1 已禁用自动清理（避免误删用户 TOML 配置）。请手动编辑 ~/.codewhale/config.toml，删除所有 event = \"{}\" 的 [[hooks.hooks]] 表（LLMPET 已在文件旁创建 .config-re-llmpet-backup-*.toml 备份），或等待 R41 引入基于 TOML AST 的安全清理。",
                 stale_hooks.join(", "),
                 stale_hooks.join("\" 或 event = \"")
             ));
@@ -2549,7 +2549,7 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
         let mut report = codewhale_config_candidates(&working_directory);
         if let Some(object) = report.as_object_mut() {
             object.insert("present".into(), Value::Bool(path.is_file()));
-            object.insert("octopusHookBlock".into(), Value::Bool(hook_block));
+            object.insert("reLlmpetHookBlock".into(), Value::Bool(hook_block));
             object.insert("stalePreR22Hooks".into(), json!(stale_hooks));
             object.insert("compatibility".into(), compatibility);
         }

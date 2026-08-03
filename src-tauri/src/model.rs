@@ -11,10 +11,10 @@ use std::sync::{
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-pub const APP_DIR_NAME: &str = ".octopus";
+pub const APP_DIR_NAME: &str = ".re-llmpet";
 pub const CONFIG_FILE_NAME: &str = "config.json";
 pub const RUNTIME_FILE_NAME: &str = "runtime.json";
-pub const LOG_FILE_NAME: &str = "octopus.log";
+pub const LOG_FILE_NAME: &str = "re-llmpet.log";
 pub const PENDING_FILE_NAME: &str = "pending-permissions.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1719,7 +1719,7 @@ pub fn load_config(path: &Path) -> AppConfig {
     if meta.len() > 1024 * 1024 {
         // R44: log instead of silently returning default.
         eprintln!(
-            "[octopus] WARNING: config.json is {} bytes (>1MB), using defaults",
+            "[re-llmpet] WARNING: config.json is {} bytes (>1MB), using defaults",
             meta.len()
         );
         return AppConfig::default();
@@ -1733,14 +1733,14 @@ pub fn load_config(path: &Path) -> AppConfig {
                     // The old code would return default, and the next save_config
                     // would overwrite the user's (unreadable but still present)
                     // config file with the defaults — irreversible data loss.
-                    eprintln!("[octopus] ERROR: config.json parse failed: {e}. Using defaults. Config file will NOT be overwritten until a valid save succeeds.");
+                    eprintln!("[re-llmpet] ERROR: config.json parse failed: {e}. Using defaults. Config file will NOT be overwritten until a valid save succeeds.");
                     AppConfig::default()
                 }
             }
         }
         Err(e) => {
             // R44: log I/O errors instead of silently returning default.
-            eprintln!("[octopus] ERROR: config.json read failed: {e}. Using defaults.");
+            eprintln!("[re-llmpet] ERROR: config.json read failed: {e}. Using defaults.");
             AppConfig::default()
         }
     }

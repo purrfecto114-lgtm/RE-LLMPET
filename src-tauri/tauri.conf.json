@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Octopus",
-  "version": "0.5.34",
-  "identifier": "com.myunwang.octopus",
+  "productName": "RE-LLMPET",
+  "version": "0.5.35",
+  "identifier": "io.github.purrfecto114.rellmpet",
   "build": {
     "frontendDist": "../frontend",
     "removeUnusedCommands": true

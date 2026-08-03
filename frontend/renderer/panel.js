@@ -937,7 +937,7 @@ function renderProviderDiagnostic(result) {
     diagnosticRow(t('diag.config'), configInfo.selected || configInfo.path, true),
     diagnosticRow(t('diag.configSource'), configInfo.selectedSource, false),
     diagnosticRow(t('diag.projectConfig'), projectOverlays, true),
-    diagnosticRow(t('diag.hooks'), configInfo.octopusHookBlock ? t('diag.present') : t('diag.absent'), false),
+    diagnosticRow(t('diag.hooks'), configInfo.reLlmpetHookBlock ? t('diag.present') : t('diag.absent'), false),
     diagnosticRow(t('diag.legacyModels'), legacyModels, true),
   ].join('') : '';
   const aiderConfigs = aiderSummary && Array.isArray(aiderSummary.configCandidates)

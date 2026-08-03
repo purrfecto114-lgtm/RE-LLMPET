@@ -39,7 +39,7 @@ const env = {
   XDG_DATA_HOME: path.join(home, '.local', 'share'),
   OCTOPUS_PROVIDER: provider,
   OCTOPUS_PROVIDER_EVIDENCE: evidence,
-  OCTOPUS_HOOK_BINARY: path.resolve('src-tauri/target/release/octopus-hook' + (process.platform === 'win32' ? '.exe' : '')),
+  RE_LLMPET_HOOK_BINARY: path.resolve('src-tauri/target/release/re-llmpet-hook' + (process.platform === 'win32' ? '.exe' : '')),
   OCTOPUS_APP_BINARY: path.resolve('src-tauri/target/release/octopus' + (process.platform === 'win32' ? '.exe' : ''))
 };
 fs.mkdirSync(path.dirname(report), { recursive: true });
