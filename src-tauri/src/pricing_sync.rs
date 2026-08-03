@@ -97,7 +97,7 @@ pub fn start(runtime: Arc<Runtime>, app: AppHandle) {
     let worker_app = app.clone();
     let spawn_result =
         thread::Builder::new()
-            .name("octopus-pricing-sync".into())
+            .name("re-llmpet-pricing-sync".into())
             .spawn(move || {
                 let runtime = worker_runtime;
                 let app = worker_app;
@@ -904,7 +904,7 @@ mod tests {
 
     #[test]
     fn conditional_header_parser_uses_final_redirect_block_and_rejects_controls() {
-        let dir = std::env::temp_dir().join(format!("octopus-pricing-headers-{}", now_ms()));
+        let dir = std::env::temp_dir().join(format!("re-llmpet-pricing-headers-{}", now_ms()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("headers.txt");
         fs::write(
@@ -930,7 +930,7 @@ mod tests {
 
     #[test]
     fn sync_state_round_trip_keeps_conditional_request_metadata() {
-        let dir = std::env::temp_dir().join(format!("octopus-pricing-state-{}", now_ms()));
+        let dir = std::env::temp_dir().join(format!("re-llmpet-pricing-state-{}", now_ms()));
         fs::create_dir_all(&dir).unwrap();
         let state = PersistedSyncState {
             etag: Some("\"abc\"".into()),

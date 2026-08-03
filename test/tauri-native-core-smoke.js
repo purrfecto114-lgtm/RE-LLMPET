@@ -15,7 +15,7 @@ assert(!/electron/i.test(cargo));
 const server = read('src-tauri/src/http_server.rs');
 for (const needle of [
   '127.0.0.1',
-  'x-octopus-token',
+  'x-re-llmpet-token',
   'MAX_HEADER_BYTES',
   'MAX_STATE_BYTES',
   'MAX_PERMISSION_BYTES',
@@ -70,7 +70,7 @@ for (const needle of [
   'sync_enabled',
   'write_json_atomic',
   'PermissionRequest',
-  '--octopus-hook',
+  '--re-llmpet-hook',
 ]) assert(installer.includes(needle), `missing Rust hook installer behavior: ${needle}`);
 
 const lib = read('src-tauri/src/lib.rs');

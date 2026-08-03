@@ -118,7 +118,7 @@ async function main() {
     local,
     cliVersions,
     remote,
-    verdict: localDrift || remoteDrift ? 'review-required' : networkInconclusive ? 'inconclusive-network' : 'ok',
+    verdict: localDrift || remoteDrift ? 'review-required' : remote.length === 0 ? 'local-contract-ok' : networkInconclusive ? 'inconclusive-network' : 'remote-contract-ok',
   };
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);

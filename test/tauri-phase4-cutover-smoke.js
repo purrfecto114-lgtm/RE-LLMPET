@@ -24,9 +24,9 @@ const providerGate = read('.github/workflows/provider-real-cli.yml');
 const desktopGate = read('.github/workflows/desktop-real-machine.yml');
 const realDesktopScript = read('scripts/real-desktop-gate.js');
 
-assert.strictEqual(pkg.version, '0.5.33');
-assert.strictEqual(tauri.version, '0.5.33');
-assert.match(cargo, /^version = "0\.5\.33"/m);
+assert.strictEqual(pkg.version, '0.5.35');
+assert.strictEqual(tauri.version, '0.5.35');
+assert.match(cargo, /^version = "0\.5\.35"/m);
 assert.strictEqual(tauri.bundle.createUpdaterArtifacts, false);
 
 for (const retired of ['main.js', 'preload.js', 'backend', 'providers', 'renderer', 'hook', 'shared']) {

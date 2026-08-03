@@ -20,7 +20,7 @@
 //   - tauri-bridge.js: setProviders / decidePermission / decideCwPermission
 //     / decideCwPermissionBatch / setSessionPrefs use call() not send()
 //   - pet.js: submitDecision wrapper exists + all submit sites use it
-//   - shared/toast.js + #octopus-toast element exist in both windows
+//   - shared/toast.js + #re-llmpet-toast element exist in both windows
 //   - bridge send() still emits octopus:bridge-error (R30 contract preserved)
 
 const assert = require('assert');
@@ -98,30 +98,30 @@ assert(fs.existsSync(path.join(root, 'frontend/shared/toast.js')),
   'frontend/shared/toast.js must exist');
 assert(toastJs.includes("octopus:bridge-error"),
   'toast.js must listen for octopus:bridge-error');
-assert(toastJs.includes("getElementById('octopus-toast')"),
-  'toast.js must look up #octopus-toast element');
+assert(toastJs.includes("getElementById('re-llmpet-toast')"),
+  'toast.js must look up #re-llmpet-toast element');
 assert(toastJs.includes("role=\"alert\""),
   'toast.js documentation must reference role=alert for a11y');
 
 // ── P0-6: HTML host elements exist in both windows ────────────────────────
-assert(panelHtml.includes('id="octopus-toast"'),
-  'panel.html must have #octopus-toast container');
+assert(panelHtml.includes('id="re-llmpet-toast"'),
+  'panel.html must have #re-llmpet-toast container');
 assert(panelHtml.includes('../shared/toast.js'),
   'panel.html must include ../shared/toast.js');
-assert(petHtml.includes('id="octopus-toast"'),
-  'pet.html must have #octopus-toast container');
+assert(petHtml.includes('id="re-llmpet-toast"'),
+  'pet.html must have #re-llmpet-toast container');
 assert(petHtml.includes('../shared/toast.js'),
   'pet.html must include ../shared/toast.js');
 
 // ── P0-7: CSS toast styles exist in both windows ──────────────────────────
-assert(panelCss.includes('.octopus-toast'),
-  'panel.css must define .octopus-toast styles');
-assert(panelCss.includes('.octopus-toast.show'),
-  'panel.css must define .octopus-toast.show (visible state)');
-assert(petCss.includes('.octopus-toast'),
-  'pet.css must define .octopus-toast styles');
-assert(petCss.includes('.octopus-toast.show'),
-  'pet.css must define .octopus-toast.show (visible state)');
+assert(panelCss.includes('.re-llmpet-toast'),
+  'panel.css must define .re-llmpet-toast styles');
+assert(panelCss.includes('.re-llmpet-toast.show'),
+  'panel.css must define .re-llmpet-toast.show (visible state)');
+assert(petCss.includes('.re-llmpet-toast'),
+  'pet.css must define .re-llmpet-toast styles');
+assert(petCss.includes('.re-llmpet-toast.show'),
+  'pet.css must define .re-llmpet-toast.show (visible state)');
 
 // ── Negative: no leftover fire-and-forget for security-critical commands ─
 // Allow send() for genuinely fire-and-forget ops, but NOT for these.

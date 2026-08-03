@@ -12,15 +12,15 @@ const installer = read('src-tauri/src/hook_install.rs');
 const nodeInstaller = read('scripts/install-native-hooks.js');
 
 // Authorization material stays in the 0600 runtime file and HTTP header, never hook URLs.
-assert.match(server, /const TOKEN_HEADER: &str = "x-octopus-token"/);
+assert.match(server, /const TOKEN_HEADER: &str = "x-re-llmpet-token"/);
 assert.match(server, /fn client_identity_allowed/);
 assert.match(server, /get\(SERVER_HEADER\)/);
 assert.match(server, /fn authorized[\s\S]*get\(TOKEN_HEADER\)/);
 const authBlock = server.slice(server.indexOf('fn authorized'), server.indexOf('fn constant_time_eq'));
 assert.doesNotMatch(authBlock, /query|get\("token"\)/);
-assert.match(client, /X-Octopus-Token: \{\}/);
-assert.match(client, /X-Octopus-Server: octopus/);
-assert.match(client, /x-octopus-server: octopus/);
+assert.match(client, /X-Re-Llmpet-Token: \{\}/);
+assert.match(client, /X-Re-Llmpet-Server: re-llmpet/);
+assert.match(client, /x-re-llmpet-server: re-llmpet/);
 
 const claudeBlock = installer.slice(installer.indexOf('pub fn install_claude'), installer.indexOf('fn uninstall_claude'));
 assert.match(claudeBlock, /PermissionRequest/);

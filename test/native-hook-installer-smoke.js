@@ -9,10 +9,10 @@ const { spawnSync } = require('child_process');
 const ROOT = path.resolve(__dirname, '..');
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'octopus-native-hook-'));
 const claudeDir = path.join(home, '.claude');
-const runtimeDir = path.join(home, '.octopus');
+const runtimeDir = path.join(home, '.re-llmpet');
 fs.mkdirSync(claudeDir, { recursive: true });
 fs.mkdirSync(runtimeDir, { recursive: true });
-const fakeBin = path.join(home, 'octopus-hook');
+const fakeBin = path.join(home, 're-llmpet-hook');
 fs.writeFileSync(fakeBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 fs.writeFileSync(path.join(runtimeDir, 'runtime.json'), JSON.stringify({
   app: 'octopus', port: 41330, token: 'A'.repeat(64), pid: 123,
@@ -36,7 +36,7 @@ assert.strictEqual(installed.status, 0, installed.stderr || installed.stdout);
 let settings = JSON.parse(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf8'));
 assert.strictEqual(settings.theme, 'dark');
 assert(settings.hooks.Stop[0].hooks.some((hook) => hook.command === foreignHook.command), 'foreign hook was not preserved');
-const nativeCommands = Object.values(settings.hooks).flatMap((groups) => groups).flatMap((group) => group.hooks || []).filter((hook) => typeof hook.command === 'string' && hook.command.includes('octopus-hook'));
+const nativeCommands = Object.values(settings.hooks).flatMap((groups) => groups).flatMap((group) => group.hooks || []).filter((hook) => typeof hook.command === 'string' && hook.command.includes('re-llmpet-hook'));
 assert(nativeCommands.length >= 20, 'native lifecycle/permission hooks missing');
 const permission = settings.hooks.PermissionRequest.flatMap((group) => group.hooks).find((hook) => hook.type === 'command');
 assert(permission && permission.command.includes('--permission PermissionRequest'));
@@ -46,7 +46,7 @@ const uninstalled = run(['--uninstall']);
 assert.strictEqual(uninstalled.status, 0, uninstalled.stderr || uninstalled.stdout);
 settings = JSON.parse(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf8'));
 assert(settings.hooks.Stop[0].hooks.some((hook) => hook.command === foreignHook.command), 'foreign hook was removed during uninstall');
-const leftovers = Object.values(settings.hooks).flatMap((groups) => groups).flatMap((group) => group.hooks || []).filter((hook) => (hook.command || '').includes('octopus-hook') || (hook.url || '').includes('/permission'));
+const leftovers = Object.values(settings.hooks).flatMap((groups) => groups).flatMap((group) => group.hooks || []).filter((hook) => (hook.command || '').includes('re-llmpet-hook') || (hook.url || '').includes('/permission'));
 assert.strictEqual(leftovers.length, 0, 'native hooks were not fully removed');
 
 fs.rmSync(home, { recursive: true, force: true });

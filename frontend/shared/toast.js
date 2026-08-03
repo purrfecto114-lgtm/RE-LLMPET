@@ -11,11 +11,11 @@
  * `role="alert"` + `aria-live="assertive"` on the host element.
  *
  * Both panel.js and pet.js install this listener on script load. The host
- * element (`#octopus-toast`) is added to both panel.html and pet.html.
+ * element (`#re-llmpet-toast`) is added to both panel.html and pet.html.
  */
 (function installOctopusToast(global) {
   function getToastEl() {
-    return document.getElementById('octopus-toast');
+    return document.getElementById('re-llmpet-toast');
   }
 
   // R39 (2026-08-01): persistent error log. Critical errors (config write
@@ -43,12 +43,12 @@
     el.innerHTML = '';
     if (cmd) {
       const tag = document.createElement('span');
-      tag.className = 'octopus-toast-tag';
+      tag.className = 're-llmpet-toast-tag';
       tag.textContent = cmd;
       el.appendChild(tag);
     }
     const text = document.createElement('span');
-    text.className = 'octopus-toast-msg';
+    text.className = 're-llmpet-toast-msg';
     text.textContent = String(message || '');
     el.appendChild(text);
 
@@ -56,7 +56,7 @@
     if (persistent) {
       const closeBtn = document.createElement('button');
       closeBtn.textContent = '✕';
-      closeBtn.className = 'octopus-toast-close';
+      closeBtn.className = 're-llmpet-toast-close';
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         el.classList.remove('show');
@@ -68,11 +68,11 @@
     el.hidden = false;
     el.classList.add('show');
     // Clear any prior auto-hide timer
-    if (el._octopusToastTimer) {
-      clearTimeout(el._octopusToastTimer);
+    if (el._reLlmpetToastTimer) {
+      clearTimeout(el._reLlmpetToastTimer);
     }
     if (timeout > 0) {
-      el._octopusToastTimer = setTimeout(() => {
+      el._reLlmpetToastTimer = setTimeout(() => {
         el.classList.remove('show');
         // Keep `hidden` attribute in sync after the fade-out animation
         setTimeout(() => { if (!el.classList.contains('show')) el.hidden = true; }, 250);
@@ -83,18 +83,18 @@
   // Click anywhere on the toast to dismiss early
   function bindClickToDismiss() {
     const el = getToastEl();
-    if (!el || el._octopusToastBound) return;
-    el._octopusToastBound = true;
+    if (!el || el._reLlmpetToastBound) return;
+    el._reLlmpetToastBound = true;
     el.addEventListener('click', () => {
       el.classList.remove('show');
-      if (el._octopusToastTimer) clearTimeout(el._octopusToastTimer);
+      if (el._reLlmpetToastTimer) clearTimeout(el._reLlmpetToastTimer);
       setTimeout(() => { if (!el.classList.contains('show')) el.hidden = true; }, 250);
     });
   }
 
   function install() {
-    if (global._octopusToastInstalled) return;
-    global._octopusToastInstalled = true;
+    if (global._reLlmpetToastInstalled) return;
+    global._reLlmpetToastInstalled = true;
     global.addEventListener('octopus:bridge-error', (e) => {
       const detail = (e && e.detail) || {};
       const message = detail.message || 'unknown error';
@@ -105,7 +105,7 @@
       const persistent = criticalCommands.indexOf(command) >= 0;
       showToast(message, { command, timeout: persistent ? 0 : 4500, persistent });
     });
-    // Defer click-binding until DOMContentLoaded so #octopus-toast exists
+    // Defer click-binding until DOMContentLoaded so #re-llmpet-toast exists
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', bindClickToDismiss);
     } else {
@@ -114,6 +114,6 @@
   }
 
   // Expose for tests / programmatic use
-  global.octopusToast = { show: showToast, install };
+  global.reLlmpetToast = { show: showToast, install };
   install();
 })(window);

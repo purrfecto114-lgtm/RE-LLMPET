@@ -18,8 +18,8 @@ const tauri = JSON.parse(read('src-tauri/tauri.conf.json'));
 const tauriLinux = JSON.parse(read('src-tauri/tauri.linux.conf.json'));
 const pinnedFixture = JSON.parse(read('test/fixtures/models-dev-api-sample.json'));
 
-assert.strictEqual(pkg.version, '0.5.33');
-assert.strictEqual(tauri.version, '0.5.33');
+assert.strictEqual(pkg.version, '0.5.35');
+assert.strictEqual(tauri.version, '0.5.35');
 assert(tauriLinux.bundle.linux.deb.depends.includes('curl'), 'Debian package must declare curl runtime dependency');
 assert(pinnedFixture.anthropic.models['claude-sample'].cost.cache_read > 0);
 
@@ -58,7 +58,7 @@ assert.match(pricing, /OCTOPUS_DISABLE_MODELS_DEV_FETCH/);
 assert.match(pricing, /OCTOPUS_NO_NET/);
 assert.match(pricing, /if disabled_by_env \{[\s\S]*forced = false;[\s\S]*network-disabled/);
 assert.doesNotMatch(pricing, /if forced \|\| \(config\.price_auto_update && !disabled_by_env/);
-assert.match(pricing, /thread::Builder::new\(\)[\s\S]*octopus-pricing-sync/);
+assert.match(pricing, /thread::Builder::new\(\)[\s\S]*re-llmpet-pricing-sync/);
 
 // Manual refresh queues work; it never performs the network operation on the Tauri command thread.
 assert.match(commands, /pub fn refresh_model_prices/);

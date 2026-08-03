@@ -444,7 +444,7 @@ mod tests {
 
     fn temp_dir(label: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "octopus-transcript-{label}-{}-{}",
+            "re-llmpet-transcript-{label}-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));

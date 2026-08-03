@@ -16,12 +16,12 @@ struct RuntimeFile {
 }
 
 /// Entry point shared by the standalone `octopus-hook` helper and the packaged
-/// GUI executable's `--octopus-hook` mode. Errors are intentionally silent in
+/// GUI executable's `--re-llmpet-hook` mode. Errors are intentionally silent in
 /// normal use because hooks must not corrupt an agent's stdout protocol.
 pub fn entry() {
     if let Err(error) = run() {
         if std::env::var("OCTOPUS_HOOK_DEBUG").as_deref() == Ok("1") {
-            eprintln!("octopus-hook: {error}");
+            eprintln!("re-llmpet-hook: {error}");
         }
     }
 }
@@ -534,7 +534,7 @@ fn positional_value(args: &[String]) -> Option<String> {
             skip_next = true;
             continue;
         }
-        if arg == "--octopus-hook" || arg == "--permission" || arg == "--pretool" {
+        if arg == "--re-llmpet-hook" || arg == "--permission" || arg == "--pretool" {
             continue;
         }
         if !arg.starts_with('-') {
@@ -556,14 +556,14 @@ fn read_runtime() -> Result<RuntimeFile, String> {
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
         .ok_or("home directory unavailable")?;
-    let path = home.join(".octopus").join("runtime.json");
+    let path = home.join(".re-llmpet").join("runtime.json");
     let meta = fs::metadata(&path).map_err(|e| format!("runtime unavailable: {e}"))?;
     if meta.len() > 16 * 1024 {
         return Err("runtime file too large".into());
     }
     let runtime: RuntimeFile = serde_json::from_slice(&fs::read(path).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
-    if runtime.app != "octopus" || !(41330..=41334).contains(&runtime.port) {
+    if runtime.app != "re-llmpet" || !(41330..=41334).contains(&runtime.port) {
         return Err("invalid runtime file".into());
     }
     if runtime.token.len() < 32
@@ -599,7 +599,7 @@ fn post_json(
         .map_err(|e| e.to_string())?;
     write!(
         stream,
-        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-Octopus-Token: {}\r\nX-Octopus-Server: octopus\r\nConnection: close\r\n\r\n",
+        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-Re-Llmpet-Token: {}\r\nX-Re-Llmpet-Server: re-llmpet\r\nConnection: close\r\n\r\n",
         runtime.port,
         payload.len(),
         runtime.token
@@ -635,7 +635,7 @@ fn post_json(
     if !head.starts_with("HTTP/1.1 200 ")
         || !head
             .to_ascii_lowercase()
-            .contains("x-octopus-server: octopus")
+            .contains("x-re-llmpet-server: re-llmpet")
     {
         return Err(format!(
             "server rejected hook: {}",

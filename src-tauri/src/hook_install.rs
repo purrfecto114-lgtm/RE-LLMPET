@@ -26,12 +26,12 @@ fn current_exe_clean() -> Result<PathBuf, String> {
 }
 
 pub(crate) const MAX_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
-const MARKER: &str = "--octopus-hook";
+const MARKER: &str = "--re-llmpet-hook";
 /// R41 (audit §10): stable ownership tag embedded in every hook command.
 /// `remove_all_ours` checks for this to avoid matching user hooks that
-/// happen to contain "octopus" in their command string. Before this,
+/// happen to contain "re-llmpet" in their command string. Before this,
 /// ownership was inferred from `MARKER` ("--octopus-hook") + filename
-/// patterns ("octopus-hook.js"), which could false-positive on user
+/// patterns ("re-llmpet-hook.js"), which could false-positive on user
 /// hooks that mentioned octopus.
 const HOOK_OWNER: &str = "--owner re-llmpet";
 // Install only observer-safe lifecycle events. Claude Code exposes additional
@@ -112,15 +112,15 @@ const CODEWHALE_EVENTS: [&str; 10] = [
     "subagent_complete",
     "message_submit",
 ];
-const CW_BEGIN: &str = "# >>> octopus:codewhale-hooks:v2 >>>";
-const CW_END: &str = "# <<< octopus:codewhale-hooks:v2 <<<";
-const AIDER_BEGIN: &str = "# >>> octopus:aider-notification:v2 >>>";
-const AIDER_END: &str = "# <<< octopus:aider-notification:v2 <<<";
+const CW_BEGIN: &str = "# >>> re-llmpet:codewhale-hooks:v3 >>>";
+const CW_END: &str = "# <<< re-llmpet:codewhale-hooks:v3 <<<";
+const AIDER_BEGIN: &str = "# >>> re-llmpet:aider-notification:v3 >>>";
+const AIDER_END: &str = "# <<< re-llmpet:aider-notification:v3 <<<";
 // R40 (2026-08-01): bumped marker to v3 because the plugin source
 // changed in a backward-incompatible way (session.status mapping).
 // Existing v2 files are detected by `is_octopus_marker` and replaced
 // on the next sync_enabled() call — see `install_opencode()`.
-const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v3";
+const OPENCODE_MARKER: &str = "re-llmpet-opencode-plugin-v1";
 const OPENCODE_MARKER_LEGACY: &[&str] = &["octopus-opencode-plugin-v2"];
 
 #[derive(Debug, Default)]
@@ -266,7 +266,7 @@ fn is_hook_installed(id: &str) -> bool {
             // Claude hooks live in ~/.claude/settings.json under the
             // hooks key. Check for the Octopus-owned marker.
             let path = home_dir().join(".claude").join("settings.json");
-            file_contains(path, "octopus")
+            file_contains(path, "re-llmpet")
         }
         "codewhale" => {
             let path = codewhale_config_path();
@@ -275,12 +275,12 @@ fn is_hook_installed(id: &str) -> bool {
         "codex" => {
             // Codex hooks live in ~/.codex/config.toml.
             let path = home_dir().join(".codex").join("config.toml");
-            file_contains(path, "octopus")
+            file_contains(path, "re-llmpet")
         }
         "opencode" => {
             // R40: the install_opencode() function writes the plugin to
-            // `$OPENCODE_CONFIG_DIR/plugins/llmpet-octopus.js` (defaults to
-            // `~/.config/opencode/plugins/llmpet-octopus.js`). The previous
+            // `$OPENCODE_CONFIG_DIR/plugins/llmpet-hook.js` (defaults to
+            // `~/.config/opencode/plugins/llmpet-hook.js`). The previous
             // check looked at `~/.opencode/config.json` — a path the
             // installer NEVER writes — so the "installed?" probe always
             // returned false, and the diagnostic silently misreported
@@ -290,7 +290,7 @@ fn is_hook_installed(id: &str) -> bool {
             let base = std::env::var_os("OPENCODE_CONFIG_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
-            let path = base.join("plugins").join("llmpet-octopus.js");
+            let path = base.join("plugins").join("llmpet-hook.js");
             match fs::read_to_string(&path) {
                 Ok(raw) => {
                     raw.contains(OPENCODE_MARKER)
@@ -500,7 +500,7 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
         let command = hook_command(&executable, "codewhale", Some(event), permission);
         block.push_str("\n[[hooks.hooks]]\n");
         block.push_str(&format!(
-            "name = \"octopus-{event}\"\nevent = \"{event}\"\n"
+            "name = \"re-llmpet-{event}\"\nevent = \"{event}\"\n"
         ));
         block.push_str(&format!("command = {}\n", toml_string(&command)));
         block.push_str(&format!(
@@ -539,7 +539,7 @@ fn backup_codewhale_config(path: &Path, runtime: &Runtime) -> Result<(), String>
     let parent = path.parent().ok_or("config path has no parent")?;
     let now_ms = crate::model::now_ms();
     let backup_name = format!(
-        ".{}-octopus-backup-{}.toml",
+        ".{}-re-llmpet-backup-{}.toml",
         path.file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("config"),
@@ -561,12 +561,12 @@ fn backup_codewhale_config(path: &Path, runtime: &Runtime) -> Result<(), String>
                 Some(s) => s.to_string(),
                 None => continue,
             };
-            if !name.contains("-octopus-backup-") {
+            if !name.contains("-re-llmpet-backup-") {
                 continue;
             }
             // Extract the timestamp from the filename.
             if let Some(ts_str) = name
-                .rsplit("-octopus-backup-")
+                .rsplit("-re-llmpet-backup-")
                 .next()
                 .and_then(|s| s.strip_suffix(".toml"))
                 .and_then(|s| s.parse::<u64>().ok())
@@ -623,7 +623,7 @@ fn strip_legacy_codewhale_hooks(path: &Path, messages: &mut Vec<String>) -> Resu
                 .iter()
                 .find_map(|l| parse_toml_string_value(l.trim(), "name"))
                 .unwrap_or_default();
-            let keep = in_v2 || !name.starts_with("octopus-");
+            let keep = in_v2 || !name.starts_with("re-llmpet-");
             spans.push(Span::Table {
                 header,
                 body,
@@ -768,7 +768,7 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
     let base = std::env::var_os("OPENCODE_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
-    let path = base.join("plugins").join("llmpet-octopus.js");
+    let path = base.join("plugins").join("llmpet-hook.js");
     let source = opencode_plugin_source();
     if let Ok(existing) = fs::read_to_string(&path) {
         // R40: accept the current marker OR any legacy marker we own.
@@ -801,7 +801,7 @@ fn uninstall_opencode() -> Result<PathBuf, String> {
     let base = std::env::var_os("OPENCODE_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
-    let path = base.join("plugins").join("llmpet-octopus.js");
+    let path = base.join("plugins").join("llmpet-hook.js");
     if let Ok(raw) = fs::read_to_string(&path) {
         // R40: uninstall accepts both current and legacy markers.
         let owns_current = raw.contains(OPENCODE_MARKER);
@@ -992,9 +992,13 @@ fn remove_all_ours(hooks: &mut Map<String, Value>) {
                 }
                 // Fallback: legacy markers for hooks installed before R41.
                 !command.contains(MARKER)
-                    && !["octopus-hook.js", "pretool-hook.js", "llmpet-hook.js"]
-                        .iter()
-                        .any(|m| command.contains(m))
+                    && ![
+                        "re-llmpet-hook.js",
+                        "re-llmpet-pretool-hook.js",
+                        "re-llmpet-llmpet-hook.js",
+                    ]
+                    .iter()
+                    .any(|m| command.contains(m))
                     && !(url.starts_with("http://127.0.0.1:413") && url.contains("/permission"))
             });
             !entries.is_empty()
@@ -1119,7 +1123,7 @@ fn write_text_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     // parent is $HOME, and changing its permissions to 0700 is an unacceptable
     // side effect. Only secure the temp file and the final file themselves.
     let temp = parent.join(format!(
-        ".octopus.{}.{}.tmp",
+        ".re-llmpet.{}.{}.tmp",
         std::process::id(),
         crate::model::now_ms()
     ));
@@ -1136,7 +1140,7 @@ fn write_text_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
         // first can lose the user's entire config when antivirus/indexing holds
         // the destination between remove and rename.
         let backup = parent.join(format!(
-            ".octopus.{}.{}.bak",
+            ".re-llmpet.{}.{}.bak",
             std::process::id(),
             crate::model::now_ms()
         ));
@@ -1210,10 +1214,10 @@ import { join } from "node:path";
 
 async function send(payload) {
   try {
-    const runtime = JSON.parse(await readFile(join(homedir(), ".octopus", "runtime.json"), "utf8"));
-    if (runtime.app !== "octopus" || runtime.port < 41330 || runtime.port > 41334) return;
+    const runtime = JSON.parse(await readFile(join(homedir(), ".re-llmpet", "runtime.json"), "utf8"));
+    if (runtime.app !== "re-llmpet" || runtime.port < 41330 || runtime.port > 41334) return;
     await fetch(`http://127.0.0.1:${runtime.port}/state`, {
-      method: "POST", headers: { "content-type": "application/json", "x-octopus-token": runtime.token, "x-octopus-server": "octopus" },
+      method: "POST", headers: { "content-type": "application/json", "x-re-llmpet-token": runtime.token, "x-re-llmpet-server": "re-llmpet" },
       body: JSON.stringify({ provider: "opencode", ...payload }), signal: AbortSignal.timeout(500)
     });
   } catch {}

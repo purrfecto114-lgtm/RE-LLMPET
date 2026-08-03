@@ -1016,7 +1016,7 @@ body.skin-cat #cat { display: flex; }
 .agent-tag.provider-aider { background: rgba(52,199,89,.18); color: #a4edb5; border-color: rgba(52,199,89,.4); }
 
 /* === R32 (2026-07-31): bridge-error toast === */
-.octopus-toast {
+.re-llmpet-toast {
   position: fixed;
   bottom: 14px;
   right: 14px;
@@ -1039,15 +1039,15 @@ body.skin-cat #cat { display: flex; }
   transition: opacity 0.18s ease, transform 0.18s ease;
   pointer-events: auto;
 }
-.octopus-toast.show {
+.re-llmpet-toast.show {
   opacity: 1;
   transform: translateY(0);
 }
-.octopus-toast[hidden] {
+.re-llmpet-toast[hidden] {
   display: none;
 }
-.octopus-toast-close { background: rgba(255,255,255,0.2); border: none; color: #fff; font-size: 11px; padding: 2px 6px; border-radius: 4px; cursor: pointer; margin-left: 6px; flex-shrink: 0; }
-.octopus-toast-tag {
+.re-llmpet-toast-close { background: rgba(255,255,255,0.2); border: none; color: #fff; font-size: 11px; padding: 2px 6px; border-radius: 4px; cursor: pointer; margin-left: 6px; flex-shrink: 0; }
+.re-llmpet-toast-tag {
   display: inline-block;
   padding: 2px 6px;
   border-radius: 4px;
@@ -1057,7 +1057,7 @@ body.skin-cat #cat { display: flex; }
   letter-spacing: 0.3px;
   flex-shrink: 0;
 }
-.octopus-toast-msg {
+.re-llmpet-toast-msg {
   flex: 1 1 auto;
   word-break: break-word;
 }

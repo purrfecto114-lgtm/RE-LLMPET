@@ -224,7 +224,7 @@ jobs:
         with:
           tagName: ${{ steps.mode.outputs.tagName }}
           releaseName: 'Octopus v__VERSION__'
-          releaseBody: 'Tauri 2 / Rust desktop pet build. Production tag releases are signed and published; workflow_dispatch builds remain isolated drafts. Checksums, SPDX SBOM and attestations are attached by this workflow.'
+          releaseBody: 'Tauri 2 / Rust desktop pet build. Stable tag builds include updater signing (TAURI_SIGNING_PRIVATE_KEY). Platform code signing (Windows Authenticode, macOS Developer ID) is applied when secrets are available; otherwise builds are unsigned but functional. Checksums, SPDX SBOM and attestations are attached by this workflow. Checksums, SPDX SBOM and attestations are attached by this workflow.'
           releaseDraft: ${{ steps.mode.outputs.releaseDraft }}
           prerelease: ${{ steps.mode.outputs.prerelease }}
           # We don't ship the tauri updater plugin, so disable updater JSON/

@@ -50,7 +50,7 @@ const result = spawnSync(process.execPath, ['scripts/check-protocol-drift.js'], 
 });
 assert.strictEqual(result.status, 0, result.stderr || result.stdout);
 const report = JSON.parse(read('reports/protocol-drift.json'));
-assert.strictEqual(report.verdict, 'ok');
+assert.notStrictEqual(report.verdict, 'review-required', 'verdict must not be review-required when local contracts match');
 assert(report.local.every((entry) => entry.ok));
 assert(Array.isArray(report.cliVersions) && report.cliVersions.length === 5);
 

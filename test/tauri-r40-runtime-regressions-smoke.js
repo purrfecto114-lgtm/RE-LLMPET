@@ -37,8 +37,8 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.33',
-  'R40: package.json version must be 0.5.33');
+assert.strictEqual(packageJson.version, '0.5.35',
+  'R40: package.json version must be 0.5.35');
 
 // ──────────────────────────────────────────────────────────────────────────
 // R40-1: OpenCode plugin — `session.status` must NOT map to UserPromptSubmit
@@ -77,8 +77,8 @@ assert(hookInstall.includes('owns_legacy'),
 // not the wrong ~/.opencode/config.json path.
 assert(!hookInstall.includes('home_dir().join(".opencode").join("config.json")'),
   'R40-2: opencode install detection must NOT check ~/.opencode/config.json (wrong path)');
-assert(hookInstall.includes('plugins").join("llmpet-octopus.js")'),
-  'R40-2: opencode install detection must check $OPENCODE_CONFIG_DIR/plugins/llmpet-octopus.js');
+assert(hookInstall.includes('plugins").join("llmpet-hook.js")'),
+  'R40-2: opencode install detection must check $OPENCODE_CONFIG_DIR/plugins/llmpet-hook.js');
 
 // ──────────────────────────────────────────────────────────────────────────
 // R40-3/R40.1-P1-1: OpenCode diagnostic — `auth list` is the official

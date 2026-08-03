@@ -76,7 +76,7 @@ assert(!installer.includes('hooks = "./hooks.json"'), 'Codex should auto-discove
 for (const needle of [
   'export const LLMPETPlugin', '"tool.execute.before"', '"tool.execute.after"',
   'permission.asked', 'permission.replied', 'session.idle', 'session.error',
-  'permissionBubble":false', 'llmpet-octopus.js',
+  'permissionBubble":false', 'llmpet-hook.js',
 ]) assert(installer.includes(needle), `OpenCode migration missing: ${needle}`);
 assert(!installer.includes('module.exports'));
 // R40: plugin marker was bumped from v2 -> v3 to flag the
