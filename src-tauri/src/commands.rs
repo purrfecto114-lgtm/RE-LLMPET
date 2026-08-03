@@ -412,7 +412,10 @@ pub fn uninstall_hooks(
             .and_then(Value::as_str)
             .map(|s| s.to_string())
             .unwrap_or_default();
-        let status = single.get("status").and_then(Value::as_str).unwrap_or("unknown");
+        let status = single
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
         Ok(json!({
             "provider": provider,
             "path": path,

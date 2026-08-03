@@ -301,9 +301,7 @@ pub fn sync_enabled(
                 CleanupResult::Unowned { .. } => "未启用；配置文件存在但不属于 RE-LLMPET，未修改",
                 CleanupResult::Changed { .. } => "未启用；Hook 块已移除但检测到残留，请检查",
                 CleanupResult::Residue { detail, .. } => detail.as_str(),
-                CleanupResult::PathDrift { .. } => {
-                    "未启用；配置路径发生变化，未执行清理"
-                }
+                CleanupResult::PathDrift { .. } => "未启用；配置路径发生变化，未执行清理",
                 CleanupResult::Unreadable { error, .. } => error.as_str(),
                 CleanupResult::ManualActionRequired { detail, .. } => detail.as_str(),
             };
