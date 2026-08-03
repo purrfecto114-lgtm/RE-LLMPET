@@ -142,3 +142,64 @@ Commits (4):
 - 71ce10e feat: R44 Phase 0D — uninstall provenance + drift detection
 - 9711de9 fix(audit): R44 Phase 0C+0D — drift detection reorder + CodeWhale backup_path
 - 631f591 docs: R44 Phase 0E — destructive test script
+
+---
+Task ID: R44-0.5.39 (Roadmap v5 correctness closure)
+Agent: main (continuation session)
+Task: Implement all 7 deliverables from Roadmap v5 §0.5.39 "Correctness Closure".
+
+Work Log:
+- §1: Removed `isOurHttp` from scripts/install-native-hooks.js (broad HTTP ownership
+  check that deleted official LLMPET's HTTP permission hooks). Updated
+  native-hook-installer-smoke.js to verify HTTP hooks survive uninstall.
+- §2: Replaced non-functional global `CONFIG_WRITE_DISABLED: AtomicBool` with
+  instance-scoped `ConfigState` enum (Healthy/NotFound/ParseError/Unreadable/
+  TooLarge/SchemaTooNew) on Runtime. `load_config` now returns `(AppConfig,
+  ConfigState)` and actually sets the state. `Runtime::save_config` (instance
+  method) checks `writes_allowed()` before writing. New IPCs: get_config_state,
+  backup_and_reset_config. Registered in lib.rs + build.rs.
+- §3: Added `CleanupResult` enum (8 variants: Removed/NotFound/Unowned/Changed/
+  PathDrift/Unreadable/Residue/ManualActionRequired) with to_json/is_clean/
+  is_hard_failure methods. Refactored uninstall_claude/codex/opencode/marker_file
+  to return CleanupResult. OpenCode now correctly returns Unowned (not Ok) when
+  file isn't ours.
+- §4: Refactored uninstall_hooks to use a shared `run_one` helper for both
+  single-provider and bulk paths. Bulk response now includes
+  allHooksVerifiedAbsent (canonical) + allHooksRemoved (alias).
+- §5: Added sha2 = "0.10" to Cargo.toml. Replaced drift_signature's size+mtime
+  with SHA-256 (64-char hex). Updated receipt schema comment.
+- §6: Deleted strip_legacy_codewhale_hooks + parse_toml_string_value dead code.
+  Added tombstone comment explaining the deletion.
+- §7: Fixed Phase 0E script (Test 8 bulk pipeline docs, Test 9 devtools note +
+  new IPC tests, added Test 11 SHA-256 drift + Test 12 CleanupResult variants).
+  Updated existing tests (r34, r40, r401, r44c, r44d, tray-extras-r13) for new
+  signatures.
+- Created test/tauri-r44-0-5-39-correctness-smoke.js with 53 assertions covering
+  all 7 deliverables.
+- Bumped version 0.5.38 → 0.5.39 across all files.
+- Added CHANGELOG.md 0.5.39 entry with detailed section per deliverable.
+- Copied Roadmap v5 to docs/RE-LLMPET-Roadmap-v5.md for traceability.
+- Regenerated SOURCE_MANIFEST.json (286 files).
+- Pushed main + tag v0.5.39 to GitHub.
+- Generated source packages: tar.gz (4.6M) + zip (4.7M) + sha256sums, extracted
+  to download/RE-LLMPET-0.5.39-src/ and verified 53/53 tests pass.
+
+Stage Summary:
+- 0.5.39 fully implements Roadmap v5 §0.5.39 "Correctness Closure"
+- All 7 deliverables complete with behavioral test coverage
+- 53/53 tests pass on both working tree and extracted source package
+- Source package + tag pushed to GitHub
+- Ready for 0.5.40 (Ownership Transaction) in next session
+
+Commits:
+- 5cf6a72 release: v0.5.39 — R44 Roadmap v5 correctness closure
+- c595bd2 docs: add Roadmap v5 (0.5.39 → 0.6.0)
+- 08fb20c chore: regenerate SOURCE_MANIFEST after adding roadmap doc
+
+Artifacts:
+- download/RE-LLMPET-0.5.39-src.tar.gz (4.6M, 313 files)
+- download/RE-LLMPET-0.5.39-src.zip (4.7M)
+- download/RE-LLMPET-0.5.39-src.sha256sums
+- download/RE-LLMPET-0.5.39-src/ (extracted, tests verified)
+- docs/RE-LLMPET-Roadmap-v5.md (roadmap document)
+- test/tauri-r44-0-5-39-correctness-smoke.js (new, 53 assertions)
