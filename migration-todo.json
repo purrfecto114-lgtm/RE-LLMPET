@@ -5,7 +5,7 @@
   "updatedAt": "2026-07-30",
   "statusDefinitions": {
     "done": "Acceptance evidence exists and the stated verification gate passed.",
-    "implemented-uncompiled": "Code is present and static/smoke checks pass, but Rust compilation or real-provider execution is still missing.",
+    "ci-verified": "Code is present and static/smoke checks pass, but Rust compilation or real-provider execution is still missing.",
     "blocked": "Cannot be completed in the current environment or depends on an external prerequisite.",
     "todo": "Not yet implemented.",
     "deferred": "Intentionally postponed because the cost/risk is currently greater than the value."
@@ -91,7 +91,7 @@
       "phase": "P0 baseline",
       "priority": "P0",
       "title": "Commit a resolved Cargo.lock",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "high",
       "dependencies": [
         "P0-003"
@@ -139,7 +139,7 @@
       "phase": "P0 baseline",
       "priority": "P1",
       "title": "Pin and monitor fork/provider protocol drift",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "high",
       "dependencies": [
         "P0-002"
@@ -165,7 +165,7 @@
       "phase": "P1 provider adapter",
       "priority": "P0",
       "title": "Introduce provider capability/status model and renderer contract",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "high",
       "dependencies": [
         "P0-002"
@@ -187,7 +187,7 @@
       "phase": "P1 provider adapter",
       "priority": "P0",
       "title": "Claude merge-safe lifecycle and permission hooks",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "high",
       "dependencies": [
         "P1-001"
@@ -213,7 +213,7 @@
       "phase": "P1 provider adapter",
       "priority": "P0",
       "title": "CodeWhale first-class TOML hooks with fail-safe ask",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "high",
       "dependencies": [
         "P1-001"
@@ -235,7 +235,7 @@
       "phase": "P1 provider adapter",
       "priority": "P0",
       "title": "Codex hooks.json integration and trust-review status",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "high",
       "dependencies": [
         "P1-001"
@@ -257,7 +257,7 @@
       "phase": "P1 provider adapter",
       "priority": "P1",
       "title": "OpenCode official ESM observation plugin",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "medium",
       "dependencies": [
         "P1-001"
@@ -278,7 +278,7 @@
       "phase": "P1 provider adapter",
       "priority": "P1",
       "title": "Aider turn-completion notification bridge",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "medium",
       "dependencies": [
         "P1-001"
@@ -300,7 +300,7 @@
       "phase": "P1 provider adapter",
       "priority": "P0",
       "title": "Provider install/uninstall idempotence and ownership boundaries",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "high",
       "dependencies": [
         "P1-002",
@@ -352,7 +352,7 @@
       "phase": "P1 provider adapter",
       "priority": "P0",
       "title": "Provider authentication and route diagnostics without credential disclosure",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "high",
       "dependencies": [
         "P1-001"
@@ -378,7 +378,7 @@
       "phase": "P2 metering",
       "priority": "P0",
       "title": "Provider-neutral usage event model with deduplication",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "critical",
       "dependencies": [
         "P1-008"
@@ -400,7 +400,7 @@
       "phase": "P2 metering",
       "priority": "P0",
       "title": "CodeWhale turn_end token ingestion",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "high",
       "dependencies": [
         "P2-001",
@@ -424,7 +424,7 @@
       "phase": "P2 metering",
       "priority": "P0",
       "title": "Claude transcript incremental scanner parity",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "high",
       "dependencies": [
         "P2-001",
@@ -449,7 +449,7 @@
       "phase": "P2 metering",
       "priority": "P1",
       "title": "Price catalog cache and historical pricing",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "high",
       "dependencies": [
         "P2-001"
@@ -475,7 +475,7 @@
       "phase": "P3 session and bubbles",
       "priority": "P0",
       "title": "Canonical session state machine and stale-event ordering",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "critical",
       "dependencies": [
         "P1-008"
@@ -496,7 +496,7 @@
       "phase": "P3 session and bubbles",
       "priority": "P1",
       "title": "Reply bubble extraction with privacy limits",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "high",
       "dependencies": [
         "P2-003"
@@ -520,7 +520,7 @@
       "phase": "P3 session and bubbles",
       "priority": "P1",
       "title": "Multi-provider concurrent-session UX",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "medium",
       "dependencies": [
         "P3-001"
@@ -544,7 +544,7 @@
       "phase": "P4 permissions",
       "priority": "P0",
       "title": "Provider-specific permission semantics without false equivalence",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "critical",
       "dependencies": [
         "P1-008",
@@ -569,7 +569,7 @@
       "phase": "P4 permissions",
       "priority": "P0",
       "title": "Approval queue durability, timeout and cancellation",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "critical",
       "dependencies": [
         "P4-001"
@@ -595,7 +595,7 @@
       "phase": "P4 permissions",
       "priority": "P1",
       "title": "Structured elicitation and plan-review parity",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "high",
       "dependencies": [
         "P4-001"
@@ -621,7 +621,7 @@
       "phase": "P4 permissions",
       "priority": "P0",
       "title": "Preserve parallel permission cards and exact-retry deduplication",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "critical",
       "dependencies": [
         "P4-002"
@@ -645,7 +645,7 @@
       "phase": "P5 platform",
       "priority": "P0",
       "title": "Session process discovery and terminal focus abstraction",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "critical",
       "dependencies": [
         "P3-001",
@@ -688,7 +688,7 @@
       "phase": "P5 platform",
       "priority": "P0",
       "title": "Suspend/resume, display-change and multi-monitor recovery",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "high",
       "dependencies": [
         "P0-005"
@@ -712,7 +712,7 @@
       "phase": "P6 release quality",
       "priority": "P0",
       "title": "Idle CPU, RSS, startup and long-run benchmark",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "critical",
       "dependencies": [
         "P0-005",
@@ -737,7 +737,7 @@
       "phase": "P6 release quality",
       "priority": "P1",
       "title": "Asset delivery optimization with visual regression",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "medium",
       "dependencies": [
         "P0-005"
@@ -760,7 +760,7 @@
       "phase": "P6 release quality",
       "priority": "P0",
       "title": "Signed and reproducible Windows/macOS/Linux packages",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "critical",
       "dependencies": [
         "P0-004",
@@ -788,7 +788,7 @@
       "phase": "P6 release quality",
       "priority": "P0",
       "title": "Security review of local HTTP and hook command surface",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "critical",
       "dependencies": [
         "P1-008",
@@ -866,7 +866,7 @@
       "phase": "R10 CodeWhale doctor ordering + compile blocker",
       "priority": "P0",
       "title": "Reverse CodeWhale doctor probe to companion-first with dispatcher fallback",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "low",
       "dependencies": [
         "P1-009"
@@ -894,7 +894,7 @@
       "phase": "R10 CodeWhale doctor ordering + compile blocker",
       "priority": "P0",
       "title": "Fix TrayIconBuilder compile blocker for Tauri 2.11.5",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "low",
       "dependencies": [],
       "acceptance": [
@@ -915,7 +915,7 @@
       "phase": "R11 Tray i18n + refresh_tray_menu",
       "priority": "P0",
       "title": "Localize tray menu via native i18n module and rebuild on language switch",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "medium",
       "dependencies": [
         "R10-002"
@@ -943,7 +943,7 @@
       "phase": "R12 Tray submenu (language/skin/budget/mute)",
       "priority": "P0",
       "title": "Add 4 tray submenus (language / skin / 5h budget / mute) with CheckMenuItem + separators",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "medium",
       "dependencies": [
         "R11-001"
@@ -974,7 +974,7 @@
       "phase": "R13 Tray extras (settings/uninstall/tooltip)",
       "priority": "P0",
       "title": "Add tray settings placeholder + uninstall hooks command + localized tooltip",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "medium",
       "dependencies": [
         "R12-001"
@@ -1007,7 +1007,7 @@
       "phase": "R14 Tray shape submenu + set_mode window side-effect",
       "priority": "P0",
       "title": "Add tray shape submenu (pet/panel/hidePet) and make set_mode hide/show the pet window",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "medium",
       "dependencies": [
         "R13-001"
@@ -1036,7 +1036,7 @@
       "phase": "R15 Panel Codex quota + usage rendering",
       "priority": "P0",
       "title": "Restore panel Codex 5h quota bar + today/lifetime token grid (HTML/CSS/JS/i18n ready for data)",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "low",
       "dependencies": [
         "R12-001"
@@ -1067,7 +1067,7 @@
       "phase": "R16 Panel Token/Cost metric switching + usage diagnostics",
       "priority": "P0",
       "title": "Restore panel metric-tabs (Token/Cost toggle) + #usage-diagnostics line",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "medium",
       "dependencies": [
         "R15-001"
@@ -1101,7 +1101,7 @@
       "phase": "R17 Holistic audit + i18n bug fixes",
       "priority": "P0",
       "title": "Fix 5 pre-existing i18n hardcoded Chinese bugs found in holistic audit of R10-R16",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "low",
       "dependencies": [
         "R16-001"
@@ -1129,7 +1129,7 @@
       "phase": "R18 Metering cache-write 5m/1h split",
       "priority": "P0",
       "title": "Add cache_write_5m/cache_write_1h to UsageEvent + Aggregate + parse_claude_assistant + panel dual row",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "medium",
       "dependencies": [
         "R17-001"
@@ -1160,7 +1160,7 @@
       "phase": "R19 Session list pin/archive + attention filter",
       "priority": "P0",
       "title": "Add session list pin/archive + attention filter + set_session_prefs IPC",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "medium",
       "dependencies": [
         "R18-001"
@@ -1193,7 +1193,7 @@
       "phase": "R20 Compile verification + source packaging + doc merge",
       "priority": "P0",
       "title": "Verify Windows compile (cargo check), fix 3 warnings, package source, merge R10-R19 docs",
-      "status": "implemented-uncompiled",
+      "status": "ci-verified",
       "risk": "low",
       "dependencies": [
         "R19-001"

@@ -34,6 +34,10 @@
     "allow-pet-log",
     "allow-ui-busy",
     "allow-pet-visual-bounds",
-    "allow-quit-app"
+    "allow-quit-app",
+    "allow-focus-pet",
+    "allow-set-pet-big",
+    "allow-set-pet-tall",
+    "allow-territory-toggle-auto"
   ]
 }

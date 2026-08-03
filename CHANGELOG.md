@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.5.34 — R44 Phase 0A continued: docs + CI + capability fixes（2026-08-03）
+
+Additional fixes from the 0.5.32 full audit + Roadmap v2.
+
+### P0-04: Release signing truthfulness (audit P0-04)
+
+Fixed `release.yml` body text that claimed "Production tag releases are
+signed and published" — this conflated updater signing with platform
+code signing. Now accurately states: updater signing is always applied;
+platform signing (Authenticode/Developer ID) is conditional on secrets.
+
+### P1-01: Protocol drift verdict no longer says "ok" when remote not checked
+
+`check-protocol-drift.js` now returns `local-contract-ok` instead of
+`ok` when remote contracts were not verified. This prevents the
+misleading "ok" status when only local baseline matching was done.
+
+### P1-02: Added missing capability permissions
+
+`pet.json` was missing `allow-focus-pet`, `allow-set-pet-big`,
+`allow-set-pet-tall`, `allow-territory-toggle-auto`. These commands
+exist in Rust + bridge but were not authorized by any capability.
+
+### P1-04: Status doc drift fixed
+
+- `docs/MIGRATION_STATUS.md`: 0.5.7 → 0.5.34
+- `migration-todo.json`: `implemented-uncompiled` → `ci-verified`
+  (CI has proven all three platforms compile successfully)
+- `scripts/check-migration-todo.js`: added `ci-verified` to allowed statuses
+- `README_EN.md`: 0.5.7 → 0.5.34
+
+### Verification
+
+- npm test: 50/50 ✅
+- npm run check:static: 22/22 ✅
+- npm run gate:source: 16/16 ✅
+- cargo fmt --check: ✅
+
+---
+
 ## 0.5.33 — R44 Phase 0A: uninstall fix + config safety（2026-08-03）
 
 First batch of fixes from the 0.5.32 full audit + Roadmap v2.
