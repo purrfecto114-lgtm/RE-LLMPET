@@ -27,6 +27,14 @@ pub struct Point {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppConfig {
+    /// R44 0.5.41: schema version for forward compatibility. Old configs
+    /// without this field deserialize as 0 (via serde default). Future
+    /// versions that add breaking changes bump this number and implement
+    /// migration. `load_config` checks if the parsed version is newer
+    /// than `CURRENT_SCHEMA_VERSION` and returns `SchemaTooNew` to
+    /// quarantine writes (preventing downgrade data loss).
+    #[serde(default)]
+    pub schema_version: u32,
     pub lang: String,
     pub mode: String,
     pub skin: String,
@@ -50,11 +58,29 @@ pub struct AppConfig {
     // state, only the display ordering.
     pub pinned_sessions: Vec<String>,
     pub archived_sessions: Vec<String>,
+    /// R44 0.5.41: unknown-field preservation. Any JSON key not covered by
+    /// the fields above is captured here and round-tripped on save. This
+    /// prevents data loss when:
+    ///   - a future version adds fields this build doesn't know about
+    ///   - the user manually adds custom keys to config.json
+    ///   - a downgrade happens (newer fields are preserved, not dropped)
+    ///
+    /// Without this, serde silently drops unknown fields on the next save,
+    /// which is irreversible. The flatten attribute captures them into a
+    /// Map which is serialized back as top-level JSON keys.
+    #[serde(flatten)]
+    pub extras: serde_json::Map<String, Value>,
 }
+
+/// R44 0.5.41: current schema version this build understands. If a config
+/// file has a higher version, `load_config` returns `SchemaTooNew` and
+/// writes are quarantined (the user must upgrade or manually migrate).
+pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            schema_version: CURRENT_SCHEMA_VERSION,
             lang: "zh".into(),
             mode: "pet".into(),
             skin: "mascot".into(),
@@ -73,6 +99,7 @@ impl Default for AppConfig {
             price_refresh_hours: 24,
             pinned_sessions: Vec::new(),
             archived_sessions: Vec::new(),
+            extras: serde_json::Map::new(),
         }
     }
 }
@@ -126,6 +153,13 @@ impl AppConfig {
         // Now: empty is a valid first-class state. No provider hooks
         // are installed; the pet still works as a passive observer.
         self.providers = providers;
+        // R44 0.5.41: upgrade old configs (schemaVersion 0 or missing) to
+        // current. This is a one-way migration — once saved, the config
+        // is tagged as schemaVersion 1. Future versions that add breaking
+        // changes bump CURRENT_SCHEMA_VERSION and add migration logic here.
+        if self.schema_version < CURRENT_SCHEMA_VERSION {
+            self.schema_version = CURRENT_SCHEMA_VERSION;
+        }
         self
     }
 }
@@ -1837,7 +1871,26 @@ pub fn load_config(path: &Path) -> (AppConfig, ConfigState) {
     }
     match fs::read_to_string(path) {
         Ok(raw) => match serde_json::from_str::<AppConfig>(&raw) {
-            Ok(config) => (config.sanitize(), ConfigState::Healthy),
+            Ok(config) => {
+                // R44 0.5.41: check schema version. If the file's version
+                // is newer than this build understands, quarantine writes
+                // to prevent downgrade data loss (the extras Map preserves
+                // unknown fields, but a newer schema might have semantic
+                // changes we can't safely handle).
+                if config.schema_version > CURRENT_SCHEMA_VERSION {
+                    eprintln!(
+                        "[re-llmpet] WARNING: config schemaVersion {} is newer than this build supports ({}). Writes are quarantined.",
+                        config.schema_version, CURRENT_SCHEMA_VERSION
+                    );
+                    return (
+                        AppConfig::default(),
+                        ConfigState::SchemaTooNew {
+                            version: config.schema_version,
+                        },
+                    );
+                }
+                (config.sanitize(), ConfigState::Healthy)
+            }
             Err(e) => {
                 eprintln!(
                     "[re-llmpet] ERROR: config.json parse failed: {e}. Using defaults. Writes are quarantined until the file is fixed."

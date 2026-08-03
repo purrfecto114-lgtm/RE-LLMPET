@@ -271,6 +271,20 @@ impl CleanupResult {
     }
 }
 
+/// R44 0.5.41: return the config file path for a provider (for status
+/// reporting when idempotent-sync skips the install). This is the same
+/// path that `install_*` writes to and `is_hook_installed` checks.
+fn provider_config_path(id: &str) -> PathBuf {
+    match id {
+        "claude" => home_dir().join(".claude").join("settings.json"),
+        "codewhale" => codewhale_config_path(),
+        "codex" => home_dir().join(".codex").join("hooks.json"),
+        "opencode" => opencode_plugin_path(),
+        "aider" => home_dir().join(".aider.conf.yml"),
+        _ => PathBuf::new(),
+    }
+}
+
 pub fn sync_enabled(
     runtime: &Runtime,
     port: u16,
@@ -282,7 +296,28 @@ pub fn sync_enabled(
     let mut statuses = Vec::new();
     for id in ["claude", "codewhale", "codex", "opencode", "aider"] {
         let result = if selected.contains(id) {
-            install_provider(runtime, id, port, token, permission_enabled)
+            // R44 0.5.41: idempotent sync. If the hook is already installed,
+            // skip the backup + write + receipt cycle. The hook command
+            // (`--provider X EventName`) doesn't contain port/token (those
+            // are read from runtime.json at invocation time), so re-writing
+            // the same command is a no-op that just creates churn (backup
+            // files + receipts). The 5-backup cap prevents unbounded growth,
+            // but skipping the write entirely is cleaner.
+            //
+            // Edge case: if the user DOWNGRADED from a newer RE version
+            // that wrote a different hook format, `is_hook_installed` might
+            // return true for the old format. In that case, the user should
+            // explicitly uninstall + reinstall to get the new format. The
+            // sync path is not the place to force format upgrades.
+            if is_hook_installed(id) {
+                Ok(InstallResult {
+                    path: provider_config_path(id),
+                    message: "Hook 已安装（幂等跳过）".into(),
+                    ..InstallResult::default()
+                })
+            } else {
+                install_provider(runtime, id, port, token, permission_enabled)
+            }
         } else {
             // R44 0.5.39: cleanup_provider returns CleanupResult. Convert
             // to InstallResult for the status_from_result helper. The
@@ -491,17 +526,217 @@ fn file_contains(path: PathBuf, marker: &str) -> bool {
 /// uninstall path calls this same function in a loop — no separate
 /// weak-logic bulk path.
 fn cleanup_provider(id: &str) -> CleanupResult {
+    cleanup_provider_with_path(id, None)
+}
+
+/// R44 0.5.41: receipt-driven uninstall. When `receipt_path` is Some,
+/// the cleanup uses the path recorded in the install receipt instead of
+/// re-deriving from environment variables. This fixes the OpenCode/
+/// CodeWhale env-var drift bug: if OPENCODE_CONFIG_DIR was set at install
+/// time but unset (or different) at uninstall time, the old code would
+/// look in the wrong place and leave the hook behind.
+///
+/// When `receipt_path` is None (sync_enabled path, no receipt available),
+/// falls back to env-var-derived paths (current behavior).
+fn cleanup_provider_with_path(id: &str, receipt_path: Option<&Path>) -> CleanupResult {
     match id {
-        "claude" => uninstall_claude(),
-        "codewhale" => uninstall_marker_file(&codewhale_config_path(), CW_BEGIN, CW_END),
-        "codex" => uninstall_codex(),
-        "opencode" => uninstall_opencode(),
+        "claude" => {
+            // Claude's path is always ~/.claude/settings.json (no env var
+            // override), so receipt path is the same as derived path.
+            // Use receipt path if available for consistency.
+            let path = receipt_path
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| home_dir().join(".claude").join("settings.json"));
+            uninstall_claude_at(&path)
+        }
+        "codewhale" => {
+            let path = receipt_path
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(codewhale_config_path);
+            uninstall_marker_file(&path, CW_BEGIN, CW_END)
+        }
+        "codex" => {
+            let path = receipt_path
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| home_dir().join(".codex").join("hooks.json"));
+            uninstall_codex_at(&path)
+        }
+        "opencode" => {
+            let path = receipt_path
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| opencode_plugin_path());
+            uninstall_opencode_at(&path)
+        }
         "aider" => {
-            uninstall_marker_file(&home_dir().join(".aider.conf.yml"), AIDER_BEGIN, AIDER_END)
+            let path = receipt_path
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| home_dir().join(".aider.conf.yml"));
+            uninstall_marker_file(&path, AIDER_BEGIN, AIDER_END)
         }
         _ => CleanupResult::ManualActionRequired {
             path: PathBuf::new(),
             detail: format!("unknown provider: {id}"),
+        },
+    }
+}
+
+/// R44 0.5.41: derive the OpenCode plugin path from env vars (used when
+/// no receipt is available). Extracted from uninstall_opencode for reuse.
+fn opencode_plugin_path() -> PathBuf {
+    let base = std::env::var_os("OPENCODE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
+    base.join("plugins").join("llmpet-hook.js")
+}
+
+/// R44 0.5.41: Claude uninstall at a specific path (receipt-driven).
+fn uninstall_claude_at(path: &Path) -> CleanupResult {
+    if !path.exists() {
+        return CleanupResult::NotFound {
+            path: path.to_path_buf(),
+        };
+    }
+    let raw = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            return CleanupResult::Unreadable {
+                path: path.to_path_buf(),
+                error: e.to_string(),
+            }
+        }
+    };
+    let mut settings: Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            return CleanupResult::ManualActionRequired {
+                path: path.to_path_buf(),
+                detail: format!("settings.json is not valid JSON: {e}. Refusing to overwrite; manual cleanup required."),
+            }
+        }
+    };
+    if !raw.contains("re-llmpet") {
+        return CleanupResult::Unowned {
+            path: path.to_path_buf(),
+        };
+    }
+    if let Some(hooks) = settings.get_mut("hooks").and_then(Value::as_object_mut) {
+        remove_all_ours(hooks);
+    }
+    if let Err(e) = write_json_atomic(path, &settings) {
+        return CleanupResult::ManualActionRequired {
+            path: path.to_path_buf(),
+            detail: format!("write failed: {e}"),
+        };
+    }
+    match fs::read_to_string(path) {
+        Ok(post_raw) => {
+            if post_raw.contains("re-llmpet") {
+                return CleanupResult::Residue {
+                    path: path.to_path_buf(),
+                    detail: "re-llmpet marker still present after remove_all_ours".into(),
+                };
+            }
+            CleanupResult::Removed {
+                path: path.to_path_buf(),
+            }
+        }
+        Err(e) => CleanupResult::Unreadable {
+            path: path.to_path_buf(),
+            error: format!("post-clean verify read failed: {e}"),
+        },
+    }
+}
+
+/// R44 0.5.41: Codex uninstall at a specific path (receipt-driven).
+fn uninstall_codex_at(path: &Path) -> CleanupResult {
+    if !path.exists() {
+        return CleanupResult::NotFound {
+            path: path.to_path_buf(),
+        };
+    }
+    let raw = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            return CleanupResult::Unreadable {
+                path: path.to_path_buf(),
+                error: e.to_string(),
+            }
+        }
+    };
+    let mut root: Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            return CleanupResult::ManualActionRequired {
+                path: path.to_path_buf(),
+                detail: format!("hooks.json is not valid JSON: {e}. Refusing to overwrite."),
+            }
+        }
+    };
+    if !raw.contains("re-llmpet") {
+        return CleanupResult::Unowned {
+            path: path.to_path_buf(),
+        };
+    }
+    if let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) {
+        remove_all_ours(hooks);
+    }
+    if let Err(e) = write_json_atomic(path, &root) {
+        return CleanupResult::ManualActionRequired {
+            path: path.to_path_buf(),
+            detail: format!("write failed: {e}"),
+        };
+    }
+    match fs::read_to_string(path) {
+        Ok(post_raw) => {
+            if post_raw.contains("re-llmpet") {
+                return CleanupResult::Residue {
+                    path: path.to_path_buf(),
+                    detail: "re-llmpet marker still present after remove_all_ours".into(),
+                };
+            }
+        }
+        Err(e) => {
+            return CleanupResult::Unreadable {
+                path: path.to_path_buf(),
+                error: format!("post-clean verify read failed: {e}"),
+            }
+        }
+    }
+    CleanupResult::Removed {
+        path: path.to_path_buf(),
+    }
+}
+
+/// R44 0.5.41: OpenCode uninstall at a specific path (receipt-driven).
+fn uninstall_opencode_at(path: &Path) -> CleanupResult {
+    match fs::read_to_string(path) {
+        Ok(raw) => {
+            let owns_current = raw.contains(OPENCODE_MARKER);
+            let owns_legacy = OPENCODE_MARKER_LEGACY
+                .iter()
+                .any(|marker| raw.contains(marker));
+            if owns_current || owns_legacy {
+                match fs::remove_file(path) {
+                    Ok(()) => CleanupResult::Removed {
+                        path: path.to_path_buf(),
+                    },
+                    Err(e) => CleanupResult::ManualActionRequired {
+                        path: path.to_path_buf(),
+                        detail: format!("remove_file failed: {e}"),
+                    },
+                }
+            } else {
+                CleanupResult::Unowned {
+                    path: path.to_path_buf(),
+                }
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => CleanupResult::NotFound {
+            path: path.to_path_buf(),
+        },
+        Err(e) => CleanupResult::Unreadable {
+            path: path.to_path_buf(),
+            error: e.to_string(),
         },
     }
 }
@@ -516,6 +751,15 @@ fn cleanup_provider(id: &str) -> CleanupResult {
 /// distinguish "removed" / "notFound" / "unowned" / "unreadable" etc.
 pub fn uninstall_provider_hooks(id: &str) -> CleanupResult {
     cleanup_provider(id)
+}
+
+/// R44 0.5.41: receipt-driven uninstall. Public wrapper that takes the
+/// path recorded in the install receipt, so the cleanup targets the
+/// ORIGINAL install location even if environment variables changed
+/// between install and uninstall. Used by the `uninstall_hooks` IPC
+/// command when a prior receipt is available.
+pub fn uninstall_provider_hooks_with_path(id: &str, receipt_path: &Path) -> CleanupResult {
+    cleanup_provider_with_path(id, Some(receipt_path))
 }
 
 fn status_from_result(
@@ -636,6 +880,7 @@ pub fn install_claude(
     Ok(result)
 }
 
+#[allow(dead_code)]
 fn uninstall_claude() -> CleanupResult {
     let path = home_dir().join(".claude").join("settings.json");
     if !path.exists() {
@@ -1004,6 +1249,7 @@ fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
     })
 }
 
+#[allow(dead_code)]
 fn uninstall_codex() -> CleanupResult {
     let path = home_dir().join(".codex").join("hooks.json");
     if !path.exists() {
@@ -1115,6 +1361,7 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
 /// `CleanupResult` variants. Previously it returned `Ok(path)` even when
 /// the file was NOT deleted (because it wasn't ours) — the roadmap v5 §3
 /// explicitly states "OpenCode 未删除文件时不得显示 `removed`".
+#[allow(dead_code)]
 fn uninstall_opencode() -> CleanupResult {
     let base = std::env::var_os("OPENCODE_CONFIG_DIR")
         .map(PathBuf::from)

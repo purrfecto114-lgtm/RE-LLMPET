@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// R44 Phase 0C (2026-08-03) — 0.5.40 unified backup + install receipt smoke.
+// R44 Phase 0C (2026-08-03) — 0.5.41 unified backup + install receipt smoke.
 //
 // Locks the Phase 0C deliverables:
 //
@@ -58,14 +58,14 @@ const tauriConf = JSON.parse(read('src-tauri/tauri.conf.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.40',
-  'P0C: package.json version must be 0.5.40');
-assert.ok(cargoToml.includes('version = "0.5.40"'),
-  'P0C: Cargo.toml version must be 0.5.40');
-assert.strictEqual(tauriConf.version, '0.5.40',
-  'P0C: tauri.conf.json version must be 0.5.40');
-assert.ok(changelog.includes('0.5.40'),
-  'P0C: CHANGELOG must have 0.5.40 entry');
+assert.strictEqual(packageJson.version, '0.5.41',
+  'P0C: package.json version must be 0.5.41');
+assert.ok(cargoToml.includes('version = "0.5.41"'),
+  'P0C: Cargo.toml version must be 0.5.41');
+assert.strictEqual(tauriConf.version, '0.5.41',
+  'P0C: tauri.conf.json version must be 0.5.41');
+assert.ok(changelog.includes('0.5.41'),
+  'P0C: CHANGELOG must have 0.5.41 entry');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0C-1: Generic backup_config_file helper exists + is called everywhere
@@ -275,4 +275,4 @@ assert.ok(hookInstall.includes('OPENCODE_MARKER_LEGACY'),
 assert.ok(hookInstall.includes('const HOOK_OWNER: &str = "--owner re-llmpet";'),
   'P0C-11: HOOK_OWNER constant must still exist');
 
-console.log('✓ R44 Phase 0C (0.5.40) backup + receipt smoke: all assertions passed');
+console.log('✓ R44 Phase 0C (0.5.41) backup + receipt smoke: all assertions passed');

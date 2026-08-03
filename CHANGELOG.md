@@ -1,5 +1,95 @@
 # Changelog
 
+## 0.5.41 — Config durability + receipt-driven uninstall + idempotent sync（2026-08-03）
+
+This version prioritizes real user impact over roadmap completeness. Three
+changes that prevent actual data loss and fix actual bugs, deferring the
+over-engineering items (6-state receipt machine, full install transaction,
+separate Legacy Repair flow) until real-machine evidence justifies them.
+
+### 1. schemaVersion + unknown-field preservation
+
+**Problem:** `AppConfig` had no `schemaVersion` and no `#[serde(flatten)]`
+for extras. Any JSON key not covered by the struct fields was silently
+dropped on the next save — irreversible data loss. This affected:
+- Users who manually add custom keys to config.json
+- Future versions that add fields (downgrade would lose them)
+- `SchemaTooNew` was defined but never constructed (dead contract)
+
+**Fix:**
+- Added `schema_version: u32` field (defaults to 0 via serde for old configs)
+- Added `#[serde(flatten)] extras: serde_json::Map<String, Value>` to
+  capture and round-trip unknown fields
+- Added `CURRENT_SCHEMA_VERSION = 1` constant
+- `load_config` now checks `config.schema_version > CURRENT_SCHEMA_VERSION`
+  and returns `ConfigState::SchemaTooNew` (quarantines writes)
+- `sanitize()` upgrades old configs: `schema_version < CURRENT → bump to 1`
+
+### 2. Receipt-driven uninstall
+
+**Problem:** `uninstall_opencode` and `uninstall_codewhale` re-derived
+the config path from environment variables (`OPENCODE_CONFIG_DIR`,
+`CODEWHALE_CONFIG_PATH`) at uninstall time. If the env var changed
+between install and uninstall, the cleanup looked in the wrong place
+and left the hook behind. OpenCode officially supports
+`OPENCODE_CONFIG_DIR`, so this is a real scenario.
+
+**Fix:**
+- Added `cleanup_provider_with_path(id, receipt_path)` that uses the
+  receipt's recorded path instead of re-deriving from env vars
+- Added `uninstall_provider_hooks_with_path` public wrapper
+- Added path-specific variants: `uninstall_claude_at`, `uninstall_codex_at`,
+  `uninstall_opencode_at` (the old env-var-deriving variants are kept as
+  dead_code for reference)
+- `commands.rs` `run_one` helper now extracts `receipt_path` from the
+  prior receipt and passes it to `uninstall_provider_hooks_with_path`
+- When no receipt is available (sync_enabled path), falls back to
+  env-var-derived paths (backward compatible)
+
+### 3. Idempotent sync
+
+**Problem:** `sync_enabled` called `install_provider` for every selected
+provider on every `set_providers` call — even if the hook was already
+installed. This created a backup + receipt every time the user re-saved
+the same provider selection. The 5-backup cap prevented unbounded growth,
+but the churn was wasteful and obscured the receipt history.
+
+**Fix:**
+- `sync_enabled` now checks `is_hook_installed(id)` before calling
+  `install_provider`. If the hook is already present, returns a
+  "Hook 已安装（幂等跳过）" status without writing.
+- Safe because the hook command (`--provider X EventName`) doesn't
+  contain port/token — those are read from `runtime.json` at invocation
+  time. So an existing hook command is still valid after app restart.
+- Edge case: if the user downgraded from a newer RE version with a
+  different hook format, `is_hook_installed` may return true for the
+  old format. The user should explicitly uninstall + reinstall to
+  upgrade the format. The sync path is not the place to force upgrades.
+
+### What's NOT in 0.5.41 (deferred as over-engineering)
+
+- **6-state receipt state machine** (pending/active/superseded/removed/
+  residue/rolledBack) — we don't have an updater; pending→active is for
+  crash recovery during install, but backup+receipt already handles that.
+- **Full 5-step install transaction** — backup + receipt already handles
+  crash recovery. The full transaction adds complexity without clear benefit.
+- **Separate Legacy Repair flow** — normal cleanup already handles old
+  markers via `OPENCODE_MARKER_LEGACY` etc.
+- **Exact owner parameter parsing** — substring `command.contains("re-llmpet")`
+  is a rare false-positive risk (user script path would need to contain
+  "re-llmpet"). Not worth the parsing complexity now.
+- **Install ID UUID** — receipt already has provider+path+timestamp, which
+  is sufficient for uninstall. UUID adds value only with a full transaction
+  system.
+
+### Verification
+
+- npm test: 55/55 ✅ (new `tauri-r44-0-5-41-config-durability-smoke.js`)
+- check:static: 22/22 ✅
+- gate:source: 16/16 ✅
+
+---
+
 ## 0.5.40 — R44 Roadmap v6: product closure & config durability（2026-08-03）
 
 Implements the 7 P0 deliverables from Roadmap v6 §0.5.40 "Product Closure

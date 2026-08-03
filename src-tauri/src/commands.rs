@@ -325,7 +325,20 @@ pub fn uninstall_hooks(
             }
         };
         let drift_detected = drift_status == "changed";
-        let cleanup = crate::hook_install::uninstall_provider_hooks(id);
+        // R44 0.5.41: receipt-driven uninstall. If the prior receipt
+        // recorded a path, pass it to the cleanup pipeline so it cleans
+        // up the ORIGINAL install location (not the env-var-derived one).
+        // This fixes the OpenCode/CodeWhale env-var drift bug where
+        // OPENCODE_CONFIG_DIR changed between install and uninstall.
+        let receipt_path = prior_receipt
+            .as_ref()
+            .and_then(|r| r.get("path"))
+            .and_then(Value::as_str)
+            .map(Path::new);
+        let cleanup = match receipt_path {
+            Some(p) => crate::hook_install::uninstall_provider_hooks_with_path(id, p),
+            None => crate::hook_install::uninstall_provider_hooks(id),
+        };
         let mut result_json = cleanup.to_json();
         if let Some(obj) = result_json.as_object_mut() {
             obj.insert("provider".into(), json!(id));
