@@ -817,7 +817,19 @@ fn uninstall_opencode() -> Result<PathBuf, String> {
 
 fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
     let path = home_dir().join(".aider.conf.yml");
-    let current = fs::read_to_string(&path).unwrap_or_default();
+    // R44 (audit P0-03): do NOT use unwrap_or_default() — if the file
+    // exists but is unreadable (permissions, I/O error, non-UTF-8),
+    // treating it as empty would cause the subsequent write to overwrite
+    // the user's real config with only our marker block. Only
+    // ErrorKind::NotFound is safe to treat as "new file".
+    let current = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!(
+            "Aider config exists but cannot be read ({}). Aborting to protect existing config. No changes were made.",
+            e
+        )),
+    };
     let stripped = strip_marker_block(&current, AIDER_BEGIN, AIDER_END)?;
     // Aider YAML config uses underscores (notifications_command); the CLI flag
     // uses hyphens (--notifications-command). Detect either form to avoid
@@ -1021,7 +1033,18 @@ fn ensure_object<'a>(
 }
 
 fn replace_marker_block(path: &Path, begin: &str, end: &str, block: &str) -> Result<(), String> {
-    let existing = fs::read_to_string(path).unwrap_or_default();
+    // R44 (audit P0-03): only NotFound is safe to treat as empty.
+    // Unreadable files must fail closed to prevent data loss.
+    let existing = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => {
+            return Err(format!(
+                "Config file exists but cannot be read ({}). Aborting to protect existing config.",
+                e
+            ))
+        }
+    };
     let mut clean = strip_marker_block(&existing, begin, end)?
         .trim_end()
         .to_string();

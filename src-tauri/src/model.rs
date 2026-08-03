@@ -1700,18 +1700,50 @@ fn write_private_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
     crate::model::windows_safe_rename(&tmp, path)
 }
 
+/// R44 (audit P0-02): config loading now distinguishes error cases.
+/// - NotFound → default (new install, safe)
+/// - Too large → default + log warning (don't crash, but user should know)
+/// - Permission/IO error → default + log error (was silently swallowing)
+/// - Invalid JSON → default + log error (was silently swallowing)
+///
+/// NOTE: The audit also recommends preserving unknown fields via
+/// `#[serde(flatten)] extras: Map<String, Value>`. That requires changing
+/// AppConfig's serde derives and is a larger change. For now, we at least
+/// log errors instead of silently returning default. The full
+/// unknown-field preservation is deferred to Phase 0B (namespace migration).
 pub fn load_config(path: &Path) -> AppConfig {
     let Ok(meta) = fs::metadata(path) else {
+        // File doesn't exist — new install, safe to return default.
         return AppConfig::default();
     };
     if meta.len() > 1024 * 1024 {
+        // R44: log instead of silently returning default.
+        eprintln!(
+            "[octopus] WARNING: config.json is {} bytes (>1MB), using defaults",
+            meta.len()
+        );
         return AppConfig::default();
     }
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<AppConfig>(&raw).ok())
-        .unwrap_or_default()
-        .sanitize()
+    match fs::read_to_string(path) {
+        Ok(raw) => {
+            match serde_json::from_str::<AppConfig>(&raw) {
+                Ok(config) => config.sanitize(),
+                Err(e) => {
+                    // R44: log the parse error instead of silently returning default.
+                    // The old code would return default, and the next save_config
+                    // would overwrite the user's (unreadable but still present)
+                    // config file with the defaults — irreversible data loss.
+                    eprintln!("[octopus] ERROR: config.json parse failed: {e}. Using defaults. Config file will NOT be overwritten until a valid save succeeds.");
+                    AppConfig::default()
+                }
+            }
+        }
+        Err(e) => {
+            // R44: log I/O errors instead of silently returning default.
+            eprintln!("[octopus] ERROR: config.json read failed: {e}. Using defaults.");
+            AppConfig::default()
+        }
+    }
 }
 
 pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {

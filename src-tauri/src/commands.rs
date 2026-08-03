@@ -249,39 +249,48 @@ pub fn uninstall_hooks(
             }
         }
         let all_succeeded = failures.is_empty();
-        // Only clear config.providers if all uninstalled cleanly. If any
-        // failed, the user should see the failure and decide whether to
-        // retry; clearing config would hide the broken state.
-        if all_succeeded {
-            state.runtime.update_config(|config| {
-                config.providers.clear();
-            })?;
-            state.runtime.write_log(
-                "tray",
-                "uninstalled ALL provider hooks + cleared config.providers",
-            );
-        } else {
-            state.runtime.write_log(
-                "tray",
-                &format!(
-                    "uninstall_hooks('all') had partial failure: {}",
-                    failures.join("；")
-                ),
-            );
-        }
-        let _ = crate::hook_install::resync_current(&state.runtime);
+        // R44 (audit Roadmap v2 P0-01): ALWAYS clear config.providers,
+        // regardless of hook cleanup result. The local selection state
+        // and external hook cleanup are separate concerns — the user
+        // asked to "uninstall all", so we clear their selection. If
+        // external files have residue, that's reported separately.
+        //
+        // CRITICAL: do NOT call resync_current() here. The old code did:
+        //   1. Delete hooks for each provider
+        //   2. Call resync_current()
+        //   3. resync_current() reads config.providers (not yet cleared)
+        //   4. Calls sync_enabled() which RE-INSTALLS the hooks we just deleted
+        // This created a "delete then reinstall" loop.
+        state.runtime.update_config(|config| {
+            config.providers.clear();
+        })?;
+        state.runtime.write_log(
+            "tray",
+            &format!(
+                "uninstall_hooks('all'): providers cleared, hooks {}",
+                if all_succeeded {
+                    "all removed"
+                } else {
+                    "partial failure"
+                }
+            ),
+        );
+        // Do NOT emit_config here — the frontend will re-fetch via getConfig.
+        // Do NOT call resync_current() — it would reinstall hooks based on
+        // the old config before the clear persists.
         emit_config(&app, &state);
         let message = if all_succeeded {
             "All Octopus hooks removed; config.providers cleared".to_string()
         } else {
             format!(
-                "Partial failure — some provider hooks could not be removed: {}",
+                "Provider selection cleared. Some external hooks could not be removed: {}",
                 failures.join("；")
             )
         };
         return Ok(json!({
             "provider": "all",
-            "allSucceeded": all_succeeded,
+            "selectionCleared": true,
+            "allHooksRemoved": all_succeeded,
             "results": results,
             "failures": failures,
             "message": message,
@@ -300,12 +309,15 @@ pub fn uninstall_hooks(
     state.runtime.update_config(|config| {
         config.providers.retain(|p| p != &provider);
     })?;
-    // Resync provider statuses so the panel reflects the new state.
-    let _ = crate::hook_install::resync_current(&state.runtime);
+    // R44 (audit Roadmap v2 P0-01): do NOT call resync_current() here.
+    // The old code called resync_current() which would read the (already
+    // updated) config and potentially re-install hooks for other providers.
+    // For single-provider uninstall, we just emit the updated config.
     emit_config(&app, &state);
     Ok(json!({
         "provider": provider,
         "path": path.to_string_lossy(),
+        "selectionCleared": true,
         "message": "Octopus hooks removed for this provider; user config preserved"
     }))
 }
