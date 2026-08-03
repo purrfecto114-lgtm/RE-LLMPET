@@ -1942,8 +1942,7 @@ impl Runtime {
                 .join(format!(".config.re-llmpet-bak-{ts}.json"));
             fs::copy(&self.config_path, &bp).map_err(|e| {
                 // Rollback: restore old state (don't leave it in a half-reset limbo).
-                *self.config_state.lock().unwrap_or_else(|e| e.into_inner()) =
-                    old_state.clone();
+                *self.config_state.lock().unwrap_or_else(|e| e.into_inner()) = old_state.clone();
                 format!(
                     "backup failed: {e}; state restored to {}",
                     old_state.label()
