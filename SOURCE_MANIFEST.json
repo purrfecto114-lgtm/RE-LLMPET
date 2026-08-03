@@ -1,6 +1,6 @@
 {
   "version": "0.5.39",
-  "generated": 1785745571,
+  "generated": 1785748403,
   "root": "RE-LLMPET-0.5.39",
   "file_count": 286,
   "files": {
@@ -9,7 +9,7 @@
     ".github/workflows/desktop-real-machine.yml": "8bd038c78f9acb0c2c497776d02fc94533ddc0708678cb4f45631888c9c66619",
     ".github/workflows/protocol-drift.yml": "16d6ca097a59f482debe1f6ceec13f9a4d5d05269a08856617db843bd6139b44",
     ".github/workflows/provider-real-cli.yml": "61835976ae5fbf5bc3b1f678256bee01f5477be44a66a8884901fb84b420df06",
-    ".github/workflows/release.yml": "305bc09ba556e64d99c5aed965a765281d656f1e6b203980b7c97896cc2abf9a",
+    ".github/workflows/release.yml": "3328d8d81540523b89d7f1da2214e0c85db58a2ca2835eaba216577d904d71e4",
     ".gitignore": "8e487a1cd8bcc778c5f8da139a6f43eb1984a428a10f715be49ae28989de4303",
     "BUILD_REPRODUCIBILITY.md": "95ac609ab5cac8096aa94305330ce553ffcb67ad3efa6fc564a2eeb098fe89d4",
     "build-windows.sh": "2b1ee1fe31411a98d934f7d26a75bafa477135b98189f94443099746931b01ea",
@@ -289,8 +289,8 @@
     "test/tauri-tray-submenu-r12-smoke.js": "d0f7ebb3a69cdcc7c9b416613444aebd088e5f1402c75ca572c2c40d997e606d",
     "test/tauri-windows-static-smoke.js": "199d2243c59a2647af8c1fc0bd87de49c382128c003dcb937607f84cabc889fa",
     "test/upstream-reconciliation-smoke.js": "d6fe28d0e413a4c4ca1fa9f79d539d420032db83bed17bafe24379e9b69f0862",
-    "worklog.md": "1d4c90ae759d133396422611c927d55c4ea8c5e983eea621c82aa090be08100d"
+    "worklog.md": "6b0f46ef478a1afac514bd4cf29a9059c91486c994e8f5fc9da93fb0c8722fbe"
   },
   "source_commit": "re-llmpet-0.5.39",
-  "sha256_of_manifest": "ed31c0d2652ecf220931124cd931be7c6a0e88fd67c4558f33a6fd9a8e1fed57"
+  "sha256_of_manifest": "b781c59a3fac08e0a124c3fee607f481b11f78dc3bfd215d5ebec13162f1579a"
 }
