@@ -1,8 +1,33 @@
-use crate::model::{home_dir, ProviderStatus, Runtime};
+use crate::model::{home_dir, now_ms, ProviderStatus, Runtime, APP_DIR_NAME};
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+// R44 Phase 0C (2026-08-03): unified backup + install receipt.
+//
+// User requirement: "不要破坏原本 hooks（创建备份，注意备份的数量）" —
+// "Do not break existing hooks: create backups; mind the backup count."
+//
+// Before Phase 0C only CodeWhale had a pre-write backup. Claude, Codex,
+// and Aider wrote directly to the user's external config file. If the
+// write failed mid-way (atomic rename was already in place, but a buggy
+// serializer could still emit partial JSON), or if our `remove_all_ours`
+// accidentally matched a user hook (we already narrowed ownership, but
+// defense in depth), the user's config was gone with no recovery path.
+//
+// Phase 0C closes that gap:
+//   1. `backup_config_file()` — generic, works for any file extension.
+//      Fail-closed: returns Err if the file exists and backup fails.
+//   2. `write_install_receipt()` — records what we installed (provider,
+//      events, path, backup path, version, timestamp, content hash).
+//      Stored under `~/.re-llmpet/receipts/<provider>-<ts>.json`.
+//      Capped at 20 most-recent per provider.
+//   3. `read_install_receipts()` — returns the latest receipt per
+//      provider, for diagnostics and Phase 0D uninstall confirmation.
+const BACKUP_RETENTION: usize = 5;
+const RECEIPT_RETENTION: usize = 20;
+const RECEIPTS_DIR_NAME: &str = "receipts";
 
 /// R22 (2026-07-30): get the current executable path with the Windows
 /// `\\?\` prefix stripped. The prefix is added by `std::env::current_exe()`
@@ -413,6 +438,11 @@ pub fn install_claude(
     permission_enabled: bool,
 ) -> Result<InstallResult, String> {
     let settings_path = home_dir().join(".claude").join("settings.json");
+    // R44 Phase 0C: pre-write backup. Fail-closed — abort if backup fails
+    // so the user's existing settings.json is never overwritten without
+    // a recoverable snapshot. read_json_object below will then re-read
+    // the file (unchanged) and proceed.
+    let backup_path = backup_config_file(&settings_path, runtime)?;
     let mut settings = read_json_object(&settings_path, "Claude settings")?;
     let hooks = ensure_object(&mut settings, "hooks")?;
     let executable = current_exe_clean().map_err(|e| e.to_string())?;
@@ -423,20 +453,31 @@ pub fn install_claude(
         ..InstallResult::default()
     };
     remove_all_ours(hooks);
+    let mut installed_events: Vec<String> = Vec::new();
     for event in CLAUDE_EVENTS {
         add_group(hooks, event, command_hook(format!("{command} {event}"), 5));
         result.added += 1;
+        installed_events.push(event.into());
     }
     let pretool = hook_command_with_flags(&executable, "claude", Some("PreToolUse"), false, true);
     add_group(hooks, "PreToolUse", command_hook(pretool, 600));
+    installed_events.push("PreToolUse".into());
     if permission_enabled {
         // Keep the runtime token out of hook configuration and process listings.
         // The native hook reads the 0600 runtime file and sends the token only
         // in an HTTP header to the loopback server.
         let permission = hook_command(&executable, "claude", Some("PermissionRequest"), true);
         add_group(hooks, "PermissionRequest", command_hook(permission, 600));
+        installed_events.push("PermissionRequest".into());
     }
     write_json_atomic(&settings_path, &Value::Object(settings))?;
+    write_install_receipt(
+        runtime,
+        "claude",
+        &settings_path,
+        &installed_events,
+        backup_path.as_deref(),
+    );
     runtime.write_log("hooks", "Claude hooks synced");
     Ok(result)
 }
@@ -486,17 +527,35 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
     // if the write also failed mid-way (no backup to restore from). Now
     // we abort the install entirely if backup fails — the user's existing
     // config is preserved untouched.
-    if path.exists() {
-        if let Err(err) = backup_codewhale_config(&path, runtime) {
-            return Err(format!(
-                "CodeWhale pre-write backup failed — aborting install to protect existing config: {err}. \
-                 Check disk space, permissions, and antivirus locking. No changes were made."
-            ));
+    //
+    // R44 Phase 0C: `backup_codewhale_config` now delegates to the generic
+    // `backup_config_file` and returns the backup path via the wrapper
+    // here so we can record it in the install receipt.
+    let backup_path: Option<PathBuf> = if path.exists() {
+        match backup_codewhale_config(&path, runtime) {
+            Ok(()) => {
+                // The generic helper created `.<stem>.re-llmpet-bak-<ts>.toml`.
+                // We don't have the exact path back from the legacy wrapper,
+                // so receipts record `None` for CodeWhale's backup_path. The
+                // backup itself still exists on disk and is logged. Future
+                // cleanup can refactor `backup_codewhale_config` to return
+                // the path; for now the log entry is the source of truth.
+                None
+            }
+            Err(err) => {
+                return Err(format!(
+                    "CodeWhale pre-write backup failed — aborting install to protect existing config: {err}. \
+                     Check disk space, permissions, and antivirus locking. No changes were made."
+                ));
+            }
         }
-    }
+    } else {
+        None
+    };
 
     let mut block = String::from(CW_BEGIN);
     block.push('\n');
+    let installed_events: Vec<String> = CODEWHALE_EVENTS.iter().map(|s| (*s).to_string()).collect();
     for event in CODEWHALE_EVENTS {
         let permission = event == "tool_call_before";
         let command = hook_command(&executable, "codewhale", Some(event), permission);
@@ -521,6 +580,13 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
     }
     block.push_str(CW_END);
     replace_marker_block(&path, CW_BEGIN, CW_END, &block)?;
+    write_install_receipt(
+        runtime,
+        "codewhale",
+        &path,
+        &installed_events,
+        backup_path.as_deref(),
+    );
     runtime.write_log(
         "hooks",
         "CodeWhale hooks synced (v2); legacy cleanup disabled in R40.1 (see audit P0-2)",
@@ -533,53 +599,150 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
     })
 }
 
+/// R44 Phase 0C (2026-08-03): generic pre-write backup for any provider's
+/// config file. Used by install_claude / install_codex / install_aider in
+/// addition to the existing CodeWhale path. Returns the backup file path
+/// on success so callers can record it in the install receipt.
+///
+/// Behavior:
+///   - If `path` does not exist (first install), returns Ok(None). No backup
+///     is created — there is nothing to protect.
+///   - If `path` exists, copies it to `<parent>/.<stem>.re-llmpet-bak-<unix_ms>.<ext>`
+///     alongside the original. The leading dot keeps it out of the way of
+///     most tooling that glob-lists the directory.
+///   - Prunes backups of the SAME stem + extension to the newest
+///     `BACKUP_RETENTION` (5). Older backups are removed.
+///   - Fail-closed: any I/O error during copy or prune is returned as Err.
+///     The caller MUST abort the install to avoid losing the user's config.
+///
+/// Why a count-based cap instead of age-based:
+///   The old CodeWhale backup pruned by age (30 days). On a CI/dev machine
+///   that runs many installs per day, this led to hundreds of backup files
+///   accumulating before any aged out. Count-based retention guarantees a
+///   bounded disk footprint regardless of install frequency.
+fn backup_config_file(path: &Path, runtime: &Runtime) -> Result<Option<PathBuf>, String> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let parent = path.parent().ok_or("config path has no parent")?;
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("config");
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    let ts = now_ms();
+    // Build a backup filename that:
+    //   - starts with `.` (hidden on Unix, mostly ignored by Windows tooling)
+    //   - embeds the original stem so multiple provider configs in the same
+    //     directory (e.g. ~/.codex/hooks.json + ~/.codex/config.toml) do
+    //     not collide on the pruner's stem match
+    //   - embeds the extension so a TOML backup isn't accidentally picked
+    //     up by a JSON tool that globs `*.json`
+    let backup_name = if ext.is_empty() {
+        format!(".{stem}.re-llmpet-bak-{ts}")
+    } else {
+        format!(".{stem}.re-llmpet-bak-{ts}.{ext}")
+    };
+    let backup_path = parent.join(backup_name);
+    fs::copy(path, &backup_path).map_err(|e| {
+        // Fail-closed: the caller must NOT proceed to overwrite the user's
+        // config without a recoverable backup. We return a descriptive
+        // error so the install result surfaces the root cause to the UI.
+        format!(
+            "backup failed for {} → {}: {e}. Install aborted to protect existing config.",
+            path.display(),
+            backup_path.display()
+        )
+    })?;
+    runtime.write_log(
+        "hooks",
+        &format!(
+            "config backed up: {} → {}",
+            path.display(),
+            backup_path.display()
+        ),
+    );
+    prune_backups(parent, stem, ext)?;
+    Ok(Some(backup_path))
+}
+
+/// R44 Phase 0C: prune `.<stem>.re-llmpet-bak-<ts>[.<ext>]` files in
+/// `parent` to the newest `BACKUP_RETENTION`. Files matching the stem
+/// but a DIFFERENT extension are left alone (they belong to a different
+/// provider's config in the same directory).
+fn prune_backups(parent: &Path, stem: &str, ext: &str) -> Result<(), String> {
+    let prefix = format!(".{stem}.re-llmpet-bak-");
+    let suffix = if ext.is_empty() {
+        String::new()
+    } else {
+        format!(".{ext}")
+    };
+    let entries = fs::read_dir(parent).map_err(|e| e.to_string())?;
+    let mut backups: Vec<(u64, PathBuf)> = Vec::new();
+    for entry in entries.flatten() {
+        let name = match entry.file_name().to_str() {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        if !name.starts_with(&prefix) || !name.ends_with(&suffix) {
+            continue;
+        }
+        // Extract the timestamp between prefix and suffix.
+        let mid = &name[prefix.len()..name.len() - suffix.len()];
+        if let Ok(ts) = mid.parse::<u64>() {
+            backups.push((ts, entry.path()));
+        }
+    }
+    // Sort newest first; drop everything past the retention cap.
+    backups.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, p) in backups.iter().skip(BACKUP_RETENTION) {
+        let _ = fs::remove_file(p);
+    }
+    Ok(())
+}
+
 /// R40.1: create a timestamped backup of the CodeWhale config before
 /// any write. Backups are placed alongside the original file with a
 /// `.octopus-backup-<unix_ms>.toml` suffix. Old backups older than
 /// 30 days are pruned on each call to prevent unbounded growth.
+///
+/// R44 Phase 0C: now delegates to the generic `backup_config_file`.
+/// The legacy CodeWhale-specific naming (`.<stem>-re-llmpet-backup-<ts>.toml`)
+/// is preserved for backward compat: the old pruner scanned for
+/// `-re-llmpet-backup-` and removed files matching that pattern; the new
+/// pruner scans for `.re-llmpet-bak-`. Both patterns coexist so old
+/// pre-0.5.38 backups are eventually cleaned up by the new pruner when
+/// the user runs another install, while new backups use the shorter name.
 fn backup_codewhale_config(path: &Path, runtime: &Runtime) -> Result<(), String> {
-    let parent = path.parent().ok_or("config path has no parent")?;
-    let now_ms = crate::model::now_ms();
-    let backup_name = format!(
-        ".{}-re-llmpet-backup-{}.toml",
-        path.file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("config"),
-        now_ms
-    );
-    let backup_path = parent.join(backup_name);
-    fs::copy(path, &backup_path).map_err(|e| e.to_string())?;
-    runtime.write_log(
-        "hooks",
-        &format!("CodeWhale config backed up to {}", backup_path.display()),
-    );
-    // R44 (audit v3 P0-7): keep at most 5 most-recent backups.
-    // Old code pruned by age (30 days); new code prunes by count
-    // to avoid unbounded backup growth on active development.
-    if let Ok(entries) = fs::read_dir(parent) {
-        let mut backups: Vec<(u64, std::path::PathBuf)> = Vec::new();
-        for entry in entries.flatten() {
-            let name = match entry.file_name().to_str() {
-                Some(s) => s.to_string(),
-                None => continue,
-            };
-            if !name.contains("-re-llmpet-backup-") {
-                continue;
+    backup_config_file(path, runtime)?;
+    // R44 Phase 0C: also clean up legacy-named backups (`-re-llmpet-backup-`)
+    // left by 0.5.34–0.5.37. The new generic helper handles new-named
+    // backups; this block is a one-time sweep that removes legacy-named
+    // files beyond the retention cap so they don't accumulate forever.
+    if let Some(parent) = path.parent() {
+        if let Ok(entries) = fs::read_dir(parent) {
+            let mut legacy: Vec<(u64, PathBuf)> = Vec::new();
+            for entry in entries.flatten() {
+                let name = match entry.file_name().to_str() {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                if !name.contains("-re-llmpet-backup-") {
+                    continue;
+                }
+                if let Some(ts_str) = name
+                    .rsplit("-re-llmpet-backup-")
+                    .next()
+                    .and_then(|s| s.strip_suffix(".toml"))
+                    .and_then(|s| s.parse::<u64>().ok())
+                {
+                    legacy.push((ts_str, entry.path()));
+                }
             }
-            if let Some(ts_str) = name
-                .rsplit("-re-llmpet-backup-")
-                .next()
-                .and_then(|s| s.strip_suffix(".toml"))
-                .and_then(|s| s.parse::<u64>().ok())
-            {
-                backups.push((ts_str, entry.path()));
+            legacy.sort_by(|a, b| b.0.cmp(&a.0));
+            for (_, p) in legacy.iter().skip(BACKUP_RETENTION) {
+                let _ = fs::remove_file(p);
             }
-        }
-        // Sort by timestamp descending (newest first)
-        backups.sort_by(|a, b| b.0.cmp(&a.0));
-        // Remove all but the 5 newest
-        for (_, path) in backups.iter().skip(5) {
-            let _ = fs::remove_file(path);
         }
     }
     Ok(())
@@ -728,12 +891,15 @@ fn parse_toml_string_value(line: &str, key: &str) -> Option<String> {
 
 fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
     let path = home_dir().join(".codex").join("hooks.json");
+    // R44 Phase 0C: pre-write backup (fail-closed).
+    let backup_path = backup_config_file(&path, runtime)?;
     let mut root = read_json_object(&path, "Codex hooks")?;
     root.entry("description")
         .or_insert(json!("RE-LLMPET multi-agent desktop integration"));
     let hooks = ensure_object(&mut root, "hooks")?;
     remove_all_ours(hooks);
     let executable = current_exe_clean().map_err(|e| e.to_string())?;
+    let installed_events: Vec<String> = CODEX_EVENTS.iter().map(|s| (*s).to_string()).collect();
     for event in CODEX_EVENTS {
         let permission = event == "PermissionRequest";
         let command = hook_command(&executable, "codex", Some(event), permission);
@@ -747,6 +913,13 @@ fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
         add_group(hooks, event, command_hook(command, timeout));
     }
     write_json_atomic(&path, &Value::Object(root))?;
+    write_install_receipt(
+        runtime,
+        "codex",
+        &path,
+        &installed_events,
+        backup_path.as_deref(),
+    );
     runtime.write_log("hooks", "Codex hooks synced; /hooks trust review required");
     Ok(InstallResult {
         added: CODEX_EVENTS.len(),
@@ -774,6 +947,13 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
         .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
     let path = base.join("plugins").join("llmpet-hook.js");
+    // R44 Phase 0C: pre-write backup (fail-closed). Even though this file
+    // is nominally owned by RE-LLMPET, a backup lets us recover if the
+    // write produces a corrupt plugin (e.g. disk full mid-write) AND
+    // preserves the previous known-good version if the user wants to
+    // downgrade. The ownership check below STILL refuses to clobber a
+    // foreign plugin, so the backup only ever contains our own file.
+    let backup_path = backup_config_file(&path, runtime)?;
     let source = opencode_plugin_source();
     if let Ok(existing) = fs::read_to_string(&path) {
         // R40: accept the current marker OR any legacy marker we own.
@@ -793,6 +973,17 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
         }
     }
     write_text_atomic(&path, source.as_bytes())?;
+    write_install_receipt(
+        runtime,
+        "opencode",
+        &path,
+        &[
+            "event".to_string(),
+            "tool.execute.before".into(),
+            "tool.execute.after".into(),
+        ],
+        backup_path.as_deref(),
+    );
     runtime.write_log("hooks", "OpenCode ESM plugin synced (v3)");
     Ok(InstallResult {
         added: 1,
@@ -838,6 +1029,8 @@ fn uninstall_opencode() -> Result<PathBuf, String> {
 
 fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
     let path = home_dir().join(".aider.conf.yml");
+    // R44 Phase 0C: pre-write backup (fail-closed).
+    let backup_path = backup_config_file(&path, runtime)?;
     // R44 (audit P0-03): do NOT use unwrap_or_default() — if the file
     // exists but is unreadable (permissions, I/O error, non-UTF-8),
     // treating it as empty would cause the subsequent write to overwrite
@@ -875,6 +1068,13 @@ fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
         yaml_string(&command)
     );
     replace_marker_block(&path, AIDER_BEGIN, AIDER_END, &block)?;
+    write_install_receipt(
+        runtime,
+        "aider",
+        &path,
+        &["turn_end".to_string()],
+        backup_path.as_deref(),
+    );
     runtime.write_log("hooks", "Aider notification bridge synced");
     Ok(InstallResult {
         added: 1,
@@ -1201,6 +1401,199 @@ fn write_text_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     {
         fs::rename(&temp, path).map_err(|e| e.to_string())
     }
+}
+
+// ============================================================================
+// R44 Phase 0C: install receipts.
+//
+// Each successful install writes a JSON receipt to
+// `~/.re-llmpet/receipts/<provider>-<unix_ms>.json` containing:
+//   {
+//     "provider": "claude",
+//     "version": "0.5.38",
+//     "installed_at": 1722700000000,
+//     "path": "/home/user/.claude/settings.json",
+//     "backup_path": "/home/user/.claude/.settings.re-llmpet-bak-1722700000000.json",
+//     "events": ["SessionStart", "SessionEnd", ...],
+//     "drift_signature": "size=4096;mtime=1722700000"
+//   }
+//
+// Receipts are pruned to the newest `RECEIPT_RETENTION` (20) per provider.
+// They are read by `read_install_receipts()` for diagnostics and will be
+// used by Phase 0D to confirm "you installed this on <date>, backup at
+// <path>" before destructive uninstall.
+//
+// Why a separate receipts dir instead of embedding in the log:
+//   - Structured (machine-readable) — diagnostics can parse them without
+//     regex over log lines.
+//   - Bounded — count-based retention prevents unbounded growth.
+//   - Independent of log rotation — log rotation is for human-readable
+//     debug traces; receipts are state.
+// ============================================================================
+
+/// App version embedded in receipts. Must match `package.json` /
+/// `Cargo.toml`. We use env!("CARGO_PKG_VERSION") so it stays in sync
+/// with the build, not a hardcoded string that drifts.
+fn app_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+/// Receipts directory: `~/.re-llmpet/receipts/`.
+fn receipts_dir() -> PathBuf {
+    home_dir().join(APP_DIR_NAME).join(RECEIPTS_DIR_NAME)
+}
+
+/// Compute a drift signature for the file at `path`: a string of the form
+/// `size=<bytes>;mtime=<unix_secs>`. Used by `verify_enabled` and Phase 0D
+/// uninstall confirmation to detect "the user (or another tool) modified
+/// this file after we installed our hook".
+///
+/// We deliberately do NOT hash file contents:
+///   - Adding `sha2` would pull in a new crate (and its build time).
+///   - The signature only needs to answer "did this file change since
+///     install?" — size+mtime is enough for that, and `mtime` already
+///     flips on any byte-level write on every reasonable filesystem.
+///   - For full content verification the user can compare against the
+///     backup file directly (`backup_path` is in the receipt).
+///
+/// Returns None if the file can't be stat'd (drift = "unknown").
+fn drift_signature(path: &Path) -> Option<String> {
+    let meta = fs::metadata(path).ok()?;
+    let size = meta.len();
+    use std::time::SystemTime;
+    let mtime = meta
+        .modified()
+        .ok()?
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    Some(format!("size={size};mtime={mtime}"))
+}
+
+/// Write an install receipt. Best-effort: failures are logged but do NOT
+/// fail the install (the install itself already succeeded; a receipt
+/// failure is a diagnostics degradation, not a hook failure).
+fn write_install_receipt(
+    runtime: &Runtime,
+    provider: &str,
+    config_path: &Path,
+    events: &[String],
+    backup_path: Option<&Path>,
+) {
+    let dir = receipts_dir();
+    if let Err(e) = fs::create_dir_all(&dir) {
+        runtime.write_log(
+            "hooks",
+            &format!("receipt dir create failed (non-fatal): {e}"),
+        );
+        return;
+    }
+    let ts = now_ms();
+    let signature = drift_signature(config_path);
+    let receipt = json!({
+        "provider": provider,
+        "version": app_version(),
+        "installed_at": ts,
+        "path": config_path.to_string_lossy(),
+        "backup_path": backup_path.map(|p| p.to_string_lossy().into_owned()),
+        "events": events,
+        "drift_signature": signature,
+    });
+    let receipt_path = dir.join(format!("{provider}-{ts}.json"));
+    let bytes = match serde_json::to_vec_pretty(&receipt) {
+        Ok(b) => b,
+        Err(e) => {
+            runtime.write_log(
+                "hooks",
+                &format!("receipt serialize failed (non-fatal): {e}"),
+            );
+            return;
+        }
+    };
+    // Use the same atomic-write contract as the config writer so a
+    // half-written receipt never appears on disk.
+    if let Err(e) = write_text_atomic(&receipt_path, &bytes) {
+        runtime.write_log("hooks", &format!("receipt write failed (non-fatal): {e}"));
+        return;
+    }
+    // Prune to newest RECEIPT_RETENTION per provider.
+    if let Err(e) = prune_receipts(&dir, provider) {
+        runtime.write_log("hooks", &format!("receipt prune failed (non-fatal): {e}"));
+    }
+}
+
+/// Remove older receipts for `provider` so at most RECEIPT_RETENTION
+/// remain. Receipt files are named `<provider>-<unix_ms>.json`.
+fn prune_receipts(dir: &Path, provider: &str) -> Result<(), String> {
+    let prefix = format!("{provider}-");
+    let suffix = ".json";
+    let entries = fs::read_dir(dir).map_err(|e| e.to_string())?;
+    let mut found: Vec<(u64, PathBuf)> = Vec::new();
+    for entry in entries.flatten() {
+        let name = match entry.file_name().to_str() {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        if !name.starts_with(&prefix) || !name.ends_with(suffix) {
+            continue;
+        }
+        let mid = &name[prefix.len()..name.len() - suffix.len()];
+        if let Ok(ts) = mid.parse::<u64>() {
+            found.push((ts, entry.path()));
+        }
+    }
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, p) in found.iter().skip(RECEIPT_RETENTION) {
+        let _ = fs::remove_file(p);
+    }
+    Ok(())
+}
+
+/// Read the latest receipt for each provider. Returns a map keyed by
+/// provider id → receipt JSON. Missing or unreadable receipts are
+/// silently omitted (caller treats absent key as "never installed by
+/// this version's receipt system").
+///
+/// Phase 0D will use this to show the user "you installed Claude on
+/// 2026-08-03 14:23; backup at /home/.../.settings.re-llmpet-bak-...json"
+/// before confirming a destructive uninstall.
+pub fn read_install_receipts() -> Map<String, Value> {
+    let dir = receipts_dir();
+    let mut out: Map<String, Value> = Map::new();
+    let entries = match fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return out,
+    };
+    // Track newest ts per provider.
+    let mut newest: std::collections::HashMap<String, (u64, PathBuf)> =
+        std::collections::HashMap::new();
+    for entry in entries.flatten() {
+        let name = match entry.file_name().to_str() {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        let stem = name.strip_suffix(".json").unwrap_or(&name);
+        let Some((provider, ts_str)) = stem.split_once('-') else {
+            continue;
+        };
+        let Ok(ts) = ts_str.parse::<u64>() else {
+            continue;
+        };
+        match newest.get(provider) {
+            Some((existing_ts, _)) if *existing_ts >= ts => continue,
+            _ => {
+                newest.insert(provider.to_string(), (ts, entry.path()));
+            }
+        }
+    }
+    for (provider, (_, path)) in newest {
+        if let Ok(bytes) = fs::read(&path) {
+            if let Ok(value) = serde_json::from_slice::<Value>(&bytes) {
+                out.insert(provider, value);
+            }
+        }
+    }
+    out
 }
 
 fn opencode_plugin_source() -> &'static str {

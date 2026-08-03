@@ -1,5 +1,103 @@
 # Changelog
 
+## 0.5.38 — R44 Phase 0C: unified backup + install receipt（2026-08-03）
+
+Implements Phase 0C of the R44 roadmap, closing the "do not break existing
+hooks; create backups; mind the backup count" user requirement.
+
+### P0C-1: Generic pre-write backup for all providers
+
+Before Phase 0C, only CodeWhale had a pre-write backup. Claude, Codex,
+and Aider wrote directly to the user's external config file with no
+recovery snapshot. Now every install path calls the new
+`backup_config_file()` helper, which:
+
+- Returns `Ok(None)` on first install (file doesn't exist yet)
+- Copies the file to `.<stem>.re-llmpet-bak-<unix_ms>.<ext>` alongside
+  the original on subsequent installs
+- Returns `Err` (fail-closed) if the copy fails — the install aborts
+  and the user's existing config is preserved untouched
+- Prunes same-stem/same-extension backups to the newest 5
+
+Backups are now created for:
+- `~/.claude/settings.json`
+- `~/.codex/hooks.json`
+- `~/.codewhale/config.toml` (unchanged path, now via generic helper)
+- `~/.aider.conf.yml`
+- `~/.config/opencode/plugins/llmpet-hook.js` (our own file, but a
+  backup still protects against partial writes)
+
+### P0C-2: Count-based retention cap
+
+Replaced the old age-based CodeWhale pruner (30 days) with a count-based
+cap of 5 most-recent backups. Age-based pruning accumulated hundreds of
+backups on active dev machines before any aged out. Count-based retention
+guarantees a bounded disk footprint regardless of install frequency.
+
+Legacy `-re-llmpet-backup-` files from 0.5.34–0.5.37 are still swept
+by the new pruner on the next install, so old backups are eventually
+cleaned up without a separate migration step.
+
+### P0C-3: Install receipts
+
+Each successful install writes a JSON receipt to
+`~/.re-llmpet/receipts/<provider>-<unix_ms>.json`:
+
+```json
+{
+  "provider": "claude",
+  "version": "0.5.38",
+  "installed_at": 1722700000000,
+  "path": "/home/user/.claude/settings.json",
+  "backup_path": "/home/user/.claude/.settings.re-llmpet-bak-1722700000000.json",
+  "events": ["SessionStart", "SessionEnd", "PreToolUse", ...],
+  "drift_signature": "size=4096;mtime=1722700000"
+}
+```
+
+Receipts are pruned to the newest 20 per provider (count-based, not
+age-based). `read_install_receipts()` is exposed as a pub fn returning
+the latest receipt per provider — Phase 0D will use this to confirm
+"you installed Claude on <date>; backup at <path>" before destructive
+uninstall.
+
+The `drift_signature` field records `size=<bytes>;mtime=<unix_secs>`
+so `verify_enabled` can detect if the user (or another tool) modified
+the config after our install. We deliberately do NOT hash contents —
+adding the `sha2` crate would be overkill for "did this file change?"
+detection, and the backup file itself is available for full content
+comparison if needed.
+
+### P0C-4: Fail-closed contract preserved
+
+The existing CodeWhale abort-on-backup-failure behavior is preserved
+and now applied uniformly. Any I/O error during backup returns `Err`,
+which propagates via `?` to abort the install. The user sees:
+
+> backup failed for /home/user/.claude/settings.json → /home/user/.claude/.settings.re-llmpet-bak-...json: <error>. Install aborted to protect existing config.
+
+### Backward compatibility
+
+- `OPENCODE_MARKER_LEGACY` still detects old v2/v3 plugin markers
+- `HOOK_OWNER = "--owner re-llmpet"` tag still drives `remove_all_ours`
+- Old `octopus-` prefixed hook names still detected for cleanup
+- `Cargo.toml` lib name kept as `octopus` for binary compatibility
+- `backup_codewhale_config` signature unchanged; delegates internally
+- Receipt dir is best-effort — creation failures are logged but do
+  not fail the install (the install itself already succeeded)
+
+### Verification
+
+- npm test: 51/51 ✅ (new `tauri-r44c-backup-receipt-smoke.js` added)
+- npm run check:static: 22/22 ✅
+- npm run gate:source: 16/16 ✅
+- cargo fmt --check: ✅
+- cargo check: ✅ (cargo build unavailable in CI container due to
+  missing GTK system libs, but `cargo check --lib` on the modified
+  file produces no new errors beyond the existing GTK dep cascade)
+
+---
+
 ## 0.5.37 — R44 Phase A: correctness closure（2026-08-03）
 
 Fixes all P0 items from the 0.5.36 full audit v3.

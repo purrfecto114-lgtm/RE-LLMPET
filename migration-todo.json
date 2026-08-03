@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "project": "LLMPET / Octopus Tauri migration",
-  "release": "0.5.6",
-  "updatedAt": "2026-07-30",
+  "release": "0.5.38",
+  "updatedAt": "2026-08-03",
   "statusDefinitions": {
     "done": "Acceptance evidence exists and the stated verification gate passed.",
     "ci-verified": "Code is present and static/smoke checks pass, but Rust compilation or real-provider execution is still missing.",
@@ -1214,6 +1214,20 @@
         "/home/z/my-project/download/MIGRATION_COMPLETE_R10_R19.md"
       ],
       "nextAction": "On a machine with mingw-w64 installed, run cargo build --target x86_64-pc-windows-gnu --release --locked to produce the real Windows .exe. The cargo check verification confirms all R10-R19 Rust code compiles correctly for Windows."
+    },
+    {
+      "id": "R44-0C",
+      "title": "Phase 0C: unified pre-write backup (5-cap) + install receipts (20-cap) for all 5 providers; user-requirement \"do not break existing hooks\"",
+      "status": "ci-verified",
+      "verifier": "test/tauri-r44c-backup-receipt-smoke.js",
+      "notes": "backup_config_file() + write_install_receipt() + read_install_receipts() added to hook_install.rs; CodeWhale legacy backup_codewhale_config delegates to generic helper; backup naming .<stem>.re-llmpet-bak-<ts>.<ext>; receipts in ~/.re-llmpet/receipts/<provider>-<ts>.json",
+      "dependencies": [],
+      "acceptance": [
+        "tauri-r44c-backup-receipt-smoke.js passes (51/51 npm test)",
+        "cargo fmt --check clean",
+        "check:static 22/22",
+        "gate:source 16/16"
+      ]
     }
   ]
 }
