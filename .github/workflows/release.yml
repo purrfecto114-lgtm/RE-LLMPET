@@ -171,8 +171,17 @@ jobs:
             else
               echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
             fi
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            # R44 0.5.39 (Roadmap v5): all pre-0.6.0 tag releases must be
+            # marked as prerelease. The old code set prerelease=false on
+            # every tag push, which falsely promoted 0.5.38 (and would have
+            # promoted 0.5.39) to "latest release" despite missing platform
+            # signing, real-machine verification, and the full Roadmap v5
+            # exit criteria. Only 0.6.0 stable (after RC validation) should
+            # set prerelease=false. Until then, all tag releases are
+            # prerelease and the release body warns "not for production".
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
             echo "releaseDraft=false" >> "$GITHUB_OUTPUT"
+            echo "make_latest=false" >> "$GITHUB_OUTPUT"
             echo "tagName=v$VERSION" >> "$GITHUB_OUTPUT"
           else
             echo "releaseDraft=true" >> "$GITHUB_OUTPUT"
@@ -224,7 +233,7 @@ jobs:
         with:
           tagName: ${{ steps.mode.outputs.tagName }}
           releaseName: 'RE-LLMPET v__VERSION__'
-          releaseBody: 'Tauri 2 / Rust desktop pet build. Stable tag builds include updater signing (TAURI_SIGNING_PRIVATE_KEY). Platform code signing (Windows Authenticode, macOS Developer ID) is applied when secrets are available; otherwise builds are unsigned but functional. Checksums, SPDX SBOM and attestations are attached by this workflow. Checksums, SPDX SBOM and attestations are attached by this workflow.'
+          releaseBody: 'RE-LLMPET — Tauri 2 / Rust desktop pet build. ⚠️ PRERELEASE — not for production use; real-machine testing required before stable. Signing status: Windows Authenticode NOT applied (no code signing certificate); macOS Developer ID NOT applied (no Apple Developer account); Tauri updater plugin NOT enabled (TAURI_SIGNING_PRIVATE_KEY exists but updater is not configured). Builds are unsigned but functional — do NOT redistribute as official stable. Checksums, SPDX SBOM and attestations are attached. Status labels (per Roadmap v5 §7): source-contract-passed ✅; compiled/installer-e2e-passed/real-provider-passed/platform-signed ❌. See docs/RE-LLMPET-Roadmap-v5.md and the release notes for the testing roadmap.'
           releaseDraft: ${{ steps.mode.outputs.releaseDraft }}
           prerelease: ${{ steps.mode.outputs.prerelease }}
           # We don't ship the tauri updater plugin, so disable updater JSON/
