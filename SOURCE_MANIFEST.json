@@ -1,6 +1,6 @@
 {
   "version": "0.5.41",
-  "generated": 1785769607,
+  "generated": 1785769947,
   "root": "RE-LLMPET-0.5.41",
   "file_count": 295,
   "files": {
@@ -172,7 +172,7 @@
     "src-tauri/build.rs": "4177a6952b54057c84d4fd712ca6a23eaab02e1ff5f616ed601d614033ca661f",
     "src-tauri/capabilities/panel.json": "e4dc804033f3b57b0bdfdeb2894cccf69073d613441d1e058546e2a40b9da713",
     "src-tauri/capabilities/pet.json": "e4b4b35ab0346ba20b0be4dc6e406bd7d3ff924b6eda359fe8b9c9d8f01534b2",
-    "src-tauri/Cargo.lock": "7cd05127376fa539dffe2c1c3cafe1a904260b8e622aaaabf6d7fde647fd5d77",
+    "src-tauri/Cargo.lock": "bf42d114114e42b51a52b3f959d2d283cc8563c7fb9e742bf2f7fa3b79d5f1c3",
     "src-tauri/Cargo.toml": "3b0a6ac9b6f3d2e0867fba264736747c4eac503ebacb5dcf4e958976a676bda4",
     "src-tauri/icons/128x128.png": "7d9b5168309dc271361031235e8c5e66e2ac68671ff270dd94b0460c874207f1",
     "src-tauri/icons/128x128@2x.png": "fd9e62403428d15212f6a100ee3ef760559bd8684c54179668add5978d05270b",
@@ -301,5 +301,5 @@
     "worklog.md": "6b0f46ef478a1afac514bd4cf29a9059c91486c994e8f5fc9da93fb0c8722fbe"
   },
   "source_commit": "re-llmpet-0.5.41",
-  "sha256_of_manifest": "38a780b146d922806fd776cd219472f03f3aedf2e31938bc77ff35308a3c95c0"
+  "sha256_of_manifest": "ea22e63b7e4e6977f754b49add6d42ca411f27962d4dc1b77da0fa710892f471"
 }
