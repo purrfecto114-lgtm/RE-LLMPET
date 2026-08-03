@@ -143,9 +143,7 @@ pub fn backup_and_reset_config(state: State<'_, AppState>) -> Result<Value, Stri
         "config",
         &format!(
             "backup_and_reset_config: reset={}, backup_created={}, backup_path={:?}",
-            result.reset,
-            result.backup_created,
-            result.backup_path
+            result.reset, result.backup_created, result.backup_path
         ),
     );
     Ok(json!({
