@@ -1,6 +1,6 @@
 {
   "version": "0.5.41",
-  "generated": 1785769947,
+  "generated": 1785770261,
   "root": "RE-LLMPET-0.5.41",
   "file_count": 295,
   "files": {
@@ -234,7 +234,7 @@
     "src-tauri/src/lib.rs": "666c3510f9ffff65e7d7bf8e9dd7d6e30a60e0c3a5b987762673d2f6b4fb1edc",
     "src-tauri/src/main.rs": "7322500d451bf7afe8376e01f659410eb54e03569d2654ce60fb786248ad4015",
     "src-tauri/src/metering.rs": "21c20767b5fc647fe8f46ce0c1b2aafb45504a9dc00ff11c34ac61a9c4e4ddab",
-    "src-tauri/src/model.rs": "7588decb8d86daf6f5bdbcb85e35f5ae79638e5c09c988f0e463bdd98248d7ba",
+    "src-tauri/src/model.rs": "16886e292384331e2549109cd0d2e06c0700e71fbb6befb5e333e9ffa4ea575e",
     "src-tauri/src/platform.rs": "6964204fc6484c55838d5fb4c36c4416a7e285618038d0be1bc2b8e78e0f908b",
     "src-tauri/src/pricing_sync.rs": "1954239a4f2495cd820728c58228dea9f2170add6ef5e3c94523a18f2da6bc98",
     "src-tauri/src/transcript.rs": "28c2eb4b19ea3dbed6c8114c0f32f4b1c656209a5fea2fc14c69fe8b76fbeeec",
@@ -301,5 +301,5 @@
     "worklog.md": "6b0f46ef478a1afac514bd4cf29a9059c91486c994e8f5fc9da93fb0c8722fbe"
   },
   "source_commit": "re-llmpet-0.5.41",
-  "sha256_of_manifest": "ea22e63b7e4e6977f754b49add6d42ca411f27962d4dc1b77da0fa710892f471"
+  "sha256_of_manifest": "8ac00c60fd43f3529f9ee468cc1c6252db273f6a30f99a44685abe3c8a07bc27"
 }

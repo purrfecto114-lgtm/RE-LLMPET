@@ -398,7 +398,7 @@ pub enum ConfigState {
     /// Never constructed by the current loader; kept as the forward
     /// contract for handling future config schema versions.
     #[allow(dead_code)]
-    SchemaTooNew { version: u64 },
+    SchemaTooNew { version: u32 },
 }
 
 impl ConfigState {
