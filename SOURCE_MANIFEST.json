@@ -1,6 +1,6 @@
 {
   "version": "0.5.37",
-  "generated": 1785737054,
+  "generated": 1785736782,
   "root": "RE-LLMPET-0.5.37",
   "file_count": 280,
   "files": {
@@ -225,7 +225,7 @@
     "src-tauri/src/lib.rs": "d7736b753e4ec8f4f2906421aadd663824cc2c2a44b239b08a9ec999890a2d52",
     "src-tauri/src/main.rs": "7322500d451bf7afe8376e01f659410eb54e03569d2654ce60fb786248ad4015",
     "src-tauri/src/metering.rs": "5550411004548c5132d35541789e7866a715e30b5748287cf3fb44cf32fa93c2",
-    "src-tauri/src/model.rs": "bfe9e685ee4455ad55f5eccfed33be4eba93be4d6b0c309bd0dc2b73415c98a4",
+    "src-tauri/src/model.rs": "16185f235b8fbe6d86b9bc8437768eec38518c205054bf913f3b341e681251e6",
     "src-tauri/src/platform.rs": "6964204fc6484c55838d5fb4c36c4416a7e285618038d0be1bc2b8e78e0f908b",
     "src-tauri/src/pricing_sync.rs": "8cc0a863ff57986f3699e2abd164674556b4ec6ce98516b4d9382c2a3aa59b5d",
     "src-tauri/src/transcript.rs": "9660b7e6246ecc9d8af1d7398eb61e28b8cd081b595d7448394aebbaddb1b95b",
@@ -286,5 +286,5 @@
     "test/upstream-reconciliation-smoke.js": "d6fe28d0e413a4c4ca1fa9f79d539d420032db83bed17bafe24379e9b69f0862"
   },
   "source_commit": "re-llmpet-0.5.37",
-  "sha256_of_manifest": "601d3d9ba7d751da6622f2d15b560b0b5281026276af4029b54d34589f6f86a4"
+  "sha256_of_manifest": "b1f41642c8050d1f089d14282f468f59cc87ff4c8eff2f6936b0fe7c0f9fc568"
 }
