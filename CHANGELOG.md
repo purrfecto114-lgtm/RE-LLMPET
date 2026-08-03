@@ -1,9 +1,9 @@
 # Changelog
 
-## 0.5.38 — R44 Phase 0C: unified backup + install receipt（2026-08-03）
+## 0.5.38 — R44 Phase 0C + 0D: unified backup + install receipt + uninstall provenance（2026-08-03）
 
-Implements Phase 0C of the R44 roadmap, closing the "do not break existing
-hooks; create backups; mind the backup count" user requirement.
+Implements Phase 0C + 0D of the R44 roadmap, closing the "do not break
+existing hooks; create backups; mind the backup count" user requirement.
 
 ### P0C-1: Generic pre-write backup for all providers
 
@@ -86,9 +86,45 @@ which propagates via `?` to abort the install. The user sees:
 - Receipt dir is best-effort — creation failures are logged but do
   not fail the install (the install itself already succeeded)
 
+### Phase 0D: Uninstall provenance + drift detection
+
+The single-provider `uninstall_hooks` IPC now returns receipt fields
+so the frontend can show "you installed on X, backup at Y, drift: yes/no"
+in the uninstall confirmation dialog:
+
+```json
+{
+  "provider": "claude",
+  "path": "/home/user/.claude/settings.json",
+  "selectionCleared": true,
+  "priorReceipt": { ...full receipt JSON... },
+  "installedAt": 1722700000000,
+  "backupPath": "/home/user/.claude/.settings.re-llmpet-bak-...json",
+  "driftDetected": false,
+  "message": "RE-LLMPET hooks removed for this provider; user config preserved"
+}
+```
+
+If `driftDetected` is true (the user or another tool modified the config
+after our install), the message warns "config was modified after install
+— verify backup" so the user knows to inspect the backup before trusting
+the uninstall.
+
+A new `get_install_receipts` IPC command returns the latest receipt per
+provider, exposed as a JSON object keyed by provider id. The frontend
+will use this in Phase 0E to render an "Installation provenance" panel
+showing when each provider's hooks were last installed, by which version,
+and where the backup lives.
+
+The "all" uninstall path is unchanged — it's a bulk operation and the
+existing `results` / `failures` / `allHooksRemoved` fields are sufficient.
+Per-provider receipts are only surfaced for single-provider uninstall,
+where the user is making a deliberate decision about one provider.
+
 ### Verification
 
-- npm test: 51/51 ✅ (new `tauri-r44c-backup-receipt-smoke.js` added)
+- npm test: 52/52 ✅ (new `tauri-r44c-backup-receipt-smoke.js` +
+  `tauri-r44d-uninstall-provenance-smoke.js` added)
 - npm run check:static: 22/22 ✅
 - npm run gate:source: 16/16 ✅
 - cargo fmt --check: ✅

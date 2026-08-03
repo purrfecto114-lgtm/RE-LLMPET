@@ -300,6 +300,15 @@ pub fn uninstall_hooks(
         return Err(format!("unsupported provider: {provider}"));
     }
     let path = crate::hook_install::uninstall_provider_hooks(&provider)?;
+    // R44 Phase 0D: snapshot the latest receipt BEFORE we (potentially)
+    // delete it below. The receipt carries the original install timestamp
+    // and backup_path, which we surface in the response so the frontend
+    // can show "你于 X 安装了 Claude；备份位于 Y" before destructive
+    // uninstall. If the receipt is absent (installed before 0.5.38),
+    // we still proceed — uninstall is the user's explicit request.
+    let prior_receipt = crate::hook_install::read_install_receipts()
+        .get(&provider)
+        .cloned();
     state.runtime.write_log(
         "tray",
         &format!("uninstalled hooks for {provider}: {}", path.display()),
@@ -314,12 +323,63 @@ pub fn uninstall_hooks(
     // updated) config and potentially re-install hooks for other providers.
     // For single-provider uninstall, we just emit the updated config.
     emit_config(&app, &state);
+    // R44 Phase 0D: surface the prior install receipt + drift check in
+    // the response. The frontend uses this to confirm "backup is at <path>;
+    // user config was last installed by RE-LLMPET on <date>" and to detect
+    // if the user (or another tool) modified the config after our install
+    // (drift_signature differs from current file state).
+    let (installed_at, backup_path, drift_detected) = match &prior_receipt {
+        Some(r) => {
+            let installed_at = r.get("installed_at").and_then(Value::as_u64);
+            let backup_path = r
+                .get("backup_path")
+                .and_then(Value::as_str)
+                .map(|s| s.to_string());
+            // Compute current drift signature and compare to receipt.
+            let path_str = r.get("path").and_then(Value::as_str);
+            let receipt_sig = r.get("drift_signature").and_then(Value::as_str);
+            let drifted = match (path_str, receipt_sig) {
+                (Some(p), Some(saved)) => {
+                    let current = crate::hook_install::current_drift_signature(Path::new(p));
+                    current.as_deref() != Some(saved)
+                }
+                _ => false, // no signature in receipt → can't detect drift
+            };
+            (installed_at, backup_path, drifted)
+        }
+        None => (None, None, false),
+    };
     Ok(json!({
         "provider": provider,
         "path": path.to_string_lossy(),
         "selectionCleared": true,
-        "message": "RE-LLMPET hooks removed for this provider; user config preserved"
+        "priorReceipt": prior_receipt,
+        "installedAt": installed_at,
+        "backupPath": backup_path,
+        "driftDetected": drift_detected,
+        "message": if drift_detected {
+            "RE-LLMPET hooks removed; WARNING: config was modified after install — verify backup"
+        } else {
+            "RE-LLMPET hooks removed for this provider; user config preserved"
+        }
     }))
+}
+
+/// R44 Phase 0D: return the latest install receipt per provider. Used by
+/// the frontend's "Uninstall" confirmation dialog to show the user:
+///   "你于 2026-08-03 14:23 通过 RE-LLMPET 0.5.38 安装了 Claude hooks。
+///    备份文件：~/.claude/.settings.re-llmpet-bak-1722700000000.json。
+///    配置漂移：未检测到 / 已检测到（用户或第三方工具修改过）。"
+///
+/// Returns a JSON object keyed by provider id. Each value is the receipt
+/// JSON written by `write_install_receipt`. Providers without receipts
+/// (never installed by 0.5.38+, or receipts pruned) are absent from the
+/// map — the frontend treats absent key as "no provenance info".
+#[tauri::command]
+pub fn get_install_receipts() -> Value {
+    let map = crate::hook_install::read_install_receipts();
+    // Convert Map<String, Value> to a JSON object Value.
+    Value::Object(map.into_iter().collect())
 }
 
 #[tauri::command]

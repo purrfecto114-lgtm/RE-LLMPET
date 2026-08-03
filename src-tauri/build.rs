@@ -7,6 +7,7 @@ const COMMANDS: &[&str] = &[
     "set_language",
     "set_mode",
     "uninstall_hooks",
+    "get_install_receipts",
     "set_skin",
     "set_session_prefs",
     "set_budget",

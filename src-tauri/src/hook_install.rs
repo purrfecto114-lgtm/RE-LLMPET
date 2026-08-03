@@ -1470,6 +1470,15 @@ fn drift_signature(path: &Path) -> Option<String> {
     Some(format!("size={size};mtime={mtime}"))
 }
 
+/// R44 Phase 0D: pub wrapper around `drift_signature` so commands.rs can
+/// compute the current signature of a config file and compare it to the
+/// value stored in the install receipt. Used by `uninstall_hooks` to
+/// surface a drift warning ("config was modified after install — verify
+/// backup") in the IPC response.
+pub fn current_drift_signature(path: &Path) -> Option<String> {
+    drift_signature(path)
+}
+
 /// Write an install receipt. Best-effort: failures are logged but do NOT
 /// fail the install (the install itself already succeeded; a receipt
 /// failure is a diagnostics degradation, not a hook failure).

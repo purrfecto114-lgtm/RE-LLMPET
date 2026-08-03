@@ -1228,6 +1228,18 @@
         "check:static 22/22",
         "gate:source 16/16"
       ]
+    },
+    {
+      "id": "R44-0D",
+      "title": "Phase 0D: uninstall provenance + drift detection — get_install_receipts IPC + uninstall_hooks response carries priorReceipt/installedAt/backupPath/driftDetected",
+      "status": "ci-verified",
+      "dependencies": [],
+      "acceptance": [
+        "tauri-r44d-uninstall-provenance-smoke.js passes (52/52 npm test)",
+        "tauri-capability-boundary-smoke.js passes (ACL manifest in sync)",
+        "cargo fmt --check clean",
+        "check:static 22/22"
+      ]
     }
   ]
 }
