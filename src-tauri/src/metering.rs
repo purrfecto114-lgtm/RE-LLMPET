@@ -529,13 +529,11 @@ impl UsageLedger {
         let context_limit = self
             .find_price(&model, Some("anthropic"))
             .and_then(|entry| entry.context_window)
-            .or_else(|| {
-                Some(if context_used > 200_000 {
-                    1_000_000
-                } else {
-                    200_000
-                })
-            });
+            .or(Some(if context_used > 200_000 {
+                1_000_000
+            } else {
+                200_000
+            }));
         let quote = self.cost_for(
             &model,
             Some("anthropic"),
@@ -577,6 +575,10 @@ impl UsageLedger {
         })
     }
 
+    // The token-count parameters are intentionally flat: bundling them into
+    // a struct would churn every call site and the tests for no gain, so
+    // the narrow lint allow is kept instead.
+    #[allow(clippy::too_many_arguments)]
     fn cost_for(
         &self,
         model: &str,

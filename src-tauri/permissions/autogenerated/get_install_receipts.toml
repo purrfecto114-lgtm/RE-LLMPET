@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-install-receipts"
+description = "Enables the get_install_receipts command without any pre-configured scope."
+commands.allow = ["get_install_receipts"]
+
+[[permission]]
+identifier = "deny-get-install-receipts"
+description = "Denies the get_install_receipts command without any pre-configured scope."
+commands.deny = ["get_install_receipts"]

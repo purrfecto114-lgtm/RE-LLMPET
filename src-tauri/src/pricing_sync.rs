@@ -515,7 +515,7 @@ fn trusted_curl_path() -> Option<PathBuf> {
     {
         let root = std::env::var_os("SystemRoot").or_else(|| std::env::var_os("WINDIR"))?;
         let candidate = PathBuf::from(root).join("System32").join("curl.exe");
-        return candidate.is_file().then_some(candidate);
+        candidate.is_file().then_some(candidate)
     }
     #[cfg(not(windows))]
     {

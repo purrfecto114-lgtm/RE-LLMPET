@@ -35,6 +35,10 @@ struct Request {
 #[derive(Debug, Clone)]
 pub struct ServerInfo {
     pub port: u16,
+    /// Loopback auth token, also written to `runtime.json` for hook
+    /// processes. Kept on the return value so callers can use it without
+    /// re-reading the runtime file.
+    #[allow(dead_code)]
     pub token: String,
 }
 

@@ -17,10 +17,6 @@ fn emit_config(app: &AppHandle, state: &AppState) {
     let _ = app.emit("panel:config", config);
 }
 
-fn emit_stats(app: &AppHandle, state: &AppState) {
-    emit_stats_throttled(app, state, false);
-}
-
 /// R38.1 (2026-08-01): throttled stats emit with revision. The 0.5.16
 /// full audit (P0-1) flagged that the old throttle had no trailing flush
 /// and no revision — final events could be permanently lost, and stale
@@ -1027,10 +1023,10 @@ fn executable_candidates(command: &str) -> Vec<OsString> {
         // executables have no extension).
         #[cfg(windows)]
         {
-            return extensions
+            extensions
                 .into_iter()
                 .map(|extension| format!("{command}{extension}").into())
-                .collect();
+                .collect()
         }
         #[cfg(not(windows))]
         {
@@ -1067,10 +1063,6 @@ fn is_executable_file(path: &Path) -> bool {
     }
 }
 
-/// Resolve through the application's inherited PATH without invoking a shell.
-/// This deliberately returns an absolute path so terminal launch never reparses
-/// renderer-controlled text as a command line.
-
 /// R22 (2026-07-30): canonicalize a path and strip the Windows `\\?\` prefix.
 /// The prefix is added by `std::fs::canonicalize` when resolving symlinks or
 /// long paths. Windows Terminal (`wt.exe`) and `cmd.exe` cannot handle the
@@ -1097,6 +1089,9 @@ fn canonicalize_path(path: &Path) -> Option<PathBuf> {
     Some(canonical)
 }
 
+/// Resolve through the application's inherited PATH without invoking a shell.
+/// This deliberately returns an absolute path so terminal launch never reparses
+/// renderer-controlled text as a command line.
 fn which(command: &str) -> Option<PathBuf> {
     let command_path = Path::new(command);
     if command_path.components().count() > 1 && is_executable_file(command_path) {
@@ -1308,7 +1303,7 @@ fn decode_subprocess_output(bytes: &[u8]) -> String {
             .chunks_exact(2)
             .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
             .collect();
-        if let Some(text) = String::from_utf16(&utf16).ok() {
+        if let Ok(text) = String::from_utf16(&utf16) {
             return text;
         }
     }
@@ -1317,7 +1312,7 @@ fn decode_subprocess_output(bytes: &[u8]) -> String {
             .chunks_exact(2)
             .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
             .collect();
-        if let Some(text) = String::from_utf16(&utf16).ok() {
+        if let Ok(text) = String::from_utf16(&utf16) {
             return text;
         }
     }
@@ -1425,7 +1420,7 @@ fn cmd_quote_arg(value: &str) -> String {
 #[cfg(windows)]
 fn cmd_probe_call(path: &Path, args: &[&str]) -> String {
     let mut command_line = vec![cmd_call(path)];
-    command_line.extend(args.iter().map(|value| cmd_quote_arg(*value)));
+    command_line.extend(args.iter().map(|value| cmd_quote_arg(value)));
     command_line.join(" ")
 }
 
@@ -1570,11 +1565,7 @@ fn run_probe_capture_with_pid(
     }
 }
 
-fn run_probe(executable: &Path, args: &[&str], cwd: &Path, timeout: Duration) -> Value {
-    run_probe_capture(executable, args, cwd, timeout).report
-}
-
-// R35.2: like run_probe but registers the spawned child's PID via callback.
+// R35.2: like run_probe_capture but registers the spawned child's PID via callback.
 fn run_probe_with_pid(
     executable: &Path,
     args: &[&str],
@@ -1763,7 +1754,7 @@ fn codewhale_doctor_probe(
 
 fn numeric_version_parts(value: &str) -> Vec<u64> {
     value
-        .split(|ch| matches!(ch, '.' | '-' | '+'))
+        .split(['.', '-', '+'])
         .take_while(|part| part.chars().all(|ch| ch.is_ascii_digit()))
         .map(|part| part.parse::<u64>().unwrap_or(0))
         .collect()
@@ -2929,7 +2920,7 @@ fn agent_launch_args(spec: AgentSpec) -> &'static [&'static str] {
 #[cfg(windows)]
 fn cmd_launch_call(path: &Path, args: &[&str]) -> String {
     let mut command_line = vec![cmd_call(path)];
-    command_line.extend(args.iter().map(|value| cmd_quote_arg(*value)));
+    command_line.extend(args.iter().map(|value| cmd_quote_arg(value)));
     command_line.join(" ")
 }
 
@@ -2979,7 +2970,7 @@ fn launch_terminal(spec: AgentSpec, executable: &Path, cwd: &Path) -> Result<(),
                 "\"{}\"",
                 executable.to_string_lossy().replace('"', "\"\"")
             )];
-            parts.extend(launch_args.iter().map(|value| cmd_quote_arg(*value)));
+            parts.extend(launch_args.iter().map(|value| cmd_quote_arg(value)));
             parts.join(" ")
         };
         // R35: same raw_arg fix as the Windows Terminal path above. The

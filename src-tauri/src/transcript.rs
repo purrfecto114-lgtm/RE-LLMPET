@@ -74,16 +74,14 @@ impl TranscriptScanner {
         let Some(path) = path else {
             return TranscriptScanResult::default();
         };
-        match self.scan_path(
+        self.scan_path(
             Path::new(path),
             session_id,
             ledger,
             observed_at,
             reply_limit,
-        ) {
-            Ok(result) => result,
-            Err(_) => TranscriptScanResult::default(),
-        }
+        )
+        .unwrap_or_default()
     }
 
     pub fn diagnostics(&self) -> Value {

@@ -214,6 +214,7 @@ pub struct ProviderStatus {
 /// With a single mutex, the new event must wait for the trailing
 /// timer's critical section to complete. When it gets the lock,
 /// `scheduled=false`, so it correctly schedules a new timer.
+#[derive(Default)]
 pub struct StatsCoalescerState {
     /// When the last emit happened (for throttle window check).
     pub last_emit: Option<Instant>,
@@ -221,16 +222,6 @@ pub struct StatsCoalescerState {
     pub dirty: bool,
     /// True if a trailing flush timer is currently pending.
     pub scheduled: bool,
-}
-
-impl Default for StatsCoalescerState {
-    fn default() -> Self {
-        Self {
-            last_emit: None,
-            dirty: false,
-            scheduled: false,
-        }
-    }
 }
 
 pub struct Runtime {
@@ -290,6 +281,7 @@ pub struct Runtime {
     // only shows one diagnostic at a time).
     pub active_diagnostic_provider: Mutex<Option<String>>,
     /// R41 (audit §10): cooperative cancellation flag for diagnose_agent.
+    #[allow(dead_code)]
     pub diagnostic_cancelled: Arc<std::sync::atomic::AtomicBool>,
     // R38.1 (2026-08-01): Singleton StatsCoalescer state. The 0.5.16 full
     // audit (P0-1) flagged that the R38 trailing flush created a new
@@ -312,7 +304,11 @@ pub struct Runtime {
     // backward compatibility with existing smoke tests but are no
     // longer used in the hot path.
     pub last_stats_emit: Mutex<Option<Instant>>,
+    // R38.1/R40.1: legacy fields kept for smoke-test compatibility;
+    // the consolidated `stats_coalescer` mutex is the source of truth.
+    #[allow(dead_code)]
     pub stats_dirty: Mutex<bool>,
+    #[allow(dead_code)]
     pub stats_scheduled: Mutex<bool>,
     pub stats_revision: Mutex<u64>,
     /// R40.1: consolidated coalescer state — all three flags under one
@@ -347,11 +343,12 @@ pub struct Runtime {
 /// R44 0.5.39 (roadmap v5 §2): configuration file state machine.
 /// Replaces the binary `config_write_disabled: AtomicBool` with a typed
 /// enum that distinguishes the reason for quarantine.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ConfigState {
     /// File was read successfully and parsed as valid AppConfig.
     Healthy,
     /// File doesn't exist — new install. Safe to write defaults.
+    #[default]
     NotFound,
     /// File exists but couldn't be parsed as AppConfig. The file is
     /// still on disk; writes are blocked to prevent overwriting the
@@ -364,13 +361,10 @@ pub enum ConfigState {
     TooLarge { size: u64 },
     /// File parsed but its schema version is newer than this build
     /// understands. Writes blocked (would lose unknown fields).
+    /// Never constructed by the current loader; kept as the forward
+    /// contract for handling future config schema versions.
+    #[allow(dead_code)]
     SchemaTooNew { version: u64 },
-}
-
-impl Default for ConfigState {
-    fn default() -> Self {
-        Self::NotFound
-    }
 }
 
 impl ConfigState {
@@ -1921,6 +1915,7 @@ impl Runtime {
 /// delegates to `save_config_unchecked` (no quarantine check) — the
 /// quarantine is enforced by `Runtime::save_config` which is what
 /// `update_config` actually calls.
+#[allow(dead_code)]
 pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {
     save_config_unchecked(path, config)
 }

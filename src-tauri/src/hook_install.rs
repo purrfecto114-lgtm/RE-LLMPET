@@ -179,9 +179,15 @@ pub enum CleanupResult {
     /// File existed and contained our marker, but after removal the file
     /// hash differs from what we expected (possible residue or concurrent
     /// edit). The block was removed but the user should verify.
+    /// Not currently constructed by any cleanup path (reserved for Phase 0D
+    /// drift verification); kept as a public status contract.
+    #[allow(dead_code)]
     Changed { path: PathBuf },
     /// The path itself changed (symlink, env var, moved config dir)
     /// between install and uninstall. Refused to write; user must inspect.
+    /// Not currently constructed by any cleanup path (reserved for Phase 0D
+    /// uninstall verification); kept as a public status contract.
+    #[allow(dead_code)]
     PathDrift { expected: PathBuf, actual: PathBuf },
     /// File exists but can't be read (permissions, I/O error, non-UTF-8).
     /// No changes made. User must fix permissions and retry.
@@ -777,7 +783,6 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
         added: CODEWHALE_EVENTS.len(),
         path,
         message: "CodeWhale 原生 TOML Hook 已同步（含 background message_submit observer）；权限失败时回退到 ask。".into(),
-        ..InstallResult::default()
     })
 }
 
@@ -876,7 +881,7 @@ fn prune_backups(parent: &Path, stem: &str, ext: &str) -> Result<(), String> {
         }
     }
     // Sort newest first; drop everything past the retention cap.
-    backups.sort_by(|a, b| b.0.cmp(&a.0));
+    backups.sort_by_key(|b| std::cmp::Reverse(b.0));
     for (_, p) in backups.iter().skip(BACKUP_RETENTION) {
         let _ = fs::remove_file(p);
     }
@@ -928,7 +933,7 @@ fn backup_codewhale_config(path: &Path, runtime: &Runtime) -> Result<Option<Path
                     legacy.push((ts_str, entry.path()));
                 }
             }
-            legacy.sort_by(|a, b| b.0.cmp(&a.0));
+            legacy.sort_by_key(|b| std::cmp::Reverse(b.0));
             for (_, p) in legacy.iter().skip(BACKUP_RETENTION) {
                 let _ = fs::remove_file(p);
             }
@@ -986,7 +991,6 @@ fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
         added: CODEX_EVENTS.len(),
         path,
         message: "Codex Hook 已写入；首次或变更后必须在 Codex 中运行 /hooks 审查并信任".into(),
-        ..InstallResult::default()
     })
 }
 
@@ -1083,7 +1087,6 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
         added: 1,
         path,
         message: "OpenCode ESM 插件已安装；权限事件仅观察，决策仍由 OpenCode 原生界面完成".into(),
-        ..InstallResult::default()
     })
 }
 
@@ -1185,7 +1188,6 @@ fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
         added: 1,
         path,
         message: "Aider 通知桥已安装；仅可靠提供回复完成事件，不接管终端内权限".into(),
-        ..InstallResult::default()
     })
 }
 
@@ -1252,7 +1254,7 @@ fn hook_command_with_flags(
         if provider == "codewhale" {
             return format!("\"{}\" {}", path, args);
         }
-        return format!("cmd.exe /D /S /C \"\"{}\" {}\"", path, args);
+        format!("cmd.exe /D /S /C \"\"{}\" {}\"", path, args)
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -1279,7 +1281,7 @@ fn quote_command_path(path: &Path) -> String {
     let text = path.to_string_lossy();
     #[cfg(target_os = "windows")]
     {
-        return format!("\"{}\"", text.replace('\"', "\\\""));
+        format!("\"{}\"", text.replace('\"', "\\\""))
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -1310,7 +1312,6 @@ fn remove_all_ours(hooks: &mut Map<String, Value>) {
             };
             entries.retain(|entry| {
                 let command = entry.get("command").and_then(Value::as_str).unwrap_or("");
-                let url = entry.get("url").and_then(Value::as_str).unwrap_or("");
                 // R44 (audit v3 P0-1): primary ownership check — the --owner re-llmpet tag.
                 // This is exact and cannot false-positive on user hooks.
                 if command.contains("re-llmpet") {
@@ -1704,7 +1705,7 @@ fn prune_receipts(dir: &Path, provider: &str) -> Result<(), String> {
             found.push((ts, entry.path()));
         }
     }
-    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.sort_by_key(|b| std::cmp::Reverse(b.0));
     for (_, p) in found.iter().skip(RECEIPT_RETENTION) {
         let _ = fs::remove_file(p);
     }
