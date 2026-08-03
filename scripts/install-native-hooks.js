@@ -2,7 +2,7 @@
 
 // Build-time/source-tree installer for the Rust hook bridge. Node is used only
 // for this one-time configuration edit; the installed lifecycle hooks execute
-// the native Octopus binary in hook mode and do not start Node or Electron.
+// the native RE-LLMPET binary in hook mode and do not start Node or Electron.
 
 const fs = require('fs');
 const os = require('os');
@@ -40,7 +40,7 @@ function findBinary() {
   const found = candidates.find((candidate) => {
     try { return fs.statSync(candidate).isFile(); } catch { return false; }
   });
-  if (!found) throw new Error(`Octopus binary not found. Build it first with: cargo build --manifest-path src-tauri/Cargo.toml --release --bins`);
+  if (!found) throw new Error(`RE-LLMPET binary not found. Build it first with: cargo build --manifest-path src-tauri/Cargo.toml --release --bins`);
   return found;
 }
 

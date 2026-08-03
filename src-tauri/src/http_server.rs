@@ -133,7 +133,7 @@ fn write_runtime_file(runtime: &Runtime, port: u16, token: &str) -> Result<(), S
     {
         let backup = runtime
             .runtime_path
-            .with_extension(format!("octopus-backup.{}", std::process::id()));
+            .with_extension(format!("re-llmpet-backup.{}", std::process::id()));
         let had_original = runtime.runtime_path.exists();
         if had_original {
             let _ = fs::remove_file(&backup);
@@ -346,9 +346,9 @@ fn handle_permission(
     drop(guard);
     let decision = decision.unwrap_or_else(|| {
         let message = if timeout.timed_out() {
-            "Octopus permission request timed out"
+            "RE-LLMPET permission request timed out"
         } else {
-            "Octopus permission request closed"
+            "RE-LLMPET permission request closed"
         };
         let fallback = PermissionDecision {
             behavior: "deny".into(),

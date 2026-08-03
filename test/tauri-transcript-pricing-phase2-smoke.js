@@ -19,9 +19,9 @@ const panel = read('frontend/renderer/panel.js');
 const panelHtml = read('frontend/renderer/panel.html');
 const claudeFixture = JSON.parse(read('test/fixtures/claude-transcript-assistant.jsonl').trim());
 
-assert.strictEqual(pkg.version, '0.5.35');
-assert.strictEqual(tauri.version, '0.5.35');
-assert.match(cargo, /version = "0\.5\.35"/);
+assert.strictEqual(pkg.version, '0.5.37');
+assert.strictEqual(tauri.version, '0.5.37');
+assert.match(cargo, /version = "0\.5\.37"/);
 
 // Modules must be part of the active Tauri build and runtime, not dead drafts.
 assert.match(lib, /mod pricing_sync;/);
@@ -144,7 +144,7 @@ assert.match(model, /pub fn close_session_pending/);
 assert.match(model, /discarded .* stale pending metadata entries after restart/);
 assert.match(model, /"toolName":entry\.tool_name/);
 assert.doesNotMatch(model.slice(model.indexOf('fn persist_pending_metadata'), model.indexOf('pub fn matching_batch_rule')), /tool_input|toolInput/, 'persisted permission metadata must exclude tool input');
-assert.match(lib, /cancel_all_pending\("Octopus is shutting down; permission denied"\)/);
+assert.match(lib, /cancel_all_pending\("RE-LLMPET is shutting down; permission denied"\)/);
 assert.match(panel, /capabilities\.bypassWarning/);
 
 // Estimate/unknown semantics are visible and Stop emits the safe reply before completion.

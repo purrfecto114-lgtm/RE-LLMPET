@@ -280,7 +280,7 @@ pub fn uninstall_hooks(
         // the old config before the clear persists.
         emit_config(&app, &state);
         let message = if all_succeeded {
-            "All Octopus hooks removed; config.providers cleared".to_string()
+            "All RE-LLMPET hooks removed; config.providers cleared".to_string()
         } else {
             format!(
                 "Provider selection cleared. Some external hooks could not be removed: {}",
@@ -318,7 +318,7 @@ pub fn uninstall_hooks(
         "provider": provider,
         "path": path.to_string_lossy(),
         "selectionCleared": true,
-        "message": "Octopus hooks removed for this provider; user config preserved"
+        "message": "RE-LLMPET hooks removed for this provider; user config preserved"
     }))
 }
 
@@ -1022,13 +1022,13 @@ fn companion_for(spec: AgentSpec, executable: &Path) -> Option<PathBuf> {
 fn resolve_agent(spec: AgentSpec) -> Result<PathBuf, String> {
     let executable = which(spec.command).ok_or_else(|| {
         format!(
-            "{} CLI not found in the desktop application's PATH; restart Octopus after installing it",
+            "{} CLI not found in the desktop application's PATH; restart RE-LLMPET after installing it",
             spec.title
         )
     })?;
     if spec.id == "codewhale" && companion_for(spec, &executable).is_none() {
         return Err(
-            "CodeWhale installation is incomplete (MISSING_COMPANION_BINARY): codewhale-tui is missing or is a different installation. Reinstall the matched CodeWhale bundle, then restart Octopus."
+            "CodeWhale installation is incomplete (MISSING_COMPANION_BINARY): codewhale-tui is missing or is a different installation. Reinstall the matched CodeWhale bundle, then restart RE-LLMPET."
                 .into(),
         );
     }
@@ -2176,7 +2176,10 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
     let mut issues = Vec::<String>::new();
     let mut warnings = Vec::<String>::new();
     if executable.is_none() {
-        issues.push(format!("{} CLI was not found in Octopus PATH", spec.title));
+        issues.push(format!(
+            "{} CLI was not found in RE-LLMPET PATH",
+            spec.title
+        ));
     }
     if spec.id == "codewhale" && executable.is_some() && companion.is_none() {
         issues.push(
@@ -2323,7 +2326,7 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
         if let Some(actual) = semverish_from_probe(&version) {
             if version_is_older(&actual, "2.1.200") {
                 warnings.push(format!(
-                    "Claude Code {actual} predates the 2.1.200 sleep/wake and background-session reliability fixes; upgrade before attributing resumed-session authentication failures to Octopus"
+                    "Claude Code {actual} predates the 2.1.200 sleep/wake and background-session reliability fixes; upgrade before attributing resumed-session authentication failures to RE-LLMPET"
                 ));
             }
         }
@@ -2574,7 +2577,7 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
             .and_then(Value::as_array)
             .is_some_and(|items| !items.is_empty());
         if executable.is_some() && !has_config && !has_credential_env {
-            warnings.push("Aider is installed but no .aider.conf.yml or common credential environment variable is visible to Octopus; keyring, provider-specific config, or interactive setup may still work".into());
+            warnings.push("Aider is installed but no .aider.conf.yml or common credential environment variable is visible to RE-LLMPET; keyring, provider-specific config, or interactive setup may still work".into());
         }
         summary
     } else {
@@ -2761,7 +2764,7 @@ pub fn pet_visual_bounds(
 pub fn quit_app(app: AppHandle, state: State<'_, AppState>) {
     state
         .runtime
-        .cancel_all_pending("Octopus is shutting down; permission denied");
+        .cancel_all_pending("RE-LLMPET is shutting down; permission denied");
     app.exit(0);
 }
 

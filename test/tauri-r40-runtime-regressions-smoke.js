@@ -37,15 +37,15 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.35',
-  'R40: package.json version must be 0.5.35');
+assert.strictEqual(packageJson.version, '0.5.37',
+  'R40: package.json version must be 0.5.37');
 
 // ──────────────────────────────────────────────────────────────────────────
 // R40-1: OpenCode plugin — `session.status` must NOT map to UserPromptSubmit
 // ──────────────────────────────────────────────────────────────────────────
 
 // The plugin source is a raw string in hook_install.rs.
-assert(hookInstall.includes('octopus-opencode-plugin-v3'),
+assert(hookInstall.includes('re-llmpet-opencode-plugin-v1'),
   'R40-1: opencode plugin marker must be bumped to v3');
 assert(!hookInstall.includes('"session.status": ["UserPromptSubmit", "thinking"]'),
   'R40-1: session.status MUST NOT map to UserPromptSubmit (causes "收到新任务" on every tool call)');

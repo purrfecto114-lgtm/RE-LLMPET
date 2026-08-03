@@ -1,4 +1,4 @@
-# RE-LLMPET / Octopus — Tauri 2 デスクトップペット
+# RE-LLMPET — Tauri 2 デスクトップペット
 
 `0.5.6` は、現在の公式 LLMPET upstream と以前の 5-provider fork を照合した Tauri 2 / Rust 移行候補です。実行経路には Tauri フロントエンド、Rust コア、リソース、テスト、リリースゲートだけが含まれ、Electron main/preload/Node ランタイムは含まれません。
 

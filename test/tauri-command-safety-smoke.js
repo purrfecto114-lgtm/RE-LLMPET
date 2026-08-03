@@ -47,7 +47,7 @@ const hookInstall = read('src-tauri/src/hook_install.rs');
 const httpServer = read('src-tauri/src/http_server.rs');
 assert(hookInstall.includes('.bak"') && hookInstall.includes('original restored'), 'hook config replacement must use backup rollback');
 assert(hookInstall.includes('if had_original') && hookInstall.includes('fs::rename(&backup'), 'hook config replacement must track and restore the original');
-assert(httpServer.includes('octopus-backup'), 'runtime metadata replacement must retain a Windows backup');
+assert(httpServer.includes('re-llmpet-backup'), 'runtime metadata replacement must retain a Windows backup');
 assert(httpServer.includes('if had_original') && httpServer.includes('fs::rename(&backup'), 'runtime metadata replacement must roll back after failure');
 
 

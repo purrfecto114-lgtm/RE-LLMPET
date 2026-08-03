@@ -15,7 +15,7 @@ fs.mkdirSync(runtimeDir, { recursive: true });
 const fakeBin = path.join(home, 're-llmpet-hook');
 fs.writeFileSync(fakeBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 fs.writeFileSync(path.join(runtimeDir, 'runtime.json'), JSON.stringify({
-  app: 'octopus', port: 41330, token: 'A'.repeat(64), pid: 123,
+  app: 're-llmpet', port: 41330, token: 'A'.repeat(64), pid: 123,
 }));
 const foreignHook = { type: 'command', command: 'echo keep-me', timeout: 5 };
 fs.writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify({

@@ -273,8 +273,10 @@ fn is_hook_installed(id: &str) -> bool {
             file_contains(path, CW_BEGIN)
         }
         "codex" => {
-            // Codex hooks live in ~/.codex/config.toml.
-            let path = home_dir().join(".codex").join("config.toml");
+            // R44 (audit v3 P0-4): Codex hooks live in ~/.codex/hooks.json
+            // (that's where install_codex writes them). The old detector
+            // checked config.toml which is a different file.
+            let path = home_dir().join(".codex").join("hooks.json");
             file_contains(path, "re-llmpet")
         }
         "opencode" => {
@@ -551,30 +553,33 @@ fn backup_codewhale_config(path: &Path, runtime: &Runtime) -> Result<(), String>
         "hooks",
         &format!("CodeWhale config backed up to {}", backup_path.display()),
     );
-    // Prune backups older than 30 days. Best-effort — failure to prune
-    // must not block the install.
+    // R44 (audit v3 P0-7): keep at most 5 most-recent backups.
+    // Old code pruned by age (30 days); new code prunes by count
+    // to avoid unbounded backup growth on active development.
     if let Ok(entries) = fs::read_dir(parent) {
-        let cutoff = now_ms.saturating_sub(30 * 24 * 60 * 60 * 1000);
+        let mut backups: Vec<(u64, std::path::PathBuf)> = Vec::new();
         for entry in entries.flatten() {
-            let file_name = entry.file_name();
-            let name = match file_name.to_str() {
+            let name = match entry.file_name().to_str() {
                 Some(s) => s.to_string(),
                 None => continue,
             };
             if !name.contains("-re-llmpet-backup-") {
                 continue;
             }
-            // Extract the timestamp from the filename.
             if let Some(ts_str) = name
                 .rsplit("-re-llmpet-backup-")
                 .next()
                 .and_then(|s| s.strip_suffix(".toml"))
                 .and_then(|s| s.parse::<u64>().ok())
             {
-                if ts_str < cutoff {
-                    let _ = fs::remove_file(entry.path());
-                }
+                backups.push((ts_str, entry.path()));
             }
+        }
+        // Sort by timestamp descending (newest first)
+        backups.sort_by(|a, b| b.0.cmp(&a.0));
+        // Remove all but the 5 newest
+        for (_, path) in backups.iter().skip(5) {
+            let _ = fs::remove_file(path);
         }
     }
     Ok(())
@@ -623,7 +628,7 @@ fn strip_legacy_codewhale_hooks(path: &Path, messages: &mut Vec<String>) -> Resu
                 .iter()
                 .find_map(|l| parse_toml_string_value(l.trim(), "name"))
                 .unwrap_or_default();
-            let keep = in_v2 || !name.starts_with("re-llmpet-");
+            let keep = in_v2 && !name.starts_with("octopus-");
             spans.push(Span::Table {
                 header,
                 body,
@@ -725,7 +730,7 @@ fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
     let path = home_dir().join(".codex").join("hooks.json");
     let mut root = read_json_object(&path, "Codex hooks")?;
     root.entry("description")
-        .or_insert(json!("Octopus multi-agent desktop integration"));
+        .or_insert(json!("RE-LLMPET multi-agent desktop integration"));
     let hooks = ensure_object(&mut root, "hooks")?;
     remove_all_ours(hooks);
     let executable = current_exe_clean().map_err(|e| e.to_string())?;
@@ -802,14 +807,30 @@ fn uninstall_opencode() -> Result<PathBuf, String> {
         .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
     let path = base.join("plugins").join("llmpet-hook.js");
-    if let Ok(raw) = fs::read_to_string(&path) {
-        // R40: uninstall accepts both current and legacy markers.
-        let owns_current = raw.contains(OPENCODE_MARKER);
-        let owns_legacy = OPENCODE_MARKER_LEGACY
-            .iter()
-            .any(|marker| raw.contains(marker));
-        if owns_current || owns_legacy {
-            fs::remove_file(&path).map_err(|e| e.to_string())?;
+    // R44 (audit v3 P0-6): return real status instead of silent success.
+    match fs::read_to_string(&path) {
+        Ok(raw) => {
+            let owns_current = raw.contains(OPENCODE_MARKER);
+            let owns_legacy = OPENCODE_MARKER_LEGACY
+                .iter()
+                .any(|marker| raw.contains(marker));
+            if owns_current || owns_legacy {
+                fs::remove_file(&path).map_err(|e| e.to_string())?;
+            } else {
+                // File exists but doesn't contain our marker — not ours.
+                eprintln!("[re-llmpet] WARNING: OpenCode plugin file exists but is not owned by RE-LLMPET (marker not found). Not deleting.");
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // File doesn't exist — clean, nothing to do.
+        }
+        Err(e) => {
+            // File exists but can't be read — report as residue.
+            return Err(format!(
+                "OpenCode plugin file exists but cannot be read ({}). Manual cleanup may be needed at: {}",
+                e,
+                path.display()
+            ));
         }
     }
     Ok(path)
@@ -940,7 +961,7 @@ fn command_hook(command: String, timeout: u64) -> Value {
     // `mut` is only used on Windows (to insert commandWindows); on other
     // platforms the value is never mutated, hence the allow.
     #[allow(unused_mut)]
-    let mut value = json!({"type":"command","command":command,"timeout":timeout,"statusMessage":"Updating Octopus"});
+    let mut value = json!({"type":"command","command":command,"timeout":timeout,"statusMessage":"Updating RE-LLMPET"});
     #[cfg(target_os = "windows")]
     if let Some(object) = value.as_object_mut() {
         object.insert("commandWindows".into(), json!(windows_command));
@@ -985,21 +1006,28 @@ fn remove_all_ours(hooks: &mut Map<String, Value>) {
             entries.retain(|entry| {
                 let command = entry.get("command").and_then(Value::as_str).unwrap_or("");
                 let url = entry.get("url").and_then(Value::as_str).unwrap_or("");
-                // R41: primary ownership check — the --owner re-llmpet tag.
+                // R44 (audit v3 P0-1): primary ownership check — the --owner re-llmpet tag.
                 // This is exact and cannot false-positive on user hooks.
                 if command.contains("re-llmpet") {
                     return false; // ours — remove
                 }
-                // Fallback: legacy markers for hooks installed before R41.
+                // R44: legacy markers for hooks installed before R41.
+                // Only match command strings containing our exact marker or
+                // known legacy hook script filenames. Do NOT match based on
+                // URL patterns (http://127.0.0.1:413xx + /permission) —
+                // that would delete official LLMPET's HTTP permission hooks.
                 !command.contains(MARKER)
                     && ![
                         "re-llmpet-hook.js",
                         "re-llmpet-pretool-hook.js",
                         "re-llmpet-llmpet-hook.js",
+                        "octopus-hook.js",
+                        "pretool-hook.js",
+                        "llmpet-hook.js",
+                        "llmpet-octopus.js",
                     ]
                     .iter()
                     .any(|m| command.contains(m))
-                    && !(url.starts_with("http://127.0.0.1:413") && url.contains("/permission"))
             });
             !entries.is_empty()
         });
@@ -1076,7 +1104,7 @@ fn strip_marker_block(input: &str, begin: &str, end: &str) -> Result<String, Str
     for (index, line) in input.lines().enumerate() {
         if line.trim() == begin {
             if inside {
-                return Err(format!("nested Octopus marker at line {}", index + 1));
+                return Err(format!("nested RE-LLMPET marker at line {}", index + 1));
             }
             inside = true;
             continue;
@@ -1084,7 +1112,7 @@ fn strip_marker_block(input: &str, begin: &str, end: &str) -> Result<String, Str
         if line.trim() == end {
             if !inside {
                 return Err(format!(
-                    "unmatched Octopus marker end at line {}",
+                    "unmatched RE-LLMPET marker end at line {}",
                     index + 1
                 ));
             }
@@ -1097,7 +1125,7 @@ fn strip_marker_block(input: &str, begin: &str, end: &str) -> Result<String, Str
         }
     }
     if inside {
-        return Err("unterminated Octopus marker block; configuration was not modified".into());
+        return Err("unterminated RE-LLMPET marker block; configuration was not modified".into());
     }
     Ok(output)
 }
@@ -1176,7 +1204,7 @@ fn write_text_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn opencode_plugin_source() -> &'static str {
-    r#"// octopus-opencode-plugin-v3
+    r#"// re-llmpet-opencode-plugin-v1
 // R40 (2026-08-01): rewrite of the OpenCode plugin event mapping.
 //
 // Root-cause analysis (systematic-debugging Phase 1):

@@ -288,7 +288,7 @@ function submitDecision(choice, behavior, successMsg) {
     .catch((err) => {
       const msg = String(err && (err.message || err) || 'unknown');
       rlog('ask', 'submitDecision failed: ' + msg);
-      window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+      window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
         detail: { command: 'decide_permission', message: msg }
       }));
       // restore interactive state
@@ -789,7 +789,7 @@ function gotoSession(choice) {
     .catch((err) => {
       const msg = String(err && (err.message || err) || 'unknown');
       rlog('ask', 'gotoSession deny failed: ' + msg);
-      window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+      window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
         detail: { command: 'decide_permission', message: msg }
       }));
       buttons.forEach((b) => { b.disabled = false; });
@@ -943,7 +943,7 @@ function popPerm(choice, key) {
     .catch((err) => {
       const m = String(err && (err.message || err) || 'unknown');
       rlog('ask', 'popPerm failed: ' + m);
-      window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+      window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
         detail: { command: 'decide_permission', message: m }
       }));
       buttons.forEach((b) => { b.disabled = false; });
@@ -2008,7 +2008,7 @@ function launchProviderChecked(provider) {
       rlog('launch', 'failed ' + provider + ': ' + msg);
       // Dispatch a bridge-error so the toast shows.
       try {
-        window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+        window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
           detail: { command: 'launch_agent', message: `${provider}: ${msg}` }
         }));
       } catch {}
@@ -2114,7 +2114,7 @@ if (providerChooserEl) {
           if (originalLabel) originalLabel.textContent = originalText;
           // Show a toast so the user knows the launch failed.
           try {
-            window.dispatchEvent(new CustomEvent('octopus:bridge-error', {
+            window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
               detail: { command: 'launch_agent', message: `${provider}: ${msg}` }
             }));
           } catch {}

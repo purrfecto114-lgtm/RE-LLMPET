@@ -72,7 +72,7 @@ async function fetchContract(contract) {
   try {
     const response = await fetch(contract.url, {
       redirect: 'follow',
-      headers: { 'user-agent': 'Octopus-protocol-drift-check/0.5.0', accept: 'text/html,application/json,text/plain;q=0.9,*/*;q=0.1' },
+      headers: { 'user-agent': 'RE-LLMPET-protocol-drift-check/0.5.0', accept: 'text/html,application/json,text/plain;q=0.9,*/*;q=0.1' },
       signal: controller.signal,
     });
     const text = await readBoundedResponse(response);

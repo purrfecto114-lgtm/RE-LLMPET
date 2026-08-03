@@ -53,7 +53,7 @@ assert.match(sbom.documentNamespace, /^https:\/\/github\.com\/purrfecto114-lgtm\
 assert(sbom.relationships.some((item) =>
   item.spdxElementId === 'SPDXRef-DOCUMENT'
   && item.relationshipType === 'DESCRIBES'
-  && item.relatedSpdxElement === 'SPDXRef-Package-Octopus'
+  && item.relatedSpdxElement === 'SPDXRef-Package-RE-LLMPET'
 ), 'SPDX document must describe the root package');
 
 console.log('release-supply-chain-smoke: ok');

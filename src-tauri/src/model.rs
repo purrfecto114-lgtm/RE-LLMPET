@@ -328,6 +328,10 @@ pub struct Runtime {
     pub log_path: PathBuf,
     pub pending_path: PathBuf,
     pub started_at: u64,
+    /// R44 (audit v3 P0-2): when true, save_config is blocked because
+    /// the config file was unreadable/corrupt. This prevents the app
+    /// from overwriting the user's real config with defaults.
+    pub config_write_disabled: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Clone)]
@@ -381,6 +385,7 @@ impl AppState {
                 log_path,
                 pending_path,
                 started_at: now_ms(),
+                config_write_disabled: std::sync::atomic::AtomicBool::new(false),
             }),
         }
     }
@@ -777,7 +782,7 @@ impl Runtime {
                         *lock.lock().unwrap_or_else(|e| e.into_inner()) =
                             Some(PermissionDecision {
                                 behavior: "deny".into(),
-                                message: Some("Octopus permission queue is full".into()),
+                                message: Some("RE-LLMPET permission queue is full".into()),
                                 updated_input: None,
                                 updated_permissions: Vec::new(),
                             });
@@ -1324,7 +1329,7 @@ impl Runtime {
         // flagged that write_log appends indefinitely with no size limit,
         // rotation, or retention. A long-running session could fill disk.
         // Now we check the file size before each append; if it exceeds
-        // 2 MiB, we rotate: octopus.log → octopus.1.log → ... → octopus.4.log
+        // 2 MiB, we rotate: re-llmpet.log → octopus.1.log → ... → octopus.4.log
         // (5 files total, max ~10 MiB). The rotation is best-effort — if
         // it fails (permissions, disk full), we still try to append.
         const MAX_LOG_SIZE: u64 = 2 * 1024 * 1024; // 2 MiB
@@ -1618,13 +1623,13 @@ pub fn home_dir() -> PathBuf {
 /// deleted. Best-effort: errors are ignored (the caller falls back to
 /// appending to the original file).
 ///
-/// Example with max_files=5 and path="octopus.log":
+/// Example with max_files=5 and path="re-llmpet.log":
 ///   octopus.4.log → deleted
 ///   octopus.3.log → octopus.4.log
 ///   octopus.2.log → octopus.3.log
 ///   octopus.1.log → octopus.2.log
-///   octopus.log   → octopus.1.log
-/// Then octopus.log is recreated by the caller's OpenOptions::create(true).
+///   re-llmpet.log   → octopus.1.log
+/// Then re-llmpet.log is recreated by the caller's OpenOptions::create(true).
 fn rotate_log(path: &Path, max_files: u8) -> std::io::Result<()> {
     // Delete the oldest file if it exists.
     let oldest = path.with_extension(format!("{}.log", max_files - 1));
@@ -1746,7 +1751,19 @@ pub fn load_config(path: &Path) -> AppConfig {
     }
 }
 
+/// R44 (audit v3 P0-2): global flag set by load_config when the config
+/// file was unreadable/corrupt. save_config checks this and refuses to
+/// write, preventing defaults from overwriting the user real config.
+static CONFIG_WRITE_DISABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {
+    // R44 (audit v3 P0-2): refuse to save if config was loaded in a
+    // corrupted state. This prevents defaults from overwriting the
+    // user's real (but unreadable) config file.
+    if CONFIG_WRITE_DISABLED.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err("Config saves are disabled because the config file was unreadable or corrupt. Fix the config file and restart.".into());
+    }
     if let Some(parent) = path.parent() {
         secure_create_dir(parent).map_err(|e| e.to_string())?;
     }

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "RE-LLMPET",
-  "version": "0.5.35",
+  "version": "0.5.37",
   "identifier": "io.github.purrfecto114.rellmpet",
   "build": {
     "frontendDist": "../frontend",
@@ -12,7 +12,7 @@
     "windows": [
       {
         "label": "pet",
-        "title": "Octopus",
+        "title": "RE-LLMPET",
         "url": "renderer/pet.html",
         "width": 320,
         "height": 340,
@@ -57,7 +57,7 @@
     "active": true,
     "category": "DeveloperTool",
     "shortDescription": "Low-overhead desktop pet for coding agents",
-    "longDescription": "Octopus watches local coding-agent lifecycle events, permissions and sessions.",
+    "longDescription": "RE-LLMPET watches local coding-agent lifecycle events, permissions and sessions.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

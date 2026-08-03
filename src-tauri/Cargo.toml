@@ -1,6 +1,6 @@
 [package]
 name = "octopus"
-version = "0.5.35"
+version = "0.5.37"
 description = "Low-overhead multi-agent desktop pet"
 authors = ["Octopus contributors"]
 license = "MIT"
@@ -16,8 +16,8 @@ name = "octopus"
 path = "src/main.rs"
 
 [[bin]]
-name = "octopus-hook"
-path = "src/bin/octopus-hook.rs"
+name = "re-llmpet-hook"
+path = "src/bin/re-llmpet-hook.rs"
 
 [build-dependencies]
 tauri-build = { version = "=2.6.3", features = [] }

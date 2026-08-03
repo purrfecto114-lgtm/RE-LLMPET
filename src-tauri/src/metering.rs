@@ -1092,7 +1092,7 @@ mod tests {
 
     fn temp_dir() -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "octopus-metering-test-{}-{}",
+            "re-llmpet-metering-test-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));

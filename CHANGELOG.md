@@ -1,5 +1,131 @@
 # Changelog
 
+## 0.5.37 — R44 Phase A: correctness closure（2026-08-03）
+
+Fixes all P0 items from the 0.5.36 full audit v3.
+
+### P0-1: Removed broad HTTP /permission ownership fallback
+
+`remove_all_ours()` no longer deletes hooks based on URL pattern
+`http://127.0.0.1:413xx + /permission`. This was deleting official
+LLMPET's HTTP permission hooks. Now only matches exact `--owner
+re-llmpet` tag or known legacy hook script filenames.
+
+### P0-2: Config quarantine (write-disabled on load failure)
+
+`load_config()` now sets a global `CONFIG_WRITE_DISABLED` flag when
+the config file is unreadable/corrupt/too-large. `save_config()`
+checks this flag and refuses to write, preventing defaults from
+overwriting the user's real config.
+
+### P0-3: Fixed build:hook binary target
+
+Cargo.toml `[[bin]]` name changed from `octopus-hook` to
+`re-llmpet-hook`, matching `package.json` `build:hook` script.
+Binary file renamed accordingly.
+
+### P0-4: Fixed Codex detector
+
+Was checking `~/.codex/config.toml` but hooks are installed in
+`~/.codex/hooks.json`. Now checks the correct file.
+
+### P0-5: Fixed CodeWhale legacy prefix
+
+Was checking `starts_with("re-llmpet-")` (our current prefix) instead
+of `starts_with("octopus-")` (the actual legacy prefix). Fixed to
+correctly detect and clean old `octopus-*` hooks.
+
+### P0-6: OpenCode uninstall returns real status
+
+Was silently returning `Ok(path)` for unreadable/unowned/missing
+files. Now distinguishes: NotFound (clean), removed (success),
+unowned (warning, not deleted), unreadable (error).
+
+### P0-7: Backup pruning changed to max-5
+
+Was pruning by age (30 days). Now keeps at most 5 most-recent
+backups, preventing unbounded growth.
+
+### P1: Removed unused pet capabilities
+
+Removed `allow-focus-pet`, `allow-set-pet-big`, `allow-set-pall`,
+`allow-territory-toggle-auto` from pet.json — these commands have
+no renderer callers.
+
+### P1: Fixed remaining doc drift
+
+README_EN, README_JA, panel title, release name, user-agent all
+updated to current version/name.
+
+### Verification
+
+- npm test: 50/50 ✅
+- npm run check:static: 22/22 ✅
+- npm run gate:source: 16/16 ✅
+- cargo fmt --check: ✅
+- cargo check: ✅
+
+---
+
+## 0.5.36 — R44 complete: all remaining octopus refs migrated + bug fix（2026-08-03）
+
+Completes the identity migration by fixing ALL remaining user-facing
+"octopus" references across Rust, frontend, tests, scripts, and docs.
+
+### Critical bug fix
+
+- `hook_install.rs`: OpenCode plugin source marker was `octopus-opencode-plugin-v3`
+  but `OPENCODE_MARKER` was `re-llmpet-opencode-plugin-v1`. Freshly installed
+  plugins would NOT be detected by the new marker. Now both match.
+
+### Complete identity migration (remaining refs)
+
+**Rust source** (20+ files):
+- All user-facing messages: "Octopus" → "RE-LLMPET"
+- Thread names: `octopus-cursor-hit-test` → `re-llmpet-cursor-hit-test`
+- Backup extensions: `octopus-backup` → `re-llmpet-backup`
+- HTTP user-agent: `Octopus/0.5.0` → `RE-LLMPET/0.5.35`
+- Error messages: "Octopus marker" → "RE-LLMPET marker"
+- Log rotation: `octopus.log` → `re-llmpet.log`
+- Pricing sync User-Agent updated
+
+**Frontend**:
+- Bridge function: `installOctopusBridge` → `installReLlmpetBridge`
+- Toast function: `installOctopusToast` → `installReLlmpetToast`
+- CustomEvent: `octopus:bridge-error` → `re-llmpet:bridge-error`
+- Console prefix: `[octopus]` → `[re-llmpet]`
+- HTML title: `octopus` → `RE-LLMPET`
+- i18n labels: "Octopus Hook" → "RE-LLMPET Hook"
+
+**Config**:
+- `package.json` name: `octopus` → `re-llmpet`
+- `tauri.conf.json` window titles: `Octopus` → `RE-LLMPET`
+- README titles: dropped "/ Octopus" alias
+
+**Scripts**:
+- SBOM: `SPDXRef-Package-Octopus` → `SPDXRef-Package-RE-LLMPET`
+- Protocol drift UA: `Octopus-protocol-drift` → `RE-LLMPET-protocol-drift`
+
+**Tests**: All assertions updated to match new strings.
+
+### Backward compat preserved
+
+- `OPENCODE_MARKER_LEGACY` still includes old v2/v3 markers for cleanup
+- `Cargo.toml` lib name kept as `octopus` for binary compatibility
+- Old `octopus-` prefixed hook names still detected for cleanup
+- Environment variables (`OCTOPUS_*`) kept as-is (breaking change deferred)
+- Mascot character name "Octopus" kept in skin labels (it's the animal, not the app)
+
+### Verification
+
+- npm test: 50/50 ✅
+- npm run check:static: 22/22 ✅
+- npm run gate:source: 16/16 ✅
+- cargo fmt --check: ✅
+- cargo check: ✅ (7 warnings, 0 errors)
+
+---
+
 ## 0.5.35 — R44 Phase 0B: identity migration（2026-08-03）
 
 Migrates RE-LLMPET from the shared LLMPET/octopus namespace to an
