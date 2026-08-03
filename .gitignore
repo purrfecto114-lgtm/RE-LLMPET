@@ -32,3 +32,15 @@ npm-debug.log*
 .env
 .env.*
 !.env.example
+
+# R44: Never commit these — they bloat the repo and are not source artifacts
+*.deb
+skills/
+upload/
+download/
+work/
+workspace/
+tool-results/
+node_modules/
+*.zip
+!node_modules

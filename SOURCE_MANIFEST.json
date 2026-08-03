@@ -1,6 +1,6 @@
 {
   "version": "0.5.32",
-  "generated": 1785682130,
+  "generated": 1785718433,
   "root": "RE-LLMPET-0.5.32",
   "file_count": 280,
   "files": {
@@ -10,7 +10,7 @@
     ".github/workflows/protocol-drift.yml": "16d6ca097a59f482debe1f6ceec13f9a4d5d05269a08856617db843bd6139b44",
     ".github/workflows/provider-real-cli.yml": "61835976ae5fbf5bc3b1f678256bee01f5477be44a66a8884901fb84b420df06",
     ".github/workflows/release.yml": "4f6e22b05199e41ba0781ce131f6435a1393dd0d08177f3bf2130181fcaf16ff",
-    ".gitignore": "bf3bc136594a706b625d15a2a325768103e099ac151e517168b8d27910819d53",
+    ".gitignore": "8e487a1cd8bcc778c5f8da139a6f43eb1984a428a10f715be49ae28989de4303",
     "BUILD_REPRODUCIBILITY.md": "95ac609ab5cac8096aa94305330ce553ffcb67ad3efa6fc564a2eeb098fe89d4",
     "build-windows.sh": "2b1ee1fe31411a98d934f7d26a75bafa477135b98189f94443099746931b01ea",
     "CHANGELOG.md": "ac0b9c2062c3324142c7286b938bd2719980f71d735d14d0f1ec824c642145d0",
@@ -286,5 +286,5 @@
     "test/upstream-reconciliation-smoke.js": "d6fe28d0e413a4c4ca1fa9f79d539d420032db83bed17bafe24379e9b69f0862"
   },
   "source_commit": "re-llmpet-0.5.32",
-  "sha256_of_manifest": "a79171ffcba65da535a9e1aa4686615bd74176ad5eeaa778644eedbea92a39f0"
+  "sha256_of_manifest": "a000aa5d6c4460409ad4384e8c2361b47542faec3a96398ff06e0b6db092ede8"
 }
