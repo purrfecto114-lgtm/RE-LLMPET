@@ -104,6 +104,53 @@ pub fn get_config(state: State<'_, AppState>) -> Value {
     state.runtime.config_view()
 }
 
+/// R44 0.5.39 (roadmap v5 §2): return the current config quarantine state.
+/// The UI uses this to decide whether to show the recovery page:
+///   - healthy / notFound → normal UI
+///   - parseError / unreadable / tooLarge / schemaTooNew → recovery page
+///     with "backup and reset" button calling `backup_and_reset_config`.
+#[tauri::command]
+pub fn get_config_state(state: State<'_, AppState>) -> Value {
+    let cs = state.runtime.config_state();
+    let (label, message) = match &cs {
+        crate::model::ConfigState::Healthy => ("healthy", None),
+        crate::model::ConfigState::NotFound => ("notFound", None),
+        crate::model::ConfigState::ParseError { message } => ("parseError", Some(message.clone())),
+        crate::model::ConfigState::Unreadable { message } => ("unreadable", Some(message.clone())),
+        crate::model::ConfigState::TooLarge { size } => {
+            ("tooLarge", Some(format!("file is {} bytes", size)))
+        }
+        crate::model::ConfigState::SchemaTooNew { version } => (
+            "schemaTooNew",
+            Some(format!("schema version {} is newer than this build supports", version)),
+        ),
+    };
+    json!({
+        "state": label,
+        "quarantined": cs.is_quarantined(),
+        "writesAllowed": cs.writes_allowed(),
+        "message": message,
+    })
+}
+
+/// R44 0.5.39 (roadmap v5 §2): "backup-then-reset" recovery. Backs up the
+/// corrupt config to `.config.re-llmpet-bak-<ts>.json`, clears the quarantine
+/// state, and writes defaults. Returns the backup path so the UI can tell
+/// the user where their old config was preserved.
+#[tauri::command]
+pub fn backup_and_reset_config(state: State<'_, AppState>) -> Result<Value, String> {
+    let backup_path = state.runtime.backup_and_reset_config()?;
+    state.runtime.write_log(
+        "config",
+        &format!("backup_and_reset_config: backup at {}", backup_path.display()),
+    );
+    Ok(json!({
+        "backupPath": backup_path.to_string_lossy(),
+        "state": "healthy",
+        "message": "Config backed up and reset to defaults; restart the app to reload"
+    }))
+}
+
 #[tauri::command]
 pub fn get_stats(state: State<'_, AppState>) -> Value {
     state.runtime.stats()
@@ -206,11 +253,17 @@ pub fn set_mode(app: AppHandle, state: State<'_, AppState>, mode: String) -> Res
 }
 
 /// R13 (2026-07-30): tray-driven single-provider hook uninstall. Removes
-/// only the Octopus-owned hook block for the given provider, leaving the
+/// only the RE-LLMPET-owned hook block for the given provider, leaving the
 /// user's own config and other providers intact. Mirrors the upstream
 /// Electron tray's `tray.uninstallHook` action.
 /// R22 (2026-07-30): if provider is "all", clean ALL providers and clear
 /// config.providers so the user starts fresh.
+///
+/// R44 0.5.39 (roadmap v5 §3+§4): both single-provider and "all" paths
+/// now call the same `uninstall_provider_hooks` pipeline which returns
+/// `CleanupResult` (replacing `Result<PathBuf, String>`). The bulk path
+/// no longer maintains a separate weak-logic loop — it iterates the same
+/// pipeline and aggregates results.
 #[tauri::command]
 pub fn uninstall_hooks(
     app: AppHandle,
@@ -218,165 +271,155 @@ pub fn uninstall_hooks(
     provider: String,
 ) -> Result<Value, String> {
     let provider = provider.trim().to_lowercase();
-    // R22: "all" cleans every provider + clears config.providers
-    // R34 (2026-07-31): collect per-provider result; do NOT silently drop
-    // failures. Previous `if let Ok(path) = ...` discarded every Err, so
-    // the UI told the user "all hooks removed" while external config files
-    // still had Octopus hooks in them. Now we return a structured result
-    // with `allSucceeded: false` and a `results` array so the caller can
-    // surface partial-failure to the user.
-    if provider == "all" {
-        let mut results = Vec::new();
-        let mut failures = Vec::new();
-        for id in ["claude", "codewhale", "codex", "opencode", "aider"] {
-            match crate::hook_install::uninstall_provider_hooks(id) {
-                Ok(path) => {
-                    results.push(json!({
-                        "provider": id,
-                        "status": "removed",
-                        "path": path.to_string_lossy(),
-                    }));
+    let all_providers = ["claude", "codewhale", "codex", "opencode", "aider"];
+
+    // Helper: run the cleanup pipeline for one provider and return its
+    // JSON result object. Used by both single-provider and bulk paths.
+    let run_one = |id: &str| -> (Value, bool, Option<String>) {
+        // R44 Phase 0D (audit fix C9+C10): snapshot receipt + compute
+        // drift BEFORE calling uninstall_provider_hooks.
+        let prior_receipt = crate::hook_install::read_install_receipts()
+            .get(id)
+            .cloned();
+        let drift_detected = match &prior_receipt {
+            Some(r) => {
+                let path_str = r.get("path").and_then(Value::as_str);
+                let receipt_sig = r.get("drift_signature").and_then(Value::as_str);
+                match (path_str, receipt_sig) {
+                    (Some(p), Some(saved)) => {
+                        let current = crate::hook_install::current_drift_signature(Path::new(p));
+                        current.as_deref() != Some(saved)
+                    }
+                    _ => false,
                 }
-                Err(err) => {
-                    let msg = err;
-                    results.push(json!({
-                        "provider": id,
-                        "status": "failed",
-                        "error": msg,
-                    }));
-                    failures.push(format!("{}: {}", id, msg));
+            }
+            None => false,
+        };
+        let cleanup = crate::hook_install::uninstall_provider_hooks(id);
+        let mut result_json = cleanup.to_json();
+        if let Some(obj) = result_json.as_object_mut() {
+            obj.insert("provider".into(), json!(id));
+            obj.insert("driftDetected".into(), json!(drift_detected));
+            if let Some(r) = &prior_receipt {
+                obj.insert("priorReceipt".into(), r.clone());
+                if let Some(ts) = r.get("installed_at").and_then(Value::as_u64) {
+                    obj.insert("installedAt".into(), json!(ts));
+                }
+                if let Some(bp) = r.get("backup_path").and_then(Value::as_str) {
+                    obj.insert("backupPath".into(), json!(bp));
                 }
             }
         }
-        let all_succeeded = failures.is_empty();
-        // R44 (audit Roadmap v2 P0-01): ALWAYS clear config.providers,
-        // regardless of hook cleanup result. The local selection state
-        // and external hook cleanup are separate concerns — the user
-        // asked to "uninstall all", so we clear their selection. If
-        // external files have residue, that's reported separately.
-        //
-        // CRITICAL: do NOT call resync_current() here. The old code did:
-        //   1. Delete hooks for each provider
-        //   2. Call resync_current()
-        //   3. resync_current() reads config.providers (not yet cleared)
-        //   4. Calls sync_enabled() which RE-INSTALLS the hooks we just deleted
-        // This created a "delete then reinstall" loop.
+        let is_clean = cleanup.is_clean();
+        let failure_msg = if cleanup.is_hard_failure() {
+            Some(format!("{}: {:?}", id, cleanup))
+        } else {
+            None
+        };
+        (result_json, is_clean, failure_msg)
+    };
+
+    // Determine which providers to process.
+    let targets: Vec<&str> = if provider == "all" {
+        all_providers.to_vec()
+    } else if all_providers.contains(&provider.as_str()) {
+        vec![provider.as_str()]
+    } else {
+        return Err(format!("unsupported provider: {provider}"));
+    };
+
+    // Run the pipeline for each target.
+    let mut results = Vec::new();
+    let mut failures = Vec::new();
+    let mut all_clean = true;
+    for id in &targets {
+        let (result_json, is_clean, failure_msg) = run_one(id);
+        if !is_clean {
+            all_clean = false;
+        }
+        if let Some(msg) = failure_msg {
+            failures.push(msg);
+        }
+        state.runtime.write_log(
+            "tray",
+            &format!("uninstall_hooks('{}'): {:?}", id, result_json),
+        );
+        results.push(result_json);
+    }
+
+    // R44 (audit Roadmap v2 P0-01): ALWAYS clear config.providers for
+    // "all" (the user asked to start fresh). For single-provider, only
+    // remove that one provider from the selection.
+    if provider == "all" {
         state.runtime.update_config(|config| {
             config.providers.clear();
         })?;
-        state.runtime.write_log(
-            "tray",
-            &format!(
-                "uninstall_hooks('all'): providers cleared, hooks {}",
-                if all_succeeded {
-                    "all removed"
-                } else {
-                    "partial failure"
-                }
-            ),
-        );
-        // Do NOT emit_config here — the frontend will re-fetch via getConfig.
-        // Do NOT call resync_current() — it would reinstall hooks based on
-        // the old config before the clear persists.
-        emit_config(&app, &state);
-        let message = if all_succeeded {
+    } else {
+        state.runtime.update_config(|config| {
+            config.providers.retain(|p| p != &provider);
+        })?;
+    }
+    // CRITICAL: do NOT call resync_current() here. The old code did:
+    //   1. Delete hooks for each provider
+    //   2. Call resync_current()
+    //   3. resync_current() reads config.providers (not yet cleared)
+    //   4. Calls sync_enabled() which RE-INSTALLS the hooks we just deleted
+    // This created a "delete then reinstall" loop.
+    emit_config(&app, &state);
+
+    // Build the response. For "all", include the bulk fields. For
+    // single-provider, include the receipt-provenance fields at top level
+    // (for backward compat with the 0.5.38 frontend expectation).
+    if provider == "all" {
+        let message = if all_clean {
             "All RE-LLMPET hooks removed; config.providers cleared".to_string()
         } else {
             format!(
-                "Provider selection cleared. Some external hooks could not be removed: {}",
+                "Provider selection cleared. Some external hooks could not be fully verified: {}",
                 failures.join("；")
             )
         };
-        return Ok(json!({
+        Ok(json!({
             "provider": "all",
             "selectionCleared": true,
-            "allHooksRemoved": all_succeeded,
+            "allHooksVerifiedAbsent": all_clean,
+            "allHooksRemoved": all_clean, // backward compat alias
             "results": results,
             "failures": failures,
             "message": message,
-        }));
+        }))
+    } else {
+        // Single-provider: unwrap the single result and surface its fields.
+        let single = results.into_iter().next().unwrap_or(json!({}));
+        let drift_detected = single.get("driftDetected").and_then(Value::as_bool).unwrap_or(false);
+        let prior_receipt = single.get("priorReceipt").cloned();
+        let installed_at = single.get("installedAt").and_then(Value::as_u64);
+        let backup_path = single.get("backupPath").and_then(Value::as_str).map(|s| s.to_string());
+        let path = single.get("path").and_then(Value::as_str).map(|s| s.to_string()).unwrap_or_default();
+        let status = single.get("status").and_then(Value::as_str).unwrap_or("unknown");
+        Ok(json!({
+            "provider": provider,
+            "path": path,
+            "status": status,
+            "selectionCleared": true,
+            "priorReceipt": prior_receipt,
+            "installedAt": installed_at,
+            "backupPath": backup_path,
+            "driftDetected": drift_detected,
+            "cleanupResult": single,
+            "message": if drift_detected {
+                "RE-LLMPET hooks removed; WARNING: config was modified after install — verify backup"
+            } else if status == "unowned" {
+                "File exists but is not owned by RE-LLMPET; left intact"
+            } else if status == "notFound" {
+                "No RE-LLMPET hooks found for this provider; nothing to remove"
+            } else if status == "residue" {
+                "Partial cleanup; residue remains — see cleanupResult.detail"
+            } else {
+                "RE-LLMPET hooks removed for this provider; user config preserved"
+            }
+        }))
     }
-    if !["claude", "codewhale", "codex", "opencode", "aider"].contains(&provider.as_str()) {
-        return Err(format!("unsupported provider: {provider}"));
-    }
-    // R44 Phase 0D (audit fix C9+C10): snapshot the receipt AND compute
-    // drift BEFORE calling uninstall_provider_hooks. The previous code
-    // computed drift AFTER uninstall, which always reported drift=true
-    // because uninstall itself rewrites (or deletes) the config file —
-    // making the post-uninstall signature always differ from the
-    // install-time receipt signature.
-    //
-    // The correct order is:
-    //   1. Read the latest receipt (snapshot — defensive copy before any
-    //      destructive operation, even though uninstall doesn't delete
-    //      the receipt file).
-    //   2. Compute the PRE-uninstall signature of the config file.
-    //   3. Compare pre-uninstall sig to receipt's stored install-time sig.
-    //      If they differ, the user (or another tool) modified the config
-    //      between install and uninstall — surface a drift warning.
-    //   4. Call uninstall_provider_hooks (which rewrites the file).
-    //   5. Return the response with priorReceipt / installedAt /
-    //      backupPath / driftDetected.
-    //
-    // If uninstall itself fails (step 4 returns Err), the `?` propagates
-    // and the user gets a raw Err — but at least we didn't waste the
-    // receipt read. The frontend's .catch() handles the Err.
-    let prior_receipt = crate::hook_install::read_install_receipts()
-        .get(&provider)
-        .cloned();
-    let (installed_at, backup_path, drift_detected) = match &prior_receipt {
-        Some(r) => {
-            let installed_at = r.get("installed_at").and_then(Value::as_u64);
-            let backup_path = r
-                .get("backup_path")
-                .and_then(Value::as_str)
-                .map(|s| s.to_string());
-            // Compute PRE-uninstall signature and compare to receipt's
-            // install-time signature. If the file was modified between
-            // install and now (but before our uninstall rewrites it),
-            // driftDetected=true.
-            let path_str = r.get("path").and_then(Value::as_str);
-            let receipt_sig = r.get("drift_signature").and_then(Value::as_str);
-            let drifted = match (path_str, receipt_sig) {
-                (Some(p), Some(saved)) => {
-                    let current = crate::hook_install::current_drift_signature(Path::new(p));
-                    current.as_deref() != Some(saved)
-                }
-                _ => false, // no signature in receipt → can't detect drift
-            };
-            (installed_at, backup_path, drifted)
-        }
-        None => (None, None, false),
-    };
-    let path = crate::hook_install::uninstall_provider_hooks(&provider)?;
-    state.runtime.write_log(
-        "tray",
-        &format!("uninstalled hooks for {provider}: {}", path.display()),
-    );
-    // R22: also remove this provider from config.providers so it doesn't
-    // get re-synced on next resync.
-    state.runtime.update_config(|config| {
-        config.providers.retain(|p| p != &provider);
-    })?;
-    // R44 (audit Roadmap v2 P0-01): do NOT call resync_current() here.
-    // The old code called resync_current() which would read the (already
-    // updated) config and potentially re-install hooks for other providers.
-    // For single-provider uninstall, we just emit the updated config.
-    emit_config(&app, &state);
-    Ok(json!({
-        "provider": provider,
-        "path": path.to_string_lossy(),
-        "selectionCleared": true,
-        "priorReceipt": prior_receipt,
-        "installedAt": installed_at,
-        "backupPath": backup_path,
-        "driftDetected": drift_detected,
-        "message": if drift_detected {
-            "RE-LLMPET hooks removed; WARNING: config was modified after install — verify backup"
-        } else {
-            "RE-LLMPET hooks removed for this provider; user config preserved"
-        }
-    }))
 }
 
 /// R44 Phase 0D: return the latest install receipt per provider. Used by

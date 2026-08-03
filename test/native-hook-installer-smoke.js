@@ -42,12 +42,25 @@ const permission = settings.hooks.PermissionRequest.flatMap((group) => group.hoo
 assert(permission && permission.command.includes('--permission PermissionRequest'));
 assert(!JSON.stringify(settings).includes('?token='), 'runtime token leaked into Claude hook configuration');
 
+// R44 0.5.39: add an official-style HTTP permission hook to verify the
+// installer does NOT delete it. The old `isOurHttp` predicate matched
+// 127.0.0.1:41330-41334 + /permission and would delete this. The new
+// predicate only matches hooks containing the RE-LLMPET marker string.
+const officialHttpHook = { type: 'http', url: 'http://127.0.0.1:41330/permission', timeout: 600 };
+settings.hooks.PermissionRequest = [{ matcher: '', hooks: [officialHttpHook] }];
+fs.writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify(settings, null, 2));
+
 const uninstalled = run(['--uninstall']);
 assert.strictEqual(uninstalled.status, 0, uninstalled.stderr || uninstalled.stdout);
 settings = JSON.parse(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf8'));
 assert(settings.hooks.Stop[0].hooks.some((hook) => hook.command === foreignHook.command), 'foreign hook was removed during uninstall');
-const leftovers = Object.values(settings.hooks).flatMap((groups) => groups).flatMap((group) => group.hooks || []).filter((hook) => (hook.command || '').includes('re-llmpet-hook') || (hook.url || '').includes('/permission'));
-assert.strictEqual(leftovers.length, 0, 'native hooks were not fully removed');
+// R44 0.5.39: official-style HTTP hook must survive uninstall (not ours).
+const httpSurvived = settings.hooks.PermissionRequest
+  && settings.hooks.PermissionRequest.some((group) => group.hooks.some((hook) => hook.url === officialHttpHook.url));
+assert(httpSurvived, 'official-style HTTP permission hook was incorrectly deleted by uninstall');
+// R44 0.5.39: only command hooks containing the RE-LLMPET marker should be removed.
+const leftovers = Object.values(settings.hooks).flatMap((groups) => groups).flatMap((group) => group.hooks || []).filter((hook) => typeof hook.command === 'string' && hook.command.includes('re-llmpet-hook'));
+assert.strictEqual(leftovers.length, 0, 'native command hooks were not fully removed');
 
 fs.rmSync(home, { recursive: true, force: true });
 console.log('native-hook-installer-smoke: ok');

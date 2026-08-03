@@ -78,10 +78,11 @@ assert(commands.includes('hook_install::resync_current'),
   'uninstall_hooks must resync provider statuses after uninstall');
 
 // ── hook_install.rs: public wrapper ───────────────────────────────────────
-assert(hookInstall.includes('pub fn uninstall_provider_hooks(id: &str) -> Result<PathBuf, String>'),
-  'hook_install.rs must expose pub fn uninstall_provider_hooks');
-assert(hookInstall.includes('uninstall_provider(id)'),
-  'uninstall_provider_hooks must delegate to uninstall_provider');
+// R44 0.5.39: signature changed from Result<PathBuf, String> to CleanupResult.
+assert(hookInstall.includes('pub fn uninstall_provider_hooks(id: &str) -> CleanupResult'),
+  'hook_install.rs must expose pub fn uninstall_provider_hooks returning CleanupResult (0.5.39)');
+assert(hookInstall.includes('cleanup_provider(id)'),
+  'uninstall_provider_hooks must delegate to cleanup_provider (0.5.39)');
 
 // ── Registration: lib.rs invoke_handler + build.rs COMMANDS ───────────────
 const handlerBlock = lib.slice(lib.indexOf('generate_handler!['), lib.indexOf('])'));

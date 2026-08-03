@@ -1,6 +1,6 @@
 [package]
 name = "octopus"
-version = "0.5.38"
+version = "0.5.39"
 description = "Low-overhead multi-agent desktop pet"
 authors = ["Octopus contributors"]
 license = "MIT"
@@ -28,6 +28,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "=0.4.38", default-features = false, features = ["clock", "std"] }
+# R44 0.5.39 (roadmap v5 §5): SHA-256 for config drift detection.
+# Replaces the old size+mtime signature which could false-negative when
+# a tool rewrites the file with the same size in the same second.
+sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 # R35 (2026-07-31): Win32_Globalization adds GetOEMCP / GetACP / MultiByteToWideChar

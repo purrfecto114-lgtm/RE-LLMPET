@@ -37,8 +37,8 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.38',
-  'R40: package.json version must be 0.5.38');
+assert.strictEqual(packageJson.version, '0.5.39',
+  'R40: package.json version must be 0.5.39');
 
 // ──────────────────────────────────────────────────────────────────────────
 // R40-1: OpenCode plugin — `session.status` must NOT map to UserPromptSubmit
@@ -96,12 +96,15 @@ assert(!commands.includes('"providers", "list"'),
 // diagnostic still detects; backup-before-write added
 // ──────────────────────────────────────────────────────────────────────────
 
-// R40.1: strip_legacy_codewhale_hooks is still DEFINED (as dead code for
-// R41 reference) but must NOT be CALLED from install_codewhale.
-assert(hookInstall.includes('fn strip_legacy_codewhale_hooks'),
-  'R40-4: hook_install must still define strip_legacy_codewhale_hooks (dead code, R41 will revisit)');
-assert(!hookInstall.includes('strip_legacy_codewhale_hooks(&path, &mut messages)'),
-  'R40.1-P0-2: install_codewhale must NOT call strip_legacy_codewhale_hooks (data corruption risk)');
+// R40.1/R44-0.5.39: strip_legacy_codewhale_hooks was DELETED in 0.5.39
+// (roadmap v5 §6 — "delete dangerous dead code"). The function was a
+// line-oriented TOML scanner that could absorb user-owned tables into
+// a legacy hook body and silently delete them. It was disabled since
+// R40.1 but kept as dead code; 0.5.39 removes it entirely.
+assert(!hookInstall.includes('fn strip_legacy_codewhale_hooks'),
+  'R44-0.5.39: strip_legacy_codewhale_hooks must be DELETED (roadmap v5 §6 — dangerous dead code)');
+assert(!hookInstall.includes('fn parse_toml_string_value'),
+  'R44-0.5.39: parse_toml_string_value must be DELETED (only used by deleted strip_legacy_codewhale_hooks)');
 assert(hookInstall.includes('fn backup_codewhale_config'),
   'R40.1-P0-2: hook_install must have backup_codewhale_config function');
 assert(hookInstall.includes('backup_codewhale_config(&path, runtime)'),

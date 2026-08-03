@@ -155,6 +155,114 @@ pub struct InstallResult {
     pub message: String,
 }
 
+/// R44 0.5.39 (roadmap v5 §3): typed cleanup result replacing
+/// `Result<PathBuf, String>`. The old type could only express "ok (here's
+/// the path)" or "error (string)" — it could NOT distinguish:
+///   - file didn't exist (clean, nothing to remove)
+///   - file existed and we removed our block (true success)
+///   - file existed but wasn't ours (refused to touch, user must inspect)
+///   - file existed, we removed our block, but the file hash changed
+///     unexpectedly (possible residue)
+///   - file couldn't be read (manual action required)
+///
+/// The roadmap v5 §3 requires five providers to uniformly return this
+/// enum so the IPC layer can report accurate status to the UI instead
+/// of collapsing everything to "Ok" or "Err".
+#[derive(Debug, Clone)]
+pub enum CleanupResult {
+    /// Our hook block was found and successfully removed.
+    Removed { path: PathBuf },
+    /// File didn't exist — nothing to clean. Not an error.
+    NotFound { path: PathBuf },
+    /// File exists but doesn't contain our marker — not ours, left intact.
+    Unowned { path: PathBuf },
+    /// File existed and contained our marker, but after removal the file
+    /// hash differs from what we expected (possible residue or concurrent
+    /// edit). The block was removed but the user should verify.
+    Changed { path: PathBuf },
+    /// The path itself changed (symlink, env var, moved config dir)
+    /// between install and uninstall. Refused to write; user must inspect.
+    PathDrift { expected: PathBuf, actual: PathBuf },
+    /// File exists but can't be read (permissions, I/O error, non-UTF-8).
+    /// No changes made. User must fix permissions and retry.
+    Unreadable { path: PathBuf, error: String },
+    /// Uninstall partially succeeded but residue remains (e.g. marker
+    /// block removed but a stale hook entry outside the block survives).
+    Residue { path: PathBuf, detail: String },
+    /// Uninstall requires manual action that the code can't safely
+    /// automate (e.g. TOML parse failed mid-block, or file is locked).
+    ManualActionRequired { path: PathBuf, detail: String },
+}
+
+impl CleanupResult {
+    /// Convert to a JSON value for IPC responses. Includes a `status`
+    /// string (matching the enum variant name) and a `path` field.
+    pub fn to_json(&self) -> Value {
+        match self {
+            CleanupResult::Removed { path } => json!({
+                "status": "removed",
+                "path": path.to_string_lossy(),
+            }),
+            CleanupResult::NotFound { path } => json!({
+                "status": "notFound",
+                "path": path.to_string_lossy(),
+            }),
+            CleanupResult::Unowned { path } => json!({
+                "status": "unowned",
+                "path": path.to_string_lossy(),
+                "message": "File exists but is not owned by RE-LLMPET; left intact",
+            }),
+            CleanupResult::Changed { path } => json!({
+                "status": "changed",
+                "path": path.to_string_lossy(),
+                "message": "Hook block removed but file hash differs from expected; verify residue",
+            }),
+            CleanupResult::PathDrift { expected, actual } => json!({
+                "status": "pathDrift",
+                "expected": expected.to_string_lossy(),
+                "actual": actual.to_string_lossy(),
+                "message": "Config path changed between install and uninstall; refused to write",
+            }),
+            CleanupResult::Unreadable { path, error } => json!({
+                "status": "unreadable",
+                "path": path.to_string_lossy(),
+                "error": error,
+                "message": "File exists but cannot be read; fix permissions and retry",
+            }),
+            CleanupResult::Residue { path, detail } => json!({
+                "status": "residue",
+                "path": path.to_string_lossy(),
+                "detail": detail,
+                "message": "Partial cleanup; residue remains",
+            }),
+            CleanupResult::ManualActionRequired { path, detail } => json!({
+                "status": "manualActionRequired",
+                "path": path.to_string_lossy(),
+                "detail": detail,
+                "message": "Manual cleanup required",
+            }),
+        }
+    }
+
+    /// True if the result represents a successful cleanup (Removed or
+    /// NotFound). Used by bulk uninstall to compute `allHooksVerifiedAbsent`.
+    pub fn is_clean(&self) -> bool {
+        matches!(self, CleanupResult::Removed { .. } | CleanupResult::NotFound { .. })
+    }
+
+    /// True if the result represents a hard failure (Unreadable or
+    /// ManualActionRequired). Soft failures (Unowned, Changed, Residue,
+    /// PathDrift) leave the file in a known state and don't block other
+    /// providers.
+    pub fn is_hard_failure(&self) -> bool {
+        matches!(
+            self,
+            CleanupResult::Unreadable { .. } | CleanupResult::ManualActionRequired { .. }
+        )
+    }
+}
+
+
 pub fn sync_enabled(
     runtime: &Runtime,
     port: u16,
@@ -168,10 +276,43 @@ pub fn sync_enabled(
         let result = if selected.contains(id) {
             install_provider(runtime, id, port, token, permission_enabled)
         } else {
-            uninstall_provider(id).map(|path| InstallResult {
+            // R44 0.5.39: cleanup_provider returns CleanupResult. Convert
+            // to InstallResult for the status_from_result helper. The
+            // cleanup's path + a human-readable message are extracted
+            // from the CleanupResult variant.
+            let cleanup = cleanup_provider(id);
+            let path = match &cleanup {
+                CleanupResult::Removed { path }
+                | CleanupResult::NotFound { path }
+                | CleanupResult::Unowned { path }
+                | CleanupResult::Changed { path }
+                | CleanupResult::Residue { path, .. }
+                | CleanupResult::Unreadable { path, .. }
+                | CleanupResult::ManualActionRequired { path, .. } => path.clone(),
+                CleanupResult::PathDrift { actual, .. } => actual.clone(),
+            };
+            let message = match &cleanup {
+                CleanupResult::Removed { .. } => {
+                    "未启用；已清理 RE-LLMPET 自有 Hook，保留用户其他配置"
+                }
+                CleanupResult::NotFound { .. } => "未启用；无 Hook 需要清理",
+                CleanupResult::Unowned { .. } => {
+                    "未启用；配置文件存在但不属于 RE-LLMPET，未修改"
+                }
+                CleanupResult::Changed { .. } => {
+                    "未启用；Hook 块已移除但检测到残留，请检查"
+                }
+                CleanupResult::Residue { detail, .. } => detail.as_str(),
+                CleanupResult::PathDrift { .. } => {
+                    "未启用；配置路径发生变化，未执行清理"
+                }
+                CleanupResult::Unreadable { error, .. } => error.as_str(),
+                CleanupResult::ManualActionRequired { detail, .. } => detail.as_str(),
+            };
+            Ok(InstallResult {
+                added: 0,
                 path,
-                message: "未启用；已清理 Octopus 自有 Hook，保留用户其他配置".into(),
-                ..InstallResult::default()
+                message: message.into(),
             })
         };
         let status = status_from_result(id, selected.contains(id), result);
@@ -343,7 +484,11 @@ fn file_contains(path: PathBuf, marker: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn uninstall_provider(id: &str) -> Result<PathBuf, String> {
+/// R44 0.5.39 (roadmap v5 §3+§4): unified cleanup pipeline returning
+/// `CleanupResult` instead of `Result<PathBuf, String>`. The bulk
+/// uninstall path calls this same function in a loop — no separate
+/// weak-logic bulk path.
+fn cleanup_provider(id: &str) -> CleanupResult {
     match id {
         "claude" => uninstall_claude(),
         "codewhale" => uninstall_marker_file(&codewhale_config_path(), CW_BEGIN, CW_END),
@@ -352,16 +497,23 @@ fn uninstall_provider(id: &str) -> Result<PathBuf, String> {
         "aider" => {
             uninstall_marker_file(&home_dir().join(".aider.conf.yml"), AIDER_BEGIN, AIDER_END)
         }
-        _ => Err(format!("unknown provider: {id}")),
+        _ => CleanupResult::ManualActionRequired {
+            path: PathBuf::new(),
+            detail: format!("unknown provider: {id}"),
+        },
     }
 }
 
 /// R13 (2026-07-30): public wrapper so the tray's "Uninstall Claude hooks"
-/// menu item can remove a single provider's Octopus-owned hook block without
-/// touching the user's other config. Mirrors the upstream Electron tray's
-/// `tray.uninstallHook` action.
-pub fn uninstall_provider_hooks(id: &str) -> Result<PathBuf, String> {
-    uninstall_provider(id)
+/// menu item can remove a single provider's RE-LLMPET-owned hook block
+/// without touching the user's other config. Mirrors the upstream
+/// Electron tray's `tray.uninstallHook` action.
+///
+/// R44 0.5.39 (roadmap v5 §3): now returns `CleanupResult` instead of
+/// `Result<PathBuf, String>`. Callers can inspect the variant to
+/// distinguish "removed" / "notFound" / "unowned" / "unreadable" etc.
+pub fn uninstall_provider_hooks(id: &str) -> CleanupResult {
+    cleanup_provider(id)
 }
 
 fn status_from_result(
@@ -482,17 +634,58 @@ pub fn install_claude(
     Ok(result)
 }
 
-fn uninstall_claude() -> Result<PathBuf, String> {
+fn uninstall_claude() -> CleanupResult {
     let path = home_dir().join(".claude").join("settings.json");
     if !path.exists() {
-        return Ok(path);
+        return CleanupResult::NotFound { path };
     }
-    let mut settings = read_json_object(&path, "Claude settings")?;
+    // Read the file; if it can't be read, report Unreadable (not Err).
+    let raw = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) => {
+            return CleanupResult::Unreadable {
+                path,
+                error: e.to_string(),
+            }
+        }
+    };
+    // Parse JSON; if it fails, the user's settings.json is corrupt —
+    // refuse to write (ManualActionRequired) instead of overwriting with
+    // defaults.
+    let mut settings: Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            return CleanupResult::ManualActionRequired {
+                path,
+                detail: format!("settings.json is not valid JSON: {e}. Refusing to overwrite; manual cleanup required."),
+            }
+        }
+    };
+    // Check if we own anything before mutating. If not, return Unowned.
+    if !raw.contains("re-llmpet") {
+        return CleanupResult::Unowned { path };
+    }
     if let Some(hooks) = settings.get_mut("hooks").and_then(Value::as_object_mut) {
         remove_all_ours(hooks);
     }
-    write_json_atomic(&path, &Value::Object(settings))?;
-    Ok(path)
+    if let Err(e) = write_json_atomic(&path, &settings) {
+        return CleanupResult::ManualActionRequired {
+            path,
+            detail: format!("write failed: {e}"),
+        };
+    }
+    // R44 0.5.39 §3: post-write verification — if the file STILL contains
+    // our marker after removal, `remove_all_ours` missed something (e.g.
+    // a hook entry in a format we don't recognize). Report Residue.
+    if let Ok(post_raw) = fs::read_to_string(&path) {
+        if post_raw.contains("re-llmpet") {
+            return CleanupResult::Residue {
+                path,
+                detail: "re-llmpet marker still present after remove_all_ours".into(),
+            };
+        }
+    }
+    CleanupResult::Removed { path }
 }
 
 fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
@@ -748,146 +941,18 @@ fn backup_codewhale_config(path: &Path, runtime: &Runtime) -> Result<Option<Path
     Ok(backup_path)
 }
 
-/// R40: scan a CodeWhale config.toml and remove any `[[hooks.hooks]]`
-/// table whose `name` starts with `octopus-` BUT which is NOT inside the
-/// current v2 marker block. This catches legacy v1 marker blocks and
-/// any unmarked pre-R22 install residue (notably `octopus-message_submit`).
-///
-/// The function is intentionally line-oriented and tolerant of TOML
-/// formatting variations (single vs double quotes, leading whitespace)
-/// because pre-R22 installs were generated by different code paths and
-/// may not match the exact formatting of the current installer.
-fn strip_legacy_codewhale_hooks(path: &Path, messages: &mut Vec<String>) -> Result<(), String> {
-    let raw = match fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(_) => return Ok(()), // file doesn't exist yet — nothing to clean
-    };
-
-    // Two-pass approach for clarity:
-    //   Pass 1: walk lines, group each `[[hooks.hooks]]` table into a
-    //           contiguous block, classify it as KEEP / DROP.
-    //           - DROP if the table is OUTSIDE the v2 marker block AND
-    //             its `name` starts with `octopus-`.
-    //           - Otherwise KEEP.
-    //   Pass 2: emit the kept blocks (and all non-table lines) in order.
-    #[derive(Clone)]
-    enum Span {
-        Raw(String), // a non-table line, kept verbatim
-        Table {
-            header: String,
-            body: Vec<String>,
-            keep: bool,
-            name: String,
-        },
-    }
-
-    let mut spans: Vec<Span> = Vec::new();
-    let mut in_v2_block = false;
-    let mut current_table: Option<(String, Vec<String>)> = None;
-
-    let flush_table = |spans: &mut Vec<Span>, tbl: Option<(String, Vec<String>)>, in_v2: bool| {
-        if let Some((header, body)) = tbl {
-            let name = body
-                .iter()
-                .find_map(|l| parse_toml_string_value(l.trim(), "name"))
-                .unwrap_or_default();
-            let keep = in_v2 && !name.starts_with("octopus-");
-            spans.push(Span::Table {
-                header,
-                body,
-                keep,
-                name,
-            });
-        }
-    };
-
-    for line in raw.lines() {
-        let trimmed = line.trim();
-        if trimmed == CW_BEGIN {
-            in_v2_block = true;
-            // close any open table before the marker
-            let tbl = current_table.take();
-            flush_table(&mut spans, tbl, false); // not yet in v2
-            spans.push(Span::Raw(line.to_string()));
-            continue;
-        }
-        if trimmed == CW_END {
-            // close any open table before the end marker
-            let tbl = current_table.take();
-            flush_table(&mut spans, tbl, in_v2_block);
-            in_v2_block = false;
-            spans.push(Span::Raw(line.to_string()));
-            continue;
-        }
-        if trimmed.starts_with("[[hooks.hooks]]") {
-            // start a new table — flush the previous one first
-            let tbl = current_table.take();
-            flush_table(&mut spans, tbl, in_v2_block);
-            current_table = Some((line.to_string(), Vec::new()));
-            continue;
-        }
-        if let Some((_, body)) = current_table.as_mut() {
-            body.push(line.to_string());
-        } else {
-            spans.push(Span::Raw(line.to_string()));
-        }
-    }
-    // flush trailing table
-    flush_table(&mut spans, current_table.take(), in_v2_block);
-
-    let mut output = String::with_capacity(raw.len());
-    let mut changed = false;
-    for span in spans {
-        match span {
-            Span::Raw(s) => {
-                output.push_str(&s);
-                output.push('\n');
-            }
-            Span::Table {
-                header,
-                body,
-                keep,
-                name,
-            } => {
-                if keep {
-                    output.push_str(&header);
-                    output.push('\n');
-                    for b in &body {
-                        output.push_str(b);
-                        output.push('\n');
-                    }
-                } else {
-                    changed = true;
-                    messages.push(format!("removed legacy hook `{name}`"));
-                }
-            }
-        }
-    }
-    if changed {
-        write_text_atomic(path, output.as_bytes())?;
-    }
-    Ok(())
-}
-
-/// Parse `name = "value"` (or `name = 'value'`) from a single TOML line.
-/// Returns None if the line doesn't match `key = "..."`.
-fn parse_toml_string_value(line: &str, key: &str) -> Option<String> {
-    let trimmed = line.trim();
-    let prefix = format!("{key} =");
-    if !trimmed.starts_with(&prefix) {
-        return None;
-    }
-    let rest = trimmed[prefix.len()..].trim_start();
-    if let Some(stripped) = rest.strip_prefix('"') {
-        let end = stripped.find('"')?;
-        return Some(stripped[..end].to_string());
-    }
-    if let Some(stripped) = rest.strip_prefix('\'') {
-        let end = stripped.find('\'')?;
-        return Some(stripped[..end].to_string());
-    }
-    None
-}
+// R44 0.5.39 (roadmap v5 §6): the dormant `strip_legacy_codewhale_hooks`
+// function and its helper `parse_toml_string_value` were DELETED. The
+// function was a line-oriented TOML state machine that could absorb
+// user-owned `[provider]` / `[[models]]` / arbitrary TOML tables into a
+// legacy `[[hooks.hooks]]` body and silently delete them. It was disabled
+// (not called) since R40.1 (0.5.20) but kept as "dead code for reference".
+// The roadmap v5 §6 explicitly forbids keeping a destructive function
+// that "isn't called now but could delete user TOML tables if enabled".
+//
+// Legacy CodeWhale cleanup is now the responsibility of the Legacy Repair
+// flow (R44 0.5.40+), which uses ownership metadata (receipt + marker +
+// executable path) instead of a line scanner.
 
 fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
     let path = home_dir().join(".codex").join("hooks.json");
@@ -929,17 +994,50 @@ fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
     })
 }
 
-fn uninstall_codex() -> Result<PathBuf, String> {
+fn uninstall_codex() -> CleanupResult {
     let path = home_dir().join(".codex").join("hooks.json");
     if !path.exists() {
-        return Ok(path);
+        return CleanupResult::NotFound { path };
     }
-    let mut root = read_json_object(&path, "Codex hooks")?;
+    let raw = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) => {
+            return CleanupResult::Unreadable {
+                path,
+                error: e.to_string(),
+            }
+        }
+    };
+    let mut root: Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            return CleanupResult::ManualActionRequired {
+                path,
+                detail: format!("hooks.json is not valid JSON: {e}. Refusing to overwrite."),
+            }
+        }
+    };
+    if !raw.contains("re-llmpet") {
+        return CleanupResult::Unowned { path };
+    }
     if let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) {
         remove_all_ours(hooks);
     }
-    write_json_atomic(&path, &Value::Object(root))?;
-    Ok(path)
+    if let Err(e) = write_json_atomic(&path, &root) {
+        return CleanupResult::ManualActionRequired {
+            path,
+            detail: format!("write failed: {e}"),
+        };
+    }
+    if let Ok(post_raw) = fs::read_to_string(&path) {
+        if post_raw.contains("re-llmpet") {
+            return CleanupResult::Residue {
+                path,
+                detail: "re-llmpet marker still present after remove_all_ours".into(),
+            };
+        }
+    }
+    CleanupResult::Removed { path }
 }
 
 fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
@@ -993,12 +1091,15 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
     })
 }
 
-fn uninstall_opencode() -> Result<PathBuf, String> {
+/// R44 0.5.39 (roadmap v5 §3): OpenCode uninstall now returns accurate
+/// `CleanupResult` variants. Previously it returned `Ok(path)` even when
+/// the file was NOT deleted (because it wasn't ours) — the roadmap v5 §3
+/// explicitly states "OpenCode 未删除文件时不得显示 `removed`".
+fn uninstall_opencode() -> CleanupResult {
     let base = std::env::var_os("OPENCODE_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
     let path = base.join("plugins").join("llmpet-hook.js");
-    // R44 (audit v3 P0-6): return real status instead of silent success.
     match fs::read_to_string(&path) {
         Ok(raw) => {
             let owns_current = raw.contains(OPENCODE_MARKER);
@@ -1006,25 +1107,33 @@ fn uninstall_opencode() -> Result<PathBuf, String> {
                 .iter()
                 .any(|marker| raw.contains(marker));
             if owns_current || owns_legacy {
-                fs::remove_file(&path).map_err(|e| e.to_string())?;
+                // File is ours — delete it.
+                match fs::remove_file(&path) {
+                    Ok(()) => CleanupResult::Removed { path },
+                    Err(e) => CleanupResult::ManualActionRequired {
+                        path,
+                        detail: format!("remove_file failed: {e}"),
+                    },
+                }
             } else {
-                // File exists but doesn't contain our marker — not ours.
-                eprintln!("[re-llmpet] WARNING: OpenCode plugin file exists but is not owned by RE-LLMPET (marker not found). Not deleting.");
+                // File exists but doesn't contain our marker — NOT ours.
+                // Return Unowned (NOT Removed) so the UI can tell the user
+                // "file exists but isn't ours; left intact".
+                CleanupResult::Unowned { path }
             }
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             // File doesn't exist — clean, nothing to do.
+            CleanupResult::NotFound { path }
         }
         Err(e) => {
-            // File exists but can't be read — report as residue.
-            return Err(format!(
-                "OpenCode plugin file exists but cannot be read ({}). Manual cleanup may be needed at: {}",
-                e,
-                path.display()
-            ));
+            // File exists but can't be read — report as Unreadable (was Err).
+            CleanupResult::Unreadable {
+                path,
+                error: e.to_string(),
+            }
         }
     }
-    Ok(path)
 }
 
 fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
@@ -1288,14 +1397,58 @@ fn replace_marker_block(path: &Path, begin: &str, end: &str, block: &str) -> Res
     write_text_atomic(path, clean.as_bytes())
 }
 
-fn uninstall_marker_file(path: &Path, begin: &str, end: &str) -> Result<PathBuf, String> {
+/// R44 0.5.39 (roadmap v5 §3): marker-file uninstall now returns
+/// `CleanupResult`. Used by CodeWhale (config.toml) and Aider
+/// (.aider.conf.yml) — both use the `>>> re-llmpet:... >>>` / `<<<
+/// re-llmpet:... <<<` block markers.
+fn uninstall_marker_file(path: &Path, begin: &str, end: &str) -> CleanupResult {
     if !path.exists() {
-        return Ok(path.to_path_buf());
+        return CleanupResult::NotFound {
+            path: path.to_path_buf(),
+        };
     }
-    let existing = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let clean = strip_marker_block(&existing, begin, end)?;
-    write_text_atomic(path, clean.as_bytes())?;
-    Ok(path.to_path_buf())
+    let existing = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            return CleanupResult::Unreadable {
+                path: path.to_path_buf(),
+                error: e.to_string(),
+            }
+        }
+    };
+    // Check ownership before mutating.
+    if !existing.contains(begin) {
+        return CleanupResult::Unowned {
+            path: path.to_path_buf(),
+        };
+    }
+    let clean = match strip_marker_block(&existing, begin, end) {
+        Ok(c) => c,
+        Err(e) => {
+            return CleanupResult::ManualActionRequired {
+                path: path.to_path_buf(),
+                detail: format!("marker block parse failed: {e}"),
+            }
+        }
+    };
+    if let Err(e) = write_text_atomic(path, clean.as_bytes()) {
+        return CleanupResult::ManualActionRequired {
+            path: path.to_path_buf(),
+            detail: format!("write failed: {e}"),
+        };
+    }
+    // Post-write verification: marker should be gone.
+    if let Ok(post) = fs::read_to_string(path) {
+        if post.contains(begin) {
+            return CleanupResult::Residue {
+                path: path.to_path_buf(),
+                detail: "marker still present after strip".into(),
+            };
+        }
+    }
+    CleanupResult::Removed {
+        path: path.to_path_buf(),
+    }
 }
 
 fn strip_marker_block(input: &str, begin: &str, end: &str) -> Result<String, String> {
@@ -1415,7 +1568,7 @@ fn write_text_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
 //     "path": "/home/user/.claude/settings.json",
 //     "backup_path": "/home/user/.claude/.settings.re-llmpet-bak-1722700000000.json",
 //     "events": ["SessionStart", "SessionEnd", ...],
-//     "drift_signature": "size=4096;mtime=1722700000"
+//     "drift_signature": "9e8a3f1c2b7d4a55... (64-char SHA-256 hex)"
 //   }
 //
 // Receipts are pruned to the newest `RECEIPT_RETENTION` (20) per provider.
@@ -1443,31 +1596,35 @@ fn receipts_dir() -> PathBuf {
     home_dir().join(APP_DIR_NAME).join(RECEIPTS_DIR_NAME)
 }
 
-/// Compute a drift signature for the file at `path`: a string of the form
-/// `size=<bytes>;mtime=<unix_secs>`. Used by `verify_enabled` and Phase 0D
-/// uninstall confirmation to detect "the user (or another tool) modified
-/// this file after we installed our hook".
+/// R44 0.5.39 (roadmap v5 §5): compute a SHA-256 hash of the file at
+/// `path`, returned as a 64-character lowercase hex string. Used by
+/// `verify_enabled` and Phase 0D uninstall confirmation to detect "the
+/// user (or another tool) modified this file after we installed our hook".
 ///
-/// We deliberately do NOT hash file contents:
-///   - Adding `sha2` would pull in a new crate (and its build time).
-///   - The signature only needs to answer "did this file change since
-///     install?" — size+mtime is enough for that, and `mtime` already
-///     flips on any byte-level write on every reasonable filesystem.
-///   - For full content verification the user can compare against the
-///     backup file directly (`backup_path` is in the receipt).
+/// Previous implementation (0.5.38) used `size=<bytes>;mtime=<unix_secs>`.
+/// The roadmap v5 §5 explicitly requires SHA-256 because:
+///   - mtime can be preserved by tools that write-then-restore timestamps
+///   - size is a weak fingerprint (many edits produce the same size)
+///   - SHA-256 detects any byte-level change regardless of filesystem
+///     metadata tricks
 ///
-/// Returns None if the file can't be stat'd (drift = "unknown").
+/// Returns None if the file can't be read (drift = "unknown"). The
+/// receipt stores `drift_signature` as a string; absence means "unknown".
 fn drift_signature(path: &Path) -> Option<String> {
-    let meta = fs::metadata(path).ok()?;
-    let size = meta.len();
-    use std::time::SystemTime;
-    let mtime = meta
-        .modified()
-        .ok()?
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .ok()?
-        .as_secs();
-    Some(format!("size={size};mtime={mtime}"))
+    use std::io::Read;
+    use sha2::{Sha256, Digest};
+    let mut file = fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = file.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let hash = hasher.finalize();
+    Some(hash.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
 /// R44 Phase 0D: pub wrapper around `drift_signature` so commands.rs can

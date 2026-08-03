@@ -66,13 +66,13 @@ function isOurs(hook) {
   return hook && typeof hook.command === 'string' && hook.command.includes(MARKER);
 }
 
-function isOurHttp(hook) {
-  if (!hook || hook.type !== 'http' || typeof hook.url !== 'string') return false;
-  try {
-    const url = new URL(hook.url);
-    return url.hostname === '127.0.0.1' && Number(url.port) >= 41330 && Number(url.port) <= 41334 && url.pathname === '/permission';
-  } catch { return false; }
-}
+// R44 Phase 0C/0D removed the broad `isOurHttp` predicate that matched any
+// HTTP hook pointing at 127.0.0.1:41330-41334 + /permission. That pattern
+// is also used by the official LLMPET product, so claiming it as "ours"
+// caused the Node installer to delete official LLMPET's HTTP permission
+// hooks on uninstall. As of 0.5.39 the Node installer only claims ownership
+// of hooks containing the exact RE-LLMPET marker string. Legacy HTTP hooks
+// must go through Legacy Repair (R44 Phase 0E+), not auto-deleted here.
 
 function sync(hooks, event, desired, matcher) {
   if (!Array.isArray(hooks[event])) hooks[event] = [];
@@ -95,7 +95,7 @@ function remove(hooks) {
     hooks[event] = hooks[event].map((group) => {
       if (!group || !Array.isArray(group.hooks)) return group;
       const kept = group.hooks.filter((hook) => {
-        const ours = isOurs(hook) || isOurHttp(hook);
+        const ours = isOurs(hook);
         if (ours) count++;
         return !ours;
       });
@@ -127,7 +127,7 @@ function install() {
   const permissionHook = process.platform === 'win32'
     ? { type: 'command', shell: 'powershell', command: permissionCommand, timeout: 600 }
     : { type: 'command', command: permissionCommand, timeout: 600 };
-  result[sync(settings.hooks, 'PermissionRequest', permissionHook, (hook) => isOurs(hook) || isOurHttp(hook))]++;
+  result[sync(settings.hooks, 'PermissionRequest', permissionHook, isOurs)]++;
   writeAtomic(SETTINGS, settings);
   return result;
 }

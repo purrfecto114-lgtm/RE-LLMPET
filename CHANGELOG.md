@@ -1,5 +1,132 @@
 # Changelog
 
+## 0.5.39 — R44 Roadmap v5: correctness closure（2026-08-03）
+
+Implements the 7 deliverables from Roadmap v5 §0.5.39 "Correctness Closure".
+This version adds no product features — it eliminates "code exists on the
+surface but control flow doesn't actually take effect" issues and fixes
+"cleanup result false reporting".
+
+### §1: Removed Node-side broad HTTP ownership check
+
+`scripts/install-native-hooks.js` no longer claims HTTP hooks pointing at
+`127.0.0.1:41330-41334 + /permission` as ours. That pattern is also used
+by the official LLMPET product, so the old `isOurHttp` predicate caused
+the Node installer to delete official LLMPET's HTTP permission hooks on
+uninstall. The installer now only claims hooks containing the exact
+RE-LLMPET marker string. Legacy HTTP hooks must go through Legacy Repair
+(R44 0.5.40+), not auto-deleted here.
+
+### §2: Config quarantine state machine
+
+Replaced the non-functional global `CONFIG_WRITE_DISABLED: AtomicBool`
+(which `load_config` never actually SET despite the comment claiming it
+did) with an instance-scoped `ConfigState` enum on `Runtime`:
+
+```rust
+pub enum ConfigState {
+    Healthy, NotFound, ParseError { message }, Unreadable { message },
+    TooLarge { size }, SchemaTooNew { version },
+}
+```
+
+`load_config` now returns `(AppConfig, ConfigState)` and sets the state
+based on the actual file condition. `Runtime::save_config` (instance
+method, replaces free function) checks `state.writes_allowed()` and
+refuses to write if quarantined — preventing defaults from overwriting
+the user's real (but unreadable) config.
+
+New IPC commands:
+- `get_config_state` — returns `{ state, quarantined, writesAllowed, message }`
+- `backup_and_reset_config` — backs up corrupt config, clears quarantine,
+  writes defaults. Returns backup path.
+
+### §3: Typed CleanupResult enum
+
+Replaced `Result<PathBuf, String>` for all 5 uninstall functions with:
+
+```rust
+pub enum CleanupResult {
+    Removed { path }, NotFound { path }, Unowned { path },
+    Changed { path }, PathDrift { expected, actual },
+    Unreadable { path, error }, Residue { path, detail },
+    ManualActionRequired { path, detail },
+}
+```
+
+Each variant has a `to_json()` method for IPC responses, plus `is_clean()`
+and `is_hard_failure()` helpers. OpenCode uninstall now correctly returns
+`Unowned` (not `Ok(path)`) when the file exists but isn't ours — the
+roadmap v5 §3 explicitly required "OpenCode 未删除文件时不得显示 `removed`".
+
+### §4: Bulk uninstall reuses single-provider pipeline
+
+`uninstall_hooks("all")` no longer maintains a separate weak-logic loop.
+Both paths now call a shared `run_one` helper that:
+1. Snapshots the prior receipt
+2. Computes drift (BEFORE uninstall — audit fix C9+C10)
+3. Calls `uninstall_provider_hooks` (returns `CleanupResult`)
+4. Augments the result JSON with receipt provenance
+
+The bulk response now includes `allHooksVerifiedAbsent` (canonical) +
+`allHooksRemoved` (backward-compat alias) + `results[]` with each
+provider's `CleanupResult`.
+
+### §5: SHA-256 drift signature
+
+Replaced `size=<bytes>;mtime=<unix_secs>` with SHA-256 (64-char hex).
+The old signature could false-negative when a tool rewrites the file
+with the same size in the same second. Added `sha2 = "0.10"` to
+`Cargo.toml`. The receipt's `drift_signature` field now stores the
+SHA-256 hash; `current_drift_signature` recomputes it at uninstall time
+for comparison.
+
+### §6: Deleted dangerous dead code
+
+Removed `strip_legacy_codewhale_hooks` and its helper
+`parse_toml_string_value`. The function was a line-oriented TOML scanner
+that could absorb user-owned `[provider]` / `[[models]]` / arbitrary
+TOML tables into a legacy `[[hooks.hooks]]` body and silently delete
+them. It was disabled (not called) since R40.1 (0.5.20) but kept as
+"dead code for reference". The roadmap v5 §6 explicitly forbids keeping
+a destructive function "that isn't called now but could delete user
+TOML tables if enabled". Legacy CodeWhale cleanup is now the
+responsibility of the Legacy Repair flow (0.5.40+).
+
+### §7: Fixed misleading tests + Phase 0E script
+
+- `test/native-hook-installer-smoke.js`: now verifies that an
+  official-style HTTP permission hook SURVIVES uninstall (the old test
+  only checked command hooks, missing the `isOurHttp` deletion bug)
+- `test/tauri-r34-config-transaction-smoke.js`: updated to assert
+  `allHooksVerifiedAbsent` (canonical) + `allHooksRemoved` (alias)
+- `test/tauri-tray-extras-r13-smoke.js`: updated for new
+  `CleanupResult` return type
+- `test/tauri-r44d-uninstall-provenance-smoke.js`: updated for the
+  shared `run_one` helper
+- `scripts/phase-0e-destructive-test.sh`: Test 8 now documents the
+  bulk pipeline behavior; Test 9 explains devtools access + tests the
+  new `get_config_state` / `backup_and_reset_config` IPCs; added
+  Test 11 (SHA-256 drift) and Test 12 (CleanupResult variants)
+
+### Verification
+
+- npm test: 53/53 ✅ (new `tauri-r44-0-5-39-correctness-smoke.js` added)
+- npm run check:static: 22/22 ✅
+- npm run gate:source: 16/16 ✅
+- cargo fmt --check: ✅ (cargo unavailable in container; lexical check passes)
+
+### What's NOT in 0.5.39 (deferred to 0.5.40+)
+
+- Install ID (per-install UUID) — roadmap v5 0.5.40 §1
+- Receipt state machine (pending/active/superseded/removed/residue/rolledBack) — 0.5.40 §3
+- Install transaction (backup → pending receipt → hook → verify → active receipt) — 0.5.40 §4
+- Idempotent sync (no-op when current == desired) — 0.5.40 §6
+- Symlink/path policy — 0.5.40 §7
+- Legacy Repair flow — 0.5.40 Legacy Repair section
+
+---
+
 ## 0.5.38 — R44 Phase 0C + 0D: unified backup + install receipt + uninstall provenance（2026-08-03）
 
 Implements Phase 0C + 0D of the R44 roadmap, closing the "do not break

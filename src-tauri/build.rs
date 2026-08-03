@@ -1,5 +1,7 @@
 const COMMANDS: &[&str] = &[
     "get_config",
+    "get_config_state",
+    "backup_and_reset_config",
     "get_stats",
     "get_price_info",
     "refresh_model_prices",

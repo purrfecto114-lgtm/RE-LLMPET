@@ -100,31 +100,72 @@ echo "Cleanup: chmod 755 ~/.claude/"
 read -p "Done? (yes): " _
 
 echo
-echo "=== Test 8: All-provider uninstall ==="
+echo "=== Test 8: All-provider uninstall (0.5.39 bulk pipeline) ==="
 echo "Action: Enable 3 providers. Then in tray, choose 'Uninstall all hooks'."
-echo "Expected:"
-echo "  - All 3 providers' hooks removed"
+echo "Expected (0.5.39 response):"
+echo "  - All 3 providers' hooks removed (or reported as NotFound/Unowned if not installed)"
 echo "  - config.providers cleared"
-echo "  - Response carries results[] / failures[] / allHooksRemoved"
-echo "    but does NOT carry per-provider priorReceipt (bulk op)"
+echo "  - Response carries results[] with each provider's CleanupResult"
+echo "    (status: removed/notFound/unowned/etc.) + driftDetected per provider"
+echo "  - allHooksVerifiedAbsent: true only if every provider is Removed or NotFound"
+echo "  - allHooksRemoved: backward-compat alias for allHooksVerifiedAbsent"
+echo "  - failures[] lists hard failures (Unreadable/ManualActionRequired)"
 read -p "Done? (yes): " _
 
 echo
-echo "=== Test 9: get_install_receipts IPC ==="
-echo "Action: Open devtools on the panel. Run:"
+echo "=== Test 9: IPC commands (0.5.39) ==="
+echo "Action: Open devtools on the panel (right-click -> Inspect Element,"
+echo "or run with DEBUG=re-llmpet env var if devtools is gated)."
+echo "In the console, run:"
 echo "  await window.__TAURI__.core.invoke('get_install_receipts')"
 echo "Expected: JSON object keyed by provider id, each value is the"
 echo "latest receipt. Empty object if no providers installed by 0.5.38+."
+echo ""
+echo "Also test the new 0.5.39 config-state IPC:"
+echo "  await window.__TAURI__.core.invoke('get_config_state')"
+echo "Expected: { state: 'healthy', quarantined: false, writesAllowed: true }"
+echo ""
+echo "To test quarantine: corrupt ~/.re-llmpet/config.json (write '{bad'),"
+echo "restart the app, then call get_config_state again. Expected:"
+echo "  { state: 'parseError', quarantined: true, writesAllowed: false, message: '...' }"
+echo "Recovery: await window.__TAURI__.core.invoke('backup_and_reset_config')"
 read -p "Done? (yes): " _
 
 echo
 echo "=== Test 10: Backward compat with 0.5.37-installed hooks ==="
 echo "Action: If you have an old 0.5.37 install with -re-llmpet-backup-*"
-echo "files, install 0.5.38 and verify the legacy sweep removes old"
-echo "backups beyond the 5-cap."
-echo "Pre-state:"
+echo "files, install 0.5.39 and verify the legacy sweep removes old"
+echo "backups beyond the 5-cap. (0.5.39 still sweeps legacy-named backups.)"
+echo "Pre-state (legacy-named backups in ~/.codewhale/):"
 ls -1 ~/.codewhale/*re-llmpet-backup* 2>/dev/null | wc -l
+echo "Post-state should be <= 5."
 read -p "Verify legacy backups pruned? (yes/skip): " _
+
+echo
+echo "=== Test 11: SHA-256 drift detection (0.5.39 §5) ==="
+echo "Action: Install claude. Note the receipt's drift_signature (64-char hex)."
+echo "Manually edit ~/.claude/settings.json — change a single character"
+echo "inside the re-llmpet block (NOT adding a line — actually modify bytes)."
+echo "Then uninstall claude."
+echo "Expected:"
+echo "  - driftDetected: true (SHA-256 detected the byte change)"
+echo "  - message: 'WARNING: config was modified after install — verify backup'"
+echo "  - priorReceipt.drift_signature differs from current file's SHA-256"
+read -p "Done? (yes): " _
+
+echo
+echo "=== Test 12: CleanupResult variants (0.5.39 §3) ==="
+echo "Action: Test each variant:"
+echo "  a) NotFound: uninstall a provider that was never installed."
+echo "     Expected: status='notFound', message='No RE-LLMPET hooks found...'"
+echo "  b) Unowned: create ~/.codex/hooks.json with content that does NOT"
+echo "     contain 're-llmpet'. Uninstall codex."
+echo "     Expected: status='unowned', file unchanged."
+echo "  c) Residue: manually add a 're-llmpet' string to ~/.claude/settings.json"
+echo "     in a place remove_all_ours won't find (e.g. inside a non-hook field)."
+echo "     Uninstall claude."
+echo "     Expected: status='residue', detail explains marker still present."
+read -p "Done? (yes): " _
 
 echo
 echo "=== All tests complete ==="

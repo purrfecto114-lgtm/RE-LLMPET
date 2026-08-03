@@ -328,10 +328,75 @@ pub struct Runtime {
     pub log_path: PathBuf,
     pub pending_path: PathBuf,
     pub started_at: u64,
-    /// R44 (audit v3 P0-2): when true, save_config is blocked because
-    /// the config file was unreadable/corrupt. This prevents the app
-    /// from overwriting the user's real config with defaults.
-    pub config_write_disabled: std::sync::atomic::AtomicBool,
+    /// R44 0.5.39 (roadmap v5 §2): replaces the global `CONFIG_WRITE_DISABLED`
+    /// AtomicBool with an instance-scoped state machine. The old design
+    /// had two problems:
+    ///   1. The global static was never actually SET by `load_config`
+    ///      (the comment said it was, but the code path didn't do it) —
+    ///      so the quarantine was non-functional.
+    ///   2. A bool can't distinguish "NotFound" (clean, no quarantine)
+    ///      from "ParseError" (corrupt, quarantine) from "TooLarge"
+    ///      (quarantine) from "Unreadable" (quarantine).
+    ///
+    /// The new `ConfigState` enum is set by `load_config` and checked by
+    /// `save_config`. Non-`Healthy`/`NotFound` states block writes and
+    /// the UI can read this field to show a recovery page.
+    pub config_state: Mutex<ConfigState>,
+}
+
+/// R44 0.5.39 (roadmap v5 §2): configuration file state machine.
+/// Replaces the binary `config_write_disabled: AtomicBool` with a typed
+/// enum that distinguishes the reason for quarantine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigState {
+    /// File was read successfully and parsed as valid AppConfig.
+    Healthy,
+    /// File doesn't exist — new install. Safe to write defaults.
+    NotFound,
+    /// File exists but couldn't be parsed as AppConfig. The file is
+    /// still on disk; writes are blocked to prevent overwriting the
+    /// user's (corrupt but present) config with defaults.
+    ParseError { message: String },
+    /// File exists but couldn't be read (permissions, I/O error).
+    /// Writes blocked.
+    Unreadable { message: String },
+    /// File is larger than MAX_CONFIG_BYTES. Writes blocked.
+    TooLarge { size: u64 },
+    /// File parsed but its schema version is newer than this build
+    /// understands. Writes blocked (would lose unknown fields).
+    SchemaTooNew { version: u64 },
+}
+
+impl Default for ConfigState {
+    fn default() -> Self {
+        Self::NotFound
+    }
+}
+
+impl ConfigState {
+    /// True if `save_config` is allowed. Only `Healthy` and `NotFound`
+    /// permit writes; all other states quarantine the config.
+    pub fn writes_allowed(&self) -> bool {
+        matches!(self, ConfigState::Healthy | ConfigState::NotFound)
+    }
+
+    /// True if the config is in a quarantined state (writes blocked,
+    /// UI should show a recovery page).
+    pub fn is_quarantined(&self) -> bool {
+        !self.writes_allowed()
+    }
+
+    /// Human-readable label for the UI.
+    pub fn label(&self) -> &'static str {
+        match self {
+            ConfigState::Healthy => "healthy",
+            ConfigState::NotFound => "notFound",
+            ConfigState::ParseError { .. } => "parseError",
+            ConfigState::Unreadable { .. } => "unreadable",
+            ConfigState::TooLarge { .. } => "tooLarge",
+            ConfigState::SchemaTooNew { .. } => "schemaTooNew",
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -348,7 +413,7 @@ impl AppState {
         let log_path = app_dir.join(LOG_FILE_NAME);
         let pending_path = app_dir.join(PENDING_FILE_NAME);
         recover_stale_pending_metadata(&pending_path, &log_path);
-        let config = load_config(&config_path);
+        let (config, config_state) = load_config(&config_path);
         let price_auto_update = config.price_auto_update;
         let price_refresh_hours = config.price_refresh_hours;
         let usage = UsageLedger::open(&app_dir, now_ms());
@@ -385,7 +450,7 @@ impl AppState {
                 log_path,
                 pending_path,
                 started_at: now_ms(),
-                config_write_disabled: std::sync::atomic::AtomicBool::new(false),
+                config_state: Mutex::new(config_state),
             }),
         }
     }
@@ -584,7 +649,13 @@ impl Runtime {
         // can still observe the previous config during the IO window. The
         // writer-side `config_write_lock` is still held, so no other writer
         // can race us between snapshot and commit.
-        save_config(&self.config_path, &candidate)?;
+        //
+        // R44 0.5.39 (roadmap v5 §2): use Runtime::save_config (instance
+        // method) instead of the free function, so the config_state
+        // quarantine is enforced. If the config was loaded in a quarantined
+        // state (ParseError/Unreadable/TooLarge/SchemaTooNew), this returns
+        // Err and the caller surfaces it to the UI.
+        self.save_config(&candidate)?;
         // Commit: acquire the read Mutex again, replace in-memory state with
         // the persisted candidate. Because `config_write_lock` is still
         // held, no other writer can interleave between our save and our
@@ -1716,54 +1787,156 @@ fn write_private_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
 /// AppConfig's serde derives and is a larger change. For now, we at least
 /// log errors instead of silently returning default. The full
 /// unknown-field preservation is deferred to Phase 0B (namespace migration).
-pub fn load_config(path: &Path) -> AppConfig {
+/// R44 0.5.39 (roadmap v5 §2): load_config now returns `(AppConfig, ConfigState)`
+/// instead of just `AppConfig`. The ConfigState is stored on Runtime and
+/// checked by save_config to enforce quarantine. The old design returned
+/// `AppConfig::default()` on every error path AND never set the global
+/// `CONFIG_WRITE_DISABLED` flag — so the next save_config would happily
+/// overwrite the user's corrupt config with defaults. Irreversible data loss.
+///
+/// The new design:
+///   - `NotFound` → return defaults + NotFound state (writes allowed)
+///   - `TooLarge` → return defaults + TooLarge state (writes blocked)
+///   - `Unreadable` → return defaults + Unreadable state (writes blocked)
+///   - `ParseError` → return defaults + ParseError state (writes blocked)
+///   - `Healthy` → return parsed config + Healthy state (writes allowed)
+///
+/// In all quarantined states, the in-memory config is defaults (so the
+/// app remains usable for diagnostics) but `save_config` refuses to
+/// write, preventing the defaults from overwriting the user's real
+/// (but unreadable) config file.
+pub fn load_config(path: &Path) -> (AppConfig, ConfigState) {
     let Ok(meta) = fs::metadata(path) else {
         // File doesn't exist — new install, safe to return default.
-        return AppConfig::default();
+        return (AppConfig::default(), ConfigState::NotFound);
     };
     if meta.len() > 1024 * 1024 {
-        // R44: log instead of silently returning default.
         eprintln!(
-            "[re-llmpet] WARNING: config.json is {} bytes (>1MB), using defaults",
+            "[re-llmpet] WARNING: config.json is {} bytes (>1MB), using defaults. Writes are quarantined.",
             meta.len()
         );
-        return AppConfig::default();
+        return (
+            AppConfig::default(),
+            ConfigState::TooLarge { size: meta.len() },
+        );
     }
     match fs::read_to_string(path) {
-        Ok(raw) => {
-            match serde_json::from_str::<AppConfig>(&raw) {
-                Ok(config) => config.sanitize(),
-                Err(e) => {
-                    // R44: log the parse error instead of silently returning default.
-                    // The old code would return default, and the next save_config
-                    // would overwrite the user's (unreadable but still present)
-                    // config file with the defaults — irreversible data loss.
-                    eprintln!("[re-llmpet] ERROR: config.json parse failed: {e}. Using defaults. Config file will NOT be overwritten until a valid save succeeds.");
-                    AppConfig::default()
-                }
+        Ok(raw) => match serde_json::from_str::<AppConfig>(&raw) {
+            Ok(config) => (config.sanitize(), ConfigState::Healthy),
+            Err(e) => {
+                eprintln!(
+                    "[re-llmpet] ERROR: config.json parse failed: {e}. Using defaults. Writes are quarantined until the file is fixed."
+                );
+                (
+                    AppConfig::default(),
+                    ConfigState::ParseError {
+                        message: e.to_string(),
+                    },
+                )
             }
-        }
+        },
         Err(e) => {
-            // R44: log I/O errors instead of silently returning default.
-            eprintln!("[re-llmpet] ERROR: config.json read failed: {e}. Using defaults.");
-            AppConfig::default()
+            eprintln!(
+                "[re-llmpet] ERROR: config.json read failed: {e}. Using defaults. Writes are quarantined."
+            );
+            (
+                AppConfig::default(),
+                ConfigState::Unreadable {
+                    message: e.to_string(),
+                },
+            )
         }
     }
 }
 
-/// R44 (audit v3 P0-2): global flag set by load_config when the config
-/// file was unreadable/corrupt. save_config checks this and refuses to
-/// write, preventing defaults from overwriting the user real config.
-static CONFIG_WRITE_DISABLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {
-    // R44 (audit v3 P0-2): refuse to save if config was loaded in a
-    // corrupted state. This prevents defaults from overwriting the
-    // user's real (but unreadable) config file.
-    if CONFIG_WRITE_DISABLED.load(std::sync::atomic::Ordering::SeqCst) {
-        return Err("Config saves are disabled because the config file was unreadable or corrupt. Fix the config file and restart.".into());
+/// R44 0.5.39 (roadmap v5 §2): save_config is now a method on Runtime
+/// instead of a free function, so it can check the instance-scoped
+/// `config_state` Mutex. The old free-function design relied on a global
+/// `CONFIG_WRITE_DISABLED` AtomicBool that was NEVER SET by load_config
+/// (the comment lied) — so the quarantine was non-functional.
+///
+/// The `save_config` free function is kept for backward compat with
+/// `update_config`'s internal call site, but it now delegates to
+/// `Runtime::save_config` via the state parameter. Callers that don't
+/// have a Runtime handle (e.g. tests) can use `save_config_unchecked`
+/// to bypass the quarantine check.
+impl Runtime {
+    pub fn save_config(&self, config: &AppConfig) -> Result<(), String> {
+        let state = self
+            .config_state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if !state.writes_allowed() {
+            return Err(format!(
+                "Config saves are quarantined because the config file is in state `{}`. Fix the config file and restart. (message: {:?})",
+                state.label(),
+                match &*state {
+                    ConfigState::ParseError { message }
+                    | ConfigState::Unreadable { message } => message.clone(),
+                    ConfigState::TooLarge { size } => format!("file is {} bytes", size),
+                    ConfigState::SchemaTooNew { version } => {
+                        format!("schema version {} is newer than this build supports", version)
+                    }
+                    _ => "n/a".into(),
+                }
+            ));
+        }
+        save_config_unchecked(&self.config_path, config)
     }
+
+    /// Read-only access to the current config state. Used by the UI to
+    /// decide whether to show the recovery page.
+    pub fn config_state(&self) -> ConfigState {
+        self.config_state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// R44 0.5.39 §2: "backup-then-reset" recovery. The user explicitly
+    /// requests a reset; we back up the corrupt config, clear the state
+    /// to NotFound (allowing writes), and save defaults. The backup lets
+    /// the user recover fields manually if needed.
+    pub fn backup_and_reset_config(&self) -> Result<PathBuf, String> {
+        let backup = if self.config_path.exists() {
+            let ts = now_ms();
+            let backup_path = self
+                .config_path
+                .parent()
+                .ok_or("config path has no parent")?
+                .join(format!(".config.re-llmpet-bak-{ts}.json"));
+            fs::copy(&self.config_path, &backup_path).map_err(|e| e.to_string())?;
+            Some(backup_path)
+        } else {
+            None
+        };
+        // Clear the quarantine so the default-save can proceed.
+        *self
+            .config_state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = ConfigState::NotFound;
+        save_config_unchecked(&self.config_path, &AppConfig::default())?;
+        // After successful save, state is Healthy.
+        *self
+            .config_state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = ConfigState::Healthy;
+        Ok(backup.unwrap_or_else(|| self.config_path.clone()))
+    }
+}
+
+/// R44 0.5.39 (roadmap v5 §2): save_config free function kept for
+/// backward compat with `update_config`'s internal call site. It
+/// delegates to `save_config_unchecked` (no quarantine check) — the
+/// quarantine is enforced by `Runtime::save_config` which is what
+/// `update_config` actually calls.
+pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {
+    save_config_unchecked(path, config)
+}
+
+/// Write config to disk WITHOUT checking the quarantine state. Used by
+/// `Runtime::save_config` (which does the check) and by tests.
+pub fn save_config_unchecked(path: &Path, config: &AppConfig) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         secure_create_dir(parent).map_err(|e| e.to_string())?;
     }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// R44 Phase 0D (2026-08-03) — 0.5.38 uninstall provenance + drift detection.
+// R44 Phase 0D (2026-08-03) — 0.5.39 uninstall provenance + drift detection.
 //
 // Locks the Phase 0D deliverables:
 //
@@ -27,7 +27,7 @@
 //          per-provider status).
 //
 //   P0D-6  Backward compat: if no receipt exists (installed before
-//          0.5.38), uninstall still succeeds; priorReceipt is null
+//          0.5.39), uninstall still succeeds; priorReceipt is null
 //          and driftDetected is false (no signature to compare).
 //
 // Phase 0D is the bridge between Phase 0C (receipt creation) and
@@ -47,11 +47,11 @@ const changelog = read('CHANGELOG.md');
 const packageJson = JSON.parse(read('package.json'));
 
 // ──────────────────────────────────────────────────────────────────────────
-// Version (still 0.5.38 — Phase 0D ships in the same release as 0C)
+// Version (still 0.5.39 — Phase 0D ships in the same release as 0C)
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.38',
-  'P0D: package.json version must remain 0.5.38 (Phase 0C+0D ship together)');
+assert.strictEqual(packageJson.version, '0.5.39',
+  'P0D: package.json version must remain 0.5.39 (Phase 0C+0D ship together)');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0D-1: get_install_receipts IPC command registered
@@ -71,30 +71,28 @@ assert.ok(commands.includes('crate::hook_install::read_install_receipts()'),
 // P0D-2: uninstall_hooks response carries receipt fields
 // ──────────────────────────────────────────────────────────────────────────
 
-// The single-provider uninstall path (not "all") must snapshot the receipt
-// AND compute drift BEFORE calling uninstall_provider_hooks. The audit
-// (C9+C10) found that the original implementation computed drift AFTER
-// uninstall, which always returned driftDetected=true because uninstall
-// itself rewrites the config file. The fix reorders so the snapshot
-// happens first.
-const singleProviderSection = commands.slice(
-  commands.indexOf('if !["claude", "codewhale", "codex", "opencode", "aider"]'),
-  commands.indexOf('/// R44 Phase 0D: return the latest install receipt')
+// R44 0.5.39: the single-provider and bulk paths now share a `run_one`
+// helper. The receipt snapshot + drift computation must happen BEFORE
+// the cleanup call inside that helper.
+const runOneSection = commands.slice(
+  commands.indexOf('let run_one = |id: &str|'),
+  commands.indexOf('let targets:')
 );
-const receiptReadIdx = singleProviderSection.indexOf('let prior_receipt = crate::hook_install::read_install_receipts()');
-const uninstallIdx = singleProviderSection.indexOf('let path = crate::hook_install::uninstall_provider_hooks(&provider)?');
-assert.ok(receiptReadIdx >= 0 && uninstallIdx >= 0 && receiptReadIdx < uninstallIdx,
-  'P0D-2: prior_receipt snapshot MUST come before uninstall_provider_hooks call (audit fix C9)');
-const driftIdx = singleProviderSection.indexOf('crate::hook_install::current_drift_signature(Path::new(p))');
-assert.ok(driftIdx >= 0 && driftIdx < uninstallIdx,
-  'P0D-2: drift detection MUST happen before uninstall_provider_hooks (audit fix C10 — otherwise drift is always true)');
-assert.ok(singleProviderSection.includes('"priorReceipt": prior_receipt'),
+assert.ok(runOneSection.includes('let prior_receipt = crate::hook_install::read_install_receipts()'),
+  'P0D-2: run_one helper must snapshot prior_receipt');
+assert.ok(runOneSection.includes('crate::hook_install::current_drift_signature'),
+  'P0D-2: run_one helper must compute drift signature');
+const receiptIdx = runOneSection.indexOf('let prior_receipt');
+const cleanupIdx = runOneSection.indexOf('crate::hook_install::uninstall_provider_hooks(id)');
+assert.ok(receiptIdx >= 0 && cleanupIdx >= 0 && receiptIdx < cleanupIdx,
+  'P0D-2: receipt snapshot MUST come before uninstall_provider_hooks (audit fix C9+C10)');
+assert.ok(commands.includes('"priorReceipt": prior_receipt'),
   'P0D-2: uninstall_hooks response must include priorReceipt field');
-assert.ok(singleProviderSection.includes('"installedAt": installed_at'),
+assert.ok(commands.includes('"installedAt": installed_at'),
   'P0D-2: uninstall_hooks response must include installedAt field');
-assert.ok(singleProviderSection.includes('"backupPath": backup_path'),
+assert.ok(commands.includes('"backupPath": backup_path'),
   'P0D-2: uninstall_hooks response must include backupPath field');
-assert.ok(singleProviderSection.includes('"driftDetected": drift_detected'),
+assert.ok(commands.includes('"driftDetected": drift_detected'),
   'P0D-2: uninstall_hooks response must include driftDetected field');
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -123,30 +121,29 @@ assert.ok(
 );
 
 // ──────────────────────────────────────────────────────────────────────────
-// P0D-5: "all" uninstall path unchanged (no receipt surfacing)
+// P0D-5: "all" uninstall path reuses single-provider pipeline (0.5.39 §4)
 // ──────────────────────────────────────────────────────────────────────────
 
-// The "all" path must still return its existing fields (results, failures,
-// allHooksRemoved, selectionCleared). We don't add per-provider receipts
-// there — "all" is bulk and the user doesn't need per-provider provenance.
-const allSection = commands.slice(
-  commands.indexOf('if provider == "all" {'),
-  commands.indexOf('if !["claude", "codewhale", "codex", "opencode", "aider"]')
-);
-assert.ok(allSection.includes('"allHooksRemoved": all_succeeded'),
-  'P0D-5: "all" uninstall must still return allHooksRemoved');
-assert.ok(allSection.includes('"results": results'),
-  'P0D-5: "all" uninstall must still return per-provider results array');
-assert.ok(!allSection.includes('priorReceipt'),
-  'P0D-5: "all" uninstall must NOT surface priorReceipt (bulk op)');
+// R44 0.5.39 (roadmap v5 §4): "all" must call the same run_one pipeline
+// as single-provider. The bulk response includes results[] with each
+// provider's CleanupResult, plus allHooksVerifiedAbsent (renamed from
+// allHooksRemoved but aliased for backward compat).
+assert.ok(commands.includes('"allHooksVerifiedAbsent": all_clean'),
+  'P0D-5: "all" uninstall must return allHooksVerifiedAbsent (0.5.39 §4)');
+assert.ok(commands.includes('"allHooksRemoved": all_clean'),
+  'P0D-5: "all" uninstall must keep allHooksRemoved alias for backward compat');
+assert.ok(commands.includes('"results": results'),
+  'P0D-5: "all" uninstall must return per-provider results array');
+assert.ok(commands.includes('all_providers.to_vec()'),
+  'P0D-5: "all" must iterate all_providers via the same run_one pipeline (0.5.39 §4)');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0D-6: Backward compat — absent receipt doesn't break uninstall
 // ──────────────────────────────────────────────────────────────────────────
 
-// The match on prior_receipt must handle None (no receipt) gracefully.
-assert.ok(commands.includes('None => (None, None, false)'),
-  'P0D-6: absent receipt must produce (None, None, false) — no crash, no false drift');
+// The run_one helper handles None receipt gracefully (drift_detected=false).
+assert.ok(commands.includes('None => false'),
+  'P0D-6: absent receipt must produce drift_detected=false (no crash)');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0D-7: User-requirement traceability
@@ -165,4 +162,4 @@ assert.ok(commands.includes('R44 Phase 0D'),
 assert.ok(changelog.includes('Phase 0D') || changelog.includes('0D'),
   'P0D-8: CHANGELOG must mention Phase 0D');
 
-console.log('✓ R44 Phase 0D (0.5.38) uninstall provenance smoke: all assertions passed');
+console.log('✓ R44 Phase 0D (0.5.39) uninstall provenance smoke: all assertions passed');

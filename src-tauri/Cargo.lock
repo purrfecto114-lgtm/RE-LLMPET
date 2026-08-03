@@ -2042,11 +2042,12 @@ dependencies = [
 
 [[package]]
 name = "octopus"
-version = "0.5.38"
+version = "0.5.39"
 dependencies = [
  "chrono",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "uuid",

@@ -37,8 +37,12 @@ const panelJs = read('frontend/renderer/panel.js');
 // the snapshot, saves, THEN commits to the Mutex.
 assert(model.includes('let candidate = {'),
   'model.rs update_config must snapshot into a `candidate` local');
-assert(model.includes('save_config(&self.config_path, &candidate)?'),
-  'model.rs update_config must persist the candidate BEFORE committing');
+// R44 0.5.39: update_config now calls self.save_config(&candidate) (instance
+// method) instead of the free function, so the config_state quarantine is
+// enforced. The free function save_config(path, config) still exists for
+// backward compat but delegates to save_config_unchecked (no quarantine).
+assert(model.includes('self.save_config(&candidate)?'),
+  'model.rs update_config must call self.save_config (instance method, 0.5.39) to enforce quarantine');
 assert(model.includes('*guard = candidate'),
   'model.rs update_config must commit the candidate to the Mutex AFTER save');
 assert(model.includes('copy-on-write transaction'),
@@ -71,18 +75,21 @@ assert(!commands.includes('return Err(errors.join'),
   'R35.2: set_providers must NOT return Err on partial hook failure (was split-brain)');
 
 // ── P0-3: uninstall_hooks('all') does not swallow failures ───────────────
-assert(commands.includes('"allHooksRemoved": all_succeeded'),
-  'uninstall_hooks must return allHooksRemoved flag');
+// R44 0.5.39: renamed all_succeeded → all_clean, allHooksRemoved aliased
+// to all_clean for backward compat. The new field allHooksVerifiedAbsent
+// is the canonical name (roadmap v5 §4).
+assert(commands.includes('"allHooksRemoved": all_clean'),
+  'uninstall_hooks must return allHooksRemoved flag (aliased to all_clean in 0.5.39)');
+assert(commands.includes('"allHooksVerifiedAbsent": all_clean'),
+  'uninstall_hooks must return allHooksVerifiedAbsent (0.5.39 §4 canonical)');
 assert(commands.includes('"results": results'),
   'uninstall_hooks must return per-provider results array');
 assert(commands.includes('"failures": failures'),
   'uninstall_hooks must return failures array');
-assert(commands.includes('"status": "failed"'),
-  'uninstall_hooks must mark failed providers with status=failed');
-assert(commands.includes('if all_succeeded'),
-  'uninstall_hooks must check all_succeeded for reporting');
-assert(commands.includes('could not be removed'),
-  'uninstall_hooks must surface partial failure in message');
+assert(commands.includes('if all_clean'),
+  'uninstall_hooks must check all_clean for reporting (0.5.39)');
+assert(commands.includes('could not be fully verified'),
+  'uninstall_hooks must surface partial verification in message (0.5.39)');
 
 // ── P0-4: release.yml tag pushes fail-closed without signing key ──────────
 assert(release.includes('Tag release v$VERSION requires TAURI_SIGNING_PRIVATE_KEY'),
