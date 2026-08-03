@@ -1,8 +1,8 @@
 {
   "version": "0.5.39",
-  "generated": 1785745460,
+  "generated": 1785745571,
   "root": "RE-LLMPET-0.5.39",
-  "file_count": 285,
+  "file_count": 286,
   "files": {
     ".gitattributes": "c41b15dfba8e2ca096b715cd0ee0d5831a781e21d2b5fbb4e5229ace268b36aa",
     ".github/workflows/ci.yml": "d3ba30c330f7fcfa97618568f0190e2066a2e87ed565b316febec52f1e6952ae",
@@ -47,6 +47,7 @@
     "docs/next-actions.md": "e0b46ef29ad487547f50b9415284de25d9c7ad84ea41149dfb7827c364464ab6",
     "docs/prompt-optimized.md": "8201c238489c53850a443c0344ff517582337964d3901323624a4f112c92f838",
     "docs/PROVIDER_CAPABILITY_MATRIX.md": "6feabe1df470293ffdc3dd7f87cd6ef3d947e099bac9154b31a457286df9d222",
+    "docs/RE-LLMPET-Roadmap-v5.md": "13e1c5a87039c726eae9acb07b8e3f3f886980c1f7ef3059b4a9c8a737e4909a",
     "docs/RELEASE_NOTES_0.5.6.md": "913bbd9820a8e701c19e27001a0e2c0e53bbd8fb794f72a3851116ca937d26cc",
     "docs/RELEASE.md": "0cfe54ed4378f677baca137519b0abd015b0374d5d9a2ef6b571e43d56792642",
     "docs/STATES.md": "593906d7a4bd859d0a0e99c26e166b3ea6a9415728bb0ca097feeb75e982d5d8",
@@ -291,5 +292,5 @@
     "worklog.md": "1d4c90ae759d133396422611c927d55c4ea8c5e983eea621c82aa090be08100d"
   },
   "source_commit": "re-llmpet-0.5.39",
-  "sha256_of_manifest": "f672304e542d6b954d4c03287b4c889a0935124d791517195a7c67749491c0ab"
+  "sha256_of_manifest": "ed31c0d2652ecf220931124cd931be7c6a0e88fd67c4558f33a6fd9a8e1fed57"
 }
