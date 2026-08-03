@@ -1,8 +1,8 @@
 {
   "version": "0.5.38",
-  "generated": 1785740166,
+  "generated": 1785740521,
   "root": "RE-LLMPET-0.5.38",
-  "file_count": 283,
+  "file_count": 284,
   "files": {
     ".gitattributes": "c41b15dfba8e2ca096b715cd0ee0d5831a781e21d2b5fbb4e5229ace268b36aa",
     ".github/workflows/ci.yml": "d3ba30c330f7fcfa97618568f0190e2066a2e87ed565b316febec52f1e6952ae",
@@ -155,6 +155,7 @@
     "scripts/generate-sbom.js": "7329cf4dda1445fd2f837a356f64596aafa73cd3b7a010fd814e2970f59f5688",
     "scripts/generate-source-manifest.js": "8ac5bd34283aedf04c1bbecbfda9d9ea4abbd8ada010a42fb31c20a12913aadb",
     "scripts/install-native-hooks.js": "3bb2328d34a6238270a37ad86c268cc69628fb43a53426b409bc82b238f36caf",
+    "scripts/phase-0e-destructive-test.sh": "b573910c602ffd15788d8dea64edf14c3ca4f599423a814450408b687304c04f",
     "scripts/real-desktop-gate.js": "af9025f6df99f8f3d9113f4d25aedacc0b2b2656e9239c52c176f57011843e07",
     "scripts/real-provider-smoke.js": "a7767599449ebf47a9d1428c8a4e3a70adf7f508951bb80c34aacf94caf254b0",
     "scripts/rust-structure-smoke.py": "1e4991a7fd1bed96088398ada73d6d41bbaef154e3433e2f4512cd11449f1ad6",
@@ -286,8 +287,8 @@
     "test/tauri-tray-submenu-r12-smoke.js": "d0f7ebb3a69cdcc7c9b416613444aebd088e5f1402c75ca572c2c40d997e606d",
     "test/tauri-windows-static-smoke.js": "199d2243c59a2647af8c1fc0bd87de49c382128c003dcb937607f84cabc889fa",
     "test/upstream-reconciliation-smoke.js": "d6fe28d0e413a4c4ca1fa9f79d539d420032db83bed17bafe24379e9b69f0862",
-    "worklog.md": "f31cc423cb1f27b4e27095744e515983020f2794ddc41cebe090aa1b2573b19a"
+    "worklog.md": "1d4c90ae759d133396422611c927d55c4ea8c5e983eea621c82aa090be08100d"
   },
   "source_commit": "re-llmpet-0.5.38",
-  "sha256_of_manifest": "e7313bbbde3e8dc799b8f0446fac1d79d16a917e068b45d299f28d35ef0749e9"
+  "sha256_of_manifest": "8a8efce65c0671f4d0e84843e0b0683f0a719b2a4b1811815b64162256bd1589"
 }

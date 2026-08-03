@@ -61,3 +61,84 @@ Artifacts produced:
 - migration-todo.json (R44-0C task added)
 - SOURCE_MANIFEST.json, SOURCE_DATE_EPOCH, SOURCE_REVISION (regenerated)
 - 6 existing test files (version assertions updated to 0.5.38)
+
+---
+Task ID: R44-Phase-0D + Audit fixes + 0E + source package
+Agent: main (continuation session)
+Task: Implement Phase 0D (uninstall provenance), run subagent audit, fix critical bugs, generate clean source package, prepare Phase 0E destructive test script.
+
+Work Log:
+- Phase 0D implementation:
+  * Added get_install_receipts IPC command in commands.rs
+  * Enhanced uninstall_hooks response with priorReceipt/installedAt/backupPath/driftDetected
+  * Added pub fn current_drift_signature() in hook_install.rs
+  * Registered new command in lib.rs invoke_handler + build.rs COMMANDS list
+  * Added tauri-r44d-uninstall-provenance-smoke.js (8 verification groups)
+  * Added Phase 0D section to CHANGELOG.md 0.5.38 entry
+  * Updated migration-todo.json with R44-0D task
+- Subagent audit (general-purpose agent):
+  * Audited Phase 0C+0D for correctness, edge cases, code quality, test coverage
+  * Found 2 CRITICAL bugs:
+    - C9: prior_receipt snapshot was AFTER the `?` on uninstall (lost on failure)
+    - C10: drift detection was computed AFTER uninstall_provider_hooks,
+      which always rewrites/deletes the config file → driftDetected always true
+  * Found 1 MINOR issue:
+    - Minor #1: CodeWhale receipt backup_path was always null because
+      backup_codewhale_config returned Result<(), String> instead of
+      Result<Option<PathBuf>, String>
+  * Verdict: NEEDS FIXES
+- Audit fix implementation:
+  * Reordered uninstall_hooks: snapshot receipt + compute drift BEFORE
+    uninstall_provider_hooks (fixes C9+C10)
+  * Changed backup_codewhale_config signature to Result<Option<PathBuf>, String>
+    and propagated the path through install_codewhale (fixes Minor #1)
+  * Updated tauri-r44d-uninstall-provenance-smoke.js to assert ordering
+    (receipt read + drift computation must precede uninstall call)
+  * Updated tauri-r44c-backup-receipt-smoke.js to assert new signature
+    and propagation
+  * Added "Audit fixes" section to CHANGELOG.md
+- Phase 0E preparation:
+  * Created scripts/phase-0e-destructive-test.sh — 10-test manual checklist
+    covering: fresh install, re-install, backup retention, receipt retention,
+    uninstall drift detection (positive + negative), backup failure
+    fail-closed, all-provider uninstall, get_install_receipts IPC, backward
+    compat with 0.5.37 -re-llmpet-backup- files
+- Source package generation:
+  * Used `git archive` for clean source tarball + zip (no build artifacts)
+  * Generated SHA256 checksums
+  * Extracted source tree to download/RE-LLMPET-0.5.38-src/ for browsing
+  * Verified extracted source passes all 52 tests + 22 static checks + 16
+    release gates + cargo fmt --check
+  * Cleaned up old 0.5.37 package from download/
+
+Stage Summary:
+- Phase 0D complete: uninstall flow now surfaces install provenance + drift detection
+- Subagent audit caught 2 critical bugs that would have made drift detection
+  non-functional — fixed before release
+- All 52 tests pass on both the working tree and the extracted source package
+- Source package (tar.gz + zip + sha256sums) available in download/
+- Phase 0E destructive test script ready for real-machine verification
+- Ready for git tag v0.5.38 push to trigger release CI
+
+Artifacts produced:
+- src-tauri/src/commands.rs (modified: +get_install_receipts, +drift detection reorder)
+- src-tauri/src/hook_install.rs (modified: +current_drift_signature pub fn,
+  backup_codewhale_config signature change)
+- src-tauri/src/lib.rs (modified: +get_install_receipts in invoke_handler)
+- src-tauri/build.rs (modified: +get_install_receipts in COMMANDS)
+- test/tauri-r44d-uninstall-provenance-smoke.js (new, 8+2 audit-fix assertions)
+- test/tauri-r44c-backup-receipt-smoke.js (modified: +2 audit-fix assertions)
+- scripts/phase-0e-destructive-test.sh (new, 10-test manual checklist)
+- CHANGELOG.md (Phase 0D section + Audit fixes section in 0.5.38 entry)
+- migration-todo.json (R44-0D task added)
+- download/RE-LLMPET-0.5.38-src.tar.gz (4.6M, 312 files)
+- download/RE-LLMPET-0.5.38-src.zip (4.7M, 312 files)
+- download/RE-LLMPET-0.5.38-src.sha256sums
+- download/RE-LLMPET-0.5.38-src/ (extracted tree for browsing)
+- worklog.md (this file)
+
+Commits (4):
+- 12762e2 release: v0.5.38 — R44 Phase 0C: unified backup + install receipt
+- 71ce10e feat: R44 Phase 0D — uninstall provenance + drift detection
+- 9711de9 fix(audit): R44 Phase 0C+0D — drift detection reorder + CodeWhale backup_path
+- 631f591 docs: R44 Phase 0E — destructive test script
