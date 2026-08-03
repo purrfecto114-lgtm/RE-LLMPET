@@ -122,7 +122,10 @@ pub fn get_config_state(state: State<'_, AppState>) -> Value {
         }
         crate::model::ConfigState::SchemaTooNew { version } => (
             "schemaTooNew",
-            Some(format!("schema version {} is newer than this build supports", version)),
+            Some(format!(
+                "schema version {} is newer than this build supports",
+                version
+            )),
         ),
     };
     json!({
@@ -142,7 +145,10 @@ pub fn backup_and_reset_config(state: State<'_, AppState>) -> Result<Value, Stri
     let backup_path = state.runtime.backup_and_reset_config()?;
     state.runtime.write_log(
         "config",
-        &format!("backup_and_reset_config: backup at {}", backup_path.display()),
+        &format!(
+            "backup_and_reset_config: backup at {}",
+            backup_path.display()
+        ),
     );
     Ok(json!({
         "backupPath": backup_path.to_string_lossy(),
@@ -391,11 +397,21 @@ pub fn uninstall_hooks(
     } else {
         // Single-provider: unwrap the single result and surface its fields.
         let single = results.into_iter().next().unwrap_or(json!({}));
-        let drift_detected = single.get("driftDetected").and_then(Value::as_bool).unwrap_or(false);
+        let drift_detected = single
+            .get("driftDetected")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let prior_receipt = single.get("priorReceipt").cloned();
         let installed_at = single.get("installedAt").and_then(Value::as_u64);
-        let backup_path = single.get("backupPath").and_then(Value::as_str).map(|s| s.to_string());
-        let path = single.get("path").and_then(Value::as_str).map(|s| s.to_string()).unwrap_or_default();
+        let backup_path = single
+            .get("backupPath")
+            .and_then(Value::as_str)
+            .map(|s| s.to_string());
+        let path = single
+            .get("path")
+            .and_then(Value::as_str)
+            .map(|s| s.to_string())
+            .unwrap_or_default();
         let status = single.get("status").and_then(Value::as_str).unwrap_or("unknown");
         Ok(json!({
             "provider": provider,

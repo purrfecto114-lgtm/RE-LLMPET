@@ -1862,10 +1862,7 @@ pub fn load_config(path: &Path) -> (AppConfig, ConfigState) {
 /// to bypass the quarantine check.
 impl Runtime {
     pub fn save_config(&self, config: &AppConfig) -> Result<(), String> {
-        let state = self
-            .config_state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let state = self.config_state.lock().unwrap_or_else(|e| e.into_inner());
         if !state.writes_allowed() {
             return Err(format!(
                 "Config saves are quarantined because the config file is in state `{}`. Fix the config file and restart. (message: {:?})",
@@ -1911,16 +1908,10 @@ impl Runtime {
             None
         };
         // Clear the quarantine so the default-save can proceed.
-        *self
-            .config_state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = ConfigState::NotFound;
+        *self.config_state.lock().unwrap_or_else(|e| e.into_inner()) = ConfigState::NotFound;
         save_config_unchecked(&self.config_path, &AppConfig::default())?;
         // After successful save, state is Healthy.
-        *self
-            .config_state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = ConfigState::Healthy;
+        *self.config_state.lock().unwrap_or_else(|e| e.into_inner()) = ConfigState::Healthy;
         Ok(backup.unwrap_or_else(|| self.config_path.clone()))
     }
 }

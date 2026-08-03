@@ -247,7 +247,10 @@ impl CleanupResult {
     /// True if the result represents a successful cleanup (Removed or
     /// NotFound). Used by bulk uninstall to compute `allHooksVerifiedAbsent`.
     pub fn is_clean(&self) -> bool {
-        matches!(self, CleanupResult::Removed { .. } | CleanupResult::NotFound { .. })
+        matches!(
+            self,
+            CleanupResult::Removed { .. } | CleanupResult::NotFound { .. }
+        )
     }
 
     /// True if the result represents a hard failure (Unreadable or
@@ -261,7 +264,6 @@ impl CleanupResult {
         )
     }
 }
-
 
 pub fn sync_enabled(
     runtime: &Runtime,
@@ -296,12 +298,8 @@ pub fn sync_enabled(
                     "未启用；已清理 RE-LLMPET 自有 Hook，保留用户其他配置"
                 }
                 CleanupResult::NotFound { .. } => "未启用；无 Hook 需要清理",
-                CleanupResult::Unowned { .. } => {
-                    "未启用；配置文件存在但不属于 RE-LLMPET，未修改"
-                }
-                CleanupResult::Changed { .. } => {
-                    "未启用；Hook 块已移除但检测到残留，请检查"
-                }
+                CleanupResult::Unowned { .. } => "未启用；配置文件存在但不属于 RE-LLMPET，未修改",
+                CleanupResult::Changed { .. } => "未启用；Hook 块已移除但检测到残留，请检查",
                 CleanupResult::Residue { detail, .. } => detail.as_str(),
                 CleanupResult::PathDrift { .. } => {
                     "未启用；配置路径发生变化，未执行清理"
@@ -1611,8 +1609,8 @@ fn receipts_dir() -> PathBuf {
 /// Returns None if the file can't be read (drift = "unknown"). The
 /// receipt stores `drift_signature` as a string; absence means "unknown".
 fn drift_signature(path: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
     use std::io::Read;
-    use sha2::{Sha256, Digest};
     let mut file = fs::File::open(path).ok()?;
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 8192];

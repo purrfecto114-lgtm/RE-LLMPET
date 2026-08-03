@@ -151,7 +151,7 @@ assert.ok(!commands.includes('Ok(path) => {\n                    results.push(js
 
 assert.ok(cargo.includes('sha2 = "0.10"'),
   '§5: sha2 crate must be added to Cargo.toml dependencies');
-assert.ok(hookInstall.includes('use sha2::{Sha256, Digest}'),
+assert.ok(hookInstall.includes('use sha2::{Digest, Sha256}') || hookInstall.includes('use sha2::{Sha256, Digest}'),
   '§5: drift_signature must use sha2::Sha256');
 assert.ok(hookInstall.includes('hasher.finalize()'),
   '§5: drift_signature must call hasher.finalize()');
