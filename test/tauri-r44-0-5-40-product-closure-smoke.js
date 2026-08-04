@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// R44 0.5.41 (Roadmap v6) — Product Closure & Config Durability smoke.
+// R44 0.5.42 (Roadmap v6) — Product Closure & Config Durability smoke.
 //
-// Locks the 0.5.41 deliverables from Roadmap v6:
+// Locks the 0.5.42 deliverables from Roadmap v6:
 //
 //   P0-01  Config recovery commands in panel capability + bridge + UI
 //   P0-02  metadata errors correctly classified (NotFound vs Unreadable)
@@ -39,8 +39,8 @@ const packageJson = JSON.parse(read('package.json'));
 // Version
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.41',
-  '0.5.41: package.json version must be 0.5.41');
+assert.strictEqual(packageJson.version, '0.5.42',
+  '0.5.42: package.json version must be 0.5.42');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0-01: Config recovery commands in panel capability + bridge + UI
@@ -170,7 +170,7 @@ assert(commands.includes('let drift_detected = drift_status == "changed"'),
 // CHANGELOG
 // ──────────────────────────────────────────────────────────────────────────
 
-assert(changelog.includes('0.5.41'),
-  'CHANGELOG must have 0.5.41 entry');
+assert(changelog.includes('0.5.42'),
+  'CHANGELOG must have 0.5.42 entry');
 
-console.log('✓ R44 0.5.41 (Roadmap v6) product closure smoke: all assertions passed');
+console.log('✓ R44 0.5.42 (Roadmap v6) product closure smoke: all assertions passed');

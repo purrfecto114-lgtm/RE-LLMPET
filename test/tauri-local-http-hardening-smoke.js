@@ -23,7 +23,7 @@ assert.match(client, /X-Re-Llmpet-Token: \{\}/);
 assert.match(client, /X-Re-Llmpet-Server: re-llmpet/);
 assert.match(client, /x-re-llmpet-server: re-llmpet/);
 
-// R44 0.5.41: use 'fn uninstall_claude()' (with parens) to avoid matching
+// R44 0.5.42: use 'fn uninstall_claude()' (with parens) to avoid matching
 // the new 'fn uninstall_claude_at(' variant added for receipt-driven uninstall.
 const claudeBlock = installer.slice(installer.indexOf('pub fn install_claude'), installer.indexOf('fn uninstall_claude()'));
 assert.match(claudeBlock, /PermissionRequest/);

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "project": "LLMPET / Octopus Tauri migration",
-  "release": "0.5.41",
-  "updatedAt": "2026-08-04T03:59:00Z",
+  "release": "0.5.42",
+  "updatedAt": "2026-08-04",
   "statusDefinitions": {
     "done": "Acceptance evidence exists and the stated verification gate passed.",
     "ci-verified": "Implementation and repository-local static/smoke evidence pass. This status must not be used to claim native compilation, installer execution or real-provider success without an attached CI/run artifact.",
