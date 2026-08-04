@@ -304,7 +304,7 @@
     "test/tauri-r45-release-lifecycle-smoke.js": "589e2da8dab3b57f935b5c9080b713ef6caf1d038097d3091306a6e3741590a2",
     "test/tauri-single-instance-smoke.js": "61d073c7e5537f2c4aedc90cc0801b933cb0b2fcbdf499daffb8269f70246e02",
     "test/tauri-static-smoke.js": "c79e53e0596b460972fe6ea05339f317dcc4cd2342329be318d243295ab9db6c",
-    "test/tauri-transcript-pricing-phase2-smoke.js": "ede96b06b16e634b2b3758a7ddb6bbee2a30bdfcedd5df11d63e78b43ac39ad8",
+    "test/tauri-transcript-pricing-phase2-smoke.js": "81413cf17a98d0adaae7e63545b1d9eb211c4ddcfa45a86832efdcdf5e9c2087",
     "test/tauri-tray-extras-r13-smoke.js": "a682a7578e519b16b40b76bf86dd28b68bd83027b7200ae39fd3baeb9593dd09",
     "test/tauri-tray-i18n-r11-smoke.js": "f76399273f588455bcf52a198dce4981cf0a705acf5c4f08887e907921b6e52c",
     "test/tauri-tray-shape-r14-smoke.js": "cb9d11d1af5b8234ad536aafd6d6918f5a605f293279f19bd44d47bbd6c9fe87",
@@ -313,6 +313,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "6b0f46ef478a1afac514bd4cf29a9059c91486c994e8f5fc9da93fb0c8722fbe"
   },
-  "sha256_of_manifest": "b94f9d31958faa5d8adac35febb47a3213efca2f1f87c34443f9a236ec034379",
+  "sha256_of_manifest": "fea80ae7ac17923d378813ba2362e4ad6c3086ea56d5d04aafa8c1ea55d0f155",
   "source_commit": "octopus-0.5.42"
 }
