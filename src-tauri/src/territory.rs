@@ -128,7 +128,7 @@ pub fn run_now(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
 
     #[cfg(target_os = "macos")]
     {
-        return macos_patrol(app, runtime);
+        macos_patrol(app, runtime)
     }
     #[cfg(not(target_os = "macos"))]
     {
