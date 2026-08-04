@@ -65,16 +65,17 @@ assert(setModeFn.includes('"pet" | "panel" | "menubar" | "hidePet"'),
   'set_mode must validate mode against the 4-value allowlist (pet/panel/menubar/hidePet)');
 assert(setModeFn.includes('unsupported mode:'),
   'set_mode must return a clear error for unknown modes');
-assert(setModeFn.includes('window.hide()'),
-  'set_mode must call window.hide() when mode is hidePet');
-assert(setModeFn.includes('window.show().and_then(|_| window.set_focus())'),
-  'set_mode must call window.show() + set_focus() when mode is pet/panel/menubar');
-assert(setModeFn.includes('get_webview_window("pet")'),
-  'set_mode must operate on the pet window');
-// R22 (2026-07-30): cargo fmt may split write_log("mode", ...) across
-// lines. Use a regex that tolerates whitespace between write_log( and "mode".
-assert(/write_log\(\s*"mode"/.test(setModeFn),
-  'set_mode must log window side-effect failures');
+assert(setModeFn.includes('sync_pet_windows(&app, &config)'),
+  'set_mode must route visibility through the dual-pet synchronizer');
+assert(setModeFn.includes('get_webview_window("pet")') && setModeFn.includes('window.set_focus()'),
+  'set_mode must focus the primary pet after restoring pet mode');
+const syncPetFn = commands.slice(commands.indexOf('pub(crate) fn sync_pet_windows'), commands.indexOf('fn emit_config'));
+assert(syncPetFn.includes('window.hide()') && syncPetFn.includes('window.show()'),
+  'dual-pet synchronizer must hide and show pet windows');
+assert(syncPetFn.includes('get_webview_window("pet")') && syncPetFn.includes('get_webview_window("pet-codex")'),
+  'dual-pet synchronizer must operate on both pet windows');
+assert(syncPetFn.includes('config.pet_mode == "duo"'),
+  'Codex pet visibility must follow duo mode');
 
 // ── model.rs: sanitize accepts hidePet ─────────────────────────────────────
 assert(model.includes('"pet" | "panel" | "menubar" | "hidePet"'),

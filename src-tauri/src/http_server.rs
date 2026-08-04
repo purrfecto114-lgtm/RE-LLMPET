@@ -274,6 +274,8 @@ fn handle_client(
 
     match request.path.as_str() {
         "/activate" => {
+            let config = runtime.config();
+            crate::commands::sync_pet_windows(&app, &config);
             if let Some(window) = app.get_webview_window("pet") {
                 let _ = window.show();
                 let _ = window.unminimize();
@@ -656,10 +658,10 @@ fn emit_hook_event(app: &AppHandle, body: &Value, session: &Session) {
                 json!({"kind":"say","text":text,"sessionId":session.id.clone(),"provider":session.provider.clone()}),
             );
         }
-        let _ = app.emit("pet:event", json!({"kind":"turn-done"}));
+        let _ = app.emit("pet:event", json!({"kind":"turn-done","sessionId":session.id.clone(),"provider":session.provider.clone()}));
         return;
     }
-    let payload = match event {
+    let mut payload = match event {
         "UserPromptSubmit" => json!({"kind":"user-turn"}),
         "PreToolUse" | "PostToolUse" => json!({
             "kind":"operation",
@@ -678,6 +680,11 @@ fn emit_hook_event(app: &AppHandle, body: &Value, session: &Session) {
         "TeammateIdle" => json!({"kind":"state","state":"loafing"}),
         _ => json!({"kind":"state","state":session.state.clone()}),
     };
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("sessionId".into(), json!(session.id.clone()));
+        object.insert("provider".into(), json!(session.provider.clone()));
+        object.insert("project".into(), json!(crate::model::project_name(&session.cwd, &session.id)));
+    }
     let _ = app.emit("pet:event", payload);
 }
 

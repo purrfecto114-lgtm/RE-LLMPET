@@ -35,6 +35,10 @@
 - **Windows 终端策略**：新会话优先把白名单 Provider 可执行文件直接交给 Windows Terminal (`wt.exe`) 的新窗口；系统未提供 Terminal 时才回退 `cmd.exe /D /K`
 - **三语核心界面**：桌宠与详情面板支持简体中文 / English / 日本語并持久化选择；原生托盘仍为部分翻译
 - **上游视觉与 UI**：保留三套普通桌宠皮肤、提问卡、Provider 标识与会话 HUD；Octopus 版本已移除表情包选择、媒体预览、提示词目录及其资源
+- **双宠与 HUD 管理**：Claude / Codex 可切单宠或双宠，分别保存皮肤、位置和命中区域；桌宠会话 HUD 支持搜索、Claude/Codex/待处理/归档筛选、置顶和归档并持久化
+- **旅行 / 闲逛 / 成长**：通过 Claude Code / Codex 非交互 CLI 执行独立只读项目旅行，并由 Claude Code 执行仅开放 WebSearch/WebFetch 的网络闲逛；支持取消、30 分钟超时、明信片、真实 token 成长与官方旅行历史迁移
+- **Todo 实时数据**：从 legacy TodoWrite and current TaskList / TaskGet / TaskCreate / TaskUpdate 工具事件归一化会话 Todo，并通过统一 stats 契约送到桌宠和面板
+- **领地与官方数据迁移**：macOS 可用辅助功能扫描并推开对手窗口；首次启动会非覆盖地把 `~/.octopus` 官方配置、用量、价格、旅行和 PID 缓存迁入 `~/.re-llmpet`
 - **安全**：`pet` / `panel` 分窗口 Tauri capability、限制性 CSP、loopback-only HTTP server、token 仅 header、constant-time 比较、固定 provider 启动白名单、沙箱 curl 强制 HTTPS
 
 ---

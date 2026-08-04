@@ -22,7 +22,7 @@ assert.deepStrictEqual([...manifestCommands].sort(), [...registered].sort(), 'AC
 
 const pet = json('src-tauri/capabilities/pet.json');
 const panel = json('src-tauri/capabilities/panel.json');
-assert.deepStrictEqual(pet.windows, ['pet']);
+assert.deepStrictEqual(pet.windows, ['pet', 'pet-codex']);
 assert.deepStrictEqual(panel.windows, ['panel']);
 
 const petRequired = [
@@ -30,7 +30,8 @@ const petRequired = [
   'set_pet_size', 'set_skin', 'set_currency', 'toggle_mute', 'territory_run_now',
   'open_panel', 'blur_pet', 'decide_permission', 'decide_permission_batch',
   'launch_agent', 'focus_session', 'primary_action', 'open_log', 'pet_log',
-  'ui_busy', 'pet_visual_bounds', 'quit_app',
+  'ui_busy', 'pet_visual_bounds', 'quit_app', 'set_session_prefs', 'set_pet_mode',
+  'get_travel', 'start_travel', 'start_wander', 'cancel_travel',
 ];
 const panelRequired = [
   'get_config', 'get_stats', 'get_price_info', 'refresh_model_prices',
@@ -39,6 +40,7 @@ const panelRequired = [
   // R28 (2026-07-30): panel needs diagnose + launch for the provider
   // diagnostic card and "launch checked" button.
   'diagnose_agent', 'launch_agent', 'launch_agent_gui', 'set_session_prefs',
+  'set_pet_mode', 'get_travel',
 ];
 for (const command of petRequired) assert(pet.permissions.includes(permission(command)), `pet missing ${command}`);
 for (const command of panelRequired) assert(panel.permissions.includes(permission(command)), `panel missing ${command}`);

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// R44 0.5.44 — Config durability + receipt-driven uninstall + idempotent sync.
+// R44 0.5.45 — Config durability + receipt-driven uninstall + idempotent sync.
 //
 // This version focuses on real user impact, not blindly following the roadmap:
 //   1. schemaVersion + unknown-field preservation (prevents data loss)
@@ -29,8 +29,8 @@ const changelog = read('CHANGELOG.md');
 const packageJson = JSON.parse(read('package.json'));
 
 // Version
-assert.strictEqual(packageJson.version, '0.5.44',
-  '0.5.44: package.json version must be 0.5.44');
+assert.strictEqual(packageJson.version, '0.5.45',
+  '0.5.45: package.json version must be 0.5.45');
 
 // ──────────────────────────────────────────────────────────────────────────
 // 1. schemaVersion + unknown-field preservation
@@ -38,7 +38,7 @@ assert.strictEqual(packageJson.version, '0.5.44',
 
 assert.ok(model.includes('pub schema_version: u32'),
   '1: AppConfig must have schema_version field');
-assert.ok(model.includes('pub const CURRENT_SCHEMA_VERSION: u32 = 1'),
+assert.ok(model.includes('pub const CURRENT_SCHEMA_VERSION: u32 = 2'),
   '1: CURRENT_SCHEMA_VERSION constant must be defined');
 assert.ok(model.includes('#[serde(flatten)]'),
   '1: AppConfig must have #[serde(flatten)] for extras');
@@ -95,7 +95,7 @@ assert.ok(hookInstall.includes('fn provider_config_path('),
 // CHANGELOG
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.ok(changelog.includes('0.5.44'),
-  'CHANGELOG must have 0.5.44 entry');
+assert.ok(changelog.includes('0.5.45'),
+  'CHANGELOG must have 0.5.45 entry');
 
-console.log('✓ R44 0.5.44 config durability + receipt-driven uninstall smoke: all assertions passed');
+console.log('✓ R44 0.5.45 config durability + receipt-driven uninstall smoke: all assertions passed');

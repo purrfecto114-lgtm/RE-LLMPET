@@ -1,6 +1,6 @@
 use crate::model::{AppState, Runtime};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -43,9 +43,9 @@ pub struct PlatformState {
     cursor_hit_test_started: AtomicBool,
     display_signature: Mutex<String>,
     ui_busy: AtomicBool,
-    mouse_ignore_requested: AtomicBool,
-    mouse_ignore_applied: AtomicBool,
-    visual_bounds: Mutex<Option<VisualBounds>>,
+    mouse_ignore_requested: Mutex<HashMap<String, bool>>,
+    mouse_ignore_applied: Mutex<HashMap<String, bool>>,
+    visual_bounds: Mutex<HashMap<String, VisualBounds>>,
 }
 
 impl PlatformState {
@@ -57,8 +57,11 @@ impl PlatformState {
         self.ui_busy.load(Ordering::Acquire)
     }
 
-    pub fn request_mouse_ignore(&self, on: bool) {
-        self.mouse_ignore_requested.store(on, Ordering::Release);
+    pub fn request_mouse_ignore(&self, label: &str, on: bool) {
+        self.mouse_ignore_requested
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(label.to_string(), on);
     }
 
     pub fn start_cursor_hit_test(self: &Arc<Self>, app: AppHandle) {
@@ -69,25 +72,53 @@ impl PlatformState {
         let _ = thread::Builder::new()
             .name("octopus-cursor-hit-test".into())
             .spawn(move || loop {
-                let Some(window) = app.get_webview_window("pet") else {
+                let mut saw_window = false;
+                let mut delay_ms = CURSOR_HIT_TEST_HIDDEN_MS;
+                for label in ["pet", "pet-codex"] {
+                    let Some(window) = app.get_webview_window(label) else {
+                        continue;
+                    };
+                    saw_window = true;
+                    let decision = state.cursor_hit_decision(label, &window);
+                    delay_ms = delay_ms.min(decision.delay_ms);
+                    let previous = state
+                        .mouse_ignore_applied
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .get(label)
+                        .copied()
+                        .unwrap_or(false);
+                    if previous != decision.ignore
+                        && window.set_ignore_cursor_events(decision.ignore).is_ok()
+                    {
+                        state
+                            .mouse_ignore_applied
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner())
+                            .insert(label.to_string(), decision.ignore);
+                    }
+                }
+                if !saw_window {
                     thread::sleep(Duration::from_millis(CURSOR_HIT_TEST_HIDDEN_MS));
                     continue;
-                };
-                let decision = state.cursor_hit_decision(&window);
-                let previous = state.mouse_ignore_applied.load(Ordering::Acquire);
-                if previous != decision.ignore
-                    && window.set_ignore_cursor_events(decision.ignore).is_ok()
-                {
-                    state
-                        .mouse_ignore_applied
-                        .store(decision.ignore, Ordering::Release);
                 }
-                thread::sleep(Duration::from_millis(decision.delay_ms));
+                thread::sleep(Duration::from_millis(delay_ms));
             });
     }
 
-    fn cursor_hit_decision(&self, window: &tauri::WebviewWindow) -> CursorHitDecision {
-        if self.is_ui_busy() || !self.mouse_ignore_requested.load(Ordering::Acquire) {
+    fn cursor_hit_decision(
+        &self,
+        label: &str,
+        window: &tauri::WebviewWindow,
+    ) -> CursorHitDecision {
+        let ignore_requested = self
+            .mouse_ignore_requested
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(label)
+            .copied()
+            .unwrap_or(false);
+        if self.is_ui_busy() || !ignore_requested {
             return CursorHitDecision {
                 ignore: false,
                 delay_ms: CURSOR_HIT_TEST_IDLE_MS,
@@ -99,7 +130,7 @@ impl PlatformState {
                 delay_ms: CURSOR_HIT_TEST_HIDDEN_MS,
             };
         }
-        let Some(bounds) = self.visual_bounds() else {
+        let Some(bounds) = self.visual_bounds(label) else {
             // Never enter an unrecoverable click-through state before the
             // renderer has reported a usable hit target.
             return CursorHitDecision {
@@ -155,7 +186,7 @@ impl PlatformState {
         }
     }
 
-    pub fn set_visual_bounds(&self, rect: &Value) -> Result<(), String> {
+    pub fn set_visual_bounds(&self, label: &str, rect: &Value) -> Result<(), String> {
         fn number(rect: &Value, key: &str) -> Result<f64, String> {
             rect.get(key)
                 .and_then(Value::as_f64)
@@ -178,18 +209,21 @@ impl PlatformState {
         {
             return Err("visual bounds outside supported range".into());
         }
-        *self
-            .visual_bounds
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = Some(bounds);
-        Ok(())
-    }
-
-    pub fn visual_bounds(&self) -> Option<VisualBounds> {
-        *self
+        self
             .visual_bounds
             .lock()
             .unwrap_or_else(|error| error.into_inner())
+            .insert(label.to_string(), bounds);
+        Ok(())
+    }
+
+    pub fn visual_bounds(&self, label: &str) -> Option<VisualBounds> {
+        self
+            .visual_bounds
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(label)
+            .copied()
     }
 
     pub fn start_health_check(self: &Arc<Self>, app: AppHandle, runtime: Arc<Runtime>) {
@@ -249,11 +283,11 @@ impl PlatformState {
         }
 
         let mut moved = false;
-        for label in ["pet", "panel"] {
+        for label in ["pet", "pet-codex", "panel"] {
             if let Some(window) = app.get_webview_window(label) {
                 if ensure_window_visible(&window, &monitors)? {
                     moved = true;
-                    if label == "pet" {
+                    if label == "pet" || label == "pet-codex" {
                         if let Ok(position) = window.outer_position() {
                             // R24 (2026-07-30): outer_position() returns
                             // PhysicalPosition; pet_position stores LOGICAL.
@@ -261,11 +295,16 @@ impl PlatformState {
                             let scale = window.scale_factor().unwrap_or(1.0);
                             let logical_x = (position.x as f64 / scale).round() as i32;
                             let logical_y = (position.y as f64 / scale).round() as i32;
-                            let _ = runtime.update_config(|config| {
-                                config.pet_position = Some(crate::model::Point {
+                            let point = Some(crate::model::Point {
                                     x: logical_x,
                                     y: logical_y,
                                 });
+                            let _ = runtime.update_config(|config| {
+                                if label == "pet-codex" {
+                                    config.pet_position_codex = point;
+                                } else {
+                                    config.pet_position = point;
+                                }
                             });
                         }
                     }
@@ -349,8 +388,10 @@ pub fn focus_session(app: &AppHandle, state: &AppState, session_id: &str) -> Res
             chain
         ),
     );
-    if let Some(pet) = app.get_webview_window("pet") {
-        let _ = pet.set_always_on_top(true);
+    for label in ["pet", "pet-codex"] {
+        if let Some(pet) = app.get_webview_window(label) {
+            let _ = pet.set_always_on_top(true);
+        }
     }
     Ok(())
 }

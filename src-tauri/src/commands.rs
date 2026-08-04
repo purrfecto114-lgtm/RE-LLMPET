@@ -12,6 +12,25 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, State};
 
+
+fn pet_label_for_agent(agent: Option<&str>) -> &'static str {
+    if agent == Some("codex") { "pet-codex" } else { "pet" }
+}
+
+pub(crate) fn sync_pet_windows(app: &AppHandle, config: &crate::model::AppConfig) {
+    let hidden = config.mode == "hidePet";
+    if let Some(window) = app.get_webview_window("pet") {
+        let _ = if hidden { window.hide() } else { window.show() };
+    }
+    if let Some(window) = app.get_webview_window("pet-codex") {
+        let _ = if !hidden && config.pet_mode == "duo" {
+            window.show()
+        } else {
+            window.hide()
+        };
+    }
+}
+
 fn emit_config(app: &AppHandle, state: &AppState) {
     let config = state.runtime.config_view();
     let _ = app.emit("pet:config", config.clone());
@@ -99,6 +118,44 @@ pub fn get_stats(state: State<'_, AppState>) -> Value {
 }
 
 #[tauri::command]
+pub fn get_travel(state: State<'_, AppState>) -> Value {
+    state.runtime.travel.snapshot()
+}
+
+#[tauri::command]
+pub fn start_travel(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    mission: Option<String>,
+) -> Result<Value, String> {
+    state.runtime.travel.start_project(
+        app,
+        state.runtime.clone(),
+        session_id,
+        mission.unwrap_or_else(|| "浏览项目，找出最有意思的结构、风险与下一步建议".into()),
+    )
+}
+
+#[tauri::command]
+pub fn start_wander(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    mission: Option<String>,
+) -> Result<Value, String> {
+    state.runtime.travel.start_wander(
+        app,
+        state.runtime.clone(),
+        mission.unwrap_or_else(|| "寻找今天值得开发者关注的一个新工具或工程实践".into()),
+    )
+}
+
+#[tauri::command]
+pub fn cancel_travel(state: State<'_, AppState>) -> Result<Value, String> {
+    state.runtime.travel.cancel()
+}
+
+#[tauri::command]
 pub fn get_price_info(state: State<'_, AppState>) -> Value {
     state.runtime.price_info()
 }
@@ -175,19 +232,11 @@ pub fn set_mode(app: AppHandle, state: State<'_, AppState>, mode: String) -> Res
     // equivalent — Tauri has no native menubar). "pet" and "panel" both
     // show the pet window again. The panel window is controlled separately
     // by open_panel/close_panel and is not touched here.
-    if let Some(window) = app.get_webview_window("pet") {
-        let result = if mode == "hidePet" {
-            window.hide()
-        } else {
-            // show() then set_focus() so returning from hidePet brings the
-            // pet back to the foreground, matching upstream behavior.
-            window.show().and_then(|_| window.set_focus())
-        };
-        if let Err(error) = result {
-            state.runtime.write_log(
-                "mode",
-                &format!("set_mode window side-effect failed: {error}"),
-            );
+    let config = state.runtime.config();
+    sync_pet_windows(&app, &config);
+    if mode != "hidePet" {
+        if let Some(window) = app.get_webview_window("pet") {
+            let _ = window.set_focus();
         }
     }
     emit_config(&app, &state);
@@ -431,8 +480,36 @@ pub fn get_install_receipts() -> Value {
 }
 
 #[tauri::command]
-pub fn set_skin(app: AppHandle, state: State<'_, AppState>, skin: String) -> Result<(), String> {
-    state.runtime.update_config(|config| config.skin = skin)?;
+pub fn set_skin(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    skin: String,
+    agent: Option<String>,
+) -> Result<(), String> {
+    state.runtime.update_config(|config| {
+        if agent.as_deref() == Some("codex") {
+            config.skin_codex = skin;
+        } else {
+            config.skin = skin;
+        }
+    })?;
+    emit_config(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_pet_mode(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    pet_mode: String,
+) -> Result<(), String> {
+    if !matches!(pet_mode.as_str(), "single" | "duo") {
+        return Err(format!("unsupported pet mode: {pet_mode}"));
+    }
+    let config = state
+        .runtime
+        .update_config(|config| config.pet_mode = pet_mode.clone())?;
+    sync_pet_windows(&app, &config);
     emit_config(&app, &state);
     Ok(())
 }
@@ -607,41 +684,45 @@ pub fn set_providers(
     }))
 }
 
-/// R44 0.5.43: Territory mode is currently a STUB — only toggles the config
-/// flag and shows a message. The actual macOS window-push/rival-detection
-/// behavior is NOT implemented. See docs/UPSTREAM_PARITY_MATRIX.json
-/// status="stub" for this feature. This is intentionally honest rather
-/// than pretending partial functionality.
+/// Toggle automatic macOS territory patrol. Enabling performs an immediate
+/// real patrol, then the background worker repeats every 15 seconds while the
+/// UI is not busy. On other platforms the command remains safe and reports the
+/// feature boundary honestly.
 #[tauri::command]
-pub fn territory_toggle_auto(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+pub fn territory_toggle_auto(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    platform_state: State<'_, Arc<platform::PlatformState>>,
+) -> Result<Value, String> {
     let config = state
         .runtime
         .update_config(|config| config.territory = !config.territory)?;
     emit_config(&app, &state);
-    let message = if config.territory {
-        "领地模式已开启（stub：仅切换开关，原生窗口推动尚未实现）。"
-    } else {
-        "领地模式已关闭。"
-    };
-    let _ = app.emit("pet:event", json!({"kind":"say","text":message}));
-    Ok(())
+    if !config.territory {
+        let result = json!({"enabled":false});
+        let _ = app.emit("pet:event", json!({"kind":"say","text":"领地模式已关闭。"}));
+        return Ok(result);
+    }
+    if platform_state.is_ui_busy() {
+        return Ok(json!({"enabled":true,"deferred":true}));
+    }
+    let mut result = crate::territory::run_now(&app, &state.runtime)?;
+    if let Some(object) = result.as_object_mut() {
+        object.insert("enabled".into(), json!(true));
+    }
+    Ok(result)
 }
 
-/// R44 0.5.43: Territory run_now is a STUB — no actual rival detection or
-/// window push. Shows an honest "not implemented" message.
 #[tauri::command]
-pub fn territory_run_now(app: AppHandle, platform_state: State<'_, Arc<platform::PlatformState>>) {
+pub fn territory_run_now(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    platform_state: State<'_, Arc<platform::PlatformState>>,
+) -> Result<Value, String> {
     if platform_state.is_ui_busy() {
-        let _ = app.emit(
-            "pet:event",
-            json!({"kind":"say","text":"界面操作尚未结束，已暂缓巡视以避免抢焦点。"}),
-        );
-        return;
+        return Ok(json!({"deferred":true,"message":"UI is busy"}));
     }
-    let _ = app.emit(
-        "pet:event",
-        json!({"kind":"say","text":"领地巡视尚未实现（stub）。原生平台适配待后续版本。"}),
-    );
+    crate::territory::run_now(&app, &state.runtime)
 }
 
 const PANEL_DEFAULT_WIDTH: f64 = 560.0;
@@ -787,8 +868,9 @@ pub fn close_panel(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_win_pos(app: AppHandle) -> Result<[i32; 2], String> {
-    let window = app.get_webview_window("pet").ok_or("pet window missing")?;
+pub fn get_win_pos(app: AppHandle, agent: Option<String>) -> Result<[i32; 2], String> {
+    let label = pet_label_for_agent(agent.as_deref());
+    let window = app.get_webview_window(label).ok_or("pet window missing")?;
     // R22 (2026-07-30): return LOGICAL position so the renderer's screenX
     // delta (also logical) can be added directly without DPI mismatch.
     // The old code returned outer_position (physical), which caused the pet
@@ -801,12 +883,13 @@ pub fn get_win_pos(app: AppHandle) -> Result<[i32; 2], String> {
 }
 
 #[tauri::command]
-pub fn set_win_pos(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
+pub fn set_win_pos(app: AppHandle, x: i32, y: i32, agent: Option<String>) -> Result<(), String> {
     // R22 (2026-07-30): accept LOGICAL position from the renderer (which
     // uses e.screenX — CSS/logical pixels) and convert to physical internally.
     // The old code used PhysicalPosition directly, causing DPI mismatch on
     // scaled displays (pet moved slower/faster than mouse).
-    let window = app.get_webview_window("pet").ok_or("pet window missing")?;
+    let label = pet_label_for_agent(agent.as_deref());
+    let window = app.get_webview_window(label).ok_or("pet window missing")?;
     let scale = window.scale_factor().unwrap_or(1.0);
     let physical_x = (x as f64 * scale).round() as i32;
     let physical_y = (y as f64 * scale).round() as i32;
@@ -818,18 +901,28 @@ pub fn set_win_pos(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn commit_win_pos(app: AppHandle, state: State<'_, AppState>) -> Result<[i32; 2], String> {
-    let window = app.get_webview_window("pet").ok_or("pet window missing")?;
+pub fn commit_win_pos(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    agent: Option<String>,
+) -> Result<[i32; 2], String> {
+    let label = pet_label_for_agent(agent.as_deref());
+    let window = app.get_webview_window(label).ok_or("pet window missing")?;
     let position = window.outer_position().map_err(|error| error.to_string())?;
     let scale = window.scale_factor().unwrap_or(1.0);
     // R22: store and return LOGICAL position for consistency with get_win_pos.
     let logical_x = (position.x as f64 / scale).round() as i32;
     let logical_y = (position.y as f64 / scale).round() as i32;
     state.runtime.update_config(|config| {
-        config.pet_position = Some(Point {
+        let point = Some(Point {
             x: logical_x,
             y: logical_y,
         });
+        if agent.as_deref() == Some("codex") {
+            config.pet_position_codex = point;
+        } else {
+            config.pet_position = point;
+        }
     })?;
     emit_config(&app, &state);
     Ok([logical_x, logical_y])
@@ -839,25 +932,27 @@ pub fn commit_win_pos(app: AppHandle, state: State<'_, AppState>) -> Result<[i32
 pub fn set_ignore_mouse(
     platform_state: State<'_, Arc<platform::PlatformState>>,
     ignore: bool,
+    agent: Option<String>,
 ) -> Result<(), String> {
     // Electron supported `forward: true`, allowing ignored windows to keep
     // receiving mousemove events. Tauri intentionally exposes only a strict
     // ignore toggle, so the native cursor hit-test loop owns the applied state.
-    platform_state.request_mouse_ignore(ignore);
+    platform_state.request_mouse_ignore(pet_label_for_agent(agent.as_deref()), ignore);
     Ok(())
 }
 
 #[tauri::command]
-pub fn set_pet_tall(app: AppHandle, tall: bool) -> Result<(), String> {
-    set_pet_size(app, 320.0, if tall { 620.0 } else { 340.0 })
+pub fn set_pet_tall(app: AppHandle, tall: bool, agent: Option<String>) -> Result<(), String> {
+    set_pet_size(app, 320.0, if tall { 620.0 } else { 340.0 }, agent)
 }
 
 #[tauri::command]
-pub fn set_pet_big(app: AppHandle, on: bool) -> Result<(), String> {
+pub fn set_pet_big(app: AppHandle, on: bool, agent: Option<String>) -> Result<(), String> {
     set_pet_size(
         app,
         if on { 520.0 } else { 320.0 },
         if on { 700.0 } else { 340.0 },
+        agent,
     )
 }
 
@@ -920,13 +1015,19 @@ fn resize_pet_anchored(
 }
 
 #[tauri::command]
-pub fn set_pet_size(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
+pub fn set_pet_size(
+    app: AppHandle,
+    width: f64,
+    height: f64,
+    agent: Option<String>,
+) -> Result<(), String> {
     let (width, height) = if width <= 0.0 || height <= 0.0 {
         (320.0, 340.0)
     } else {
         (width.clamp(240.0, 1200.0), height.clamp(240.0, 1200.0))
     };
-    let window = app.get_webview_window("pet").ok_or("pet window missing")?;
+    let label = pet_label_for_agent(agent.as_deref());
+    let window = app.get_webview_window(label).ok_or("pet window missing")?;
     resize_pet_anchored(&window, width, height)
 }
 
@@ -944,8 +1045,9 @@ pub fn set_panel_height(app: AppHandle, height: f64) -> Result<[f64; 2], String>
 }
 
 #[tauri::command]
-pub fn focus_pet(app: AppHandle) -> Result<(), String> {
-    let window = app.get_webview_window("pet").ok_or("pet window missing")?;
+pub fn focus_pet(app: AppHandle, agent: Option<String>) -> Result<(), String> {
+    let label = pet_label_for_agent(agent.as_deref());
+    let window = app.get_webview_window(label).ok_or("pet window missing")?;
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())
 }
@@ -2887,8 +2989,9 @@ pub fn ui_busy(platform_state: State<'_, Arc<platform::PlatformState>>, on: bool
 pub fn pet_visual_bounds(
     platform_state: State<'_, Arc<platform::PlatformState>>,
     rect: Value,
+    agent: Option<String>,
 ) -> Result<(), String> {
-    platform_state.set_visual_bounds(&rect)
+    platform_state.set_visual_bounds(pet_label_for_agent(agent.as_deref()), &rect)
 }
 
 #[tauri::command]

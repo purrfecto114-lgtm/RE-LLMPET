@@ -83,8 +83,8 @@ assert(platform.includes('fn cursor_hit_decision') && platform.includes('struct 
   'R37: cursor hit-test must compute ignore state and cadence in one decision');
 assert(platform.includes('!window.is_visible().unwrap_or(false)'),
   'R37: hidden pet window must use the slowest cadence');
-assert(platform.includes('!self.mouse_ignore_requested.load(Ordering::Acquire)'),
-  'R37: idle mode must avoid active cursor hit-testing');
+assert(platform.includes('if self.is_ui_busy() || !ignore_requested'),
+  'R37: idle mode must avoid active cursor hit-testing per pet window');
 
 // ──────────────────────────────────────────────────────────────────────────
 // R37-8: Capability minimization (replace core:default)

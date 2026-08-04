@@ -38,7 +38,11 @@ pub struct AppConfig {
     pub lang: String,
     pub mode: String,
     pub skin: String,
+    /// single = one aggregated pet; duo = independent Claude + Codex pets.
+    pub pet_mode: String,
+    pub skin_codex: String,
     pub pet_position: Option<Point>,
+    pub pet_position_codex: Option<Point>,
     pub budget5h: f64,
     pub muted: bool,
     pub reply_bubbles: bool,
@@ -75,7 +79,7 @@ pub struct AppConfig {
 /// R44 0.5.41: current schema version this build understands. If a config
 /// file has a higher version, `load_config` returns `SchemaTooNew` and
 /// writes are quarantined (the user must upgrade or manually migrate).
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 impl Default for AppConfig {
     fn default() -> Self {
@@ -84,7 +88,10 @@ impl Default for AppConfig {
             lang: "zh".into(),
             mode: "pet".into(),
             skin: "mascot".into(),
+            pet_mode: "single".into(),
+            skin_codex: "pixel".into(),
             pet_position: None,
+            pet_position_codex: None,
             budget5h: 10.0,
             muted: false,
             reply_bubbles: true,
@@ -114,6 +121,12 @@ impl AppConfig {
         }
         if !matches!(self.skin.as_str(), "mascot" | "pixel" | "cat") {
             self.skin = "mascot".into();
+        }
+        if !matches!(self.pet_mode.as_str(), "single" | "duo") {
+            self.pet_mode = "single".into();
+        }
+        if !matches!(self.skin_codex.as_str(), "mascot" | "pixel" | "cat") {
+            self.skin_codex = "pixel".into();
         }
         if !self.budget5h.is_finite() || self.budget5h < 0.0 {
             self.budget5h = 10.0;
@@ -155,13 +168,24 @@ impl AppConfig {
         self.providers = providers;
         // R44 0.5.41: upgrade old configs (schemaVersion 0 or missing) to
         // current. This is a one-way migration — once saved, the config
-        // is tagged as schemaVersion 1. Future versions that add breaking
+        // is tagged with CURRENT_SCHEMA_VERSION. Future versions that add breaking
         // changes bump CURRENT_SCHEMA_VERSION and add migration logic here.
         if self.schema_version < CURRENT_SCHEMA_VERSION {
             self.schema_version = CURRENT_SCHEMA_VERSION;
         }
         self
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub content: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_form: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,6 +204,8 @@ pub struct Session {
     pub context_used: Option<u64>,
     pub context_limit: Option<u64>,
     pub context_percent: Option<f64>,
+    #[serde(default)]
+    pub todos: Vec<TodoItem>,
     #[serde(default, skip_serializing)]
     pub last_event_at: u64,
     #[serde(default, skip_serializing)]
@@ -288,6 +314,7 @@ pub struct Runtime {
     /// and cancellation are intentionally consolidated so cancellation cannot
     /// race a later child registration or leave a stale busy flag.
     pub diagnostic_control: crate::diagnostic_control::DiagnosticControl,
+    pub travel: Arc<crate::travel::TravelManager>,
     // R38.1 (2026-08-01): Singleton StatsCoalescer state. The 0.5.16 full
     // audit (P0-1) flagged that the R38 trailing flush created a new
     // spawn_blocking task PER throttled event — 1000 events/s would spawn
@@ -317,6 +344,7 @@ pub struct Runtime {
     pub log_path: PathBuf,
     pub pending_path: PathBuf,
     pub started_at: u64,
+    pub migration_report: Value,
     /// R44 0.5.39 (roadmap v5 §2): replaces the global `CONFIG_WRITE_DISABLED`
     /// AtomicBool with an instance-scoped state machine. The old design
     /// had two problems:
@@ -392,7 +420,9 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
-        let app_dir = home_dir().join(APP_DIR_NAME);
+        let home = home_dir();
+        let app_dir = home.join(APP_DIR_NAME);
+        let migration_report = crate::migration::import_official_data(&home, &app_dir);
         let _ = secure_create_dir(&app_dir);
         let config_path = app_dir.join(CONFIG_FILE_NAME);
         let runtime_path = app_dir.join(RUNTIME_FILE_NAME);
@@ -423,6 +453,7 @@ impl AppState {
                 })),
                 price_refresh_tx: Mutex::new(None),
                 diagnostic_control: crate::diagnostic_control::DiagnosticControl::default(),
+                travel: crate::travel::TravelManager::open(&app_dir),
                 stats_revision: Mutex::new(0),
                 stats_coalescer: Mutex::new(StatsCoalescerState::default()),
                 app_dir,
@@ -431,6 +462,7 @@ impl AppState {
                 log_path,
                 pending_path,
                 started_at: now_ms(),
+                migration_report: migration_report.as_json(),
                 config_state: Mutex::new(config_state),
             }),
         }
@@ -578,6 +610,8 @@ impl Runtime {
                 .get("codewhale")
                 .map(|status| status.installed)
                 .unwrap_or(false);
+            object.insert("territorySupported".into(), json!(cfg!(target_os = "macos")));
+            object.insert("officialMigration".into(), self.migration_report.clone());
             object.insert(
                 "providers".into(),
                 json!({
@@ -669,6 +703,8 @@ impl Runtime {
         )
         .unwrap_or_default();
         let tool_name = clean_text(body.get("tool_name").or_else(|| body.get("toolName")), 256);
+        let incoming_todos = extract_todo_snapshot(body, tool_name.as_deref(), &event);
+        let incoming_todo_patch = extract_todo_patch(body, tool_name.as_deref(), &event);
         let mut model = clean_text(body.get("model"), 256);
         let (reply_bubbles, reply_bubble_chars) = self.privacy_settings();
         let mut assistant_last_output = if reply_bubbles {
@@ -745,6 +781,7 @@ impl Runtime {
                     usage_result.context_used,
                     usage_result.context_limit,
                 ),
+                todos: Vec::new(),
                 last_event_at: 0,
                 last_event_seq: None,
                 last_event_rank: 0,
@@ -767,6 +804,11 @@ impl Runtime {
                 }
                 if assistant_last_output.is_some() {
                     entry.assistant_last_output = assistant_last_output;
+                }
+                if let Some(todos) = incoming_todos.clone() {
+                    entry.todos = todos;
+                } else if let Some(todo) = incoming_todo_patch.clone() {
+                    apply_todo_patch(&mut entry.todos, todo);
                 }
                 entry.headless = headless;
                 if source_pid.is_some() {
@@ -1136,6 +1178,7 @@ impl Runtime {
                 context_used: None,
                 context_limit: None,
                 context_percent: None,
+                todos: Vec::new(),
                 last_event_at: 0,
                 last_event_seq: None,
                 last_event_rank: 0,
@@ -1268,7 +1311,7 @@ impl Runtime {
                 "contextUsed":session.context_used,
                 "contextLimit":session.context_limit,
                 "choice":choice,
-                "todos":[]
+                "todos":session.todos
             }));
         }
         rows.sort_by(|a, b| {
@@ -1316,9 +1359,25 @@ impl Runtime {
                     "state":s.state,
                     "model":s.model,
                     "provider":if s.provider == "claude" { Value::Null } else { json!(s.provider) },
-                    "providerId":s.provider
+                    "providerId":s.provider,
+                    "todos":s.todos
                 })
             });
+        let todo_session = sessions
+            .iter()
+            .filter(|session| !session.todos.is_empty())
+            .min_by(|a, b| {
+                session_state_priority(&a.state)
+                    .cmp(&session_state_priority(&b.state))
+                    .then_with(|| b.updated_at.cmp(&a.updated_at))
+            });
+        let top_todos = todo_session
+            .map(|session| session.todos.clone())
+            .unwrap_or_default();
+        let todos_project = todo_session
+            .and_then(|session| session_projects.get(session.id.as_str()).cloned())
+            .unwrap_or_default();
+
         let usage = self
             .usage
             .lock()
@@ -1338,12 +1397,13 @@ impl Runtime {
             "thinkingCount":thinking,
             "loafingCount":loafing,
             "errorCount":errors,
-            "todos":[],
-            "todosProject":"",
+            "todos":top_todos,
+            "todosProject":todos_project,
             "lastActivityTs":sessions.iter().map(|s| s.updated_at).max().unwrap_or(self.started_at),
             "idleMs":now.saturating_sub(sessions.iter().map(|s| s.updated_at).max().unwrap_or(self.started_at)),
             "bg":{"running":0,"zombie":0,"total":0,"items":[]},
             "context":Value::Null,
+            "travel":self.travel.snapshot(),
             "ts":now
         });
         // R44 0.5.43: inject Codex rollout data (token usage + rate limits).
@@ -1477,6 +1537,229 @@ fn permission_choice(permission: &PendingPermission, project: &str) -> Value {
         "allowInput":false,
         "provider":if permission.provider == "claude" { Value::Null } else { json!(permission.provider) }
     })
+}
+
+fn todo_input<'a>(body: &'a Value) -> &'a Value {
+    body.get("tool_input")
+        .or_else(|| body.get("toolInput"))
+        .unwrap_or(body)
+}
+
+static EMPTY_TODO_RESPONSE: Value = Value::Null;
+
+fn todo_response<'a>(body: &'a Value) -> &'a Value {
+    body.get("tool_response")
+        .or_else(|| body.get("toolResponse"))
+        .unwrap_or(&EMPTY_TODO_RESPONSE)
+}
+
+fn normalize_todo_status(value: Option<&str>) -> String {
+    match value.unwrap_or("pending").trim().to_ascii_lowercase().as_str() {
+        "completed" | "complete" | "done" | "closed" => "completed".into(),
+        "in_progress" | "in-progress" | "progress" | "working" | "active" => {
+            "in_progress".into()
+        }
+        _ => "pending".into(),
+    }
+}
+
+fn todo_text(object: &serde_json::Map<String, Value>) -> Option<String> {
+    object
+        .get("content")
+        .or_else(|| object.get("subject"))
+        .or_else(|| object.get("task"))
+        .or_else(|| object.get("title"))
+        .or_else(|| object.get("text"))
+        .or_else(|| object.get("description"))
+        .and_then(Value::as_str)
+        .map(|text| clean_control_text(text, 500))
+        .filter(|text| !text.is_empty())
+}
+
+fn todo_id(object: &serde_json::Map<String, Value>) -> Option<String> {
+    object
+        .get("id")
+        .or_else(|| object.get("taskId"))
+        .or_else(|| object.get("task_id"))
+        .and_then(Value::as_str)
+        .map(|value| clean_control_text(value, 256))
+        .filter(|value| !value.is_empty())
+}
+
+fn todo_active_form(object: &serde_json::Map<String, Value>) -> Option<String> {
+    object
+        .get("activeForm")
+        .or_else(|| object.get("active_form"))
+        .and_then(Value::as_str)
+        .map(|text| clean_control_text(text, 500))
+        .filter(|text| !text.is_empty())
+}
+
+fn todo_from_value(value: &Value) -> Option<TodoItem> {
+    let object = value.as_object()?;
+    Some(TodoItem {
+        id: todo_id(object),
+        content: todo_text(object)?,
+        status: normalize_todo_status(object.get("status").and_then(Value::as_str)),
+        active_form: todo_active_form(object),
+    })
+}
+
+#[derive(Debug, Clone, Default)]
+struct TodoPatch {
+    id: Option<String>,
+    content: Option<String>,
+    status: Option<String>,
+    active_form: Option<String>,
+    deleted: bool,
+}
+
+fn todo_patch_from_value(value: &Value) -> Option<TodoPatch> {
+    let object = value.as_object()?;
+    let raw_status = object.get("status").and_then(Value::as_str);
+    let patch = TodoPatch {
+        id: todo_id(object),
+        content: todo_text(object),
+        status: raw_status.map(|status| normalize_todo_status(Some(status))),
+        active_form: todo_active_form(object),
+        deleted: raw_status
+            .map(|status| status.trim().eq_ignore_ascii_case("deleted"))
+            .unwrap_or(false),
+    };
+    if patch.id.is_none()
+        && patch.content.is_none()
+        && patch.status.is_none()
+        && patch.active_form.is_none()
+        && !patch.deleted
+    {
+        None
+    } else {
+        Some(patch)
+    }
+}
+
+/// Claude Code v2.1.142+ uses TaskList/TaskGet/TaskCreate/TaskUpdate by
+/// default. TaskList data is in the successful PostToolUse `tool_response`,
+/// while legacy TodoWrite keeps its complete snapshot in `tool_input.todos`.
+fn extract_todo_snapshot(
+    body: &Value,
+    tool_name: Option<&str>,
+    event: &str,
+) -> Option<Vec<TodoItem>> {
+    let input = todo_input(body);
+    let response = todo_response(body);
+    let direct = body.get("todos").or_else(|| body.get("tasks"));
+    let values = match tool_name.unwrap_or("") {
+        "TodoWrite" if event == "PostToolUse" => input.get("todos"),
+        "TaskList" if event == "PostToolUse" => response.get("tasks"),
+        _ => direct,
+    }
+    .and_then(Value::as_array)?;
+    Some(values.iter().filter_map(todo_from_value).take(100).collect())
+}
+
+fn merge_todo_patch(target: &mut TodoPatch, source: TodoPatch) {
+    if source.id.is_some() {
+        target.id = source.id;
+    }
+    if source.content.is_some() {
+        target.content = source.content;
+    }
+    if source.status.is_some() {
+        target.status = source.status;
+    }
+    if source.active_form.is_some() {
+        target.active_form = source.active_form;
+    }
+    target.deleted |= source.deleted;
+}
+
+fn extract_todo_patch(
+    body: &Value,
+    tool_name: Option<&str>,
+    event: &str,
+) -> Option<TodoPatch> {
+    if event != "PostToolUse" {
+        return None;
+    }
+    let input = todo_input(body);
+    let response = todo_response(body);
+    match tool_name.unwrap_or("") {
+        "TaskCreate" => {
+            let mut patch = todo_patch_from_value(input).unwrap_or_default();
+            if let Some(response_patch) = response.get("task").and_then(todo_patch_from_value) {
+                merge_todo_patch(&mut patch, response_patch);
+            }
+            if patch.content.is_none() {
+                return None;
+            }
+            patch.status.get_or_insert_with(|| "pending".into());
+            Some(patch)
+        }
+        "TaskUpdate" => {
+            if response.get("success").and_then(Value::as_bool) == Some(false) {
+                return None;
+            }
+            let mut patch = todo_patch_from_value(input)?;
+            if patch.id.is_none() {
+                patch.id = response
+                    .get("taskId")
+                    .or_else(|| response.get("task_id"))
+                    .and_then(Value::as_str)
+                    .map(|value| clean_control_text(value, 256))
+                    .filter(|value| !value.is_empty());
+            }
+            Some(patch)
+        }
+        "TaskGet" => response.get("task").and_then(todo_patch_from_value),
+        _ => None,
+    }
+}
+
+fn apply_todo_patch(todos: &mut Vec<TodoItem>, patch: TodoPatch) {
+    let index = patch
+        .id
+        .as_deref()
+        .and_then(|id| todos.iter().position(|item| item.id.as_deref() == Some(id)))
+        .or_else(|| {
+            patch
+                .content
+                .as_deref()
+                .and_then(|content| todos.iter().position(|item| item.content == content))
+        });
+    if patch.deleted {
+        if let Some(index) = index {
+            todos.remove(index);
+        }
+        return;
+    }
+    if let Some(index) = index {
+        let existing = &mut todos[index];
+        if patch.id.is_some() {
+            existing.id = patch.id;
+        }
+        if let Some(content) = patch.content {
+            existing.content = content;
+        }
+        if let Some(status) = patch.status {
+            existing.status = status;
+        }
+        if patch.active_form.is_some() {
+            existing.active_form = patch.active_form;
+        }
+        return;
+    }
+    let Some(content) = patch.content else {
+        return;
+    };
+    if todos.len() < 100 {
+        todos.push(TodoItem {
+            id: patch.id,
+            content,
+            status: patch.status.unwrap_or_else(|| "pending".into()),
+            active_form: patch.active_form,
+        });
+    }
 }
 
 fn clean_control_text(value: &str, max: usize) -> String {
@@ -2207,7 +2490,7 @@ fn session_state_priority(state: &str) -> u8 {
     }
 }
 
-fn project_name(cwd: &str, id: &str) -> String {
+pub(crate) fn project_name(cwd: &str, id: &str) -> String {
     Path::new(cwd)
         .file_name()
         .and_then(|s| s.to_str())
@@ -2263,6 +2546,7 @@ mod session_order_tests {
             context_used: None,
             context_limit: None,
             context_percent: None,
+            todos: Vec::new(),
             last_event_at: last_at,
             last_event_seq: seq,
             last_event_rank: rank,
@@ -2367,5 +2651,59 @@ mod session_order_tests {
         }));
         assert_eq!(suggestion["behavior"], "allow");
         assert_eq!(suggestion["destination"], "localSettings");
+    }
+
+    #[test]
+    fn task_list_reads_successful_post_tool_response() {
+        let body = json!({
+            "tool_input": {},
+            "tool_response": {
+                "tasks": [
+                    {"id":"1","subject":"Audit parser","status":"in_progress"},
+                    {"id":"2","subject":"Ship tests","status":"completed"}
+                ]
+            }
+        });
+        let items = extract_todo_snapshot(&body, Some("TaskList"), "PostToolUse").unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].id.as_deref(), Some("1"));
+        assert_eq!(items[0].content, "Audit parser");
+        assert_eq!(items[0].status, "in_progress");
+        assert!(extract_todo_snapshot(&body, Some("TaskList"), "PreToolUse").is_none());
+    }
+
+    #[test]
+    fn task_lifecycle_is_id_aware_and_supports_delete() {
+        let create = json!({
+            "tool_input": {"subject":"Implement HUD","description":"full body"},
+            "tool_response": {"task":{"id":"task-7","subject":"Implement HUD"}}
+        });
+        let mut todos = Vec::new();
+        apply_todo_patch(
+            &mut todos,
+            extract_todo_patch(&create, Some("TaskCreate"), "PostToolUse").unwrap(),
+        );
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].id.as_deref(), Some("task-7"));
+
+        let update = json!({
+            "tool_input": {"taskId":"task-7","status":"completed"},
+            "tool_response": {"success":true,"taskId":"task-7"}
+        });
+        apply_todo_patch(
+            &mut todos,
+            extract_todo_patch(&update, Some("TaskUpdate"), "PostToolUse").unwrap(),
+        );
+        assert_eq!(todos[0].status, "completed");
+
+        let delete = json!({
+            "tool_input": {"taskId":"task-7","status":"deleted"},
+            "tool_response": {"success":true,"taskId":"task-7"}
+        });
+        apply_todo_patch(
+            &mut todos,
+            extract_todo_patch(&delete, Some("TaskUpdate"), "PostToolUse").unwrap(),
+        );
+        assert!(todos.is_empty());
     }
 }

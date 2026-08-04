@@ -9,10 +9,13 @@ mod http_server;
 mod i18n;
 mod instance_probe;
 mod metering;
+mod migration;
 mod model;
 mod platform;
 mod pricing_sync;
 mod transcript;
+mod travel;
+mod territory;
 
 use commands::*;
 use model::AppState;
@@ -78,7 +81,9 @@ pub fn run() {
             // The borrow checker allows this because `runtime` is an Arc
             // clone (owned), not a borrow of `state`.
             let runtime = state.runtime.clone();
-            let pet_position = runtime.config().pet_position;
+            let startup_config = runtime.config();
+            let pet_position = startup_config.pet_position.clone();
+            let pet_position_codex = startup_config.pet_position_codex.clone();
             // NLL: state's immutable borrow ends here because we don't use
             // state again until after setup_tray returns. The `runtime` Arc
             // is independent and can be used across the mutable borrow.
@@ -95,19 +100,17 @@ pub fn run() {
             // only the CSS border-radius is visible.
             #[cfg(target_os = "windows")]
             {
-                for label in ["pet", "panel"] {
+                for label in ["pet", "pet-codex", "panel"] {
                     if let Some(window) = app.get_webview_window(label) {
                         disable_dwm_corner_rounding(&window);
                     }
                 }
             }
-            if let Some(position) = pet_position {
-                if let Some(window) = app.get_webview_window("pet") {
-                    // R24 (2026-07-30): pet_position is stored as LOGICAL
-                    // coordinates (per R22 commit_win_pos fix). Convert to
-                    // physical before calling set_position, which expects
-                    // PhysicalPosition. Without this, a 150%-scale display
-                    // would place the pet at 2/3 of the saved position.
+            for (label, position) in [
+                ("pet", pet_position),
+                ("pet-codex", pet_position_codex),
+            ] {
+                if let (Some(position), Some(window)) = (position, app.get_webview_window(label)) {
                     let scale = window.scale_factor().unwrap_or(1.0);
                     let phys_x = (position.x as f64 * scale).round() as i32;
                     let phys_y = (position.y as f64 * scale).round() as i32;
@@ -115,11 +118,17 @@ pub fn run() {
                         .set_position(Position::Physical(PhysicalPosition::new(phys_x, phys_y)));
                 }
             }
+            sync_pet_windows(app.handle(), &startup_config);
             if let Err(error) = platform_for_setup.recover_windows(app.handle(), &runtime, true) {
                 runtime.write_log("display", &format!("startup recovery skipped: {error}"));
             }
             platform_for_setup.start_health_check(app.handle().clone(), runtime.clone());
             platform_for_setup.start_cursor_hit_test(app.handle().clone());
+            territory::start_auto(
+                app.handle().clone(),
+                runtime.clone(),
+                platform_for_setup.clone(),
+            );
             if let Some(server) = server {
                 let server_port = server.port;
                 if !app.manage(server) {
@@ -180,7 +189,7 @@ pub fn run() {
                         }
                     }
                 }
-            } else if window.label() == "pet" && matches!(event, WindowEvent::Focused(false)) {
+            } else if window.label().starts_with("pet") && matches!(event, WindowEvent::Focused(false)) {
                 let _ = window.emit("pet:window-blur", ());
             }
         })
@@ -189,6 +198,10 @@ pub fn run() {
             get_config_state,
             backup_and_reset_config,
             get_stats,
+            get_travel,
+            start_travel,
+            start_wander,
+            cancel_travel,
             get_price_info,
             refresh_model_prices,
             set_price_auto_update,
@@ -197,6 +210,7 @@ pub fn run() {
             uninstall_hooks,
             get_install_receipts,
             set_skin,
+            set_pet_mode,
             set_session_prefs,
             set_budget,
             set_currency,
@@ -619,8 +633,9 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => {
+                let config = app.state::<AppState>().runtime.config();
+                sync_pet_windows(app, &config);
                 if let Some(window) = app.get_webview_window("pet") {
-                    let _ = window.show();
                     let _ = window.set_focus();
                 }
             }
@@ -664,7 +679,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                     "skin_cat" => "cat",
                     _ => return,
                 };
-                let _ = set_skin(app.clone(), app.state::<AppState>(), skin.into());
+                let _ = set_skin(app.clone(), app.state::<AppState>(), skin.into(), None);
                 // Skin change doesn't change labels, but the check mark
                 // moves; rebuild so the new selection is visually marked.
                 refresh_tray_menu(app);
@@ -730,8 +745,9 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             } = event
             {
                 let app = tray.app_handle();
+                let config = app.state::<AppState>().runtime.config();
+                sync_pet_windows(app, &config);
                 if let Some(window) = app.get_webview_window("pet") {
-                    let _ = window.show();
                     let _ = window.set_focus();
                 }
             }

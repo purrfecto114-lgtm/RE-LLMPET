@@ -4,7 +4,7 @@ const $ = (id) => document.getElementById(id);
 const i18n = window.OctoI18n;
 const t = (key, vars) => i18n ? i18n.t(key, vars) : key;
 const LOCALES = { zh: 'zh-CN', en: 'en-US', ja: 'ja-JP' };
-let config = { lang: 'zh', mode: 'pet', skin: 'mascot', budget5h: 0, currency: 'USD', fxRate: 7.2 };
+let config = { lang: 'zh', mode: 'pet', petMode: 'single', skin: 'mascot', skinCodex: 'pixel', budget5h: 0, currency: 'USD', fxRate: 7.2 };
 
 
 function reportConfigWriteError(command, error) {
@@ -158,6 +158,23 @@ function render(s) {
     return;
   }
   lastStats = s;
+  const travel = s.travel || {};
+  const growth = travel.growth || {};
+  const growthEl = $('travel-growth');
+  if (growthEl) {
+    const icons = `${'🌿'.repeat(Number(growth.leaves) || 0)}${'⭐'.repeat(Number(growth.stars) || 0)}${'🌙'.repeat(Number(growth.moons) || 0)}${Number(growth.days) ? `☀️×${growth.days}` : ''}`;
+    growthEl.textContent = `${icons || '尚未成长'} · ${fmt(growth.totalTokens || 0)} tok`;
+  }
+  const activeTravel = $('travel-active');
+  if (activeTravel) activeTravel.textContent = travel.active
+    ? `${travel.active.mode === 'wander' ? '🐾 闲逛' : '🧳 项目旅行'} · ${travel.active.project || ''} · ${travel.active.mission || ''}`
+    : '当前没有旅行';
+  const postcardEl = $('travel-postcard');
+  if (postcardEl) {
+    const card = Array.isArray(travel.postcards) ? travel.postcards[0] : null;
+    postcardEl.textContent = card ? `最近明信片 · ${card.project}
+${card.summary || ''}` : '';
+  }
   // 头部：始终按真实快照重置，避免上一次 Provider/项目残留。
   const active = s.active && typeof s.active === 'object' ? s.active : null;
   if (active) {
@@ -1333,6 +1350,9 @@ function applyConfigUI() {
   document.querySelectorAll('#skin-seg .seg-btn').forEach((b) =>
     b.classList.toggle('active', b.dataset.skin === (config.skin || 'mascot'))
   );
+  document.querySelectorAll('#pet-mode-seg .seg-btn').forEach((b) =>
+    b.classList.toggle('active', b.dataset.petMode === (config.petMode || 'single'))
+  );
   const bi = $('budget'); // 预算输入已移到托盘；面板里不再有该元素
   if (bi && document.activeElement !== bi) bi.value = config.budget5h || '';
   renderProviders();
@@ -1452,6 +1472,14 @@ window.addEventListener('beforeunload', () => {
     try { off(); } catch {}
   }
 });
+
+document.querySelectorAll('#pet-mode-seg .seg-btn').forEach((b) =>
+  b.addEventListener('click', () => {
+    config.petMode = b.dataset.petMode;
+    applyConfigUI();
+    void configWrites.request('petMode', b.dataset.petMode, (value) => window.pet.setPetMode(value));
+  })
+);
 
 document.querySelectorAll('#mode-seg .seg-btn').forEach((b) =>
   b.addEventListener('click', () => {

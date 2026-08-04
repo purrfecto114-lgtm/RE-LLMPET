@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 'use strict';
 
-// R44 0.5.44: Codex rollout watcher + parity matrix verification.
+// R44 0.5.45: Codex rollout watcher + parity matrix verification.
 //
 // Verifies:
 // 1. codex_rollout.rs exists and is registered as a module
 // 2. model.rs stats() injects codexLimits + codexUsage
 // 3. UPSTREAM_PARITY_MATRIX.json exists and has correct structure
-// 4. Territory functions are honestly marked as stubs
+// 4. Territory implementation replaces the former backend stub
 
 const assert = require('assert');
 const fs = require('fs');
@@ -25,8 +25,8 @@ const changelog = read('CHANGELOG.md');
 const packageJson = JSON.parse(read('package.json'));
 
 // Version
-assert.strictEqual(packageJson.version, '0.5.44',
-  '0.5.44: package.json version must be 0.5.44');
+assert.strictEqual(packageJson.version, '0.5.45',
+  '0.5.45: package.json version must be 0.5.45');
 
 // ── 1. codex_rollout module ──────────────────────────────────────────────
 assert.ok(lib.includes('mod codex_rollout;'),
@@ -55,7 +55,7 @@ assert.ok(model.includes('"codexUsage"'),
 // ── 3. UPSTREAM_PARITY_MATRIX.json ──────────────────────────────────────
 assert.ok(parityMatrix.schemaVersion === 1,
   '3: parity matrix must have schemaVersion 1');
-assert.ok(parityMatrix.upstreamCommit === '5ba09a7a60f0f665337c03c1ab1d40a326dc5f96',
+assert.ok(parityMatrix.upstreamCommit === 'd51311eb7f3a4efb678f425a20bef360f383295c',
   '3: parity matrix must record upstream commit SHA');
 assert.ok(Array.isArray(parityMatrix.items) && parityMatrix.items.length >= 20,
   '3: parity matrix must have at least 20 items');
@@ -65,25 +65,27 @@ const findItem = (feature) => parityMatrix.items.find(i => i.feature === feature
 const codexRolloutItem = findItem('Codex rollout watcher (token usage + rate limits)');
 assert.ok(codexRolloutItem && codexRolloutItem.reStatus === 'complete',
   '3: Codex rollout watcher must be marked complete');
-assert.ok(codexRolloutItem.implementedIn === '0.5.44',
-  '3: Codex rollout watcher must be marked implementedIn 0.5.44');
+assert.ok(codexRolloutItem.implementedIn === '0.5.45',
+  '3: Codex rollout watcher must be marked implementedIn 0.5.45');
 
 const territoryItem = findItem('Territory mode (macOS)');
-assert.ok(territoryItem && territoryItem.reStatus === 'stub',
-  '3: Territory mode must be honestly marked as stub');
+assert.ok(territoryItem && territoryItem.reStatus === 'complete',
+  '3: Territory mode must be marked complete after native implementation');
 
 const memeItem = findItem('Meme action system');
 assert.ok(memeItem && memeItem.reStatus === 'excluded',
   '3: Meme action system must be marked excluded');
 
-// ── 4. Territory stub honesty ───────────────────────────────────────────
-assert.ok(commands.includes('领地模式已开启（stub'),
-  '4: territory_toggle_auto must show "stub" in message');
-assert.ok(commands.includes('领地巡视尚未实现（stub）'),
-  '4: territory_run_now must show "stub" in message');
+// ── 4. Territory implementation ────────────────────────────────────────
+assert.ok(commands.includes('crate::territory::run_now'),
+  '4: territory commands must invoke the real territory module');
+assert.ok(!commands.includes('领地模式已开启（stub'),
+  '4: territory toggle must no longer claim to be a stub');
+assert.ok(!commands.includes('领地巡视尚未实现（stub）'),
+  '4: territory run-now must no longer claim to be unimplemented');
 
 // ── 5. CHANGELOG ────────────────────────────────────────────────────────
-assert.ok(changelog.includes('0.5.44'),
-  'CHANGELOG must have 0.5.44 entry');
+assert.ok(changelog.includes('0.5.45'),
+  'CHANGELOG must have 0.5.45 entry');
 
-console.log('✓ R44 0.5.44 Codex rollout + parity matrix smoke: all assertions passed');
+console.log('✓ R44 0.5.45 Codex rollout + parity matrix smoke: all assertions passed');

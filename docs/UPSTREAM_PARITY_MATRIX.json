@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "upstreamCommit": "5ba09a7a60f0f665337c03c1ab1d40a326dc5f96",
+  "upstreamCommit": "d51311eb7f3a4efb678f425a20bef360f383295c",
   "upstreamRepo": "https://github.com/myunwang/LLMPET",
-  "reVersion": "0.5.44",
+  "reVersion": "0.5.45",
   "generatedAt": "2026-08-04",
   "items": [
     {
@@ -50,11 +50,11 @@
     {
       "feature": "Dual pet mode (Claude/Codex independent)",
       "upstream": "Full (independent skin/position/closePet)",
-      "reStatus": "missing",
-      "evidence": "AppConfig has no petMode/skinCodex/petPositionCodex. Bridge has no closePet.",
-      "source": "src-tauri/src/model.rs",
+      "reStatus": "complete",
+      "evidence": "Two uniquely labelled Tauri windows with independent provider query, skin, saved position, event/stat filtering and per-window native click-through state.",
+      "source": "src-tauri/tauri.conf.json, src-tauri/src/commands.rs, src-tauri/src/platform.rs, frontend/renderer/pet-agent-view.js",
       "priority": "P1",
-      "plan": "Add petMode config + secondary pet window management + closePet bridge"
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Codex rollout watcher (token usage + rate limits)",
@@ -62,7 +62,7 @@
       "reStatus": "complete",
       "evidence": "codex_rollout.rs tails ~/.codex/sessions/**/*.jsonl, parses token_count events",
       "source": "src-tauri/src/codex_rollout.rs",
-      "implementedIn": "0.5.44"
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Codex 5h/weekly quota display",
@@ -70,7 +70,7 @@
       "reStatus": "complete",
       "evidence": "Panel renders codexLimits.usedPercent, secondaryUsedPercent, planType; codex_rollout.rs provides data",
       "source": "frontend/renderer/panel.js:196-216, src-tauri/src/codex_rollout.rs",
-      "implementedIn": "0.5.44"
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Codex today/lifetime token grid",
@@ -78,35 +78,34 @@
       "reStatus": "complete",
       "evidence": "Panel renders codexUsage.today/lifetime; codex_rollout.rs provides data",
       "source": "frontend/renderer/panel.js:218-449, src-tauri/src/codex_rollout.rs",
-      "implementedIn": "0.5.44"
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Pet HUD session search",
       "upstream": "Full (sl-search in pet.html)",
       "reStatus": "complete",
-      "evidence": "pet.html has no search input; panel has search but pet HUD does not",
-      "source": "frontend/renderer/pet.html",
+      "evidence": "Pet HUD includes type=search and live project/op/session/provider matching.",
+      "source": "frontend/renderer/pet.html, frontend/renderer/pet.js",
       "priority": "P1",
-      "plan": "Add search input to pet HUD session list",
-      "implementedIn": "0.5.44"
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Pet HUD provider filter",
       "upstream": "Full (Claude/Codex/pending filter)",
       "reStatus": "complete",
-      "evidence": "Panel has filter; pet HUD only has basic list",
-      "source": "frontend/renderer/pet.js",
+      "evidence": "HUD filters all/Claude/Codex/attention/archived; dual-pet renderer also isolates sessions and events by provider identity.",
+      "source": "frontend/renderer/pet.js, frontend/renderer/pet-agent-view.js",
       "priority": "P1",
-      "implementedIn": "0.5.44"
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Pet HUD pin/archive",
       "upstream": "Full (in-session operations)",
       "reStatus": "complete",
-      "evidence": "Backend set_session_prefs exists; pet HUD has no pin/archive buttons",
-      "source": "frontend/renderer/pet.js",
+      "evidence": "HUD pin/archive controls persist through set_session_prefs; pet capability grants the command.",
+      "source": "frontend/renderer/pet.js, src-tauri/capabilities/pet.json, src-tauri/src/commands.rs",
       "priority": "P1",
-      "implementedIn": "0.5.44"
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Session focus (terminal/client switch)",
@@ -118,77 +117,83 @@
     {
       "feature": "Travel (read-only exploration)",
       "upstream": "Full (mission templates, single-lock, cancel, timeout)",
-      "reStatus": "missing",
-      "evidence": "No travel.rs, no travel API in bridge, no travel UI",
-      "source": "N/A",
+      "reStatus": "complete",
+      "evidence": "Rust single-flight manager launches isolated read-only Claude/Codex CLI trips with cancel and 30-minute timeout.",
+      "source": "src-tauri/src/travel.rs, src-tauri/src/commands.rs",
       "priority": "P2",
-      "plan": "Implement travel.rs with mission templates, timeout, cancel"
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Wander (no-project public web exploration)",
       "upstream": "Full",
-      "reStatus": "missing",
-      "evidence": "No wander implementation",
-      "source": "N/A",
-      "priority": "P2"
+      "reStatus": "complete",
+      "evidence": "Claude wander uses WebSearch/WebFetch-only plan mode and has a HUD launch/status flow.",
+      "source": "src-tauri/src/travel.rs, frontend/renderer/pet.html, frontend/renderer/pet.js",
+      "priority": "P2",
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Postcards / travel mailbox",
       "upstream": "Full",
-      "reStatus": "missing",
-      "evidence": "No postcard UI in pet",
-      "source": "N/A",
-      "priority": "P2"
+      "reStatus": "complete",
+      "evidence": "Bounded persisted postcard history is exposed in pet HUD and panel. Official history is migrated.",
+      "source": "src-tauri/src/travel.rs, frontend/renderer/pet.js, frontend/renderer/panel.js",
+      "priority": "P2",
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Growth system (leaf/star/moon/day)",
       "upstream": "Full",
-      "reStatus": "missing",
-      "evidence": "No growth.rs, no growth API",
-      "source": "N/A",
-      "priority": "P2"
+      "reStatus": "complete",
+      "evidence": "Token-derived leaf/star/moon/day progress plus completed/failed/cancelled counters is persisted and rendered.",
+      "source": "src-tauri/src/travel.rs, frontend/renderer/panel.js",
+      "priority": "P2",
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Territory mode (macOS)",
       "upstream": "Full (rival detection, window top, accessibility, push)",
-      "reStatus": "stub",
-      "evidence": "commands.rs:611-638 only toggles config + shows 'not migrated' message",
-      "source": "src-tauri/src/commands.rs:611-638",
+      "reStatus": "complete",
+      "evidence": "macOS patrol queries System Events for rival windows and moves them to the nearest screen edge; unsupported platforms degrade explicitly.",
+      "source": "src-tauri/src/territory.rs, src-tauri/src/commands.rs",
       "priority": "P3",
-      "plan": "Implement territory/macos.rs with rival detection + window push"
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Todo (session todos)",
       "upstream": "Full",
-      "reStatus": "placeholder",
-      "evidence": "model.rs:1271 returns fixed empty array",
-      "source": "src-tauri/src/model.rs:1271",
+      "reStatus": "partial",
+      "evidence": "Legacy TodoWrite input snapshots and current TaskList/TaskGet/TaskCreate/TaskUpdate PostToolUse data are normalized into ID-aware per-session TodoItem values and surfaced in session/top-level stats.",
+      "source": "src-tauri/src/model.rs, frontend/renderer/pet.js, frontend/renderer/panel.js",
       "priority": "P2",
-      "plan": "Parse Codex/Claude todo markers from transcript"
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "lastOps (recent operations)",
       "upstream": "Full",
-      "reStatus": "placeholder",
+      "reStatus": "partial",
       "evidence": "model.rs:1328 returns fixed empty array",
       "source": "src-tauri/src/model.rs:1328",
-      "priority": "P2"
+      "priority": "P2",
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Background task status",
       "upstream": "Full (running/zombie/items)",
-      "reStatus": "placeholder",
+      "reStatus": "partial",
       "evidence": "model.rs:1345 returns fixed zeros",
       "source": "src-tauri/src/model.rs:1345",
-      "priority": "P3"
+      "priority": "P3",
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Context summary",
       "upstream": "Full",
-      "reStatus": "placeholder",
+      "reStatus": "partial",
       "evidence": "model.rs:1346 returns null",
       "source": "src-tauri/src/model.rs:1346",
-      "priority": "P3"
+      "priority": "P3",
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Permission card / structured Q&A",
@@ -207,11 +212,11 @@
     {
       "feature": "Config migration from official ~/.octopus",
       "upstream": "N/A (upstream IS the source)",
-      "reStatus": "missing",
-      "evidence": "No importer from ~/.octopus; RE uses ~/.re-llmpet",
-      "source": "N/A",
+      "reStatus": "complete",
+      "evidence": "One-time non-destructive import rejects symlinks/oversized files, preserves existing targets, uses private permissions, and converts official travel history/growth.",
+      "source": "src-tauri/src/migration.rs, src-tauri/src/travel.rs, src-tauri/src/model.rs",
       "priority": "P3",
-      "plan": "Implement compat/octopus_import.rs"
+      "implementedIn": "0.5.45"
     },
     {
       "feature": "Config quarantine + recovery UI",

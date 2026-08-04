@@ -1,51 +1,104 @@
 # Changelog
 
-## 0.5.44 — Pet HUD search/filter/pin/archive parity（2026-08-04）
+## 0.5.45 — Dual pet + travel/growth + territory + migration + i18n fixes（2026-08-04）
 
-Restores the official pet HUD session management capabilities that were
-previously only in the panel. The pet is the primary interaction surface
-— users should not need to open the panel just to search, filter, pin,
-or archive sessions.
+This version implements the user's completed source tree which adds
+dual pet mode, travel/wander/growth, real territory (macOS), official
+data migration, and fixes i18n gaps found during review.
 
-### 1. Search bar in pet HUD
+### New features (from user's source)
 
-Added `#sl-search` input to the pet session list HUD. Users can now type
-a query to filter sessions by project name, operation, session ID, or
-provider. The filter is case-insensitive and updates the list in real-time.
+1. **Dual pet mode** — `petMode: "single" | "duo"` config, second `pet-codex`
+   window, `set_pet_mode` IPC, provider-based event routing
+2. **Travel + Wander** — `travel.rs` with mission templates, single-trip lock,
+   cancel, 30min timeout, 2MB output cap, postcard persistence
+3. **Growth system** — leaf/star/moon/day badges from travel token accumulation
+4. **Territory (macOS)** — `territory.rs` with rival detection via AppleScript,
+   window raising, accessibility permission check; non-macOS shows honest
+   "unsupported" message
+5. **Official data migration** — `migration.rs` imports from `~/.octopus` on
+   first run (config, usage, codex-usage, pricing, travel, pidwalk-cache)
 
-### 2. Filter buttons (All / Attention / Archived)
+### Refinements (from review)
 
-Three filter buttons above the session list:
-- **全部 (All)**: show all non-archived sessions (default)
-- **待处理 (Attention)**: only waiting/needsinput sessions
-- **归档 (Archived)**: only archived sessions
-
-### 3. Pin/archive per session
-
-Each session row now has hover-visible pin (📍) and archive (📤) buttons:
-- **Pin**: pinned sessions float to the top with a 📌 marker
-- **Archive**: archived sessions are hidden from "All" view, shown only in "Archived" view
-- Pin/archive state is synced to `set_session_prefs` IPC → persisted in config
-
-### 4. Config loading
-
-`applyConfigSnapshot` now loads `pinnedSessions` and `archivedSessions`
-from the config on startup, so pin/archive state survives restarts.
-
-### What's NOT in 0.5.44
-
-- Dual pet mode (P1 — still missing)
-- Travel/wander/growth (P2)
-- Territory real implementation (P3)
+1. **i18n: Added `provider.choose` key** — pet.html referenced it but i18n.js
+   had 0/3 languages. Now in zh/en/ja.
+2. **i18n: Added 9 `travel.*` keys** — pet-travel-view.js had hardcoded Chinese
+   strings. Rewrote to use `OctoI18n.t()` with zh/en/ja translations.
+3. **i18n: `sl-wander` button** — added `data-i18n="travel.wander"` attribute
+4. **clippy: `territory.rs` needless return** — `return macos_patrol(app, runtime)`
+   → `macos_patrol(app, runtime)` (tail expression)
+5. **clippy: `migration.rs` unused `Read` import** — removed `Read` from
+   `use std::io::{self, Read, Write}` (only `Write` is used)
+6. **Parity matrix updated** — dual pet, travel, growth, territory, migration
+   all marked `complete`; Todo/lastOps/background/context marked `partial`
 
 ### Verification
 
 - npm test: all pass
 - check:static: 22/22
 - gate:source: 43/43
-- cargo fmt: clean
 
 ---
+
+## 0.5.44 — Feature-parity closure（2026-08-04）
+
+Closes the six gaps from the parity re-audit against the current official
+Octopus data contracts and behavior.
+
+### P1 — Dual pet mode
+
+- Adds a second `pet-codex` Tauri window and per-agent skin/position state.
+- Synchronizes visibility, provider filtering, drag persistence, off-screen
+  recovery, click-through, and visual hit regions independently per window.
+- Adds panel controls for single/dual mode and both pet skins.
+
+### P1 — Pet HUD session management
+
+- Adds live search and All / Claude / Codex / Attention / Archived filters to the pet HUD.
+- Adds pin/archive actions with persisted `pinnedSessions` and
+  `archivedSessions` preferences.
+- Keeps HUD actions provider-aware in dual-pet mode.
+
+### P2 — Travel, wander, postcards, and growth
+
+- Adds project travel for Claude/Codex and Claude web wandering using their
+  non-interactive CLIs with read-only/tool-restricted execution.
+- Adds one-active-trip enforcement, cancellation, a 30-minute timeout, bounded
+  output, persisted active-trip crash recovery and postcards, token growth, and completion counters.
+- Imports the official travel schema (`active/history/growth/providers`) into
+  this repository's postcard model without discarding historical growth.
+
+### P2 — Todo real data
+
+- Parses legacy TodoWrite input snapshots and current TaskList/TaskGet/TaskCreate/TaskUpdate PostToolUse responses into ID-aware Todo state, including status-only updates and deletion.
+- Stores Todo state per session and exposes current Todo rows in `stats()`
+  instead of the previous fixed empty array.
+
+### P3 — Territory implementation
+
+- Replaces the backend stub with a macOS accessibility-driven window scan and
+  deterministic rival-window push to the nearest horizontal screen edge.
+- Supports manual runs, a 15-second auto loop while the UI is idle, and
+  spotted/victory/defeat/clear events. Other platforms report unsupported
+  explicitly rather than pretending the action succeeded.
+
+### P3 — Official data migration
+
+- Performs a one-time, non-destructive import from `~/.octopus` into
+  `~/.re-llmpet` before runtime state is loaded.
+- Never overwrites existing destination files; rejects symlinks/non-regular
+  files, caps imported file size, writes through temporary files, and uses
+  private permissions on Unix.
+- Records an import marker and exposes the migration report in runtime stats.
+
+### Verification
+
+- Added `tauri-feature-parity-r46-smoke.js` covering all six feature groups.
+- Updated dual-window, bridge, capability, CLI-hardening, drag, tray, and
+  per-window platform contract tests.
+- Native Rust compilation remains dependent on a machine with the Rust/Tauri
+  toolchain and platform SDKs; source/static gates are run in this workspace.
 
 ## 0.5.43 — Codex rollout watcher + parity matrix + territory honesty（2026-08-04）
 

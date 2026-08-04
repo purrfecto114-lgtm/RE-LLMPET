@@ -1,5 +1,17 @@
 'use strict';
 
+const petAgentView = window.OctoPetAgentView;
+const PET_AGENT = petAgentView.currentAgent();
+let petMode = 'single';
+
+function eventBelongsToThisPet(ev) {
+  return petAgentView.eventBelongs(ev, petMode, PET_AGENT);
+}
+
+function statsForThisPet(snapshot) {
+  return petAgentView.filterStats(snapshot, petMode, PET_AGENT);
+}
+
 const i18n = window.OctoI18n;
 const t = (key, vars) => i18n ? i18n.t(key, vars) : key;
 const LOCALES = { zh: 'zh-CN', en: 'en-US', ja: 'ja-JP' };
@@ -198,7 +210,7 @@ const slTitle = document.getElementById('sl-title');
 // R44 0.5.44: search + filter state for pet HUD session list
 const slSearch = document.getElementById('sl-search');
 let slQuery = '';
-let slFilter = 'all'; // 'all' | 'attention' | 'archived'
+let slFilter = 'all'; // 'all' | 'claude' | 'codex' | 'attention' | 'archived'
 let pinnedSet = new Set();
 let archivedSet = new Set();
 
@@ -1002,19 +1014,21 @@ function visibleSessions() {
         const project = (s.project || '').toLowerCase();
         const op = (s.op || '').toLowerCase();
         const sid = (s.sessionId || '').toLowerCase();
-        const provider = (s.provider || '').toLowerCase();
+        const provider = (s.providerId || s.provider || '').toLowerCase();
         if (!project.includes(q) && !op.includes(q) && !sid.includes(q) && !provider.includes(q)) {
           return false;
         }
       }
       // Apply filter
+      const provider = s.providerId || s.provider || '';
       if (slFilter === 'attention') {
         if (s.state !== 'waiting' && s.state !== 'needsinput') return false;
       } else if (slFilter === 'archived') {
         if (!archivedSet.has(s.sessionId)) return false;
       } else {
-        // 'all' — hide archived unless explicitly showing archived
+        // Normal and provider views hide archived unless explicitly requested.
         if (archivedSet.has(s.sessionId)) return false;
+        if ((slFilter === 'claude' || slFilter === 'codex') && provider !== slFilter) return false;
       }
       return true;
     })
@@ -1057,7 +1071,8 @@ function renderSessList() {
     const dotCls = sessionDotClass(s);
     const ctx = typeof s.contextPercent === 'number'
       ? `<span class="sl-ctx ${ctxClass(s.contextPercent)}">${s.contextPercent}%</span>` : '';
-    const provIcon = PROVIDER_ICONS[s.provider] || '•';
+    const providerId = s.providerId || s.provider;
+    const provIcon = PROVIDER_ICONS[providerId] || '•';
     // R44 0.5.44: pin/archive action buttons (shown on hover)
     const isPinned = pinnedSet.has(s.sessionId);
     const isArchived = archivedSet.has(s.sessionId);
@@ -1067,19 +1082,32 @@ function renderSessList() {
     const archiveBtn = isArchived
       ? `<button class="sl-action sl-unarchive" title="${t('sess.unarchive')}">📥</button>`
       : `<button class="sl-action sl-archive" title="${t('sess.archive')}">📤</button>`;
+    const travelBtn = !s.headless && ['claude', 'codex'].includes(s.providerId || s.provider)
+      ? `<button class="sl-action sl-travel" title="项目旅行">🧳</button>` : '';
     row.innerHTML =
       `<span class="sl-dot ${dotCls}"></span>` +
       `<span class="sl-icon">${provIcon}</span>` +
       `<div class="sl-main"><div class="sl-name">${esc(s.project)}</div>` +
       `<div class="sl-meta ${attn ? 'attn' : ''}">${esc(meta)}</div></div>` +
       ctx +
-      `<span class="sl-row-actions">${pinBtn}${archiveBtn}</span>`;
+      `<span class="sl-row-actions">${travelBtn}${pinBtn}${archiveBtn}</span>`;
     // Click row → focus session
     row.addEventListener('click', (e) => {
       if (e.target.closest('.sl-action')) return; // action button click handled separately
       window.pet.focusSession(s.sessionId || '');
       rlog('sesslist', 'focus ' + (s.project || ''));
       closeSessList();
+    });
+    const travelEl = row.querySelector('.sl-travel');
+    if (travelEl) travelEl.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await window.pet.startTravel(s.sessionId || '', `探索 ${s.project || '这个项目'} 的结构、风险与值得记录的发现`);
+        showBubble(`🧳 ${s.project || '项目'}：出发旅行！`, 3200, true);
+        closeSessList();
+      } catch (error) {
+        showBubble(`⚠️ 无法出发：${String(error && (error.message || error) || 'unknown')}`, 5000, true);
+      }
     });
     // Pin/unpin
     const pinEl = row.querySelector('.sl-pin, .sl-unpin');
@@ -1105,13 +1133,22 @@ function renderSessList() {
 
 // R44 0.5.44: sync pin/archive prefs to backend (persist across restarts)
 function syncSessionPrefs() {
-  if (window.pet && window.pet.setSessionPrefs) {
-    window.pet.setSessionPrefs(
-      Array.from(pinnedSet),
-      Array.from(archivedSet)
-    );
-  }
+  if (!window.pet || !window.pet.setSessionPrefs) return;
+  const value = {
+    pinned: Array.from(pinnedSet),
+    archived: Array.from(archivedSet),
+  };
+  void configWrites.request('sessionPrefs', value, (next) =>
+    window.pet.setSessionPrefs(next.pinned, next.archived)
+  );
 }
+
+
+const travelView = window.OctoPetTravelView.create({
+  api: window.pet,
+  bubble: showBubble,
+  close: closeSessList,
+});
 
 
 // 工具 -> 干活动作；道具 emoji 的运动变体
@@ -1374,6 +1411,7 @@ const curSkinEl = () => (skin === 'pixel' ? pixel : skin === 'cat' ? cat : masco
 
 // ---------- 事件 ----------
 window.pet.onEvent((ev) => {
+  if (!eventBelongsToThisPet(ev)) return;
   // 你正在答面板/打字时：新的待答任务只悄悄进队列(不抢面板)，其余动画/彩带/气泡/状态变化一律不打断
   if (isInteracting()) {
     if ((ev.kind === 'waiting' || ev.kind === 'needsinput') && ev.choice) enqueueChoice(ev.choice);
@@ -1470,6 +1508,11 @@ window.pet.onEvent((ev) => {
     }
     case 'longcmd':
       if (state !== 'waiting') showBubble('💦 这条命令有点久，稍等…', 3000);
+      break;
+    case 'travel':
+      if (ev.phase === 'started') transient('excited', 2200, ev.text || '🧳 出发旅行！', 3200);
+      else if (ev.phase === 'completed') transient('happy', 2600, ev.text || '📮 旅行完成！', 8000);
+      else if (ev.phase === 'failed') transient('error', 2600, ev.text || '旅行失败', 5000);
       break;
     case 'territory':
       // 领地模式(main 的 territory 编排):发现别的桌宠 → 走过去顶到屏幕边上。
@@ -1594,6 +1637,7 @@ function acceptStatsRevision(s) {
 
 function applyStats(s) {
   if (!s) return;
+  s = statsForThisPet(s);
   // R40.1: reject stale-revision snapshots to prevent UI regression.
   if (!acceptStatsRevision(s)) return;
   lastStats = s;
@@ -1609,6 +1653,7 @@ function applyStats(s) {
   if (radialOpen) updateRadialBadge();
   renderSessions(s.sessions || []);
   updateNotepad(s); // 记事本：行动清单 + 待办
+  travelView.update(s.travel);
   if (sessListOpen) { renderSessList(); fitPopup(sesslist); } // HUD 开着时随快照刷新并重定高
 
   // 选项面板：按快照重建队列（多任务都在、标明项目；防漏事件/启动时已在等待）
@@ -1650,6 +1695,21 @@ function applyStats(s) {
   }
 }
 window.pet.onStats(applyStats);
+if (window.pet.onTravel) {
+  window.pet.onTravel((event) => {
+    if (!event || !eventBelongsToThisPet(event)) return;
+    if (event.state) travelView.update(event.state);
+    else window.pet.getTravel().then(travelView.update).catch(() => {});
+    if (event.phase === 'completed') {
+      transient('happy', 2600, `📮 ${event.summary || '旅行明信片已送达'}`, 8000);
+      confetti();
+    } else if (event.phase === 'failed') {
+      transient('error', 2600, `🧳 ${event.summary || '旅行失败'}`, 5000);
+    } else if (event.phase === 'cancelled') {
+      showBubble('🧳 旅行已取消', 2600, true);
+    }
+  });
+}
 
 function renderSessions(sessions) {
   sessionsEl.innerHTML = '';
@@ -1690,9 +1750,11 @@ let latestProviderStatuses = {};
 function applyConfigSnapshot(cfg) {
   if (!cfg) return;
   muted = !!cfg.muted;
+  petMode = cfg.petMode === 'duo' ? 'duo' : 'single';
   if (cfg.lang) applyLanguage(cfg.lang);
   territorySupported = !!cfg.territorySupported;
-  if (cfg.skin) applySkin(cfg.skin);
+  const effectiveSkin = PET_AGENT === 'codex' && petMode === 'duo' ? cfg.skinCodex : cfg.skin;
+  if (effectiveSkin) applySkin(effectiveSkin);
   // R40.5: providers.active + statuses applied in BOTH paths
   if (cfg.providers && Array.isArray(cfg.providers.active)) {
     activeProviders = cfg.providers.active;
@@ -1720,8 +1782,9 @@ function applyConfigSnapshot(cfg) {
     archivedSet = new Set(cfg.archivedSessions);
   }
   // 从配置推送同步权威窗口位置
-  if (cfg.petPosition && Number.isFinite(cfg.petPosition.x) && Number.isFinite(cfg.petPosition.y)) {
-    lastWinPos = [cfg.petPosition.x, cfg.petPosition.y];
+  const savedPosition = PET_AGENT === 'codex' && petMode === 'duo' ? cfg.petPositionCodex : cfg.petPosition;
+  if (savedPosition && Number.isFinite(savedPosition.x) && Number.isFinite(savedPosition.y)) {
+    lastWinPos = [savedPosition.x, savedPosition.y];
   }
 }
 
@@ -1763,8 +1826,13 @@ function updateProviderUI() {
   // through the #provider-chooser modal (see chooseProviderAndLaunch).
   // We keep the element for tooltip/ARIA use if needed in R36.
   if (agentTag) {
-    agentTag.className = 'agent-tag hidden';
-    agentTag.textContent = '';
+    if (petMode === 'duo') {
+      agentTag.className = `agent-tag ${PET_AGENT}`;
+      agentTag.textContent = PET_AGENT === 'codex' ? 'Codex' : 'Claude';
+    } else {
+      agentTag.className = 'agent-tag hidden';
+      agentTag.textContent = '';
+    }
     // Provide a tooltip summarizing enabled providers (accessible name
     // for screen readers, hover text for sighted users). This replaces
     // the visual「+N」with a non-visual summary.

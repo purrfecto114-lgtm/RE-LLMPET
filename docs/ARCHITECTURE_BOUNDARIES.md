@@ -24,6 +24,8 @@ across renderer and native layers.
   state without allowing a stale reload to overwrite a newer user change.
 - `frontend/shared/panel-fit-controller.js` owns panel fit revisions, stale
   response suppression and resize attribution.
+- `frontend/renderer/pet-travel-view.js` owns wander state, growth/status
+  rendering and the wander/cancel transition; `pet.js` only forwards snapshots.
 - Renderer files provide measurements and UI policy only. They must not rebuild
   these state machines with timestamps, promise chains or parallel caches.
 

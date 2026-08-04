@@ -529,3 +529,6 @@ body.window-fullscreen #card {
   color: #8a8a9a;
   text-align: center;
 }
+
+.travel-postcard { margin-top: 8px; white-space: pre-wrap; font-size: 11px; line-height: 1.55; color: #785b4d; max-height: 150px; overflow: auto; }
+#travel-growth { font-size: 11px; color: #b07b59; }

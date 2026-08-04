@@ -15,7 +15,7 @@ const platform = read('src-tauri/src/platform.rs');
 // Drag regression: strict Tauri click-through cannot depend on renderer mousemove.
 assert(platform.includes('start_cursor_hit_test'), 'native cursor hit-test worker missing');
 assert(platform.includes('window.cursor_position()'), 'native desktop cursor position must drive recovery');
-assert(platform.includes('self.visual_bounds()'), 'native hit-test must use renderer-reported visual bounds');
+assert(platform.includes('self.visual_bounds(label)'), 'native hit-test must use per-window renderer-reported visual bounds');
 assert(!platform.includes('mouse_ignore_requested.load(Ordering::Acquire) || self.is_ui_busy()'), 'open HUDs must not disable click-through for the entire transparent window');
 for (const cadence of ['CURSOR_HIT_TEST_NEAR_MS', 'CURSOR_HIT_TEST_FAR_MS', 'CURSOR_HIT_TEST_IDLE_MS', 'CURSOR_HIT_TEST_HIDDEN_MS']) {
   assert(platform.includes(cadence), `adaptive cursor cadence missing: ${cadence}`);

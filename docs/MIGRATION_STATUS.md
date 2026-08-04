@@ -1,42 +1,36 @@
-# Migration status — 0.5.33 R44 Phase 0A + R32/R34 correctness hotfixes
+# Migration status — 0.5.44 upstream feature closure
 
 The active source tree is Tauri 2 / Rust only. The retired Electron/Node runtime is not retained as an in-tree rollback path. Three anonymized provider/pricing fixtures remain under `test/fixtures` and are pinned by SHA-256.
 
 ## Completed at source level
 
 - Provider-specific hook/install adapters and explicit capability boundaries for Claude Code, CodeWhale, Codex, OpenCode and Aider.
-- Claude structured question/plan flows and Claude-only persistent permission suggestions.
-- Parallel permission-card preservation with exact retry deduplication.
-- State ordering, metering, transcript tailing, pricing cache, focus adapters, and display/suspend recovery.
-- Split `pet` and `panel` Tauri capabilities, restrictive CSP, loopback HTTP hardening and release/source gates.
-- A committed `src-tauri/Cargo.lock`; package, Cargo and Tauri versions are aligned at `0.5.33`.
-- Core renderer language switching for simplified Chinese, English and Japanese.
-- **Native tray fully localized** (R11-R13): `i18n.rs` 29-key table, `refresh_tray_menu` rebuilds menu + tooltip on language switch.
-- **Tray visual elements 18/18 complete** (R10-R14): showPet, panel, language submenu, skin submenu, 5h budget submenu, mute toggle, settings placeholder, launch submenu (5 providers), openLog, uninstall hooks, shape submenu (pet/panel/hidePet), tooltip, left-click show, refreshTrayMenu. Duo-pet explicitly rejected (R8 unified panel); territory patrol deferred (1700 LOC).
-- **Panel visual elements 10/10 complete** (R15-R19): Codex 5h quota bar, Codex today/lifetime token grid, Token/Cost metric switching, usage-diagnostics line, price auto-update controls, todo block, session list (search + provider filter + attention filter + pin + archive), cache-write 5m/1h dual row, three skins.
-- Five-provider launch correctness, fixed command allowlists, validated native busy/bounds state and Windows atomic-write rollback.
-- Transparent-pet input recovery implemented with native desktop-cursor hit testing and DPI-aware validated bounds; manual drag preserves short-click behavior instead of relying on native title-bar dragging. Popup resizing converts logical CSS size exactly once, preserves the visible pet bottom-centre anchor and clamps to the monitor work area.
-- Drag movement separated from persistence: renderer moves are animation-frame throttled and serialized, while Rust saves and emits the final position once.
-- Windows agent launch passes the fixed provider executable directly to Windows Terminal and falls back to `cmd.exe /D /K` only when `wt.exe` cannot be spawned.
-- Upstream-style ask toolbar and provider identity tags are integrated; meme selector/media-preview paths and their resources have been removed from Octopus.
-- **R10 fix**: `TrayIconBuilder::with_id` (was `.new("id")` compile blocker) + removed redundant `app.manage(tray)`.
-- **R10 fix**: CodeWhale doctor probe reversed to companion-first with dispatcher fallback (was contradicting project docs).
-- **R17 audit**: 5 pre-existing i18n hardcoded Chinese bugs fixed (today-tokens, win-reset, cal mouseover, renderByModel, renderProviderCost).
-- **R18**: metering `cache_write_5m`/`cache_write_1h` split (UsageEvent + Aggregate + parse_claude_assistant extracts `ephemeral_5m/1h_input_tokens`).
-- **R19**: session list pin/archive + attention filter + `set_session_prefs` IPC (sanitize + dedup + pin-wins).
+- Claude structured question/plan flows, parallel permission cards, exact retry deduplication, metering, transcript tailing, pricing, terminal focus, and display/suspend recovery.
+- Native tray and renderer localization for simplified Chinese, English and Japanese.
+- Three skins, Codex quota/rollout usage, provider diagnostics, session focus, and the panel metrics/calendar/detail surfaces.
+- Pet HUD session search, Claude/Codex/attention/archive filters, pin/archive operations, and persistent session preferences.
+- **Dual-pet mode**: independent Claude and Codex Tauri windows, skin and saved position, provider-filtered events/stats, and per-window click-through/visual-bound state.
+- **Todo real data**: legacy `TodoWrite` input snapshots plus current `TaskList` / `TaskGet` responses and `TaskCreate` / `TaskUpdate` lifecycle data are normalized into ID-aware session Todo items and exposed in pet/panel stats.
+- **Travel / wander / growth**: single-flight read-only Claude/Codex project trips plus Claude WebSearch/WebFetch-only wandering, cancellation, a 30-minute timeout, private bounded output capture, persisted active-trip crash recovery and postcards, token-derived leaf/star/moon/day growth, and completion counters.
+- **Territory on macOS**: automatic patrol discovers configured rival application windows through System Events and pushes them to the nearest screen edge. Other platforms return an explicit unsupported result.
+- **Official data migration**: one-time, non-destructive import from `~/.octopus` into `~/.re-llmpet`; existing targets win, source/target symlinks and oversized files are rejected, imported files use private permissions, and official travel history/growth is converted to the Tauri postcard model.
+- Restrictive Tauri capabilities, CSP, loopback HTTP hardening, config quarantine/recovery, unknown-field preservation, release receipts, source manifest verification, and package supply-chain gates.
+- Transparent-pet input recovery with native desktop-cursor hit testing, DPI-aware bounds, bottom-centre resize anchoring, and drag movement separated from final persistence.
+- Windows Terminal launch with deterministic `cmd.exe /D /K` fallback and Windows-safe atomic config replacement.
+- Upstream-style ask toolbar and provider identity tags. The meme selector/media-preview feature remains intentionally excluded while the cat skin assets are retained.
 
-## Deliberately deferred
+## Deliberate product exclusions
 
-- Territory/collision behavior (1700 LOC `territory.js` + `drag-window.swift`); tray stubs remain but patrol is not exposed.
-- Rust-side codex-watch equivalent (parses Codex rollout `rate_limits` to populate `s.codexLimits`/`s.codexUsage`); panel rendering is ready for when it lands.
+- Meme selector, preview window, and media dispatch are intentionally excluded from this fork.
+- The Tauri Territory implementation uses direct accessibility window repositioning rather than upstream's separate Swift animated drag helper/software cursor.
 
 ## Still externally blocked or unverified
 
-- Linux, Windows and macOS `cargo fmt/check/test/build --locked` evidence. This review environment has no Rust toolchain and cannot resolve package/GitHub hosts.
-- Real Claude/CodeWhale/Codex/OpenCode/Aider CLI evidence.
-- Real GUI evidence for drag/click-through, Windows Terminal fallback, terminal focus, suspend/display, mixed-DPI, tray submenu rendering, panel dual rows, pin/archive persistence.
-- Windows code signing, macOS signing/notarization, Linux baseline packages and updater signature verification.
+- Linux, Windows and macOS `cargo fmt/check/test/build --locked` evidence. This review environment has no Rust toolchain, so native compilation could not be executed.
+- Real Claude/CodeWhale/Codex/OpenCode/Aider CLI evidence, including end-to-end travel/wander output and cancellation.
+- Real GUI evidence for two-pet click-through/drag/position persistence, mixed-DPI recovery, tray rendering, Todo events, travel postcards, and macOS Accessibility/Territory behavior.
+- Windows code signing, macOS signing/notarization, Linux baseline packages, and updater signature verification.
 
-Therefore this remains a **source-reconciled release candidate**, not a stable production release. Static, protocol and resource gates pass (45/45 smoke suites, 22/22 static checks, 3/3 rust-structure), but native builds and real-machine behavior remain release requirements.
+This is therefore a **source-reconciled release candidate**, not a production-certified binary. The repository's Node/static/protocol/resource suites pass; native builds and real-machine behavior remain release requirements.
 
-See `docs/UPSTREAM_RECONCILIATION_2026-07-28.md` for the comparison and decision record, and `CHANGELOG.md` for the full R10-R19 change history.
+See `docs/UPSTREAM_PARITY_MATRIX.json` for itemized parity evidence and `CHANGELOG.md` for the historical migration rounds.

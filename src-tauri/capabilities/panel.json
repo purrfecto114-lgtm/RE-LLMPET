@@ -28,6 +28,8 @@
     "allow-launch-agent-gui",
     "allow-get-config-state",
     "allow-backup-and-reset-config",
-    "allow-get-install-receipts"
+    "allow-get-install-receipts",
+    "allow-set-pet-mode",
+    "allow-get-travel"
   ]
 }

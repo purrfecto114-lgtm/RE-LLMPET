@@ -31,7 +31,7 @@ for (const id of ['claude', 'codewhale', 'codex', 'opencode', 'aider']) {
   assert(pet.includes(`${id}:`), `pet provider icon missing: ${id}`);
   assert(panel.includes(`${id}:`), `panel provider cost/status metadata missing: ${id}`);
 }
-assert(pet.includes("const provIcon = PROVIDER_ICONS[s.provider] || '•';"), 'session HUD must not fall back to the Claude icon');
+assert(pet.includes("const providerId = s.providerId || s.provider;") && pet.includes("const provIcon = PROVIDER_ICONS[providerId] || '•';"), 'session HUD must use providerId when present and must not fall back to the Claude icon');
 assert(bridge.includes("launchAgent: (provider) => send('launch_agent', { provider })"));
 // R35.2: the new-session button now routes through chooseProviderAndLaunch
 // (which uses launchAgentChecked for single-provider or opens a chooser

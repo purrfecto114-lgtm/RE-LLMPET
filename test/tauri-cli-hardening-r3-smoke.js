@@ -48,7 +48,7 @@ check('R2 language command remains registered', commands.includes('pub fn set_la
 check('R2 deferred drag persistence remains', commands.includes('pub fn commit_win_pos') && lib.includes('commit_win_pos,'));
 check('R2 DPI anchored resize remains', commands.includes('fn resize_pet_anchored') && commands.includes('logical_to_physical'));
 check('R2 native hit test remains enabled', lib.includes('start_cursor_hit_test'));
-check('R2 UI busy and visual bounds remain real state', commands.includes('platform_state.set_ui_busy(on)') && commands.includes('platform_state.set_visual_bounds(&rect)'));
+check('R2 UI busy and visual bounds remain real state', commands.includes('platform_state.set_ui_busy(on)') && commands.includes('platform_state.set_visual_bounds(pet_label_for_agent(agent.as_deref()), &rect)'));
 check('launch_agent_in is not exposed to pet capability without a cwd picker', !fs.readFileSync(path.join(root, 'src-tauri/capabilities/pet.json'), 'utf8').includes('allow-launch-agent-in'));
 check('diagnose_agent is exposed without accepting arbitrary WebView cwd', fs.readFileSync(path.join(root, 'frontend/renderer/tauri-bridge.js'), 'utf8').includes("diagnoseAgent: (provider) => call('diagnose_agent', { provider })") && (commands.includes('pub fn diagnose_agent(provider: String)') || commands.includes('pub async fn diagnose_agent(provider: String)') || commands.includes('pub async fn diagnose_agent(\n    provider: String,\n    state: State') || commands.includes('pub async fn diagnose_agent(provider: String, state: State')) && fs.readFileSync(path.join(root, 'src-tauri/capabilities/pet.json'), 'utf8').includes('allow-diagnose-agent'));
 if (failures.length) {

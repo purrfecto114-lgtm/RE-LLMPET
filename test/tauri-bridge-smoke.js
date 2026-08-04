@@ -56,10 +56,10 @@ vm.runInContext(source, context, { filename: 'tauri-bridge.js' });
 
 const api = context.window.pet;
 const expected = [
-  'onEvent', 'onStats', 'onPanelStats', 'onConfig', 'onPrice', 'onWindowBlur', 'onPanelShown', 'onPanelHidden',
-  'getConfig', 'getStats', 'getPriceInfo', 'refreshModelPrices', 'setPriceAutoUpdate', 'setLanguage', 'openPanel', 'closePanel', 'setMode', 'setSkin',
+  'onEvent', 'onStats', 'onPanelStats', 'onConfig', 'onPrice', 'onTravel', 'onWindowBlur', 'onPanelShown', 'onPanelHidden',
+  'getConfig', 'getStats', 'getPriceInfo', 'getTravel', 'refreshModelPrices', 'setPriceAutoUpdate', 'setLanguage', 'openPanel', 'closePanel', 'setMode', 'setPetMode', 'setSkin',
   'setBudget', 'setCurrency', 'setSessionPrefs', 'toggleMute', 'setProviders', 'territoryRunNow',
-  'territoryToggleAuto', 'quit', 'getWinPos', 'setWinPos', 'commitWinPos', 'launchClaude',
+  'territoryToggleAuto', 'startTravel', 'startWander', 'cancelTravel', 'quit', 'getWinPos', 'setWinPos', 'commitWinPos', 'launchClaude',
   'launchCodeWhale', 'launchCodex', 'launchOpenCode', 'launchAider', 'diagnoseAgent', 'cancelDiagnostic', 'launchAgent', 'launchAgentChecked', 'launchAgentGui',
   'decidePermission', 'decideCwPermission',
   'decideCwPermissionBatch', 'focusSession', 'primaryAction', 'setIgnoreMouse',

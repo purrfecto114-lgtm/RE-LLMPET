@@ -23,6 +23,17 @@ function getCurrentTauriWindow() {
   return null;
 }
 
+function currentPetAgent() {
+  try {
+    const fromQuery = new URLSearchParams(window.location.search).get('agent');
+    if (fromQuery === 'codex') return 'codex';
+    if (fromQuery === 'claude') return 'claude';
+    const current = getCurrentTauriWindow();
+    if (current && current.label === 'pet-codex') return 'codex';
+  } catch (_) {}
+  return 'claude';
+}
+
 (function installOctopusBridge(global) {
   const tauri = global.__TAURI__;
   const invoke = tauri && tauri.core && tauri.core.invoke;
@@ -128,6 +139,7 @@ function getCurrentTauriWindow() {
       return () => { offPet(); offPanel(); };
     },
     onPrice: (cb) => subscribe('panel:price', cb),
+    onTravel: (cb) => subscribe('pet:travel', cb),
     onWindowBlur: (cb) => subscribe('pet:window-blur', cb),
     onPanelShown: (cb) => subscribe('panel:shown', cb),
     onPanelHidden: (cb) => subscribe('panel:hidden', cb),
@@ -144,7 +156,8 @@ function getCurrentTauriWindow() {
     // Now the caller can await and know if the hide succeeded.
     closePanel: () => call('close_panel'),
     setMode: (mode) => call('set_mode', { mode }),
-    setSkin: (skin) => call('set_skin', { skin }),
+    setPetMode: (petMode) => call('set_pet_mode', { petMode }),
+    setSkin: (skin) => call('set_skin', { skin, agent: currentPetAgent() }),
     setBudget: (value) => call('set_budget', { value }),
     setCurrency: (currency) => call('set_currency', { currency }),
     // R19 (2026-07-30): persist session list pin/archive prefs.
@@ -156,15 +169,19 @@ function getCurrentTauriWindow() {
     // relevant state (controls which CLIs get hooks installed). Caller MUST
     // await so failures can revert UI and surface a toast.
     setProviders: (ids) => call('set_providers', { ids }),
-    territoryRunNow: () => send('territory_run_now'),
-    territoryToggleAuto: () => send('territory_toggle_auto'),
+    territoryRunNow: () => call('territory_run_now'),
+    territoryToggleAuto: () => call('territory_toggle_auto'),
+    getTravel: () => call('get_travel'),
+    startTravel: (sessionId, mission) => call('start_travel', { sessionId, mission }),
+    startWander: (mission) => call('start_wander', { mission }),
+    cancelTravel: () => call('cancel_travel'),
     quit: () => send('quit_app'),
-    getWinPos: () => call('get_win_pos').then((pos) => {
+    getWinPos: () => call('get_win_pos', { agent: currentPetAgent() }).then((pos) => {
       if (Array.isArray(pos)) return pos;
       return [Number(pos && pos.x) || 0, Number(pos && pos.y) || 0];
     }),
-    setWinPos: (x, y) => call('set_win_pos', { x, y }),
-    commitWinPos: () => call('commit_win_pos'),
+    setWinPos: (x, y) => call('set_win_pos', { x, y, agent: currentPetAgent() }),
+    commitWinPos: () => call('commit_win_pos', { agent: currentPetAgent() }),
     launchClaude: () => send('launch_agent', { provider: 'claude' }),
     launchCodeWhale: () => send('launch_agent', { provider: 'codewhale' }),
     launchCodex: () => send('launch_agent', { provider: 'codex' }),
@@ -189,19 +206,19 @@ function getCurrentTauriWindow() {
     decideCwPermissionBatch: (permId, mode) => call('decide_permission_batch', { permId, mode }),
     focusSession: (sessionId) => send('focus_session', { sessionId }),
     primaryAction: () => send('primary_action'),
-    setIgnoreMouse: (ignore) => call('set_ignore_mouse', { ignore }),
-    setPetTall: (tall) => send('set_pet_tall', { tall }),
-    setPetBig: (on) => send('set_pet_big', { on }),
-    setPetSize: (width, height) => call('set_pet_size', { width, height }),
+    setIgnoreMouse: (ignore) => call('set_ignore_mouse', { ignore, agent: currentPetAgent() }),
+    setPetTall: (tall) => send('set_pet_tall', { tall, agent: currentPetAgent() }),
+    setPetBig: (on) => send('set_pet_big', { on, agent: currentPetAgent() }),
+    setPetSize: (width, height) => call('set_pet_size', { width, height, agent: currentPetAgent() }),
     // Geometry state is acknowledged: callers commit their local cache only
     // after Rust returns the actual clamped size.
     setPanelHeight: (height) => call('set_panel_height', { height }),
-    focusPet: () => send('focus_pet'),
+    focusPet: () => send('focus_pet', { agent: currentPetAgent() }),
     blurPet: () => send('blur_pet'),
     openLog: () => send('open_log'),
     petLog: (tag, message) => send('pet_log', { tag, message }),
     uiBusy: (on) => call('ui_busy', { on }),
-    petVisualBounds: (rect) => send('pet_visual_bounds', { rect }),
+    petVisualBounds: (rect) => send('pet_visual_bounds', { rect, agent: currentPetAgent() }),
     // R44 0.5.40 (Roadmap v6 P0-01): config recovery closure. These three
     // commands are registered in panel capability ONLY (not pet) because
     // they are privileged operations that should not be reachable from

@@ -1162,3 +1162,9 @@ body.skin-cat #cat { display: flex; }
 .sl-row.pinned .sl-name::before {
   content: '📌 ';
 }
+
+/* Travel / growth */
+.sl-travel-status { min-height: 16px; margin-top: 6px; font-size: 10.5px; color: rgba(255,255,255,.68); text-align: center; }
+.sl-action.sl-travel { color: #ffd38a; }
+.agent-tag.claude { background: rgba(217,119,87,.22); color: #ffb495; border-color: rgba(217,119,87,.45); }
+.agent-tag.codex { background: rgba(59,130,246,.20); color: #9cc4ff; border-color: rgba(59,130,246,.45); }

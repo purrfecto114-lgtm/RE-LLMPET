@@ -18,11 +18,11 @@ assert(
 );
 assert(!commands.includes('launch_terminal(provider.as_str())'), 'renderer input must not become an executable name');
 assert(commands.includes('platform_state.set_ui_busy(on)'), 'ui_busy must update native state');
-assert(commands.includes('platform_state.set_visual_bounds(&rect)'), 'pet_visual_bounds must update native state');
+assert(commands.includes('platform_state.set_visual_bounds(pet_label_for_agent(agent.as_deref()), &rect)'), 'pet_visual_bounds must update native state per pet window');
 assert(commands.includes('platform_state.is_ui_busy()'), 'territory action must respect active UI interaction');
 assert(platform.includes('ui_busy: AtomicBool'), 'native platform state must retain UI busy state');
-assert(platform.includes('visual_bounds: Mutex<Option<VisualBounds>>'), 'native platform state must retain visual bounds');
-assert(platform.includes('mouse_ignore_requested: AtomicBool'), 'renderer click-through intent must be retained natively');
+assert(platform.includes('visual_bounds: Mutex<HashMap<String, VisualBounds>>'), 'native platform state must retain per-window visual bounds');
+assert(platform.includes('mouse_ignore_requested: Mutex<HashMap<String, bool>>'), 'renderer click-through intent must be retained per window');
 assert(platform.includes('cursor_hit_test_started: AtomicBool'), 'native cursor hit-test worker must be single-start');
 assert(platform.includes('window.cursor_position()'), 'click-through recovery must not depend on ignored renderer mouse events');
 assert(platform.includes('.scale_factor()'), 'hit testing must account for Windows DPI scaling');

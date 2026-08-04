@@ -34,7 +34,7 @@ const checks = [
   ['Aider diagnostic UI is localized in all three languages', panel.includes("t('diag.configCandidates')") && panel.includes("t('diag.credentialHints')") && (i18n.match(/'diag\.configCandidates':/g) || []).length === 3 && (i18n.match(/'diag\.credentialHints':/g) || []).length === 3],
   ['Windows diagnostic script mirrors Aider non-secret discovery', ps.includes('$aiderConfigCandidates') && ps.includes('$aiderCredentialEnvironment') && !ps.includes('credentialEnvironmentValues')],
   ['OpenCode positional project argument remains intact', commands.includes('"opencode" => &["."]')],
-  ['Tauri click-through workaround remains native-state based', read('src-tauri/src/lib.rs').includes('start_cursor_hit_test') && commands.includes('platform_state.set_visual_bounds(&rect)')],
+  ['Tauri click-through workaround remains native-state based', read('src-tauri/src/lib.rs').includes('start_cursor_hit_test') && commands.includes('platform_state.set_visual_bounds(pet_label_for_agent(agent.as_deref()), &rect)')],
   ['DPI anchored resizing remains intact', commands.includes('fn resize_pet_anchored') && commands.includes('logical_to_physical')],
   ['visual asset CSP remains local-only', (function() { const c = JSON.parse(read('src-tauri/tauri.conf.json')); return c.app.security.csp.includes("img-src 'self' data:") && !/img-src[^;]*https?:/i.test(c.app.security.csp); })()],
   ['offline static gate has a stable package command', JSON.parse(read('package.json')).scripts['check:static'] === 'node scripts/run-static-checks.js'],

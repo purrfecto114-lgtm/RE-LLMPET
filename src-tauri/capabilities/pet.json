@@ -3,7 +3,8 @@
   "identifier": "pet",
   "description": "Least-privilege commands used by the always-on desktop pet window.",
   "windows": [
-    "pet"
+    "pet",
+    "pet-codex"
   ],
   "permissions": [
     "core:event:default",
@@ -34,6 +35,12 @@
     "allow-pet-log",
     "allow-ui-busy",
     "allow-pet-visual-bounds",
-    "allow-quit-app"
+    "allow-quit-app",
+    "allow-set-session-prefs",
+    "allow-set-pet-mode",
+    "allow-get-travel",
+    "allow-start-travel",
+    "allow-start-wander",
+    "allow-cancel-travel"
   ]
 }

@@ -140,13 +140,17 @@
             <input type="search" id="sl-search" class="sl-search" data-i18n-placeholder="sess.search" placeholder="搜索项目、会话或操作…" />
             <div class="sl-filters">
               <button class="sl-filter active" data-filter="all" data-i18n="sess.filterAll">全部</button>
+              <button class="sl-filter" data-filter="claude" data-i18n="sess.filterClaude">Claude</button>
+              <button class="sl-filter" data-filter="codex" data-i18n="sess.filterCodex">Codex</button>
               <button class="sl-filter" data-filter="attention" data-i18n="sess.filterAttention">待处理</button>
               <button class="sl-filter" data-filter="archived" data-i18n="sess.showArchived">归档</button>
             </div>
           </div>
           <div class="sl-scroll" id="sl-rows"></div>
+          <div class="sl-travel-status" id="sl-travel-status"></div>
           <div class="sl-foot">
             <button id="sl-new">🚀 新开 Claude</button>
+            <button id="sl-wander" data-i18n="travel.wander">🐾 闲逛</button>
             <button id="sl-panel" data-i18n="sess.panel">📊 详情</button>
           </div>
         </div>
@@ -187,6 +191,8 @@
     <script src="../shared/config-write-controller.js"></script>
     <script src="../shared/states.js"></script>
     <script src="icons.js"></script>
+    <script src="pet-agent-view.js"></script>
+    <script src="pet-travel-view.js"></script>
     <script src="pet.js"></script>
   </body>
 </html>
