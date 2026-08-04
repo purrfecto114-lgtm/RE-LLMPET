@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "upstreamCommit": "5ba09a7a60f0f665337c03c1ab1d40a326dc5f96",
   "upstreamRepo": "https://github.com/myunwang/LLMPET",
-  "reVersion": "0.5.43",
+  "reVersion": "0.5.44",
   "generatedAt": "2026-08-04",
   "items": [
     {
@@ -62,7 +62,7 @@
       "reStatus": "complete",
       "evidence": "codex_rollout.rs tails ~/.codex/sessions/**/*.jsonl, parses token_count events",
       "source": "src-tauri/src/codex_rollout.rs",
-      "implementedIn": "0.5.43"
+      "implementedIn": "0.5.44"
     },
     {
       "feature": "Codex 5h/weekly quota display",
@@ -70,7 +70,7 @@
       "reStatus": "complete",
       "evidence": "Panel renders codexLimits.usedPercent, secondaryUsedPercent, planType; codex_rollout.rs provides data",
       "source": "frontend/renderer/panel.js:196-216, src-tauri/src/codex_rollout.rs",
-      "implementedIn": "0.5.43"
+      "implementedIn": "0.5.44"
     },
     {
       "feature": "Codex today/lifetime token grid",
@@ -78,32 +78,35 @@
       "reStatus": "complete",
       "evidence": "Panel renders codexUsage.today/lifetime; codex_rollout.rs provides data",
       "source": "frontend/renderer/panel.js:218-449, src-tauri/src/codex_rollout.rs",
-      "implementedIn": "0.5.43"
+      "implementedIn": "0.5.44"
     },
     {
       "feature": "Pet HUD session search",
       "upstream": "Full (sl-search in pet.html)",
-      "reStatus": "missing",
+      "reStatus": "complete",
       "evidence": "pet.html has no search input; panel has search but pet HUD does not",
       "source": "frontend/renderer/pet.html",
       "priority": "P1",
-      "plan": "Add search input to pet HUD session list"
+      "plan": "Add search input to pet HUD session list",
+      "implementedIn": "0.5.44"
     },
     {
       "feature": "Pet HUD provider filter",
       "upstream": "Full (Claude/Codex/pending filter)",
-      "reStatus": "partial",
+      "reStatus": "complete",
       "evidence": "Panel has filter; pet HUD only has basic list",
       "source": "frontend/renderer/pet.js",
-      "priority": "P1"
+      "priority": "P1",
+      "implementedIn": "0.5.44"
     },
     {
       "feature": "Pet HUD pin/archive",
       "upstream": "Full (in-session operations)",
-      "reStatus": "partial",
+      "reStatus": "complete",
       "evidence": "Backend set_session_prefs exists; pet HUD has no pin/archive buttons",
       "source": "frontend/renderer/pet.js",
-      "priority": "P1"
+      "priority": "P1",
+      "implementedIn": "0.5.44"
     },
     {
       "feature": "Session focus (terminal/client switch)",

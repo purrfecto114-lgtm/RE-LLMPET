@@ -195,6 +195,12 @@ const sesslist = document.getElementById('sesslist');
 const slRows = document.getElementById('sl-rows');
 const slSub = document.getElementById('sl-sub');
 const slTitle = document.getElementById('sl-title');
+// R44 0.5.44: search + filter state for pet HUD session list
+const slSearch = document.getElementById('sl-search');
+let slQuery = '';
+let slFilter = 'all'; // 'all' | 'attention' | 'archived'
+let pinnedSet = new Set();
+let archivedSet = new Set();
 
 let askActive = false;
 let askQueue = []; // 当前所有待处理的选择/输入（每项含 project）
@@ -989,11 +995,38 @@ function sessionDotClass(s) {
 function visibleSessions() {
   return (curSessions || [])
     .filter(isVisibleSession)
+    .filter((s) => {
+      // R44 0.5.44: apply search query
+      if (slQuery) {
+        const q = slQuery.toLowerCase();
+        const project = (s.project || '').toLowerCase();
+        const op = (s.op || '').toLowerCase();
+        const sid = (s.sessionId || '').toLowerCase();
+        const provider = (s.provider || '').toLowerCase();
+        if (!project.includes(q) && !op.includes(q) && !sid.includes(q) && !provider.includes(q)) {
+          return false;
+        }
+      }
+      // Apply filter
+      if (slFilter === 'attention') {
+        if (s.state !== 'waiting' && s.state !== 'needsinput') return false;
+      } else if (slFilter === 'archived') {
+        if (!archivedSet.has(s.sessionId)) return false;
+      } else {
+        // 'all' — hide archived unless explicitly showing archived
+        if (archivedSet.has(s.sessionId)) return false;
+      }
+      return true;
+    })
     .sort((a, b) => {
+      // R44 0.5.44: pinned sessions first
+      const ap = pinnedSet.has(a.sessionId) ? 0 : 1;
+      const bp = pinnedSet.has(b.sessionId) ? 0 : 1;
+      if (ap !== bp) return ap - bp;
       const pa = SESS_SORT[a.state] != null ? SESS_SORT[a.state] : 3;
       const pb = SESS_SORT[b.state] != null ? SESS_SORT[b.state] : 3;
       if (pa !== pb) return pa - pb;
-      return (a.idleMs || 0) - (b.idleMs || 0); // most-recently-active first
+      return (a.idleMs || 0) - (b.idleMs || 0);
     });
 }
 
@@ -1011,8 +1044,8 @@ function renderSessList() {
   for (const s of list) {
     const row = document.createElement('div');
     row.className = 'sl-row';
+    if (pinnedSet.has(s.sessionId)) row.classList.add('pinned');
     const attn = s.state === 'waiting' || s.state === 'needsinput';
-    // meta：等待类显示「等你…」；忙碌显示当前操作；其余只显示状态（不要把陈旧 op 显示成"处理中"）
     let meta;
     if (attn) meta = s.reason
       ? t(s.state === 'waiting' ? 'sess.waitFor' : 'sess.replyFor', { reason: s.reason })
@@ -1021,22 +1054,62 @@ function renderSessList() {
     else if (s.badge === 'done') meta = t('sess.justDone');
     else if (s.badge === 'interrupted') meta = t('sess.interrupted');
     else meta = sessionStateLabel(s.state);
-    const dotCls = sessionDotClass(s); // 与头顶小点同一套配色
+    const dotCls = sessionDotClass(s);
     const ctx = typeof s.contextPercent === 'number'
       ? `<span class="sl-ctx ${ctxClass(s.contextPercent)}">${s.contextPercent}%</span>` : '';
     const provIcon = PROVIDER_ICONS[s.provider] || '•';
+    // R44 0.5.44: pin/archive action buttons (shown on hover)
+    const isPinned = pinnedSet.has(s.sessionId);
+    const isArchived = archivedSet.has(s.sessionId);
+    const pinBtn = isPinned
+      ? `<button class="sl-action sl-unpin" title="${t('sess.unpin')}">📌</button>`
+      : `<button class="sl-action sl-pin" title="${t('sess.pin')}">📍</button>`;
+    const archiveBtn = isArchived
+      ? `<button class="sl-action sl-unarchive" title="${t('sess.unarchive')}">📥</button>`
+      : `<button class="sl-action sl-archive" title="${t('sess.archive')}">📤</button>`;
     row.innerHTML =
       `<span class="sl-dot ${dotCls}"></span>` +
       `<span class="sl-icon">${provIcon}</span>` +
       `<div class="sl-main"><div class="sl-name">${esc(s.project)}</div>` +
       `<div class="sl-meta ${attn ? 'attn' : ''}">${esc(meta)}</div></div>` +
-      ctx;
-    row.addEventListener('click', () => {
+      ctx +
+      `<span class="sl-row-actions">${pinBtn}${archiveBtn}</span>`;
+    // Click row → focus session
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.sl-action')) return; // action button click handled separately
       window.pet.focusSession(s.sessionId || '');
       rlog('sesslist', 'focus ' + (s.project || ''));
       closeSessList();
     });
+    // Pin/unpin
+    const pinEl = row.querySelector('.sl-pin, .sl-unpin');
+    if (pinEl) pinEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (isPinned) pinnedSet.delete(s.sessionId);
+      else pinnedSet.add(s.sessionId);
+      syncSessionPrefs();
+      renderSessList();
+    });
+    // Archive/unarchive
+    const archEl = row.querySelector('.sl-archive, .sl-unarchive');
+    if (archEl) archEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (isArchived) archivedSet.delete(s.sessionId);
+      else archivedSet.add(s.sessionId);
+      syncSessionPrefs();
+      renderSessList();
+    });
     slRows.appendChild(row);
+  }
+}
+
+// R44 0.5.44: sync pin/archive prefs to backend (persist across restarts)
+function syncSessionPrefs() {
+  if (window.pet && window.pet.setSessionPrefs) {
+    window.pet.setSessionPrefs(
+      Array.from(pinnedSet),
+      Array.from(archivedSet)
+    );
   }
 }
 
@@ -1639,6 +1712,13 @@ function applyConfigSnapshot(cfg) {
   if (Number.isFinite(cfg.fxRate) && cfg.fxRate > 0) {
     currentFxRate = cfg.fxRate;
   }
+  // R44 0.5.44: load pinned/archived sessions from config
+  if (Array.isArray(cfg.pinnedSessions)) {
+    pinnedSet = new Set(cfg.pinnedSessions);
+  }
+  if (Array.isArray(cfg.archivedSessions)) {
+    archivedSet = new Set(cfg.archivedSessions);
+  }
   // 从配置推送同步权威窗口位置
   if (cfg.petPosition && Number.isFinite(cfg.petPosition.x) && Number.isFinite(cfg.petPosition.y)) {
     lastWinPos = [cfg.petPosition.x, cfg.petPosition.y];
@@ -2053,6 +2133,22 @@ document.getElementById('tp-close').addEventListener('click', (e) => { e.stopPro
 
 // 会话列表 HUD：关闭 + 底部操作
 document.getElementById('sl-close').addEventListener('click', (e) => { e.stopPropagation(); closeSessList(); });
+// R44 0.5.44: search input + filter buttons
+if (slSearch) {
+  slSearch.addEventListener('input', (e) => {
+    slQuery = e.target.value.trim();
+    renderSessList();
+  });
+}
+document.querySelectorAll('.sl-filter').forEach((btn) => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    slFilter = btn.dataset.filter;
+    document.querySelectorAll('.sl-filter').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderSessList();
+  });
+});
 // “新开” never calls primaryAction(): existing sessions must not turn a new
 // session request into focus/open-panel behavior. The chooser owns overlay
 // replacement and launches only after the user selects a provider.

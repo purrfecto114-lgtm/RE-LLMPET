@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.5.44 — Pet HUD search/filter/pin/archive parity（2026-08-04）
+
+Restores the official pet HUD session management capabilities that were
+previously only in the panel. The pet is the primary interaction surface
+— users should not need to open the panel just to search, filter, pin,
+or archive sessions.
+
+### 1. Search bar in pet HUD
+
+Added `#sl-search` input to the pet session list HUD. Users can now type
+a query to filter sessions by project name, operation, session ID, or
+provider. The filter is case-insensitive and updates the list in real-time.
+
+### 2. Filter buttons (All / Attention / Archived)
+
+Three filter buttons above the session list:
+- **全部 (All)**: show all non-archived sessions (default)
+- **待处理 (Attention)**: only waiting/needsinput sessions
+- **归档 (Archived)**: only archived sessions
+
+### 3. Pin/archive per session
+
+Each session row now has hover-visible pin (📍) and archive (📤) buttons:
+- **Pin**: pinned sessions float to the top with a 📌 marker
+- **Archive**: archived sessions are hidden from "All" view, shown only in "Archived" view
+- Pin/archive state is synced to `set_session_prefs` IPC → persisted in config
+
+### 4. Config loading
+
+`applyConfigSnapshot` now loads `pinnedSessions` and `archivedSessions`
+from the config on startup, so pin/archive state survives restarts.
+
+### What's NOT in 0.5.44
+
+- Dual pet mode (P1 — still missing)
+- Travel/wander/growth (P2)
+- Territory real implementation (P3)
+
+### Verification
+
+- npm test: all pass
+- check:static: 22/22
+- gate:source: 43/43
+- cargo fmt: clean
+
+---
+
 ## 0.5.43 — Codex rollout watcher + parity matrix + territory honesty（2026-08-04）
 
 This version addresses the biggest functional gap identified in the

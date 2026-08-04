@@ -135,6 +135,15 @@
           <span class="sl-close" id="sl-close" title="关闭" data-i18n-title="sess.close">✕</span>
         </div>
         <div id="sl-session-view">
+          <!-- R44 0.5.44: search + filter bar (parity with upstream pet HUD) -->
+          <div class="sl-bar">
+            <input type="search" id="sl-search" class="sl-search" data-i18n-placeholder="sess.search" placeholder="搜索项目、会话或操作…" />
+            <div class="sl-filters">
+              <button class="sl-filter active" data-filter="all" data-i18n="sess.filterAll">全部</button>
+              <button class="sl-filter" data-filter="attention" data-i18n="sess.filterAttention">待处理</button>
+              <button class="sl-filter" data-filter="archived" data-i18n="sess.showArchived">归档</button>
+            </div>
+          </div>
           <div class="sl-scroll" id="sl-rows"></div>
           <div class="sl-foot">
             <button id="sl-new">🚀 新开 Claude</button>

@@ -1083,3 +1083,82 @@ body.skin-cat #cat { display: flex; }
     transition: none !important;
   }
 }
+
+/* ====================================================================
+   R44 0.5.44: pet HUD search + filter bar (parity with upstream)
+   ==================================================================== */
+.sl-bar {
+  padding: 6px 8px 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.sl-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  background: rgba(0,0,0,0.3);
+  color: #e8e8f0;
+  font-size: 12px;
+  outline: none;
+}
+.sl-search:focus {
+  border-color: rgba(217,119,87,0.5);
+}
+.sl-search::placeholder {
+  color: rgba(255,255,255,0.3);
+}
+.sl-filters {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+.sl-filter {
+  padding: 3px 10px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sl-filter:hover {
+  color: rgba(255,255,255,0.8);
+  border-color: rgba(255,255,255,0.2);
+}
+.sl-filter.active {
+  background: rgba(217,119,87,0.2);
+  border-color: rgba(217,119,87,0.4);
+  color: #d97757;
+}
+/* Pin/archive action buttons in session rows */
+.sl-row-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.sl-row:hover .sl-row-actions {
+  opacity: 1;
+}
+.sl-action {
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.sl-action:hover {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.8);
+}
+.sl-row.pinned {
+  order: -1;
+}
+.sl-row.pinned .sl-name::before {
+  content: '📌 ';
+}
