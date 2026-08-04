@@ -1346,6 +1346,18 @@ impl Runtime {
             "context":Value::Null,
             "ts":now
         });
+        // R44 0.5.43: inject Codex rollout data (token usage + rate limits).
+        // This scans ~/.codex/sessions/**/*.jsonl on each stats() call.
+        // Returns None when no Codex sessions exist → frontend hides blocks.
+        let (codex_limits, codex_usage) = crate::codex_rollout::snapshot();
+        if let Some(target) = stats.as_object_mut() {
+            if let Some(cl) = codex_limits {
+                target.insert("codexLimits".into(), cl);
+            }
+            if let Some(cu) = codex_usage {
+                target.insert("codexUsage".into(), cu);
+            }
+        }
         if let (Some(target), Some(source)) = (stats.as_object_mut(), usage.as_object()) {
             for (key, value) in source {
                 target.insert(key.clone(), value.clone());

@@ -607,6 +607,11 @@ pub fn set_providers(
     }))
 }
 
+/// R44 0.5.43: Territory mode is currently a STUB — only toggles the config
+/// flag and shows a message. The actual macOS window-push/rival-detection
+/// behavior is NOT implemented. See docs/UPSTREAM_PARITY_MATRIX.json
+/// status="stub" for this feature. This is intentionally honest rather
+/// than pretending partial functionality.
 #[tauri::command]
 pub fn territory_toggle_auto(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let config = state
@@ -614,7 +619,7 @@ pub fn territory_toggle_auto(app: AppHandle, state: State<'_, AppState>) -> Resu
         .update_config(|config| config.territory = !config.territory)?;
     emit_config(&app, &state);
     let message = if config.territory {
-        "领地模式已开启；第一阶段只保留开关，原生窗口推动适配仍按平台逐项迁移。"
+        "领地模式已开启（stub：仅切换开关，原生窗口推动尚未实现）。"
     } else {
         "领地模式已关闭。"
     };
@@ -622,6 +627,8 @@ pub fn territory_toggle_auto(app: AppHandle, state: State<'_, AppState>) -> Resu
     Ok(())
 }
 
+/// R44 0.5.43: Territory run_now is a STUB — no actual rival detection or
+/// window push. Shows an honest "not implemented" message.
 #[tauri::command]
 pub fn territory_run_now(app: AppHandle, platform_state: State<'_, Arc<platform::PlatformState>>) {
     if platform_state.is_ui_busy() {
@@ -633,7 +640,7 @@ pub fn territory_run_now(app: AppHandle, platform_state: State<'_, Arc<platform:
     }
     let _ = app.emit(
         "pet:event",
-        json!({"kind":"say","text":"Tauri 核心已接管桌宠；领地巡视的原生平台适配尚未在本阶段启用。"}),
+        json!({"kind":"say","text":"领地巡视尚未实现（stub）。原生平台适配待后续版本。"}),
     );
 }
 

@@ -1,3 +1,4 @@
+mod codex_rollout;
 mod commands;
 mod diagnostic_control;
 mod diagnostic_io;

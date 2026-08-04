@@ -1,6 +1,69 @@
 # Changelog
 
-## 0.5.41 — Config durability + receipt-driven uninstall + idempotent sync（2026-08-03）
+## 0.5.43 — Codex rollout watcher + parity matrix + territory honesty（2026-08-04）
+
+This version addresses the biggest functional gap identified in the
+official parity reaudit: **Codex panel was a dead data entry** — the
+frontend had `codexLimits`/`codexUsage` rendering code, but the Rust
+backend never produced the data.
+
+### 1. Codex rollout watcher (P0 — biggest gap)
+
+New `src-tauri/src/codex_rollout.rs` module:
+
+- Scans `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` on each `stats()` call
+- Parses `token_count` events to extract:
+  - `info.total_token_usage` → cumulative session token counts
+  - `rate_limits.primary` → 5h window used_percent + resets_at
+  - `rate_limits.secondary` → weekly window used_percent + resets_at
+  - `rate_limits.plan_type` → free/go/plus/pro/team/etc.
+- Accumulates today's + lifetime totals across all sessions
+- Returns `(codex_limits, codex_usage)` as JSON, injected into `stats()`
+
+The panel's existing `renderCodexLimits()` and `renderCodexUsage()`
+functions now receive real data. When no Codex sessions exist, both
+return `None` → frontend hides the blocks (matching upstream behavior).
+
+**Format verified against codex-rs source** (`codex-rs/protocol/src/protocol.rs`):
+each JSONL line is `{"timestamp":"...","ordinal":N,"type":"event_msg","payload":{"type":"token_count","info":{...},"rate_limits":{...}}}`.
+
+### 2. UPSTREAM_PARITY_MATRIX.json
+
+New `docs/UPSTREAM_PARITY_MATRIX.json` with 33 items tracking every
+official feature vs RE status:
+- `complete` / `partial` / `stub` / `placeholder` / `missing` / `excluded`
+- Each item has: feature, upstream status, RE status, evidence, source
+file, priority (P0-P4), plan, implementedIn version
+
+Key honest assessments:
+- Codex rollout: **complete** (this version)
+- Territory mode: **stub** (not "partial" — it was previously misleading)
+- Dual pet: **missing**
+- Travel/wander/growth: **missing**
+- Todo/lastOps/background/context: **placeholder** (fixed empty arrays)
+
+### 3. Territory stub honesty
+
+Previously `territory_toggle_auto` said "第一阶段只保留开关，原生窗口推动
+适配仍按平台逐项迁移" — implying partial implementation. Now honestly
+says "stub：仅切换开关，原生窗口推动尚未实现". Same for `territory_run_now`.
+
+### Verification
+
+- npm test: all pass (new `tauri-r44-0-5-43-codex-rollout-smoke.js`)
+- check:static: 22/22
+- gate:source: 43/43
+- cargo fmt --check: clean
+
+### What's NOT in 0.5.43 (per parity matrix priorities)
+
+- P1: Dual pet mode, pet HUD search/filter/pin/archive
+- P2: Travel, wander, growth, Todo real data
+- P3: Territory real implementation, background/context real data, config migration
+
+---
+
+## 0.5.42 — Octopus identity migration + 8 fixes + meme removal（2026-08-03）
 
 This version prioritizes real user impact over roadmap completeness. Three
 changes that prevent actual data loss and fix actual bugs, deferring the
