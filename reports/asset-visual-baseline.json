@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-01T04:58:21.166Z",
-  "assetCount": 39,
-  "byteIdenticalCount": 39,
+  "generatedAt": "2026-08-03T15:06:03.000Z",
+  "assetCount": 35,
+  "byteIdenticalCount": 35,
   "optimizationApplied": false,
   "visualSnapshotGate": "requires compiled GUI on each OS before any conversion",
   "assets": [
@@ -662,86 +662,6 @@
         "format": "png",
         "width": 841,
         "height": 628,
-        "frames": null
-      },
-      "byteIdentical": true
-    },
-    {
-      "path": "memes/huaqiang-guaranteed/visual.gif",
-      "archived": {
-        "bytes": 796199,
-        "sha256": "071b250823da30d6bdf80891a61cf5debe674f4e19cd8df35079d41cbe172481",
-        "format": "gif",
-        "width": 426,
-        "height": 240,
-        "frames": 3543
-      },
-      "delivered": {
-        "bytes": 796199,
-        "sha256": "071b250823da30d6bdf80891a61cf5debe674f4e19cd8df35079d41cbe172481",
-        "format": "gif",
-        "width": 426,
-        "height": 240,
-        "frames": 3543
-      },
-      "byteIdentical": true
-    },
-    {
-      "path": "memes/huaqiang-guaranteed/voice.mp3",
-      "archived": {
-        "bytes": 51314,
-        "sha256": "acd1b3d4a066d7a7d2d72a1fe3c2a15585c81ae3b95b12ae70b2fc25dcdf560d",
-        "format": "mp3",
-        "width": null,
-        "height": null,
-        "frames": null
-      },
-      "delivered": {
-        "bytes": 51314,
-        "sha256": "acd1b3d4a066d7a7d2d72a1fe3c2a15585c81ae3b95b12ae70b2fc25dcdf560d",
-        "format": "mp3",
-        "width": null,
-        "height": null,
-        "frames": null
-      },
-      "byteIdentical": true
-    },
-    {
-      "path": "memes/ni-gan-ma/visual.gif",
-      "archived": {
-        "bytes": 656667,
-        "sha256": "485ae2c4aacd3b3c7a41b141ad31b58f6b3457b3c9c1fe9efd962dcf439f232f",
-        "format": "gif",
-        "width": 426,
-        "height": 240,
-        "frames": 2645
-      },
-      "delivered": {
-        "bytes": 656667,
-        "sha256": "485ae2c4aacd3b3c7a41b141ad31b58f6b3457b3c9c1fe9efd962dcf439f232f",
-        "format": "gif",
-        "width": 426,
-        "height": 240,
-        "frames": 2645
-      },
-      "byteIdentical": true
-    },
-    {
-      "path": "memes/ni-gan-ma/voice.mp3",
-      "archived": {
-        "bytes": 104882,
-        "sha256": "c45cbb45b263d470781b41de8c1247841183d8f674a4559ca39d54cb23cb0c29",
-        "format": "mp3",
-        "width": null,
-        "height": null,
-        "frames": null
-      },
-      "delivered": {
-        "bytes": 104882,
-        "sha256": "c45cbb45b263d470781b41de8c1247841183d8f674a4559ca39d54cb23cb0c29",
-        "format": "mp3",
-        "width": null,
-        "height": null,
         "frames": null
       },
       "byteIdentical": true

@@ -1,23 +1,21 @@
+use crate::instance_probe::{
+    self, BASE_PORT, PORT_COUNT, SERVER_HEADER, SERVER_ID, TOKEN_HEADER,
+};
 use crate::model::{
     now_ms, permission_signature, PendingPermission, PermissionDecision, Runtime, Session,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
-const SERVER_ID: &str = "re-llmpet";
-const SERVER_HEADER: &str = "x-re-llmpet-server";
-const TOKEN_HEADER: &str = "x-re-llmpet-token";
-const BASE_PORT: u16 = 41330;
-const PORT_COUNT: u16 = 5;
 const MAX_HEADER_BYTES: usize = 32 * 1024;
 const MAX_STATE_BYTES: usize = 16 * 1024;
 const MAX_PERMISSION_BYTES: usize = 1024 * 1024;
@@ -32,14 +30,23 @@ struct Request {
     body: Vec<u8>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ServerInfo {
     pub port: u16,
-    /// Loopback auth token, also written to `runtime.json` for hook
-    /// processes. Kept on the return value so callers can use it without
-    /// re-reading the runtime file.
-    #[allow(dead_code)]
-    pub token: String,
+    token: String,
+    runtime_path: std::path::PathBuf,
+    pid: u32,
+}
+
+impl Drop for ServerInfo {
+    fn drop(&mut self) {
+        let _ = instance_probe::remove_runtime_if_owned(
+            &self.runtime_path,
+            self.port,
+            &self.token,
+            self.pid,
+        );
+    }
 }
 
 struct ActiveClient(Arc<AtomicUsize>);
@@ -50,16 +57,33 @@ impl Drop for ActiveClient {
     }
 }
 
-pub fn start(runtime: Arc<Runtime>, app: AppHandle) -> Result<ServerInfo, String> {
-    let (listener, port) = bind_first_free()?;
+#[derive(Debug)]
+pub enum StartError {
+    AlreadyRunning(u16),
+    Unavailable(String),
+}
+
+impl std::fmt::Display for StartError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AlreadyRunning(port) => write!(formatter, "Octopus already runs on port {port}"),
+            Self::Unavailable(message) => formatter.write_str(message),
+        }
+    }
+}
+
+pub fn start(runtime: Arc<Runtime>, app: AppHandle) -> Result<ServerInfo, StartError> {
+    let (listener, port) = bind_first_free(&runtime.runtime_path)?;
     let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
-    write_runtime_file(&runtime, port, &token)?;
+    write_runtime_file(&runtime, port, &token).map_err(StartError::Unavailable)?;
     runtime.write_log("server", &format!("listening on 127.0.0.1:{port}"));
 
     let thread_token = token.clone();
+    let runtime_path = runtime.runtime_path.clone();
+    let pid = std::process::id();
     let active_clients = Arc::new(AtomicUsize::new(0));
-    thread::Builder::new()
-        .name("re-llmpet-http".into())
+    let spawn_result = thread::Builder::new()
+        .name("octopus-http".into())
         .spawn(move || {
             for incoming in listener.incoming() {
                 match incoming {
@@ -75,7 +99,7 @@ pub fn start(runtime: Arc<Runtime>, app: AppHandle) -> Result<ServerInfo, String
                         let token = thread_token.clone();
                         let guard = ActiveClient(active_clients.clone());
                         let spawn = thread::Builder::new()
-                            .name("re-llmpet-http-client".into())
+                            .name("octopus-http-client".into())
                             .spawn(move || {
                                 let _guard = guard;
                                 handle_client(stream, runtime, app, &token, port);
@@ -90,26 +114,43 @@ pub fn start(runtime: Arc<Runtime>, app: AppHandle) -> Result<ServerInfo, String
                     Err(err) => runtime.write_log("server", &format!("accept failed: {err}")),
                 }
             }
-        })
-        .map_err(|e| e.to_string())?;
-    Ok(ServerInfo { port, token })
+        });
+    if let Err(error) = spawn_result {
+        // The runtime credential was already published before the accept loop
+        // was created. Do not leave a stale token file that makes a later
+        // launch waste time probing a server that never existed.
+        let _ = instance_probe::remove_runtime_if_owned(&runtime_path, port, &token, pid);
+        return Err(StartError::Unavailable(error.to_string()));
+    }
+    Ok(ServerInfo {
+        port,
+        token,
+        runtime_path,
+        pid,
+    })
 }
 
-fn bind_first_free() -> Result<(TcpListener, u16), String> {
+fn bind_first_free(runtime_path: &std::path::Path) -> Result<(TcpListener, u16), StartError> {
     let mut last = None;
     for port in BASE_PORT..BASE_PORT + PORT_COUNT {
         match TcpListener::bind(("127.0.0.1", port)) {
             Ok(listener) => return Ok((listener, port)),
-            Err(err) => last = Some(err),
+            Err(error) if error.kind() == ErrorKind::AddrInUse => {
+                if instance_probe::activate_existing_with_retry(runtime_path, port, 4).is_ok() {
+                    return Err(StartError::AlreadyRunning(port));
+                }
+                last = Some(error);
+            }
+            Err(error) => last = Some(error),
         }
     }
-    Err(format!(
+    Err(StartError::Unavailable(format!(
         "ports {}-{} unavailable: {}",
         BASE_PORT,
         BASE_PORT + PORT_COUNT - 1,
-        last.map(|e| e.to_string())
+        last.map(|error| error.to_string())
             .unwrap_or_else(|| "unknown".into())
-    ))
+    )))
 }
 
 fn write_runtime_file(runtime: &Runtime, port: u16, token: &str) -> Result<(), String> {
@@ -234,6 +275,14 @@ fn handle_client(
     };
 
     match request.path.as_str() {
+        "/activate" => {
+            if let Some(window) = app.get_webview_window("pet") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+            let _ = respond(&mut stream, 200, "application/json", br#"{"ok":true}"#);
+        }
         "/state" => {
             let session = runtime.ingest(&body);
             emit_stats(&app, &runtime);
@@ -350,9 +399,9 @@ fn handle_permission(
     drop(guard);
     let decision = decision.unwrap_or_else(|| {
         let message = if timeout.timed_out() {
-            "RE-LLMPET permission request timed out"
+            "Octopus permission request timed out"
         } else {
-            "RE-LLMPET permission request closed"
+            "Octopus permission request closed"
         };
         let fallback = PermissionDecision {
             behavior: "deny".into(),
@@ -407,10 +456,11 @@ fn automatic_decision(tool: &str, input: &Value) -> Option<&'static str> {
 }
 
 fn permission_payload(provider: &str, decision: &PermissionDecision) -> Value {
-    let safe = if decision.behavior == "deny" {
-        "deny"
-    } else {
+    let safe = if decision.behavior == "allow" {
         "allow"
+    } else {
+        // Unknown or future values must never widen permission by accident.
+        "deny"
     };
     match provider {
         "codewhale" => {
@@ -463,8 +513,7 @@ fn permission_payload(provider: &str, decision: &PermissionDecision) -> Value {
 
 fn emit_stats(app: &AppHandle, runtime: &Arc<Runtime>) {
     // R40.1 (audit P0-4): consolidated StatsCoalescer. The 0.5.19
-    // split-mutex design (last_stats_emit + stats_dirty + stats_scheduled
-    // as separate Mutexes) had a race where dirty=true but no timer was
+    // split-mutex design had a race where dirty=true but no timer was
     // scheduled — the trailing timer cleared `scheduled` between the new
     // event's dirty-set and scheduled-check, so the new event saw
     // scheduled=true and didn't schedule a new timer. Result: dirty=true
@@ -510,72 +559,33 @@ fn emit_stats(app: &AppHandle, runtime: &Arc<Runtime>) {
 
     match action {
         CoalescerAction::EmitNow => {
-            do_emit_stats(app, runtime);
+            emit_stats_now(app, runtime);
         }
         CoalescerAction::ScheduleTrailing => {
             let app_clone = app.clone();
             let runtime_clone = runtime.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 std::thread::sleep(std::time::Duration::from_millis(STATS_THROTTLE_MS as u64));
-                // Atomic: read dirty, clear dirty, clear scheduled, and
-                // decide whether to emit + reschedule. All under one lock.
-                let trailing_action = {
+                // Atomically consume the pending flag and release the timer
+                // slot. Updating last_emit before unlocking prevents a new
+                // event from racing this trailing flush as another leading
+                // emit. An event arriving later will either mark dirty and
+                // schedule one new timer, or be represented by this snapshot.
+                let should_emit = {
                     let mut guard = runtime_clone
                         .stats_coalescer
                         .lock()
                         .unwrap_or_else(|e| e.into_inner());
-                    let was_dirty = guard.dirty;
+                    let should_emit = guard.dirty;
                     guard.dirty = false;
                     guard.scheduled = false;
-                    // If a new event arrived while we were sleeping (it set
-                    // dirty=true but couldn't schedule because scheduled was
-                    // true), we need to reschedule. But since we just
-                    // cleared scheduled, the new event would have scheduled
-                    // itself if it got the lock first. With the single
-                    // mutex, either:
-                    //   (a) we get the lock first → was_dirty=true, we emit,
-                    //       and if dirty was set by a concurrent event that
-                    //       hasn't acquired the lock yet, it will get the
-                    //       lock after us, see scheduled=false, and schedule.
-                    //   (b) concurrent event gets lock first → it sets
-                    //       dirty=true, sees scheduled=true (we haven't
-                    //       cleared it), doesn't schedule, releases lock.
-                    //       We then get the lock, see was_dirty=true, emit,
-                    //       clear scheduled. But dirty is now true (from
-                    //       the concurrent event) and scheduled is false.
-                    //       We need to reschedule!
-                    // Case (b) is the key: after clearing scheduled, check
-                    // if dirty is STILL true (set by a concurrent event
-                    // that couldn't schedule). If so, reschedule.
-                    if guard.dirty && !guard.scheduled {
-                        guard.scheduled = true;
-                        TrailingAction::EmitAndReschedule
-                    } else if was_dirty {
-                        TrailingAction::Emit
-                    } else {
-                        TrailingAction::Done
+                    if should_emit {
+                        guard.last_emit = Some(std::time::Instant::now());
                     }
+                    should_emit
                 };
-                match trailing_action {
-                    TrailingAction::Done => {}
-                    TrailingAction::Emit => {
-                        do_emit_stats(&app_clone, &runtime_clone);
-                    }
-                    TrailingAction::EmitAndReschedule => {
-                        do_emit_stats(&app_clone, &runtime_clone);
-                        // Recurse to schedule the next trailing timer.
-                        // This is safe because we're in a spawn_blocking
-                        // task; the next timer will fire after another
-                        // STATS_THROTTLE_MS.
-                        let app_clone2 = app_clone.clone();
-                        let runtime_clone2 = runtime_clone.clone();
-                        tauri::async_runtime::spawn_blocking(move || {
-                            std::thread::sleep(std::time::Duration::from_millis(
-                                STATS_THROTTLE_MS as u64,
-                            ));
-                            emit_stats(&app_clone2, &runtime_clone2);
-                        });
-                    }
+                if should_emit {
+                    emit_stats_now(&app_clone, &runtime_clone);
                 }
             });
         }
@@ -591,32 +601,21 @@ enum CoalescerAction {
     Skip,
 }
 
-enum TrailingAction {
-    Done,
-    Emit,
-    EmitAndReschedule,
-}
-
-/// R38.1: Actual emit — generates stats, bumps revision, emits to both windows.
-fn do_emit_stats(app: &AppHandle, runtime: &Arc<Runtime>) {
-    // Update last_emit timestamp in BOTH the legacy field and the
-    // consolidated coalescer state. R40.1: the consolidated state is
-    // the source of truth; the legacy field is kept for smoke-test
-    // compatibility.
+/// Generates one revisioned stats snapshot and broadcasts it to both windows.
+/// This is the sole immediate-emission implementation used by both HTTP hook
+/// ingestion and user-initiated permission commands.
+pub(crate) fn emit_stats_now(app: &AppHandle, runtime: &Arc<Runtime>) {
     let now = std::time::Instant::now();
-    {
-        let mut guard = runtime
-            .last_stats_emit
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *guard = Some(now);
-    }
     {
         let mut guard = runtime
             .stats_coalescer
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         guard.last_emit = Some(now);
+        // This snapshot includes every mutation completed before this lock.
+        // Consume the accumulated dirty bit so a previously scheduled trailing
+        // timer becomes a no-op unless a newer event arrives afterwards.
+        guard.dirty = false;
     }
     // Bump revision.
     let revision = {

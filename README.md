@@ -1,4 +1,4 @@
-# RE-LLMPET — Tauri 2 桌面宠物
+# Octopus — Tauri 2 桌面宠物
 
 > **低占用多 Agent 桌面宠物**：Tauri 2 + Rust 原生 provider 适配层，保留原有 Web UI 与图片资源。
 >
@@ -10,13 +10,13 @@
 
 ## 仓库关系
 
-本仓库 `purrfecto114-lgtm/RE-LLMPET` 是 LLMPET 项目的 **Tauri 2 / Rust 重写分支**，走独立主线。
+本仓库 `purrfecto114-lgtm/RE-LLMPET` 当前产品名为 **Octopus**，是 LLMPET 项目的 **Tauri 2 / Rust 重写分支**，走独立主线。
 
 | 仓库 | 角色 | 运行时 |
 |---|---|---|
 | **[myunwang/LLMPET](https://github.com/myunwang/LLMPET)** | 原始上游（v1.1.1 + 后续提交） | Electron + Node |
 | **[purrfecto114-lgtm/LLMPET](https://github.com/purrfecto114-lgtm/LLMPET)** | 早期 Electron fork（R1–R20，5-provider hook 系统） | Electron + Node |
-| **purrfecto114-lgtm/RE-LLMPET**（本仓库） | Tauri 2 / Rust 重写，独立新分支 | Tauri 2 + Rust |
+| **Octopus（本仓库源码仍位于 purrfecto114-lgtm/RE-LLMPET）** | Tauri 2 / Rust 重写，独立新分支 | Tauri 2 + Rust |
 
 本分支从 Electron/Node 运行时完整迁移到 Tauri 2 + Rust：旧主进程、preload、Node backend/provider/hook 和归档运行时已从源码树删除；活动运行路径只包含 `src-tauri/`、`frontend/`、`resources/` 与安装/门禁脚本。完整迁移历史见 [`docs/MIGRATION_STATUS.md`](docs/MIGRATION_STATUS.md)、[`docs/UPSTREAM_RECONCILIATION_2026-07-28.md`](docs/UPSTREAM_RECONCILIATION_2026-07-28.md)、[`docs/FOLLOWUP_DRAG_TERMINAL_UI_2026-07-28.md`](docs/FOLLOWUP_DRAG_TERMINAL_UI_2026-07-28.md) 与 [`docs/FORK_UPSTREAM_CUTOVER_REPORT_2026-07-27.md`](docs/FORK_UPSTREAM_CUTOVER_REPORT_2026-07-27.md)。
 
@@ -34,7 +34,7 @@
 - **透明桌宠交互**：透明区域继续点击穿透；光标回到桌宠/弹层时由 Rust 原生命中守护恢复输入，短按打开会话 HUD、移动手势拖动窗口，结束时仅持久化一次位置；弹层缩放按 DPI 换算并保持桌宠底部中心锚点
 - **Windows 终端策略**：新会话优先把白名单 Provider 可执行文件直接交给 Windows Terminal (`wt.exe`) 的新窗口；系统未提供 Terminal 时才回退 `cmd.exe /D /K`
 - **三语核心界面**：桌宠与详情面板支持简体中文 / English / 日本語并持久化选择；原生托盘仍为部分翻译
-- **上游视觉与 UI**：两套官方 GIF/MP3 按原字节保留；提问卡、Provider 标识、会话 HUD 二级表情页及皮肤感知的桌宠侧边媒体布局继续对齐上游，完整 Prompt 分发在后端会话归属实现前保持延期
+- **上游视觉与 UI**：保留三套普通桌宠皮肤、提问卡、Provider 标识与会话 HUD；Octopus 版本已移除表情包选择、媒体预览、提示词目录及其资源
 - **安全**：`pet` / `panel` 分窗口 Tauri capability、限制性 CSP、loopback-only HTTP server、token 仅 header、constant-time 比较、固定 provider 启动白名单、沙箱 curl 强制 HTTPS
 
 ---
@@ -66,7 +66,7 @@ sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
 | Workflow | 触发 | 作用 |
 |---|---|---|
 | [`ci.yml`](.github/workflows/ci.yml) | push `main` / PR / 手动 | 3 平台 smoke + locked Rust gates + `cargo check/test/build` |
-| [`release.yml`](.github/workflows/release.yml) | push tag `v*.*.*` / 手动 | 4 矩阵签名 bundle（deb/appimage/nsis/dmg）+ checksums + SBOM + 证明 |
+| [`release.yml`](.github/workflows/release.yml) | push tag `v*.*.*` / 手动 | 4 矩阵 bundle（deb/appimage/nsis/dmg）+ checksums + SBOM + 证明；平台签名按凭据/策略启用 |
 | [`protocol-drift.yml`](.github/workflows/protocol-drift.yml) | 每周一 05:17 UTC / 手动 | 上游 provider 协议漂移检查 |
 | `provider-real-cli.yml` | 手动（self-hosted） | 真实 CLI 契约门 |
 | `desktop-real-machine.yml` | 手动（self-hosted） | 真实 GUI + 性能基准 |
@@ -79,7 +79,7 @@ git tag "v$VERSION"
 git push origin "v$VERSION"
 ```
 
-Release 需在仓库 Settings → Secrets 配置：`TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（更新签名）、`WINDOWS_CERTIFICATE` + `WINDOWS_CERTIFICATE_PASSWORD`（Windows 签名）、`APPLE_*`（macOS 公证）。tag 发布缺少这些签名凭据时会在构建前失败，禁止产生未签名的公开 Release；手动 workflow_dispatch 仅创建带独立 tag 的 draft，便于检查而不会公开发布。
+当前版本未启用 Tauri updater，`createUpdaterArtifacts=false`，因此不要求 `TAURI_SIGNING_PRIVATE_KEY`。Windows Authenticode 使用 `WINDOWS_CERTIFICATE` + `WINDOWS_CERTIFICATE_PASSWORD`，macOS Developer ID/公证使用 `APPLE_*`；设置仓库变量 `REQUIRE_PLATFORM_SIGNING=true` 后，相关平台缺少凭据会在构建前失败。0.5.x tag 发布标记为 prerelease；手动 `workflow_dispatch` 仅创建带独立 tag 的 draft，避免覆盖正式版本的 Release。
 
 ---
 
@@ -90,7 +90,7 @@ Release 需在仓库 Settings → Secrets 配置：`TAURI_SIGNING_PRIVATE_KEY` +
 1. Linux / Windows / macOS `cargo check --all-targets --locked`、Rust tests 和 release binaries
 2. 五个 Provider 的隔离 HOME 真实 CLI smoke
 3. 三平台 GUI、托盘、终端聚焦、休眠/多显示器和性能门禁
-4. Windows 签名、macOS 签名/公证、Linux 基线运行、更新包签名、SBOM 与校验和
+4. Windows Authenticode、macOS Developer ID/公证、Linux 基线运行、SBOM 与校验和；启用 updater 后再单独验证更新包签名
 
 详见 [`docs/FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md`](docs/FORK_UPSTREAM_MIGRATION_RELIABILITY_2026-07-27.md)、[`docs/MIGRATION_STATUS.md`](docs/MIGRATION_STATUS.md) 和 [`docs/RELEASE.md`](docs/RELEASE.md)。
 
@@ -98,7 +98,7 @@ Release 需在仓库 Settings → Secrets 配置：`TAURI_SIGNING_PRIVATE_KEY` +
 
 ## 三款皮肤
 
-章鱼 🐙、像素怪兽 👾、月薪喵 🐱（猫 meme 表情包，素材来自抖音 @月薪喵，见 [`frontend/assets/cat/CREDITS.md`](frontend/assets/cat/CREDITS.md)）。
+章鱼 🐙、像素怪兽 👾、月薪喵 🐱（作为普通 GIF 皮肤保留，素材说明见 [`frontend/assets/cat/CREDITS.md`](frontend/assets/cat/CREDITS.md)）。
 
 ## License
 

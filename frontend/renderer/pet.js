@@ -3,11 +3,6 @@
 const i18n = window.OctoI18n;
 const t = (key, vars) => i18n ? i18n.t(key, vars) : key;
 const LOCALES = { zh: 'zh-CN', en: 'en-US', ja: 'ja-JP' };
-const SAFE_MEME_ENTRY_TITLES = {
-  zh: '预览这个 session 的表情包',
-  en: 'Preview a meme for this session',
-  ja: 'このセッション向けミームをプレビュー',
-};
 let currentLang = 'zh';
 
 function applyLanguage(next) {
@@ -23,13 +18,7 @@ function applyLanguage(next) {
     node.placeholder = t(node.dataset.i18nPlaceholder);
   });
   updateProviderUI();
-  if (sessListOpen && !memePickerOpen) { slTitle.textContent = t('sess.title'); renderSessList(); }
-  if (memePickerOpen) {
-    slTitle.textContent = t('meme.pickTitle');
-    updateMemePickerContext();
-    renderMemePicker();
-  }
-  if (activeMeme) refreshMemePreviewCopy();
+  if (sessListOpen) { slTitle.textContent = t('sess.title'); renderSessList(); }
 }
 
 const stage = document.getElementById('stage');
@@ -66,7 +55,7 @@ function updateMascotEyes(s) {
   if (!mascotImg.getAttribute('src').endsWith(f)) mascotImg.src = '../assets/' + f;
 }
 
-// 月薪喵（cat）：每个状态一张 meme GIF（原作者：抖音 @月薪喵）
+// 月薪喵（cat）：每个状态一张动画 GIF（原作者：抖音 @月薪喵）
 const catImg = document.getElementById('cat-img');
 const CAT_STATES = {
   idle: 'cat-idle.gif',           // 转椅上冰淇淋+手机摸鱼：待命
@@ -206,26 +195,6 @@ const sesslist = document.getElementById('sesslist');
 const slRows = document.getElementById('sl-rows');
 const slSub = document.getElementById('sl-sub');
 const slTitle = document.getElementById('sl-title');
-const slBack = document.getElementById('sl-back');
-const slSessionView = document.getElementById('sl-session-view');
-const memePicker = document.getElementById('sl-meme-view');
-const memeGrid = document.getElementById('sl-meme-grid');
-const memePickerSession = document.getElementById('sl-meme-session');
-const memePickerStatus = document.getElementById('sl-meme-status');
-const memePlayer = document.getElementById('meme-player');
-const memeImage = document.getElementById('meme-image');
-const memeCaption = document.getElementById('meme-caption');
-const memeStatus = document.getElementById('meme-status');
-const agentTag = document.getElementById('agent-tag');
-const MEME_ITEMS = window.LLMPET_MEMES && Array.isArray(window.LLMPET_MEMES.items)
-  ? window.LLMPET_MEMES.items
-  : [];
-let memePickerOpen = false;
-let memePickerTarget = null;
-let memePreviewOpen = false;
-let activeMeme = null;
-let memeAudio = null;
-let memeTimer = null;
 
 let askActive = false;
 let askQueue = []; // 当前所有待处理的选择/输入（每项含 project）
@@ -241,6 +210,16 @@ let lastWinPos = null;
 const isInteracting = () => askActive && (askHover || document.activeElement === askText || !!(askText && askText.value) || (elic && elic.selected != null));
 
 // Tauri 迁移：交互状态改为事件驱动，不再每 700ms 常驻轮询。
+const nativeUiBusyController = window.OctoLatestValue.createLatestValueController({
+  apply: (on) => window.pet.uiBusy(on),
+  retryDelays: [80, 250, 750],
+  onError: (error) => rlog('ui-busy', String(error && error.message || error || 'unknown')),
+});
+const mouseIgnoreController = window.OctoLatestValue.createLatestValueController({
+  apply: (ignore) => window.pet.setIgnoreMouse(ignore),
+  retryDelays: [80, 250, 750],
+  onError: (error) => rlog('mouse-ignore', String(error && error.message || error || 'unknown')),
+});
 let lastUiBusy = null;
 function syncUiBusy(force = false) {
   // R35.2 (2026-07-31): added providerChooserOpen to the busy union.
@@ -248,10 +227,16 @@ function syncUiBusy(force = false) {
   // not in this list, so Rust's native click-through guard and the
   // territory/blur branches didn't know the chooser was open — risking
   // the chooser being treated as non-interactive while it was visible.
-  const busy = !!(radialOpen || todoPopOpen || sessListOpen || memePickerOpen || memePreviewOpen || askActive || providerChooserOpen || isInteracting());
+  const busy = !!(radialOpen || todoPopOpen || sessListOpen || askActive || providerChooserOpen || isInteracting());
   if (!force && busy === lastUiBusy) return;
   lastUiBusy = busy;
-  try { window.pet.uiBusy(busy); } catch {}
+  void nativeUiBusyController.request(busy);
+  if (busy) {
+    setMouseIgnore(false);
+    try { window.pet.focusPet(); } catch {}
+  } else {
+    setMouseIgnore(true);
+  }
   requestAnimationFrame(reportPetVisualBounds);
 }
 
@@ -307,23 +292,20 @@ const snapshotChoices = (stats) => Array.isArray(stats && stats.pendingChoices)
 const POPUP_W = 520;
 const POPUP_BOTTOM = 200;
 const ASK_VIEWPORT_MAX_H = 520;
-const MEME_WINDOW_W = 760;
-const MEME_WINDOW_H = 340;
-const MEME_MEDIA_W = 260;
-const MEME_GAP = 14;
-const MEME_EDGE_PAD = 10;
-let memeLayoutActive = false;
 let fitPopupSeq = 0;
 let petSizeFrame = 0;
 let pendingPetSize = null;
-let petSizeChain = Promise.resolve();
-// R35 (2026-07-31): track the last size we actually sent to Rust so we can
-// dedupe identical consecutive requests. The audit's P0-1 noted that stats
-// updates were repeatedly calling set_pet_size with the same value, causing
-// the OS to redraw the window frame for no reason and producing the
-// "桌宠跳动" the user observed. Initialized to null so the first call always
-// goes through.
-let lastSentPetSize = null;
+const petSizeController = window.OctoLatestValue.createLatestValueController({
+  retryDelays: [80, 250],
+  equals: (a, b) => !!a && !!b && a[0] === b[0] && a[1] === b[1],
+  apply: (size) => {
+    markGeometryBusy(size);
+    return window.pet.setPetSize(size[0], size[1]);
+  },
+  onError: (error) => {
+    rlog('resize', 'set size failed: ' + String(error && error.message || error || 'unknown'));
+  },
+});
 // R36 (2026-07-31): geometry revision/ack — replaces the fixed 260ms timer
 // as the PRIMARY clear mechanism for geometryBusy. The 0.5.12 carpet audit
 // P1-1 flagged that 260ms is a guess: slow machines / cross-monitor / high
@@ -343,6 +325,7 @@ let expectedPetSize = null;
 let geometryAckUnlisten = null;
 let geometryBusy = false;
 let geometryBusyTimer = 0;
+let petRendererDisposed = false;
 function markGeometryBusy(expectedSize) {
   geometryBusy = true;
   // R36: store the expected size so onResized can confirm it matched.
@@ -372,8 +355,9 @@ function markGeometryBusy(expectedSize) {
           clearGeometryBusy(myRevision);
         }
       })).then((off) => {
-        // If a newer revision superseded us, unlisten immediately.
-        if (myRevision !== geometryRevision && typeof off === 'function') {
+        // If a newer revision superseded us, or teardown already ran,
+        // unlisten immediately instead of leaking a native listener.
+        if ((petRendererDisposed || myRevision !== geometryRevision) && typeof off === 'function') {
           try { off(); } catch {}
         } else if (typeof off === 'function') {
           geometryAckUnlisten = off;
@@ -417,10 +401,6 @@ function clearGeometryBusy(myRevision) {
 function setRequestedPetSize(width, height) {
   let w = Number(width) || 0;
   let h = Number(height) || 0;
-  if (memeLayoutActive) {
-    w = Math.max(w, MEME_WINDOW_W);
-    h = Math.max(h, MEME_WINDOW_H);
-  }
   pendingPetSize = [w, h];
   if (petSizeFrame) return;
   petSizeFrame = requestAnimationFrame(() => {
@@ -428,24 +408,9 @@ function setRequestedPetSize(width, height) {
     const size = pendingPetSize;
     pendingPetSize = null;
     if (!size) return;
-    // R35: dedupe. If the new size matches the last size we actually sent,
-    // skip the IPC call entirely. This eliminates the repeated set_pet_size
-    // calls that stats updates were generating.
-    if (lastSentPetSize
-        && lastSentPetSize[0] === size[0]
-        && lastSentPetSize[1] === size[1]) {
-      return;
-    }
-    lastSentPetSize = size;
-    // R36: mark geometry busy with the expected size so onResized can
-    // confirm the OS actually applied it. The 260ms timer is a fallback.
-    markGeometryBusy(size);
-    // Tauri invoke calls are asynchronous. Serialize resize requests so a fast
-    // open/close sequence cannot apply an older popup size after a newer reset.
-    petSizeChain = petSizeChain
-      .catch(() => {})
-      .then(() => window.pet.setPetSize(size[0], size[1]))
-      .catch((error) => rlog('resize', 'set size failed: ' + String(error && error.message || error || 'unknown')));
+    // Coalesce to the latest requested size. The controller commits its
+    // dedupe cache only after IPC success, so a transient failure can retry.
+    void petSizeController.request(size);
   });
 }
 function fitPopup(el) {
@@ -462,7 +427,7 @@ function fitPopup(el) {
       const viewportH = el === askEl ? Math.min(contentH, ASK_VIEWPORT_MAX_H) : contentH;
       setRequestedPetSize(POPUP_W, Math.max(340, POPUP_BOTTOM + viewportH + 24));
     };
-    if (Math.abs((window.innerWidth || 0) - POPUP_W) > 2 && !memeLayoutActive) {
+    if (Math.abs((window.innerWidth || 0) - POPUP_W) > 2) {
       setRequestedPetSize(POPUP_W, Math.max(340, window.innerHeight || 340));
       requestAnimationFrame(() => requestAnimationFrame(measure));
     } else {
@@ -472,8 +437,7 @@ function fitPopup(el) {
 }
 function resetPetSize() {
   fitPopupSeq++;
-  if (memeLayoutActive) setRequestedPetSize(MEME_WINDOW_W, MEME_WINDOW_H);
-  else setRequestedPetSize(0, 0);
+  setRequestedPetSize(0, 0);
 }
 
 // 从快照重建队列（多任务都在、且标明项目）
@@ -1066,13 +1030,7 @@ function renderSessList() {
       `<span class="sl-icon">${provIcon}</span>` +
       `<div class="sl-main"><div class="sl-name">${esc(s.project)}</div>` +
       `<div class="sl-meta ${attn ? 'attn' : ''}">${esc(meta)}</div></div>` +
-      ctx +
-      (MEME_ITEMS.length ? `<button class="sl-meme-entry" title="${esc(SAFE_MEME_ENTRY_TITLES[currentLang] || SAFE_MEME_ENTRY_TITLES.zh)}">${esc(t('meme.entry'))}</button>` : '');
-    const memeEntry = row.querySelector('.sl-meme-entry');
-    if (memeEntry) memeEntry.addEventListener('click', (event) => {
-      event.stopPropagation();
-      openMemePicker(s);
-    });
+      ctx;
     row.addEventListener('click', () => {
       window.pet.focusSession(s.sessionId || '');
       rlog('sesslist', 'focus ' + (s.project || ''));
@@ -1082,220 +1040,6 @@ function renderSessList() {
   }
 }
 
-function showSessionPage() {
-  memePickerOpen = false;
-  memePickerTarget = null;
-  memePicker.classList.add('hidden');
-  slSessionView.classList.remove('hidden');
-  slBack.classList.add('hidden');
-  slTitle.textContent = t('sess.title');
-  renderSessList();
-}
-
-function openSessList() {
-  if (radialOpen) closeRadial();
-  if (todoPopOpen) closeTodoPop();
-  hideAsk();
-  closeMemePreview(false);
-  showSessionPage();
-  sesslist.classList.remove('hidden');
-  sessListOpen = true;
-  syncUiBusy();
-  rlog('sesslist', 'open ' + visibleSessions().length);
-  fitPopup(sesslist);
-}
-function closeSessList(reset = true) {
-  if (!sessListOpen) return;
-  sesslist.classList.add('hidden');
-  sessListOpen = false;
-  memePickerOpen = false;
-  memePickerTarget = null;
-  memePicker.classList.add('hidden');
-  slSessionView.classList.remove('hidden');
-  slBack.classList.add('hidden');
-  if (!memePreviewOpen) stage.classList.remove('meme-open');
-  syncUiBusy();
-  rlog('sesslist', 'close');
-  if (reset && !memePreviewOpen) resetPetSize();
-}
-function toggleSessList() { sessListOpen ? closeSessList() : openSessList(); }
-
-function memeCopy(item) {
-  if (!item || !item.copy) return { label: t('meme.fallbackLabel'), description: '', reactionLabel: '' };
-  return item.copy[currentLang] || item.copy.zh || item.copy.en || { label: t('meme.fallbackLabel'), description: '', reactionLabel: '' };
-}
-
-function stopMemeAudio() {
-  if (!memeAudio) return;
-  try { memeAudio.pause(); memeAudio.currentTime = 0; } catch {}
-  memeAudio = null;
-}
-
-function refreshMemePreviewCopy() {
-  if (!activeMeme) return;
-  const copy = memeCopy(activeMeme);
-  memeCaption.textContent = copy.label;
-  memeStatus.textContent = `${copy.reactionLabel} · ${t('meme.noDispatcher')}`;
-  memeImage.alt = copy.label;
-}
-
-function updateMemePickerContext() {
-  if (!memePickerSession) return;
-  if (!memePickerTarget) {
-    memePickerSession.textContent = t('meme.noDispatcher');
-    return;
-  }
-  const provider = memePickerTarget.provider || firstProviderId();
-  const label = PROVIDER_LABELS[provider] || provider;
-  memePickerSession.textContent = `${label} · ${memePickerTarget.project || t('sess.title')} · ${t('meme.noDispatcher')}`;
-}
-
-function renderMemePicker() {
-  memeGrid.innerHTML = '';
-  memePickerStatus.textContent = t('meme.noDispatcher');
-  memePickerStatus.className = 'sl-meme-status warn';
-  if (!MEME_ITEMS.length) {
-    const empty = document.createElement('div');
-    empty.className = 'sl-empty';
-    empty.textContent = t('meme.none');
-    memeGrid.appendChild(empty);
-    return;
-  }
-  for (const item of MEME_ITEMS) {
-    const copy = memeCopy(item);
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'sl-meme-card';
-    card.innerHTML =
-      `<img class="sl-meme-thumb" src="../assets/memes/${esc(item.media.gif)}" alt="">` +
-      `<span class="sl-meme-label">${esc(copy.label)}</span>` +
-      `<span class="sl-meme-desc">${esc(copy.description)}</span>`;
-    card.addEventListener('click', (event) => {
-      event.stopPropagation();
-      playMemePreview(item);
-    });
-    memeGrid.appendChild(card);
-  }
-}
-
-function openMemePicker(session = null) {
-  if (radialOpen) closeRadial();
-  if (todoPopOpen) closeTodoPop();
-  hideAsk();
-  closeMemePreview(false);
-  if (!sessListOpen) {
-    sesslist.classList.remove('hidden');
-    sessListOpen = true;
-  }
-  slSessionView.classList.add('hidden');
-  memePicker.classList.remove('hidden');
-  slBack.classList.remove('hidden');
-  slTitle.textContent = t('meme.pickTitle');
-  slSub.textContent = '';
-  memePickerTarget = session;
-  updateMemePickerContext();
-  memePickerOpen = true;
-  stage.classList.add('meme-open');
-  renderMemePicker();
-  syncUiBusy();
-  fitPopup(sesslist);
-  rlog('meme', `picker ${MEME_ITEMS.length}`);
-}
-
-function closeMemePicker(reset = true) {
-  if (!memePickerOpen) return;
-  showSessionPage();
-  if (!memePreviewOpen) stage.classList.remove('meme-open');
-  syncUiBusy();
-  if (sessListOpen && reset) fitPopup(sesslist);
-  else if (reset && !memePreviewOpen) resetPetSize();
-}
-
-let currentMemePlacement = 'pet-right';
-function alignMemePlayer() {
-  if (!memeLayoutActive || !memePlayer || memePlayer.classList.contains('hidden')) return;
-  const petEl = curSkinEl();
-  if (!petEl) return;
-  const petRect = petEl.getBoundingClientRect();
-  const docEl = document.documentElement;
-  const viewportW = Math.max(1, window.innerWidth || (docEl && docEl.clientWidth) || MEME_WINDOW_W);
-  const viewportH = Math.max(1, window.innerHeight || (docEl && docEl.clientHeight) || MEME_WINDOW_H);
-  const naturalW = Number(memeImage.naturalWidth) || 16;
-  const naturalH = Number(memeImage.naturalHeight) || 9;
-  const availableRight = viewportW - petRect.right - MEME_GAP - MEME_EDGE_PAD;
-  const availableLeft = petRect.left - MEME_GAP - MEME_EDGE_PAD;
-  const preferred = currentMemePlacement === 'pet-left' ? 'left' : 'right';
-  let side = preferred;
-  if (side === 'right' && availableRight < 120 && availableLeft > availableRight) side = 'left';
-  if (side === 'left' && availableLeft < 120 && availableRight > availableLeft) side = 'right';
-  const available = Math.max(120, side === 'right' ? availableRight : availableLeft);
-  const mediaW = Math.min(MEME_MEDIA_W, available);
-  const mediaH = Math.min(180, mediaW * naturalH / naturalW);
-  let left = side === 'right' ? petRect.right + MEME_GAP : petRect.left - MEME_GAP - mediaW;
-  let top = petRect.top + (petRect.height - mediaH) / 2;
-  left = Math.max(MEME_EDGE_PAD, Math.min(left, viewportW - mediaW - MEME_EDGE_PAD));
-  top = Math.max(MEME_EDGE_PAD, Math.min(top, viewportH - mediaH - 52));
-  memePlayer.style.left = `${Math.round(left)}px`;
-  memePlayer.style.top = `${Math.round(top)}px`;
-  memePlayer.style.width = `${Math.round(mediaW)}px`;
-  memePlayer.dataset.side = side;
-  requestAnimationFrame(reportPetVisualBounds);
-}
-
-function restoreSizeAfterMeme() {
-  if (askActive) fitPopup(askEl);
-  else if (sessListOpen) fitPopup(sesslist);
-  else if (todoPopOpen) fitPopup(todopop);
-  else if (!bubble.classList.contains('hidden')) fitPopup(bubble);
-  else resetPetSize();
-}
-
-function closeMemePreview(reset = true) {
-  clearTimeout(memeTimer);
-  memeTimer = null;
-  stopMemeAudio();
-  activeMeme = null;
-  if (memePlayer) memePlayer.classList.add('hidden');
-  memeImage.removeAttribute('src');
-  memePreviewOpen = false;
-  memeLayoutActive = false;
-  if (!memePickerOpen) stage.classList.remove('meme-open');
-  syncUiBusy();
-  if (reset) restoreSizeAfterMeme();
-}
-
-function playMemePreview(item) {
-  if (!item || !item.media || !/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*$/.test(item.media.gif || '')) return;
-  closeMemePicker(false);
-  closeSessList(false);
-  closeMemePreview(false);
-  fitPopupSeq += 1;
-  activeMeme = item;
-  memePreviewOpen = true;
-  memeLayoutActive = true;
-  currentMemePlacement = item.media.placement === 'pet-left' ? 'pet-left' : 'pet-right';
-  stage.classList.add('meme-open');
-  memeImage.src = `../assets/memes/${item.media.gif}`;
-  refreshMemePreviewCopy();
-  memePlayer.classList.remove('hidden');
-  setRequestedPetSize(MEME_WINDOW_W, MEME_WINDOW_H);
-  requestAnimationFrame(() => requestAnimationFrame(alignMemePlayer));
-  syncUiBusy();
-  const duration = Math.max(1800, Math.min(30000, Number(item.media.durationMs) || 3000));
-  transient(item.reaction && item.reaction.state || 'puzzled', Math.max(duration, Number(item.reaction && item.reaction.durationMs) || duration));
-  if (!muted && /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*$/.test(item.media.audio || '')) {
-    try {
-      memeAudio = new Audio(`../assets/memes/${item.media.audio}`);
-      memeAudio.preload = 'auto';
-      memeAudio.volume = 0.9;
-      const pending = memeAudio.play();
-      if (pending && typeof pending.catch === 'function') pending.catch(() => {});
-    } catch {}
-  }
-  memeTimer = setTimeout(() => closeMemePreview(), duration + 500);
-  rlog('meme', `preview ${item.id}`);
-}
-memeImage.addEventListener('load', alignMemePlayer);
 
 // 工具 -> 干活动作；道具 emoji 的运动变体
 const TOOL_ACT = {
@@ -1327,7 +1071,6 @@ let radialOpen = false;
 const IDLE_SLEEP_MS = 6 * 60 * 1000;
 const stateEls = [pixel, mascot, cat].filter(Boolean);
 const DEBUG_STATE = null; // 调试用：强制某状态（如 'sleeping'）；正常运行设为 null
-const DEBUG_CONFETTI = false; // 临时：定时放彩带验证；验证完改回 false
 
 // ---------- 像素小怪兽 ----------
 const PIXEL_MAP = [
@@ -1854,7 +1597,8 @@ function renderSessions(sessions) {
   if (radialOpen) updateRadialBadge();
 }
 
-let activeProviders = []; // R22: empty until config arrives (was ['claude'])
+let activeProviders = [];
+let availableProviders = ['claude', 'codewhale', 'codex', 'opencode', 'aider'];
 // R35.2 (2026-07-31): latestProviderStatuses — the per-provider install
 // status map, sourced from config_view()'s `providers.statuses` (NOT
 // from stats(), which the 0.5.12 carpet audit P0-1 证据C confirmed does
@@ -1880,6 +1624,9 @@ function applyConfigSnapshot(cfg) {
   if (cfg.providers && Array.isArray(cfg.providers.active)) {
     activeProviders = cfg.providers.active;
   }
+  if (cfg.providers && Array.isArray(cfg.providers.all) && cfg.providers.all.length) {
+    availableProviders = cfg.providers.all;
+  }
   if (cfg.providers && cfg.providers.statuses && typeof cfg.providers.statuses === 'object') {
     latestProviderStatuses = cfg.providers.statuses;
   }
@@ -1898,38 +1645,32 @@ function applyConfigSnapshot(cfg) {
   }
 }
 
-window.pet.onConfig((cfg) => {
-  applyConfigSnapshot(cfg);
+const configWrites = window.OctoConfigWrites.createConfigWriteController({
+  reload: () => window.pet.getConfig(),
+  applySnapshot: applyConfigSnapshot,
+  reportError(command, error) {
+    window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
+      detail: { command, message: String(error && (error.message || error) || 'unknown') }
+    }));
+  },
 });
 
-// Update button labels and actions to reflect the first active provider.
-// R22 (2026-07-30): return empty string if no providers selected, not 'claude'.
-// The sl-new button hides itself when no provider is active.
+window.pet.onConfig(applyConfigSnapshot);
+
+// Provider-specific labels are used only for direct “primary action” affordances.
+// The session-list “New Agent ▾” button is always a chooser and never implies
+// that the first active provider will be launched automatically.
 function firstProviderId() { return activeProviders[0] || ''; }
 function firstProviderLabel() { return PROVIDER_LABELS[firstProviderId()] || firstProviderId(); }
 
 function updateProviderUI() {
-  const provider = firstProviderId();
-  const label = firstProviderLabel();
+  const fallbackLabel = currentLang === 'en' ? 'Agent' : currentLang === 'ja' ? 'エージェント' : 'Agent';
+  const label = firstProviderLabel() || fallbackLabel;
   const slNew = document.getElementById('sl-new');
-  // R40.7 (audit §7.2): the "new agent" button is ALWAYS visible.
-  // When no provider is active, it shows "🚀 新开 Agent ▾" and opens
-  // the provider chooser on click. This fixes the cold-start race
-  // where the button was hidden until a config event arrived.
   if (slNew) {
     slNew.style.display = '';
-    if (!provider) {
-      // No provider active — show generic label + chevron
-      slNew.textContent = currentLang === 'en' ? '🚀 New Agent ▾'
-        : currentLang === 'ja' ? '🚀 新規エージェント ▾' : '🚀 新开 Agent ▾';
-    } else if (activeProviders.length > 1) {
-      slNew.textContent = currentLang === 'en' ? '🚀 New Agent'
-        : currentLang === 'ja' ? '🚀 新規エージェント' : '🚀 新开会话';
-    } else {
-      slNew.textContent = currentLang === 'en'
-        ? `🚀 New ${label}`
-        : currentLang === 'ja' ? `🚀 ${label} を新規` : `🚀 新开 ${label}`;
-    }
+    slNew.textContent = currentLang === 'en' ? '🚀 New Agent ▾'
+      : currentLang === 'ja' ? '🚀 新規エージェント ▾' : '🚀 新开 Agent ▾';
   }
   const tpClaude = document.querySelector('.tp-ops [data-op="claude"]');
   if (tpClaude) tpClaude.textContent = currentLang === 'en'
@@ -1957,39 +1698,17 @@ function updateProviderUI() {
   }
 }
 
-// R35.1 (2026-07-31): Provider chooser — replaces the silent
-// "launch first array item" behavior. When the user clicks "新开" or
-// triggers primaryAction:
-//   - 0 enabled providers → do nothing (R22 behavior preserved)
-//   - 1 enabled provider → launch directly (no modal)
-//   - 2+ enabled providers → open #provider-chooser modal; user picks
-//
-// The modal lists each provider with icon, label, and a status badge
-// (ok/warn/off based on the same runtime status the panel uses). The
-// user can close with ✕, Escape, or by clicking outside. On select,
-// we launch the chosen provider and close the modal.
-//
-// This addresses the 0.5.11 deep-recheck P0-5: "New Agent 仍静默启动
-// 数组第一个 Provider". The audit's full recommendation (icon stack +
-// running/focused/recent state split) is R36; this R35.1 change closes
-// the "silent first-item launch" trust hole without a full UI rewrite.
+// “新开 Agent” is an explicit picker. It always opens the available-provider
+// chooser, even when only one provider is enabled, so the dropdown never
+// launches a hard-coded or implicit default. Selection is the only launch.
+// The chooser uses provider status from config, closes on outside click/Escape,
+// and awaits the native launch before dismissing itself.
 let providerChooserOpen = false;
 const providerChooserEl = document.getElementById('provider-chooser');
 const providerChooserList = document.getElementById('pc-list');
 const providerChooserClose = document.getElementById('pc-close');
 
 function chooseProviderAndLaunch() {
-  if (!activeProviders.length) return; // R22: no provider selected
-  if (activeProviders.length === 1) {
-    // Single provider — launch directly, no ambiguity.
-    const provider = activeProviders[0];
-    // R35.2: use launchAgentChecked (call) so a launch failure surfaces
-    // rather than fire-and-forget. The 0.5.12 carpet audit P0-1 证据D
-    // flagged that launchAgent (send) silently swallowed failures.
-    launchProviderChecked(provider);
-    return;
-  }
-  // Multiple providers — open the chooser.
   openProviderChooser();
 }
 
@@ -2024,24 +1743,26 @@ function openProviderChooser() {
   if (radialOpen) closeRadial();
   if (sessListOpen) closeSessList();
   if (todoPopOpen) closeTodoPop();
-  if (memePickerOpen) closeMemePicker();
-  if (memePreviewOpen) closeMemePreview();
   // R35.2: read provider statuses from latestProviderStatuses (sourced
   // from config_view() via onConfig), NOT from lastStats. The 0.5.12
   // carpet audit P0-1 证据C confirmed Runtime::stats() does NOT include
   // a `providers` field, so the old code always showed all providers as
   // "pending/off" even when hooks were installed.
   const statuses = latestProviderStatuses || {};
-  providerChooserList.innerHTML = activeProviders.map((id) => {
+  const activeSet = new Set(activeProviders);
+  const choices = [...availableProviders].sort((a, b) => Number(activeSet.has(b)) - Number(activeSet.has(a)));
+  providerChooserList.innerHTML = choices.map((id) => {
     const icon = PROVIDER_ICONS[id] || '•';
     const label = PROVIDER_LABELS[id] || id;
     const st = statuses[id] || {};
     const installed = st.installed != null ? !!st.installed : false;
+    const enabled = activeSet.has(id);
     const failed = st.state === 'error';
     const cls = failed ? 'warn' : installed ? 'ok' : 'off';
     const statusText = failed ? (currentLang === 'en' ? 'error' : currentLang === 'ja' ? 'エラー' : '错误')
-      : installed ? (currentLang === 'en' ? 'ready' : currentLang === 'ja' ? '準備' : '就绪')
-      : (currentLang === 'en' ? 'pending' : currentLang === 'ja' ? '保留中' : '待同步');
+      : installed ? (currentLang === 'en' ? (enabled ? 'ready' : 'available') : currentLang === 'ja' ? (enabled ? '準備' : '利用可') : (enabled ? '就绪' : '可用'))
+      : enabled ? (currentLang === 'en' ? 'hook missing' : currentLang === 'ja' ? 'Hook 未同期' : 'Hook 未同步')
+      : (currentLang === 'en' ? 'available' : currentLang === 'ja' ? '利用可' : '可用');
     return `<button type="button" class="pc-item" data-provider="${esc(id)}">
       <span class="pc-ic">${icon}</span>
       <span class="pc-label">${esc(label)}</span>
@@ -2050,6 +1771,7 @@ function openProviderChooser() {
   }).join('');
   providerChooserEl.classList.remove('hidden');
   providerChooserOpen = true;
+  setRequestedPetSize(520, Math.max(420, 210 + choices.length * 48));
   syncUiBusy();
   // R35.2 (2026-07-31): focus the first item for keyboard accessibility.
   // The audit P0-1 证据E flagged the missing focus management. We move
@@ -2065,6 +1787,7 @@ function closeProviderChooser() {
   providerChooserEl.classList.add('hidden');
   providerChooserOpen = false;
   syncUiBusy();
+  if (!radialOpen && !todoPopOpen && !sessListOpen && !askActive) resetPetSize();
 }
 // Wire up the chooser interactions. Close on ✕, on outside click, on
 // Escape. Launch on item click.
@@ -2129,9 +1852,6 @@ window.addEventListener('keydown', (e) => {
   }
 });
 // R35.1: blur closes the chooser too (consistent with radial/sesslist).
-window.addEventListener('blur', () => {
-  if (providerChooserOpen) closeProviderChooser();
-});
 
 function applySkin(s) {
   skin = ['pixel', 'mascot', 'cat'].includes(s) ? s : 'mascot';
@@ -2167,7 +1887,7 @@ function applySkin(s) {
 // click-through region — the buttons would appear but not reliably receive
 // mouse events. Adding #provider-chooser to the hit-test selector makes
 // Rust's native click-through guard keep the chooser's rect interactive.
-const INTERACTIVE_HIT_SEL = '#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player,#provider-chooser';
+const INTERACTIVE_HIT_SEL = '#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#provider-chooser';
 
 function reportPetVisualBounds() {
   const rects = Array.from(document.querySelectorAll(INTERACTIVE_HIT_SEL))
@@ -2333,25 +2053,12 @@ document.getElementById('tp-close').addEventListener('click', (e) => { e.stopPro
 
 // 会话列表 HUD：关闭 + 底部操作
 document.getElementById('sl-close').addEventListener('click', (e) => { e.stopPropagation(); closeSessList(); });
-slBack.addEventListener('click', (e) => { e.stopPropagation(); closeMemePicker(); });
-document.getElementById('meme-player-close').addEventListener('click', (e) => { e.stopPropagation(); closeMemePreview(); });
-memePicker.addEventListener('contextmenu', (e) => e.stopPropagation());
-memePlayer.addEventListener('contextmenu', (e) => e.stopPropagation());
-// W26: '新开' button must ALWAYS launch a fresh CLI session, not call
-// primaryAction() — primaryAction() sees existing sessions and tries to focus
-// them or opens the panel instead of launching a new terminal.
-// R35.1 (2026-07-31): when multiple providers are enabled, route through
-// chooseProviderAndLaunch() so the user explicitly picks the target
-// instead of silently launching the first array item (0.5.11 deep-recheck
-// P0-5). Single provider still launches directly.
+// “新开” never calls primaryAction(): existing sessions must not turn a new
+// session request into focus/open-panel behavior. The chooser owns overlay
+// replacement and launches only after the user selects a provider.
 document.getElementById('sl-new').addEventListener('click', (e) => {
   e.stopPropagation();
-  if (!activeProviders.length) return; // R22: no provider selected
   chooseProviderAndLaunch();
-  // Only close the session list if we launched directly (single provider).
-  // The chooser modal is its own overlay; closing sesslist first would
-  // leave the chooser floating without context.
-  if (activeProviders.length === 1) closeSessList();
 });
 document.getElementById('sl-panel').addEventListener('click', (e) => { e.stopPropagation(); window.pet.openPanel(); closeSessList(); });
 sesslist.addEventListener('contextmenu', (e) => e.stopPropagation());
@@ -2371,7 +2078,6 @@ let territorySupported = false; // 由 pet:config 下发(仅 macOS true)
 const MENU = [
   { ic: 'chart',  key: 'menu.panel', act: () => window.pet.openPanel() },
   { ic: 'mask',   key: 'menu.skin', act: () => toggleSkin() },
-  { ic: 'chat',   key: 'meme.entry', when: () => MEME_ITEMS.length > 0, act: () => openMemePicker() },
   { ic: 'hand',   key: 'menu.pending', badge: true, act: () => window.pet.openPanel() },
   { ic: 'zombie', key: 'menu.background', badgeBg: true, act: () => window.pet.openPanel() },
   { ic: 'doc',    key: 'menu.log', act: () => window.pet.openLog() },
@@ -2385,13 +2091,13 @@ function toggleSkin() {
   const order = ['mascot', 'pixel', 'cat'];
   const next = order[(order.indexOf(skin) + 1) % order.length];
   applySkin(next);
-  window.pet.setSkin(next);
+  void configWrites.request('skin', next, (value) => window.pet.setSkin(value));
 }
 
 function toggleCurrency() {
   const next = currentCurrency === 'USD' ? 'CNY' : 'USD';
   currentCurrency = next;
-  window.pet.setCurrency(next);
+  void configWrites.request('currency', next, (value) => window.pet.setCurrency(value));
   // Immediately refresh chip display with the new currency
   if (lastStats) {
     chipCost.textContent = fmtCost(lastStats.today.cost || 0);
@@ -2492,8 +2198,6 @@ function openRadial() {
   }
   if (todoPopOpen) closeTodoPop();
   if (sessListOpen) closeSessList();
-  if (memePickerOpen) closeMemePicker();
-  if (memePreviewOpen) closeMemePreview();
   buildRadial();
   radial.classList.remove('hidden');
   radialOpen = true;
@@ -2516,12 +2220,18 @@ radial.addEventListener('click', () => closeRadial());
 // R35.1: blur must also clear the pending intent — otherwise a window
 // that loses focus mid-resize would reopen the radial when it regains
 // focus and the busy timer settles.
-window.addEventListener('blur', () => {
+function dismissTransientUi(reason = 'blur') {
   pendingRadialOpen = false;
+  if (providerChooserOpen) closeProviderChooser();
   if (radialOpen) closeRadial();
-  if (memePickerOpen) closeMemePicker();
-  if (memePreviewOpen) closeMemePreview();
-});
+  if (sessListOpen) closeSessList();
+  if (todoPopOpen) closeTodoPop();
+  rlog('dismiss', reason);
+}
+window.addEventListener('blur', () => dismissTransientUi('dom-blur'));
+if (window.pet && typeof window.pet.onWindowBlur === 'function') {
+  window.pet.onWindowBlur(() => dismissTransientUi('native-blur'));
+}
 
 // ---------- 初始化 ----------
 (async () => {
@@ -2539,7 +2249,6 @@ window.addEventListener('blur', () => {
   if (s) applyStats(s);
   else if (!lastStats) setState('idle');
   showBubble(t('bub.online'), 3000);
-  if (DEBUG_CONFETTI) setInterval(() => confetti(), 2500);
 })();
 
 // ---------- 透明区域点击穿透（命中测试）----------
@@ -2547,11 +2256,8 @@ window.addEventListener('blur', () => {
 // `forward:true`，所以 renderer 只声明期望状态；Rust 侧用桌面坐标命中守护
 // 恢复输入，避免一旦穿透后永远收不到 mousemove 的死锁。
 const HIT_SEL = INTERACTIVE_HIT_SEL;
-let mouseIgnoring = false;
 function setMouseIgnore(on) {
-  if (on === mouseIgnoring) return;
-  mouseIgnoring = on;
-  try { window.pet.setIgnoreMouse(on); } catch {}
+  void mouseIgnoreController.request(!!on);
 }
 window.addEventListener('mousemove', (e) => {
   if (g) { setMouseIgnore(false); return; } // 拖动中保持可点
@@ -2569,7 +2275,6 @@ setMouseIgnore(true);
 syncUiBusy(true);
 window.addEventListener('resize', () => {
   requestAnimationFrame(reportPetVisualBounds);
-  if (memeLayoutActive) requestAnimationFrame(alignMemePlayer);
 });
 const visualBoundsObserver = typeof ResizeObserver === 'function'
   ? new ResizeObserver(() => requestAnimationFrame(reportPetVisualBounds))
@@ -2583,12 +2288,24 @@ if (visualBoundsObserver) {
 // renderer context may be destroyed/reloaded. beforeunload ensures
 // all intervals/timeouts are cleared, preventing orphaned timers.
 window.addEventListener('beforeunload', () => {
+  petRendererDisposed = true;
+  geometryRevision += 1;
+  if (geometryBusyTimer) clearTimeout(geometryBusyTimer);
+  geometryBusyTimer = 0;
+  if (geometryAckUnlisten) {
+    try { geometryAckUnlisten(); } catch {}
+    geometryAckUnlisten = null;
+  }
+  if (petSizeFrame) cancelAnimationFrame(petSizeFrame);
+  petSizeFrame = 0;
+  petSizeController.dispose();
+  configWrites.dispose();
+  nativeUiBusyController.dispose();
+  mouseIgnoreController.dispose();
   clearInterval(poolRot); poolRot = null;
   if (visualBoundsObserver) visualBoundsObserver.disconnect();
   clearTimeout(bubbleTimer); bubbleTimer = null;
   clearTimeout(transientTimer); transientTimer = null;
-  clearTimeout(memeTimer); memeTimer = null;
-  stopMemeAudio();
   clearTimeout(actTimer); actTimer = null;
   clearTimeout(emptyWarnTimer); emptyWarnTimer = null;
   clearTimeout(blinkTimer); blinkTimer = null;

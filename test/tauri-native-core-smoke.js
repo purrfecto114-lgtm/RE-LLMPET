@@ -13,9 +13,9 @@ assert(cargo.includes('tauri-build = { version = "=2.6.3"'));
 assert(!/electron/i.test(cargo));
 
 const server = read('src-tauri/src/http_server.rs');
+const protocol = read('src-tauri/src/instance_probe.rs');
 for (const needle of [
   '127.0.0.1',
-  'x-re-llmpet-token',
   'MAX_HEADER_BYTES',
   'MAX_STATE_BYTES',
   'MAX_PERMISSION_BYTES',
@@ -25,6 +25,7 @@ for (const needle of [
   'MAX_CLIENT_THREADS',
   'transfer-encoding unsupported',
 ]) assert(server.includes(needle), `missing local-server hardening: ${needle}`);
+assert(protocol.includes('x-re-llmpet-token'), 'local protocol token header owner missing');
 assert(server.includes('Uuid::new_v4().simple()'));
 assert(!server.includes('0.0.0.0'));
 
@@ -70,7 +71,8 @@ for (const needle of [
   'sync_enabled',
   'write_json_atomic',
   'PermissionRequest',
-  '--re-llmpet-hook',
+  '--octopus-hook',
+  'LEGACY_MARKER',
 ]) assert(installer.includes(needle), `missing Rust hook installer behavior: ${needle}`);
 
 const lib = read('src-tauri/src/lib.rs');

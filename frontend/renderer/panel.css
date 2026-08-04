@@ -1,8 +1,5 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
-/* R40.7 (2026-08-02): panel is now an opaque, decorated window
-   (transparent=false, decorations=true in tauri.conf.json). The
-   20px transparent gutter is gone — the window itself IS the visible
-   surface. The #card div fills the entire window with no padding. */
+/* Frameless detail window: one custom titlebar and one close button. */
 html, body {
   width: 100%; height: 100%;
   background: #2c1f1a;
@@ -29,9 +26,7 @@ body.window-fullscreen #card {
   border: 1px solid rgba(217, 119, 87, 0.35);
   border-radius: 18px;
   overflow-y: auto; overflow-x: hidden;
-  /* R28: CSS box-shadow is the ONLY shadow (OS shadow disabled via
-     shadow: false in tauri.conf.json). This follows border-radius. */
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  box-shadow: none;
 }
 /* 子块不许被 flex 压缩：总高超出时 #card 整体滚动，下方区块（按模型/设置）不再被裁切 */
 #card > * { flex-shrink: 0; }

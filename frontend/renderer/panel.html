@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="panel.css" />
-    <title data-i18n="panel.title">LLMPET · 详情</title>
+    <title data-i18n="panel.title">Octopus · 详情</title>
   </head>
   <body>
     <div id="card">
@@ -11,7 +11,7 @@
         <div class="brand">
           <span class="logo">🐙</span>
           <div>
-            <div class="brand-title">LLMPET</div>
+            <div class="brand-title">Octopus</div>
             <div class="brand-sub" id="active-sub" data-i18n="panel.waitingSession">等待会话…</div>
           </div>
         </div>
@@ -194,7 +194,7 @@
         <h2 id="recovery-title" data-i18n="recovery.title">配置文件损坏</h2>
         <p id="recovery-state" class="recovery-state"></p>
         <p id="recovery-message" class="recovery-message"></p>
-        <p class="recovery-explain" data-i18n="recovery.explain">RE-LLMPET 检测到配置文件无法安全读取。为防止默认配置覆盖您的现有设置，所有保存操作已被阻止。您可以备份当前文件并重置为默认配置。</p>
+        <p class="recovery-explain" data-i18n="recovery.explain">Octopus 检测到配置文件无法安全读取。为防止默认配置覆盖您的现有设置，所有保存操作已被阻止。您可以备份当前文件并重置为默认配置。</p>
         <div class="recovery-actions">
           <button id="recovery-backup-reset" class="recovery-btn primary" data-i18n="recovery.backupReset">备份并重置</button>
           <button id="recovery-retry" class="recovery-btn" data-i18n="recovery.retry">重新检测</button>
@@ -209,6 +209,9 @@
     <script src="../shared/i18n.js"></script>
     <script src="../shared/toast.js"></script>
     <script src="tauri-bridge.js"></script>
+    <script src="../shared/latest-value-controller.js"></script>
+    <script src="../shared/config-write-controller.js"></script>
+    <script src="../shared/panel-fit-controller.js"></script>
     <script src="panel.js"></script>
   </body>
 </html>

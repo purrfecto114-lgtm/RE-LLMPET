@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RE-LLMPET Windows 构建脚本 — R21 (2026-07-30)
+# Octopus Windows 构建脚本 — R21 (2026-07-30)
 #
 # 本脚本在具备完整 mingw-w64 工具链的环境上产生 Windows .exe 产物。
 # 沙箱环境（无 sudo/mingw）已用 cargo check 验证编译通过（0 errors, 0 warnings），
@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "=== RE-LLMPET Windows 构建 ==="
+echo "=== Octopus Windows 构建 ==="
 echo "项目根: $PROJECT_ROOT"
 echo "模式: $MODE"
 echo "时间: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -115,5 +115,6 @@ echo ""
 echo "=== 构建完成 ==="
 echo "产物位置: $TARGET_DIR"
 echo ""
-echo "注意：完整 Windows 签名需要 TAURI_SIGNING_PRIVATE_KEY + WINDOWS_CERTIFICATE"
-echo "      密钥配置在 GitHub Settings → Secrets，本地构建可跳过签名。"
+echo "注意：Windows 安装包的发布者签名需要 WINDOWS_CERTIFICATE。"
+echo "      TAURI_SIGNING_PRIVATE_KEY 仅用于 updater artifacts；当前 updater 已禁用。"
+echo "      凭据配置在 GitHub Settings → Secrets，本地构建可跳过平台签名。"

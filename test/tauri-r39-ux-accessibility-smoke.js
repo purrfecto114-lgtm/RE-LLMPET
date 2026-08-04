@@ -28,8 +28,8 @@ assert(!petCss.includes('animation-duration: 0.001s'),
 // R39-2: Panel responsive — min-width 420 + single-column breakpoint
 assert(tauriConf.includes('"minWidth": 420'),
   'R39: tauri.conf.json panel minWidth must be 420 (was 520)');
-assert(commands.includes('logical_to_physical(420.0, scale)'),
-  'R39: commands.rs set_panel_height min_width must be 420');
+assert(commands.includes('const PANEL_MIN_WIDTH: f64 = 420.0;'),
+  'R39: shared panel min width must be 420 logical pixels');
 assert(panelCss.includes('@media (max-width: 699px)'),
   'R39: panel.css must have single-column breakpoint under 700px');
 assert(panelCss.includes('columns: 1'),

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "RE-LLMPET",
+  "productName": "Octopus",
   "version": "0.5.41",
-  "identifier": "io.github.purrfecto114.rellmpet",
+  "identifier": "io.github.purrfecto114.octopus",
   "build": {
     "frontendDist": "../frontend",
     "removeUnusedCommands": true
@@ -12,7 +12,7 @@
     "windows": [
       {
         "label": "pet",
-        "title": "RE-LLMPET",
+        "title": "Octopus",
         "url": "renderer/pet.html",
         "width": 320,
         "height": 340,
@@ -29,20 +29,20 @@
       },
       {
         "label": "panel",
-        "title": "Octopus \u00b7 \u8be6\u60c5",
+        "title": "Octopus · 详情",
         "url": "renderer/panel.html",
         "width": 560,
         "height": 720,
         "minWidth": 420,
-        "minHeight": 480,
-        "decorations": true,
+        "minHeight": 320,
+        "decorations": false,
         "transparent": false,
-        "shadow": true,
+        "shadow": false,
         "alwaysOnTop": false,
         "skipTaskbar": false,
         "resizable": true,
         "visible": false,
-        "center": true
+        "center": false
       }
     ],
     "security": {
@@ -57,7 +57,7 @@
     "active": true,
     "category": "DeveloperTool",
     "shortDescription": "Low-overhead desktop pet for coding agents",
-    "longDescription": "RE-LLMPET watches local coding-agent lifecycle events, permissions and sessions.",
+    "longDescription": "Octopus watches local coding-agent lifecycle events, permissions and sessions.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -66,6 +66,11 @@
       "icons/icon.ico"
     ],
     "resources": [],
-    "createUpdaterArtifacts": false
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "nsis": {
+        "installerHooks": "./windows/installer-hooks.nsh"
+      }
+    }
   }
 }

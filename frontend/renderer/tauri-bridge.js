@@ -9,23 +9,9 @@
  * re-exported through this compatibility object.
  */
 
-// R38 (2026-08-01): Correct Tauri 2 current-window API accessor.
-//
-// The 0.5.15 full audit (P0-1) flagged that the code used
-// `window.__TAURI__.window.getCurrent()` — a Tauri 1 class-method form
-// that does NOT exist in Tauri 2's namespace-level API. The correct call
-// is `getCurrentWindow()` (a function export, not a class method).
-//
-// Verified via web-search of Tauri 2 docs (v2.tauri.app/reference/
-// javascript/api/namespacewindow): "import { getCurrentWindow } from
-// '@tauri-apps/api/window'" — the global form is
-// `window.__TAURI__.window.getCurrentWindow()`.
-//
-// This broke ALL window-scoped listeners (onResized, onScaleChanged,
-// onMoved) and all isMaximized/isFullscreen queries in both pet.js and
-// panel.js — the R36 geometry revision/ack, R35.1 panel window-scoped
-// listeners, and R37 hidden-panel visibility all silently fell back to
-// their timer/flag fallbacks because the listeners were never registered.
+// Tauri 2 exposes the current window through getCurrentWindow(). Keep a
+// Tauri 1 fallback only for compatibility with older development shells.
+// Feature files use this accessor rather than retaining raw global handles.
 function getCurrentTauriWindow() {
   var api = (typeof window !== 'undefined' && window.__TAURI__ && window.__TAURI__.window) || null;
   if (!api) return null;
@@ -37,10 +23,42 @@ function getCurrentTauriWindow() {
   return null;
 }
 
-(function installReLlmpetBridge(global) {
+(function installOctopusBridge(global) {
   const tauri = global.__TAURI__;
   const invoke = tauri && tauri.core && tauri.core.invoke;
   const listen = tauri && tauri.event && tauri.event.listen;
+
+  // Tauri listeners live outside the page's JavaScript scope and therefore
+  // must be explicitly detached when a WebView reloads. Keep ownership in the
+  // bridge instead of making every renderer remember a growing list of
+  // unlisten callbacks. The disposed flag also closes the async race where
+  // `listen()` resolves after `beforeunload` has already run.
+  const subscriptionDisposers = new Set();
+  let bridgeDisposed = false;
+
+  function trackDisposer(dispose) {
+    let active = true;
+    const tracked = () => {
+      if (!active) return;
+      active = false;
+      subscriptionDisposers.delete(tracked);
+      try { dispose(); } catch (_) {}
+    };
+    if (bridgeDisposed) tracked();
+    else subscriptionDisposers.add(tracked);
+    return tracked;
+  }
+
+  function disposeSubscriptions() {
+    if (bridgeDisposed) return;
+    bridgeDisposed = true;
+    for (const dispose of Array.from(subscriptionDisposers)) dispose();
+    subscriptionDisposers.clear();
+  }
+
+  if (global && typeof global.addEventListener === 'function') {
+    global.addEventListener('beforeunload', disposeSubscriptions, { once: true });
+  }
 
   function call(command, args) {
     if (typeof invoke !== 'function') {
@@ -58,29 +76,46 @@ function getCurrentTauriWindow() {
   function send(command, args) {
     void call(command, args).catch((err) => {
       const msg = String(err && (err.message || err) || 'unknown');
-      try { console.error(`[re-llmpet] ${command} failed:`, msg); } catch (_) {}
+      try { console.error(`[octopus] ${command} failed:`, msg); } catch (_) {}
       // Emit a global error event so the UI can show a toast
       try { window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', { detail: { command, message: msg } })); } catch (_) {}
     });
   }
 
   function subscribe(channel, cb) {
-    if (typeof cb !== 'function' || typeof listen !== 'function') return () => {};
+    if (typeof cb !== 'function' || typeof listen !== 'function' || bridgeDisposed) return () => {};
     let active = true;
     let unlisten = null;
-    const pending = listen(channel, (event) => {
-      if (active) cb(event ? event.payload : undefined);
-    }).then((off) => {
-      if (!active) off();
+    const dispose = trackDisposer(() => {
+      active = false;
+      if (typeof unlisten === 'function') {
+        const off = unlisten;
+        unlisten = null;
+        off();
+      }
+    });
+    let registration;
+    try {
+      registration = listen(channel, (event) => {
+        if (active && !bridgeDisposed) cb(event ? event.payload : undefined);
+      });
+    } catch (err) {
+      dispose();
+      try { console.error(`[octopus] listen ${channel} failed`, err); } catch (_) {}
+      return dispose;
+    }
+    Promise.resolve(registration).then((off) => {
+      if (typeof off !== 'function') {
+        dispose();
+        return;
+      }
+      if (!active || bridgeDisposed) off();
       else unlisten = off;
     }).catch((err) => {
-      try { console.error(`[re-llmpet] listen ${channel} failed`, err); } catch (_) {}
+      dispose();
+      try { console.error(`[octopus] listen ${channel} failed`, err); } catch (_) {}
     });
-    return () => {
-      active = false;
-      if (typeof unlisten === 'function') unlisten();
-      else void pending;
-    };
+    return dispose;
   }
 
   global.pet = Object.freeze({
@@ -93,22 +128,25 @@ function getCurrentTauriWindow() {
       return () => { offPet(); offPanel(); };
     },
     onPrice: (cb) => subscribe('panel:price', cb),
+    onWindowBlur: (cb) => subscribe('pet:window-blur', cb),
+    onPanelShown: (cb) => subscribe('panel:shown', cb),
+    onPanelHidden: (cb) => subscribe('panel:hidden', cb),
 
     getConfig: () => call('get_config'),
     getStats: () => call('get_stats'),
     getPriceInfo: () => call('get_price_info'),
     refreshModelPrices: () => call('refresh_model_prices'),
-    setPriceAutoUpdate: (enabled, refreshHours) => send('set_price_auto_update', { enabled, refreshHours }),
-    setLanguage: (lang) => send('set_language', { lang }),
+    setPriceAutoUpdate: (enabled, refreshHours) => call('set_price_auto_update', { enabled, refreshHours }),
+    setLanguage: (lang) => call('set_language', { lang }),
     openPanel: () => send('open_panel'),
     // R38.1: upgraded to call() — the 0.5.16 full audit (P0-4) flagged
     // that send() (fire-and-forget) meant hide failures were invisible.
     // Now the caller can await and know if the hide succeeded.
     closePanel: () => call('close_panel'),
-    setMode: (mode) => send('set_mode', { mode }),
-    setSkin: (skin) => send('set_skin', { skin }),
-    setBudget: (value) => send('set_budget', { value }),
-    setCurrency: (currency) => send('set_currency', { currency }),
+    setMode: (mode) => call('set_mode', { mode }),
+    setSkin: (skin) => call('set_skin', { skin }),
+    setBudget: (value) => call('set_budget', { value }),
+    setCurrency: (currency) => call('set_currency', { currency }),
     // R19 (2026-07-30): persist session list pin/archive prefs.
     // R32 (2026-07-31): upgraded to call() — session prefs persist user intent
     // (pin/archive), so silent loss on IPC failure is unacceptable.
@@ -151,22 +189,18 @@ function getCurrentTauriWindow() {
     decideCwPermissionBatch: (permId, mode) => call('decide_permission_batch', { permId, mode }),
     focusSession: (sessionId) => send('focus_session', { sessionId }),
     primaryAction: () => send('primary_action'),
-    setIgnoreMouse: (ignore) => send('set_ignore_mouse', { ignore }),
+    setIgnoreMouse: (ignore) => call('set_ignore_mouse', { ignore }),
     setPetTall: (tall) => send('set_pet_tall', { tall }),
     setPetBig: (on) => send('set_pet_big', { on }),
     setPetSize: (width, height) => call('set_pet_size', { width, height }),
-    // R35.2 (2026-07-31): upgraded to call() — the 0.5.12 carpet audit
-    // P0-3 证据A flagged that send() (fire-and-forget) meant the panel
-    // cached lastFitHeight BEFORE knowing if Rust applied the size. If
-    // Rust rejected (window missing, monitor work_area clamp changed),
-    // the cache was stale and future same-height requests were skipped.
-    // call() returns a Promise so the caller can confirm success.
+    // Geometry state is acknowledged: callers commit their local cache only
+    // after Rust returns the actual clamped size.
     setPanelHeight: (height) => call('set_panel_height', { height }),
     focusPet: () => send('focus_pet'),
     blurPet: () => send('blur_pet'),
     openLog: () => send('open_log'),
     petLog: (tag, message) => send('pet_log', { tag, message }),
-    uiBusy: (on) => send('ui_busy', { on }),
+    uiBusy: (on) => call('ui_busy', { on }),
     petVisualBounds: (rect) => send('pet_visual_bounds', { rect }),
     // R44 0.5.40 (Roadmap v6 P0-01): config recovery closure. These three
     // commands are registered in panel capability ONLY (not pet) because

@@ -2,7 +2,7 @@
 
 // Build-time/source-tree installer for the Rust hook bridge. Node is used only
 // for this one-time configuration edit; the installed lifecycle hooks execute
-// the native RE-LLMPET binary in hook mode and do not start Node or Electron.
+// the native Octopus binary in hook mode and do not start Node or Electron.
 
 const fs = require('fs');
 const os = require('os');
@@ -18,7 +18,10 @@ const EVENTS = [
   // R27 (2026-07-30): 5 new observer events from Claude Code v2.1.219+
   'Setup', 'InstructionsLoaded', 'CwdChanged', 'WorktreeRemove', 'DirectoryAdded',
 ];
-const MARKER = '--re-llmpet-hook';
+const MARKER = '--octopus-hook';
+const LEGACY_MARKER = '--re-llmpet-hook';
+const OWNER = '--owner octopus';
+const LEGACY_OWNER = '--owner re-llmpet';
 
 function quote(value) {
   const text = String(value);
@@ -32,6 +35,8 @@ function findBinary() {
   const suffix = process.platform === 'win32' ? '.exe' : '';
   const candidates = [
     explicit,
+    path.join(__dirname, '..', 'src-tauri', 'target', 'release', `octopus-hook${suffix}`),
+    path.join(__dirname, '..', 'src-tauri', 'target', 'debug', `octopus-hook${suffix}`),
     path.join(__dirname, '..', 'src-tauri', 'target', 'release', `octopus${suffix}`),
     path.join(__dirname, '..', 'src-tauri', 'target', 'debug', `octopus${suffix}`),
     path.join(__dirname, '..', 'src-tauri', 'target', 'release', `re-llmpet-hook${suffix}`),
@@ -40,7 +45,7 @@ function findBinary() {
   const found = candidates.find((candidate) => {
     try { return fs.statSync(candidate).isFile(); } catch { return false; }
   });
-  if (!found) throw new Error(`RE-LLMPET binary not found. Build it first with: cargo build --manifest-path src-tauri/Cargo.toml --release --bins`);
+  if (!found) throw new Error(`Octopus hook binary not found. Build it first with: cargo build --manifest-path src-tauri/Cargo.toml --release --bins`);
   return found;
 }
 
@@ -63,7 +68,7 @@ function writeAtomic(file, value) {
 }
 
 function isOurs(hook) {
-  return hook && typeof hook.command === 'string' && hook.command.includes(MARKER);
+  return hook && typeof hook.command === 'string' && [MARKER, LEGACY_MARKER, OWNER, LEGACY_OWNER].some((token) => hook.command.includes(token));
 }
 
 // R44 Phase 0C/0D removed the broad `isOurHttp` predicate that matched any
@@ -71,7 +76,7 @@ function isOurs(hook) {
 // is also used by the official LLMPET product, so claiming it as "ours"
 // caused the Node installer to delete official LLMPET's HTTP permission
 // hooks on uninstall. As of 0.5.39 the Node installer only claims ownership
-// of hooks containing the exact RE-LLMPET marker string. Legacy HTTP hooks
+// of hooks containing the exact Octopus or legacy marker string. Legacy HTTP hooks
 // must go through Legacy Repair (R44 Phase 0E+), not auto-deleted here.
 
 function sync(hooks, event, desired, matcher) {
@@ -112,18 +117,18 @@ function install() {
   if (!settings.hooks || typeof settings.hooks !== 'object') settings.hooks = {};
   const result = { added: 0, updated: 0, binary };
   for (const event of EVENTS) {
-    const command = `${quote(binary)} --re-llmpet-hook --provider claude ${event}`;
+    const command = `${quote(binary)} ${MARKER} ${OWNER} --provider claude ${event}`;
     const desired = process.platform === 'win32'
       ? { type: 'command', shell: 'powershell', command, timeout: 5 }
       : { type: 'command', command, timeout: 5 };
     result[sync(settings.hooks, event, desired, isOurs)]++;
   }
-  const pretoolCommand = `${quote(binary)} --re-llmpet-hook --provider claude --pretool PreToolUse`;
+  const pretoolCommand = `${quote(binary)} ${MARKER} ${OWNER} --provider claude --pretool PreToolUse`;
   const pretoolHook = process.platform === 'win32'
     ? { type: 'command', shell: 'powershell', command: pretoolCommand, timeout: 600 }
     : { type: 'command', command: pretoolCommand, timeout: 600 };
   result[sync(settings.hooks, 'PreToolUse', pretoolHook, isOurs)]++;
-  const permissionCommand = `${quote(binary)} --re-llmpet-hook --provider claude --permission PermissionRequest`;
+  const permissionCommand = `${quote(binary)} ${MARKER} ${OWNER} --provider claude --permission PermissionRequest`;
   const permissionHook = process.platform === 'win32'
     ? { type: 'command', shell: 'powershell', command: permissionCommand, timeout: 600 }
     : { type: 'command', command: permissionCommand, timeout: 600 };

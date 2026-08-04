@@ -10,16 +10,16 @@ use tauri::{AppHandle, Manager, PhysicalPosition, Position};
 
 const MAX_PARENT_DEPTH: usize = 16;
 const HEALTH_CHECK_SECS: u64 = 30;
-// R37 (2026-08-01): adaptive cursor hit-test polling. The 0.5.12 carpet
-// audit P1-4 flagged that the fixed 24ms poll (~42Hz) runs forever even
-// when the pet is idle and no click-through is requested. Now we use:
-//   - CURSOR_HIT_TEST_MS (24ms) when mouse_ignore_requested is true
-//     (active click-through management — need responsive cursor tracking)
-//   - CURSOR_HIT_TEST_IDLE_MS (250ms) when mouse_ignore_requested is false
-//     (idle — just checking if the flag flipped, ~4Hz is sufficient)
-// This reduces idle wakeups by ~10× with no user-visible difference.
-const CURSOR_HIT_TEST_MS: u64 = 24;
-const CURSOR_HIT_TEST_IDLE_MS: u64 = 250;
+// Adaptive cursor hit-test polling. The old fixed 24ms loop (~42 Hz)
+// woke forever even when the pet was idle. The current guard uses four tiers:
+// 45ms near the hit target, 240ms when the cursor is far away, 500ms while
+// interaction is not requested/UI is busy, and 1000ms while the pet is hidden.
+// This keeps recovery responsive near the pet without paying the hot-loop cost
+// during ordinary idle time.
+const CURSOR_HIT_TEST_NEAR_MS: u64 = 45;
+const CURSOR_HIT_TEST_FAR_MS: u64 = 240;
+const CURSOR_HIT_TEST_IDLE_MS: u64 = 500;
+const CURSOR_HIT_TEST_HIDDEN_MS: u64 = 1000;
 const CURSOR_HIT_PADDING: f64 = 6.0;
 const VISIBLE_MARGIN: i32 = 48;
 
@@ -29,6 +29,12 @@ pub struct VisualBounds {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CursorHitDecision {
+    ignore: bool,
+    delay_ms: u64,
 }
 
 #[derive(Default)]
@@ -61,57 +67,92 @@ impl PlatformState {
         }
         let state = self.clone();
         let _ = thread::Builder::new()
-            .name("re-llmpet-cursor-hit-test".into())
+            .name("octopus-cursor-hit-test".into())
             .spawn(move || loop {
-                // R37: adaptive sleep — 24ms when actively managing click-through
-                // (mouse_ignore_requested=true), 250ms when idle. This reduces
-                // idle CPU wakeups from ~42Hz to ~4Hz.
-                let requested = state.mouse_ignore_requested.load(Ordering::Acquire);
-                let sleep_ms = if requested {
-                    CURSOR_HIT_TEST_MS
-                } else {
-                    CURSOR_HIT_TEST_IDLE_MS
-                };
-                thread::sleep(Duration::from_millis(sleep_ms));
                 let Some(window) = app.get_webview_window("pet") else {
+                    thread::sleep(Duration::from_millis(CURSOR_HIT_TEST_HIDDEN_MS));
                     continue;
                 };
-                let ignore = state.should_ignore_cursor(&window);
+                let decision = state.cursor_hit_decision(&window);
                 let previous = state.mouse_ignore_applied.load(Ordering::Acquire);
-                if previous != ignore && window.set_ignore_cursor_events(ignore).is_ok() {
-                    state.mouse_ignore_applied.store(ignore, Ordering::Release);
+                if previous != decision.ignore
+                    && window.set_ignore_cursor_events(decision.ignore).is_ok()
+                {
+                    state
+                        .mouse_ignore_applied
+                        .store(decision.ignore, Ordering::Release);
                 }
+                thread::sleep(Duration::from_millis(decision.delay_ms));
             });
     }
 
-    fn should_ignore_cursor(&self, window: &tauri::WebviewWindow) -> bool {
-        if !self.mouse_ignore_requested.load(Ordering::Acquire) {
-            return false;
+    fn cursor_hit_decision(&self, window: &tauri::WebviewWindow) -> CursorHitDecision {
+        if self.is_ui_busy() || !self.mouse_ignore_requested.load(Ordering::Acquire) {
+            return CursorHitDecision {
+                ignore: false,
+                delay_ms: CURSOR_HIT_TEST_IDLE_MS,
+            };
+        }
+        if !window.is_visible().unwrap_or(false) {
+            return CursorHitDecision {
+                ignore: false,
+                delay_ms: CURSOR_HIT_TEST_HIDDEN_MS,
+            };
         }
         let Some(bounds) = self.visual_bounds() else {
             // Never enter an unrecoverable click-through state before the
             // renderer has reported a usable hit target.
-            return false;
+            return CursorHitDecision {
+                ignore: false,
+                delay_ms: CURSOR_HIT_TEST_IDLE_MS,
+            };
         };
-        let Ok(cursor) = window.cursor_position() else {
-            return false;
-        };
-        let Ok(origin) = window.inner_position() else {
-            return false;
+        let (Ok(cursor), Ok(origin)) = (window.cursor_position(), window.inner_position()) else {
+            return CursorHitDecision {
+                ignore: false,
+                delay_ms: CURSOR_HIT_TEST_IDLE_MS,
+            };
         };
         let scale = window
             .scale_factor()
             .ok()
             .filter(|value| value.is_finite() && *value > 0.0)
             .unwrap_or(1.0);
+
+        let left = f64::from(origin.x) + bounds.x * scale;
+        let top = f64::from(origin.y) + bounds.y * scale;
+        let right = left + bounds.width * scale;
+        let bottom = top + bounds.height * scale;
         let padding = CURSOR_HIT_PADDING * scale;
-        let left = f64::from(origin.x) + bounds.x * scale - padding;
-        let top = f64::from(origin.y) + bounds.y * scale - padding;
-        let right = left + bounds.width * scale + padding * 2.0;
-        let bottom = top + bounds.height * scale + padding * 2.0;
-        let over_interactive_region =
-            cursor.x >= left && cursor.x <= right && cursor.y >= top && cursor.y <= bottom;
-        !over_interactive_region
+        let over_interactive_region = cursor.x >= left - padding
+            && cursor.x <= right + padding
+            && cursor.y >= top - padding
+            && cursor.y <= bottom + padding;
+
+        let dx = if cursor.x < left {
+            left - cursor.x
+        } else if cursor.x > right {
+            cursor.x - right
+        } else {
+            0.0
+        };
+        let dy = if cursor.y < top {
+            top - cursor.y
+        } else if cursor.y > bottom {
+            cursor.y - bottom
+        } else {
+            0.0
+        };
+        let delay_ms = if dx <= 96.0 * scale && dy <= 96.0 * scale {
+            CURSOR_HIT_TEST_NEAR_MS
+        } else {
+            CURSOR_HIT_TEST_FAR_MS
+        };
+
+        CursorHitDecision {
+            ignore: !over_interactive_region,
+            delay_ms,
+        }
     }
 
     pub fn set_visual_bounds(&self, rect: &Value) -> Result<(), String> {
@@ -157,7 +198,7 @@ impl PlatformState {
         }
         let state = self.clone();
         let _ = thread::Builder::new()
-            .name("re-llmpet-display-health".into())
+            .name("octopus-display-health".into())
             .spawn(move || loop {
                 thread::sleep(Duration::from_secs(HEALTH_CHECK_SECS));
                 if let Err(error) = state.recover_windows(&app, &runtime, false) {

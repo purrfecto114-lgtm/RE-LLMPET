@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const os = require('os');
 
 const ROOT = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -43,13 +44,16 @@ assert(driftScript.includes('readBoundedResponse'));
 assert(driftScript.includes('20 * 1024 * 1024'));
 assert(driftScript.includes('response-too-large'));
 assert(driftScript.includes('AbortController'));
+assert(driftScript.includes("process.argv.indexOf('--report')"), 'tests need an isolated report path');
 
-const result = spawnSync(process.execPath, ['scripts/check-protocol-drift.js'], {
+const tempReport = path.join(os.tmpdir(), `octopus-protocol-drift-${process.pid}.json`);
+const result = spawnSync(process.execPath, ['scripts/check-protocol-drift.js', '--report', tempReport], {
   cwd: ROOT,
   encoding: 'utf8',
 });
 assert.strictEqual(result.status, 0, result.stderr || result.stdout);
-const report = JSON.parse(read('reports/protocol-drift.json'));
+const report = JSON.parse(fs.readFileSync(tempReport, 'utf8'));
+fs.rmSync(tempReport, { force: true });
 assert.notStrictEqual(report.verdict, 'review-required', 'verdict must not be review-required when local contracts match');
 assert(report.local.every((entry) => entry.ok));
 assert(Array.isArray(report.cliVersions) && report.cliVersions.length === 5);

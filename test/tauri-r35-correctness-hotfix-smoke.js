@@ -94,7 +94,7 @@ assert(petJs.includes("getElementById('pet-anchor')"),
 // removed them. R35.2 added #provider-chooser (0.5.12 carpet audit
 // P0-1 证据B). Assert the current selector and the absence of the
 // animated skins in it.
-assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player,#provider-chooser'"),
+assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#provider-chooser'"),
   'R35.2: INTERACTIVE_HIT_SEL must be anchor-only + #provider-chooser');
 assert(!petJs.includes("'#pet-anchor,#pixel,#mascot,#cat,#radial,"),
   'R35.1: the old union selector (with animated skins) must be gone');
@@ -104,10 +104,10 @@ assert(petJs.includes('let geometryBusy = false'),
 assert(petJs.includes('if (geometryBusy)'),
   'openRadial must check geometryBusy before anchoring');
 // dedupe of identical set_pet_size calls
-assert(petJs.includes('lastSentPetSize'),
-  'pet.js must track lastSentPetSize to dedupe identical set_pet_size calls');
-assert(petJs.includes('markGeometryBusy()'),
-  'pet.js must call markGeometryBusy() when issuing a set_pet_size');
+assert(petJs.includes('const petSizeController') && petJs.includes('OctoLatestValue.createLatestValueController'),
+  'pet.js must dedupe and coalesce set_pet_size through the latest-value controller');
+assert(petJs.includes('markGeometryBusy(size)'),
+  'pet.js must call markGeometryBusy(size) when issuing a set_pet_size');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0-2: panel transparent gutter + work area clamp
@@ -132,27 +132,29 @@ assert(panelJs.includes('function installWindowModeListeners'),
   'panel.js must install window mode event listeners');
 assert(panelJs.includes('let userSized = false'),
   'panel.js must declare userSized flag');
-assert(panelJs.includes('if (userSized) return'),
+assert(/function fitPanelHeight[\s\S]{0,220}userSized/.test(panelJs),
   'fitPanelHeight must skip when userSized is true');
-assert(panelJs.includes('if (windowMaximized || windowFullscreen) return'),
+assert(/function fitPanelHeight[\s\S]{0,220}windowMaximized[\s\S]{0,80}windowFullscreen/.test(panelJs),
   'fitPanelHeight must skip when window is maximized/fullscreen');
 assert(panelJs.includes("classList.toggle('window-maximized'"),
   'panel.js must toggle the window-maximized body class');
 // dedupe identical consecutive setPanelHeight calls
-assert(panelJs.includes('lastFitHeight'),
-  'panel.js must dedupe identical consecutive setPanelHeight calls');
+assert(panelJs.includes('OctoPanelFit.createPanelFitController'),
+  'panel.js must delegate resize sequencing and dedupe to panel-fit-controller');
 // DOMContentLoaded must call syncWindowMode + installWindowModeListeners
 const domBlock = panelJs.slice(panelJs.indexOf("document.addEventListener('DOMContentLoaded'"));
 assert(domBlock.includes('syncWindowMode()') && domBlock.includes('installWindowModeListeners()'),
   'panel.js DOMContentLoaded must call syncWindowMode() and installWindowModeListeners()');
 
 // commands.rs: set_panel_height clamps to monitor work area
-assert(commands.includes('work_area_max_logical'),
-  'set_panel_height must compute work_area_max_logical from current_monitor');
+assert(commands.includes('fn fit_and_center_panel'),
+  'panel sizing must use the shared fit_and_center_panel helper');
 assert(commands.includes('monitor.work_area()'),
-  'set_panel_height must use monitor.work_area() to clamp height');
-assert(commands.includes('height.clamp(480.0, work_area_max_logical)'),
-  'set_panel_height must clamp height to [480, work_area_max_logical]');
+  'panel sizing must use monitor.work_area() to clamp height');
+assert(commands.includes('PANEL_MIN_HEIGHT') && commands.includes('PANEL_DEFAULT_HEIGHT'),
+  'panel height must be bounded by explicit logical min/max constants');
+assert(/pub fn set_panel_height[\s\S]*?PanelPlacement::PreserveCurrentCenter/.test(commands),
+  'set_panel_height must clamp while preserving the panel center');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0-3: diagnostics cancel + generation + stale-result suppression

@@ -44,7 +44,7 @@ const release = read('.github/workflows/release.yml');
 // R35.2 (2026-07-31): the selector now ALSO includes #provider-chooser
 // (0.5.12 carpet audit P0-1 证据B). The R35.1 anchor-only assertion is
 // preserved but the expected string is updated to include #provider-chooser.
-assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player,#provider-chooser'"),
+assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#provider-chooser'"),
   'R35.2: INTERACTIVE_HIT_SEL must be anchor-only + #provider-chooser');
 assert(!petJs.includes("'#pet-anchor,#pixel,#mascot,#cat,#radial,"),
   'R35.1: the old union selector with animated skins must be gone');
@@ -66,8 +66,9 @@ assert(petJs.includes('if (pendingRadialOpen)'),
 // closeRadial, blur, and drag-start all clear the pending intent
 assert(/function closeRadial\(\)\s*{[\s\S]*?pendingRadialOpen = false/.test(petJs),
   'R35.1: closeRadial must clear pendingRadialOpen');
-assert(/window\.addEventListener\('blur'[\s\S]*?pendingRadialOpen = false/.test(petJs),
-  'R35.1: blur handler must clear pendingRadialOpen');
+assert(petJs.includes("window.addEventListener('blur', () => dismissTransientUi('dom-blur'))")
+  && /function dismissTransientUi[\s\S]*?pendingRadialOpen = false/.test(petJs),
+  'R35.1: blur handler must delegate to a dismiss function that clears pendingRadialOpen');
 assert(/pointerdown[\s\S]*?pendingRadialOpen = false/.test(petJs),
   'R35.1: drag-start (pointerdown) must clear pendingRadialOpen');
 
@@ -91,19 +92,19 @@ assert(panelJs.includes('windowModeUnlisteners'),
   'R35.1: panel.js must collect window-mode unlisteners for teardown');
 assert(panelJs.includes('teardownWindowModeListeners'),
   'R35.1: panel.js must define teardownWindowModeListeners');
-// resetAutoFitOnShow resets userSized + lastFitHeight + lastFitRequestTs
+// resetAutoFitOnShow resets userSized and the fit controller
 assert(panelJs.includes('function resetAutoFitOnShow'),
   'R35.1: panel.js must define resetAutoFitOnShow');
 assert(/resetAutoFitOnShow[\s\S]{0,300}userSized = false/.test(panelJs),
   'R35.1: resetAutoFitOnShow must reset userSized=false');
-assert(/resetAutoFitOnShow[\s\S]{0,300}lastFitHeight = 0/.test(panelJs),
-  'R35.1: resetAutoFitOnShow must reset lastFitHeight=0');
+assert(/resetAutoFitOnShow[\s\S]{0,300}panelFitController\.reset\(\)/.test(panelJs),
+  'R35.1: resetAutoFitOnShow must reset the fit controller');
 // Rust open_panel emits panel:shown event
 assert(commands.includes('app.emit("panel:shown", ())'),
   'R35.1: Rust open_panel must emit panel:shown event');
 // Frontend subscribes to panel:shown
-assert(panelJs.includes("ev.listen('panel:shown'"),
-  'R35.1: panel.js must subscribe to panel:shown event');
+assert(panelJs.includes('window.pet.onPanelShown'),
+  'R35.1: panel.js must subscribe to panel:shown through the bridge');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0-3: async diagnose_agent with spawn_blocking
@@ -120,14 +121,14 @@ assert(commands.includes('pub async fn diagnose_agent(provider: String)')
 // It offloads to spawn_blocking
 assert(commands.includes('tauri::async_runtime::spawn_blocking'),
   'R35.1: diagnose_agent must use tauri::async_runtime::spawn_blocking');
-// The body is extracted into diagnose_agent_sync
-// R35.2: the sync body now takes a register_pid callback for cancellation.
-assert(commands.includes('fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32))'),
-  'R35.1/R35.2: the sync body must be extracted into diagnose_agent_sync');
-// The async wrapper handles JoinError (panic)
-// R35.2: the spawn_blocking closure now passes a register_pid closure.
-assert(/spawn_blocking\(move \|\|[\s\S]*?diagnose_agent_sync[\s\S]*?map_err\(\|join_error\|/.test(commands),
-  'R35.1: async wrapper must map_err on JoinError (panic propagation)');
+// The body is extracted into diagnose_agent_sync and receives the shared
+// cancellation/PID owner rather than an ad-hoc callback.
+assert(commands.includes('fn diagnose_agent_sync(provider: String, control: &DiagnosticControl)'),
+  'the sync body must be extracted and use DiagnosticControl');
+// Ownership is released before JoinError is propagated, preventing a
+// permanent busy state after a blocking worker panic.
+assert(/spawn_blocking\(move \|\|[\s\S]*?diagnose_agent_sync[\s\S]*?\.await;[\s\S]*?diagnostic_control\.finish\(\);[\s\S]*?Err\(join_error\)/.test(commands),
+  'async wrapper must finish diagnostic ownership before propagating JoinError');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0-5: provider chooser + removal of「名称 +N」
@@ -148,11 +149,13 @@ assert(petJs.includes('function openProviderChooser'),
   'R35.1: pet.js must define openProviderChooser');
 assert(petJs.includes('function closeProviderChooser'),
   'R35.1: pet.js must define closeProviderChooser');
-// Single provider launches directly; multiple opens chooser
-// R35.2: single-provider launch now uses launchProviderChecked (call)
-// instead of launchAgent (send), so failures surface.
-assert(/activeProviders\.length === 1[\s\S]{0,500}launchProviderChecked/.test(petJs),
-  'R35.1/R35.2: single provider must launch directly via launchProviderChecked (no modal)');
+// The explicit “New Agent ▾” affordance always opens the chooser, including
+// single-provider configurations. Launch only occurs after a selected item
+// completes the awaited native call.
+assert(/function chooseProviderAndLaunch\(\) \{\s*openProviderChooser\(\);\s*\}/.test(petJs),
+  'R35.1/R35.2: new Agent must always open the provider chooser');
+assert(petJs.includes("window.pet.launchAgentChecked(provider)"),
+  'R35.2: provider selection must await launchAgentChecked');
 // The「+N」label is gone from agent-tag
 assert(!/\+ \$\{activeProviders\.length - 1\}/.test(petJs),
   'R35.1: the「+N」label must be removed from agent-tag');
@@ -172,11 +175,13 @@ assert(petJs.includes("case 'choose-provider'"),
 // P0-6: release.yml platform signing semantics
 // ──────────────────────────────────────────────────────────────────────────
 
-// The release workflow distinguishes Tauri updater key from platform signing
+// The release workflow distinguishes updater artifacts from native platform signing.
 assert(release.includes('PLATFORM_SIGNED'),
   'R35.1: release.yml must compute PLATFORM_SIGNED per platform');
-assert(release.includes('platformSigned='),
-  'R35.1: release.yml must output platformSigned for downstream steps');
+assert(!release.includes('platformSigned='),
+  'R45: release.yml must not retain an unused platformSigned output');
+assert(release.includes('uploadUpdaterJson: false') && release.includes('uploadUpdaterSignatures: false'),
+  'R45: updater outputs must be disabled at the action boundary');
 // Windows cert missing → warning
 assert(release.includes('WINDOWS_CERTIFICATE') && release.includes('::warning::'),
   'R35.1: release.yml must warn when WINDOWS_CERTIFICATE is missing');
@@ -188,8 +193,11 @@ assert(release.includes('REQUIRE_PLATFORM_SIGNING'),
   'R35.1: release.yml must honor REQUIRE_PLATFORM_SIGNING repo variable');
 assert(/REQUIRE_PLATFORM_SIGNING[\s\S]*?exit 1/.test(release),
   'R35.1: release.yml must exit 1 when REQUIRE_PLATFORM_SIGNING=true and platform cert missing');
-// The misleading "updater key = binary signed" language is corrected
-assert(release.includes('Tauri-updater-signed only'),
-  'R35.1: release.yml warnings must say "Tauri-updater-signed only" (not "binary signed")');
+// Updater signing keys are absent while native signing warnings name the
+// actual Authenticode / Developer ID publisher identity.
+assert(!release.includes('TAURI_SIGNING_PRIVATE_KEY'),
+  'R45: updater signing key must not be presented as platform publisher signing');
+assert(release.includes('Authenticode') && release.includes('Developer ID'),
+  'R45: native signing warnings must name the platform-specific mechanisms');
 
 console.log('tauri-r351-correctness-patch-smoke: ok (5 P0/P1 patches locked: P0-1 anchor-only hit-test + single radial intent, P0-2 window-scoped panel listeners + panel:shown reset, P0-3 async diagnose_agent + spawn_blocking, P0-5 provider chooser + no +N label, P0-6 release.yml platform signing semantics)');

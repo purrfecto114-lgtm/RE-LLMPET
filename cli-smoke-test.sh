@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RE-LLMPET CLI 冒烟测试脚本 — R18 (2026-07-30)
+# Octopus CLI 冒烟测试脚本 — R18 (2026-07-30)
 #
 # 用途：在目标机器上验证 RE-LLMPET 的 5-provider CLI 诊断流程。
 # 本脚本不依赖 cargo/Tauri 构建 — 它直接测试项目文档/契约中描述的
@@ -22,7 +22,7 @@ pass() { echo "  PASS: $1"; PASSES=$((PASSES+1)); }
 fail() { echo "  FAIL: $1"; FAILS=$((FAILS+1)); }
 skip() { echo "  SKIP: $1 (原因: $2)"; SKIPS=$((SKIPS+1)); }
 
-echo "=== RE-LLMPET CLI 冒烟测试 ==="
+echo "=== Octopus CLI 冒烟测试 ==="
 echo "项目根: $PROJECT_ROOT"
 echo "时间: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo ""

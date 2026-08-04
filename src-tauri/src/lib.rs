@@ -1,8 +1,11 @@
 mod commands;
+mod diagnostic_control;
+mod diagnostic_io;
 mod emotion;
 pub mod hook_client;
 mod hook_install;
 mod http_server;
+mod instance_probe;
 mod i18n;
 mod metering;
 mod model;
@@ -12,13 +15,24 @@ mod transcript;
 
 use commands::*;
 use model::AppState;
-use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Emitter, Manager, PhysicalPosition, Position, RunEvent};
+use tauri::{Emitter, Manager, PhysicalPosition, Position, RunEvent, WindowEvent};
 
 pub fn run() {
+    // Fast path for ordinary duplicate launches: avoid constructing windows,
+    // ledgers and background workers when a live Octopus server already owns
+    // one of the compatibility ports. `http_server::start` repeats the check
+    // after binding to close the simultaneous-launch race.
+    let existing_instance_activated = match instance_probe::default_runtime_path() {
+        Some(runtime_path) => instance_probe::activate_runtime_instance(&runtime_path).is_ok(),
+        None => false,
+    };
+    if existing_instance_activated {
+        return;
+    }
+
     let platform_state = Arc::new(platform::PlatformState::default());
     let platform_for_setup = platform_state.clone();
     let platform_for_events = platform_state.clone();
@@ -28,6 +42,34 @@ pub fn run() {
         .manage(AppState::new())
         .manage(platform_state)
         .setup(move |app| {
+            let state = app.state::<AppState>();
+            let server = match http_server::start(state.runtime.clone(), app.handle().clone()) {
+                Ok(server) => Some(server),
+                Err(http_server::StartError::AlreadyRunning(port)) => {
+                    state.runtime.write_log(
+                        "startup",
+                        &format!("existing Octopus instance activated on port {port}"),
+                    );
+                    app.handle().exit(0);
+                    return Ok(());
+                }
+                Err(http_server::StartError::Unavailable(error)) => {
+                    // The local authenticated server is the provider-hook and
+                    // single-instance control plane. Starting the UI without it
+                    // produces a deceptively healthy pet that can never observe
+                    // agents, and setup-time events may be emitted before the
+                    // renderer subscribes. Abort instead of entering that split
+                    // state; the existing startup log retains the root cause.
+                    state
+                        .runtime
+                        .write_log("startup", &format!("HTTP server unavailable: {error}"));
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::AddrNotAvailable,
+                        format!("Octopus local Agent service could not start: {error}"),
+                    )
+                    .into());
+                }
+            };
             setup_tray(app)?;
             // R28 (2026-07-30): Disable Windows 11 DWM automatic corner
             // rounding for ALL windows. Windows 11 rounds ALL window corners
@@ -44,7 +86,6 @@ pub fn run() {
                     }
                 }
             }
-            let state = app.state::<AppState>();
             if let Some(position) = state.runtime.config().pet_position {
                 if let Some(window) = app.get_webview_window("pet") {
                     // R24 (2026-07-30): pet_position is stored as LOGICAL
@@ -68,42 +109,33 @@ pub fn run() {
             }
             platform_for_setup.start_health_check(app.handle().clone(), state.runtime.clone());
             platform_for_setup.start_cursor_hit_test(app.handle().clone());
-            match http_server::start(state.runtime.clone(), app.handle().clone()) {
-                Ok(server) => {
-                    state.runtime.write_log(
-                        "startup",
-                        &format!("Tauri core ready on port {}", server.port),
-                    );
-                    let config = state.runtime.config();
-                    // R36 (2026-07-31): startup now uses verify_enabled
-                    // (read-only) instead of sync_enabled (which installs/
-                    // uninstalls hooks into external provider configs).
-                    // The 0.5.12 carpet audit P1-3 flagged that auto-
-                    // modifying external configs on every launch is a
-                    // trust boundary issue. Now startup only CHECKS hook
-                    // status and reports drift; the user must explicitly
-                    // call set_providers (→ resync_current) to install.
-                    let statuses = hook_install::verify_enabled(&state.runtime, &config.providers);
-                    for status in statuses
-                        .iter()
-                        .filter(|status| status.state == "missing" || status.state == "error")
-                    {
-                        state.runtime.write_log(
-                            "hooks",
-                            &format!(
-                                "{} hook drift at startup: {} ({})",
-                                status.id, status.state, status.message
-                            ),
-                        );
-                    }
+            if let Some(server) = server {
+                let server_port = server.port;
+                if !app.manage(server) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::AlreadyExists,
+                        "HTTP server lease is already managed",
+                    )
+                    .into());
                 }
-                Err(error) => {
-                    state
-                        .runtime
-                        .write_log("startup", &format!("HTTP server disabled: {error}"));
-                    let _ = app.emit(
-                        "pet:event",
-                        json!({"kind":"error","text":format!("本地 Agent 服务启动失败：{error}")}),
+                state.runtime.write_log(
+                    "startup",
+                    &format!("Tauri core ready on port {server_port}"),
+                );
+                let config = state.runtime.config();
+                // Startup verifies external hooks but never mutates provider
+                // configuration. Installation remains an explicit user action.
+                let statuses = hook_install::verify_enabled(&state.runtime, &config.providers);
+                for status in statuses
+                    .iter()
+                    .filter(|status| status.state == "missing" || status.state == "error")
+                {
+                    state.runtime.write_log(
+                        "hooks",
+                        &format!(
+                            "{} hook drift at startup: {} ({})",
+                            status.id, status.state, status.message
+                        ),
                     );
                 }
             }
@@ -116,6 +148,31 @@ pub fn run() {
             let _ = app.emit("panel:stats", stats);
             let _ = app.emit("panel:price", state.runtime.price_info());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() == "panel" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    // The panel is created once and hidden between uses. Native
+                    // close requests (Alt+F4/taskbar/system menu) must follow
+                    // the same lifecycle as the in-app close button; otherwise
+                    // later open_panel calls would target a destroyed window.
+                    api.prevent_close();
+                    match window.hide() {
+                        Ok(()) => {
+                            let _ = window.app_handle().emit("panel:hidden", ());
+                        }
+                        Err(error) => {
+                            let state = window.app_handle().state::<AppState>();
+                            state.runtime.write_log(
+                                "panel",
+                                &format!("native close hide failed: {error}"),
+                            );
+                        }
+                    }
+                }
+            } else if window.label() == "pet" && matches!(event, WindowEvent::Focused(false)) {
+                let _ = window.emit("pet:window-blur", ());
+            }
         })
         .invoke_handler(tauri::generate_handler![
             get_config,
@@ -165,7 +222,7 @@ pub fn run() {
             quit_app
         ])
         .build(tauri::generate_context!())
-        .expect("error while building RE-LLMPET");
+        .expect("error while building Octopus");
 
     app.run(move |app_handle, event| match event {
         RunEvent::ExitRequested { .. } => {
@@ -650,7 +707,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 let state = app.state::<AppState>();
                 state
                     .runtime
-                    .cancel_all_pending("RE-LLMPET is shutting down; permission denied");
+                    .cancel_all_pending("Octopus is shutting down; permission denied");
                 app.exit(0);
             }
             _ => {}

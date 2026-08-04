@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="pet.css" />
-    <title>RE-LLMPET</title>
+    <title>Octopus</title>
   </head>
   <body>
     <div id="stage">
@@ -60,14 +60,6 @@
 
       <!-- 按工具动作时头顶飘出的道具 emoji -->
       <div id="prop" class="prop"></div>
-
-      <!-- 上游表情包安全预览：媒体按当前皮肤放在桌宠侧边，只播放 GIF/语音，不伪报 Prompt 已发送。 -->
-      <div id="meme-player" class="meme-player hidden" aria-live="polite">
-        <button id="meme-player-close" class="meme-close" type="button" aria-label="关闭">✕</button>
-        <img id="meme-image" alt="" draggable="false" />
-        <div id="meme-caption" class="meme-caption"></div>
-        <div id="meme-status" class="meme-status"></div>
-      </div>
       <!-- 召唤 subagent 时弹出的小分身 -->
       <div id="sidekick" class="sidekick">🐙</div>
 
@@ -92,7 +84,7 @@
           <img id="mascot-img" src="../assets/mascot.png" alt="mascot" draggable="false" />
         </div>
 
-        <!-- 形象五：月薪喵（猫 meme 表情包皮肤，每个状态一张 GIF，动效由 GIF 自带） -->
+        <!-- 形象五：月薪喵（普通动画猫皮肤，每个状态一张 GIF，动效由 GIF 自带） -->
         <div id="cat" class="cat idle">
           <img id="cat-img" src="../assets/cat/cat-idle.gif" alt="cat" draggable="false" />
         </div>
@@ -135,10 +127,9 @@
         <span id="np-badge" class="np-badge"></span>
       </div>
 
-      <!-- 会话列表 HUD：结构对齐上游 1.1.1；表情包作为同一 HUD 的二级页面。 -->
+      <!-- 会话列表 HUD -->
       <div id="sesslist" class="sesslist hidden">
         <div class="sl-top">
-          <button id="sl-back" class="sl-back hidden" type="button" title="返回会话" data-i18n-title="sess.back">‹</button>
           <span class="sl-title" id="sl-title" data-i18n="sess.title">🗂️ 会话</span>
           <span class="sl-sub" id="sl-sub"></span>
           <span class="sl-close" id="sl-close" title="关闭" data-i18n-title="sess.close">✕</span>
@@ -149,11 +140,6 @@
             <button id="sl-new">🚀 新开 Claude</button>
             <button id="sl-panel" data-i18n="sess.panel">📊 详情</button>
           </div>
-        </div>
-        <div id="sl-meme-view" class="sl-meme-view hidden">
-          <div id="sl-meme-session" class="sl-meme-session" data-i18n="meme.noDispatcher">Prompt 下发器尚未就绪。</div>
-          <div id="sl-meme-grid" class="sl-meme-grid"></div>
-          <div id="sl-meme-status" class="sl-meme-status"></div>
         </div>
       </div>
 
@@ -187,8 +173,9 @@
 
     <script src="../shared/i18n.js"></script>
     <script src="../shared/toast.js"></script>
-    <script src="../shared/memes.js"></script>
     <script src="tauri-bridge.js"></script>
+    <script src="../shared/latest-value-controller.js"></script>
+    <script src="../shared/config-write-controller.js"></script>
     <script src="../shared/states.js"></script>
     <script src="icons.js"></script>
     <script src="pet.js"></script>

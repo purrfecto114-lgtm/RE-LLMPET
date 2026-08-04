@@ -97,7 +97,7 @@ pub fn start(runtime: Arc<Runtime>, app: AppHandle) {
     let worker_app = app.clone();
     let spawn_result =
         thread::Builder::new()
-            .name("re-llmpet-pricing-sync".into())
+            .name("octopus-pricing-sync".into())
             .spawn(move || {
                 let runtime = worker_runtime;
                 let app = worker_app;
@@ -424,9 +424,12 @@ fn download_with_curl(
         "--max-time",
         "20",
         "--user-agent",
-        "RE-LLMPET/0.5.35 pricing-sync",
-        "--dump-header",
     ]);
+    command.arg(format!(
+        "Octopus/{} pricing-sync",
+        env!("CARGO_PKG_VERSION")
+    ));
+    command.arg("--dump-header");
     command.arg(headers);
     command.arg("--output").arg(output);
     command.arg("--write-out").arg("%{http_code}");

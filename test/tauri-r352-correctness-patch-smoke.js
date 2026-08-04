@@ -12,7 +12,7 @@
 //   P0-3  panel: setPanelHeight call() + cache only on success + dedupe
 //         onResized + fit immediately on panel:shown
 //   P0-4  real diagnostic cancel: cancel_diagnostic command + process-tree
-//         kill (taskkill /F /T on Windows, kill on Unix) + active_diagnostic_pid
+//         kill (taskkill /F /T on Windows, killpg on Unix) + DiagnosticControl
 //   P0-5  release.yml: (already in R35.1; this smoke verifies the warning
 //         text is still present)
 //
@@ -32,6 +32,7 @@ const panelJs = read('frontend/renderer/panel.js');
 const bridge = read('frontend/renderer/tauri-bridge.js');
 const commands = read('src-tauri/src/commands.rs');
 const model = read('src-tauri/src/model.rs');
+const diagnosticControl = read('src-tauri/src/diagnostic_control.rs');
 const lib = read('src-tauri/src/lib.rs');
 const release = read('.github/workflows/release.yml');
 const panelCap = read('src-tauri/capabilities/panel.json');
@@ -45,7 +46,7 @@ const build = read('src-tauri/build.rs');
 assert(petJs.includes('providerChooserOpen || isInteracting()'),
   'R35.2: syncUiBusy must include providerChooserOpen');
 // chooser is in INTERACTIVE_HIT_SEL
-assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player,#provider-chooser'"),
+assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#provider-chooser'"),
   'R35.2: INTERACTIVE_HIT_SEL must include #provider-chooser');
 // chooser reads status from latestProviderStatuses (config), not lastStats
 assert(petJs.includes('let latestProviderStatuses = {}'),
@@ -106,12 +107,13 @@ assert(panelJs.includes('Revert checkbox to previous state') || panelJs.includes
 assert(bridge.includes("setPanelHeight: (height) => call('set_panel_height'"),
   'R35.2: bridge setPanelHeight must use call() (not send)');
 // panel.js caches only on IPC success
-assert(panelJs.includes('let pendingFitHeight = 0;'),
-  'R35.2: panel.js must track pendingFitHeight');
-assert(panelJs.includes('if (pendingFitHeight === h)'),
-  'R35.2: panel.js must confirm pendingFitHeight before committing cache');
-assert(panelJs.includes('lastFitHeight = h;'),
-  'R35.2: panel.js must commit lastFitHeight only on IPC success');
+assert(panelJs.includes('OctoPanelFit.createPanelFitController'),
+  'R35.2: panel.js must use the isolated fit controller');
+assert(panelJs.includes('panelFitController.request(height)'),
+  'R35.2: panel.js must route fit requests through the controller');
+const fitController = fs.readFileSync(path.join(root, 'frontend', 'shared', 'panel-fit-controller.js'), 'utf8');
+assert(fitController.includes('lastCommittedRequest = height'),
+  'R35.2: fit cache must commit only in the IPC success path');
 // duplicate onResized removed (only one add("onResized", ...) CODE call;
 // comments mentioning it are OK). Strip comment lines before counting.
 const panelJsCodeOnly = panelJs.split('\n').filter((line) => !line.trim().startsWith('//')).join('\n');
@@ -126,36 +128,35 @@ assert(/resetAutoFitOnShow[\s\S]{0,800}fitPanelHeight\(\)/.test(panelJs),
 // P0-4: real diagnostic cancel
 // ──────────────────────────────────────────────────────────────────────────
 
-// active_diagnostic_pid field in Runtime
-assert(model.includes('pub active_diagnostic_pid: Mutex<Option<u32>>'),
-  'R35.2: Runtime must have active_diagnostic_pid: Mutex<Option<u32>>');
-assert(model.includes('active_diagnostic_pid: Mutex::new(None)'),
-  'R35.2: AppState::new must initialize active_diagnostic_pid');
+// Diagnostic lifecycle is consolidated under one mutex-owned state machine.
+assert(model.includes('pub diagnostic_control: crate::diagnostic_control::DiagnosticControl'),
+  'Runtime must own one DiagnosticControl instead of independent PID/provider flags');
+assert(diagnosticControl.includes('fn register_pid')
+  && diagnosticControl.includes('fn request_cancel')
+  && diagnosticControl.includes('fn claim_pid_for_termination')
+  && diagnosticControl.includes('fn finish'),
+  'DiagnosticControl must own register/cancel/terminate/finish transitions');
 // cancel_diagnostic command exists
 assert(commands.includes('pub async fn cancel_diagnostic'),
   'R35.2: commands.rs must define cancel_diagnostic async command');
 assert(lib.includes('cancel_diagnostic,'),
   'R35.2: lib.rs must register cancel_diagnostic in invoke_handler');
-// kill_process_tree uses taskkill /F /T on Windows
-assert(commands.includes('"taskkill"'),
-  'R35.2: kill_process_tree must use taskkill on Windows');
-assert(commands.includes('"/F", "/T", "/PID"'),
-  'R35.2: kill_process_tree must use /F /T /PID flags (force + tree)');
-// Unix kill fallback
-assert(commands.includes('extern "C"') && commands.includes('fn kill('),
-  'R35.2: kill_process_tree must declare extern C kill() for Unix');
-// diagnose_agent_sync takes register_pid callback
-assert(commands.includes('fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32))'),
-  'R35.2: diagnose_agent_sync must take register_pid callback');
-assert(commands.includes('fn run_probe_capture_with_pid'),
-  'R35.2: run_probe_capture_with_pid must exist (registers PID before probe)');
-assert(commands.includes('fn run_probe_with_pid'),
-  'R35.2: run_probe_with_pid wrapper must exist');
-// PID is registered after spawn
-assert(commands.includes('let pid = child.id();'),
-  'R35.2: run_probe_capture_with_pid must read child.id() after spawn');
-assert(commands.includes('register_pid(pid);'),
-  'R35.2: run_probe_capture_with_pid must call register_pid(pid)');
+// Windows kills the entire process tree; Unix uses an isolated process group.
+assert(commands.includes('"taskkill"') && commands.includes('"/F", "/T", "/PID"'),
+  'Windows diagnostics must use taskkill /F /T /PID');
+assert(commands.includes('.process_group(0)')
+  && commands.includes('signal_process_group(process_group, 15)')
+  && commands.includes('signal_process_group(process_group, 9)'),
+  'Unix diagnostics must terminate an isolated process group');
+assert(commands.includes('let pid = child.id();')
+  && commands.includes('control.register_pid(pid)')
+  && commands.includes('control.clear_pid(pid)'),
+  'each probe must register and generation-safely clear its child PID');
+assert(commands.includes('control.is_cancel_requested()')
+  && commands.includes('claim_pid_for_termination(pid)'),
+  'probe polling must cooperate with cancellation without double-killing a PID');
+assert(commands.includes('state.runtime.diagnostic_control.finish();'),
+  'join failure must not leave diagnostics permanently busy');
 // bridge has cancelDiagnostic
 assert(bridge.includes("cancelDiagnostic: () => call('cancel_diagnostic')"),
   'R35.2: bridge must expose cancelDiagnostic');
@@ -180,7 +181,12 @@ assert(release.includes('PLATFORM_SIGNED'),
   'R35.2: release.yml must compute PLATFORM_SIGNED');
 assert(release.includes('REQUIRE_PLATFORM_SIGNING'),
   'R35.2: release.yml must honor REQUIRE_PLATFORM_SIGNING');
-assert(release.includes('Tauri-updater-signed only'),
-  'R35.2: release.yml warnings must say "Tauri-updater-signed only"');
+assert(!release.includes('TAURI_SIGNING_PRIVATE_KEY')
+  && release.includes('uploadUpdaterJson: false')
+  && release.includes('uploadUpdaterSignatures: false'),
+  'release workflow must not confuse updater signatures with native publisher signing');
+assert(release.includes('Authenticode publisher signature')
+  && release.includes('Developer ID signature or notarization'),
+  'release warnings must name the actual platform signing mechanisms');
 
 console.log('tauri-r352-correctness-patch-smoke: ok (5 P0 patches locked: P0-1 chooser coherence, P0-2 set_providers selected-vs-hook split, P0-3 panel fit coherence, P0-4 real diagnostic cancel + process-tree kill, P0-5 release signing semantics)');

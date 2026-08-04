@@ -16,13 +16,19 @@ struct RuntimeFile {
 }
 
 /// Entry point shared by the standalone `octopus-hook` helper and the packaged
-/// GUI executable's `--re-llmpet-hook` mode. Errors are intentionally silent in
+/// GUI executable's `--octopus-hook` mode (the legacy `--re-llmpet-hook`
+/// alias is still accepted during upgrades). Errors are intentionally silent in
 /// normal use because hooks must not corrupt an agent's stdout protocol.
 pub fn entry() {
     if let Err(error) = run() {
         if std::env::var("OCTOPUS_HOOK_DEBUG").as_deref() == Ok("1") {
-            eprintln!("re-llmpet-hook: {error}");
+            eprintln!("octopus-hook: {error}");
         }
+        // A successful exit with empty stdout is interpreted as permission by
+        // several provider hook contracts. Unexpected helper failures must not
+        // silently become an allow. Observer hooks are configured best-effort;
+        // strict permission hooks use the non-zero exit as a fail-closed signal.
+        std::process::exit(1);
     }
 }
 
@@ -36,26 +42,45 @@ fn run() -> Result<(), String> {
         || positional_event.as_deref() == Some("PermissionRequest")
         || (provider == "codewhale" && positional_event.as_deref() == Some("tool_call_before"));
 
-    let mut raw = Vec::new();
-    std::io::stdin()
-        .take((MAX_STDIN_BYTES + 1) as u64)
-        .read_to_end(&mut raw)
-        .map_err(|e| e.to_string())?;
-    if raw.len() > MAX_STDIN_BYTES {
-        return permission_fallback(&provider, requested_permission, "stdin payload too large");
-    }
-
-    let body: Value = if raw.iter().all(|byte| byte.is_ascii_whitespace()) {
+    // Current CodeWhale sends these events through environment variables only.
+    // Reading stdin for them is both unnecessary and risky: a provider build
+    // that leaves the pipe open can stall the hook and make the pet appear to
+    // miss the entire working transition.
+    let codewhale_env_only = provider == "codewhale"
+        && matches!(
+            positional_event.as_deref(),
+            Some(
+                "session_start"
+                    | "session_end"
+                    | "tool_call_before"
+                    | "tool_call_after"
+                    | "mode_change"
+                    | "on_error"
+            )
+        );
+    let body: Value = if codewhale_env_only {
         Value::Object(Map::new())
     } else {
-        match serde_json::from_slice(&raw) {
-            Ok(value) => value,
-            Err(error) => {
-                return permission_fallback(
-                    &provider,
-                    requested_permission,
-                    &format!("invalid stdin JSON: {error}"),
-                )
+        let mut raw = Vec::new();
+        std::io::stdin()
+            .take((MAX_STDIN_BYTES + 1) as u64)
+            .read_to_end(&mut raw)
+            .map_err(|e| e.to_string())?;
+        if raw.len() > MAX_STDIN_BYTES {
+            return permission_fallback(&provider, requested_permission, "stdin payload too large");
+        }
+        if raw.iter().all(|byte| byte.is_ascii_whitespace()) {
+            Value::Object(Map::new())
+        } else {
+            match serde_json::from_slice(&raw) {
+                Ok(value) => value,
+                Err(error) => {
+                    return permission_fallback(
+                        &provider,
+                        requested_permission,
+                        &format!("invalid stdin JSON: {error}"),
+                    )
+                }
             }
         }
     };
@@ -102,6 +127,20 @@ fn run() -> Result<(), String> {
     }
 
     let event = event_name_str;
+    if provider == "codewhale"
+        && event == "PreToolUse"
+        && object
+            .get("session_id")
+            .and_then(Value::as_str)
+            .map(str::is_empty)
+            .unwrap_or(true)
+    {
+        return permission_fallback(
+            &provider,
+            true,
+            "missing CodeWhale session id in hook environment",
+        );
+    }
     let permission = force_permission
         || event == "PermissionRequest"
         || (provider == "codewhale" && event == "PreToolUse");
@@ -165,12 +204,13 @@ fn parent_process_id() -> Option<u32> {
 }
 
 fn permission_fallback(provider: &str, permission: bool, reason: &str) -> Result<(), String> {
-    // CodeWhale treats empty stdout as allow in some versions. Explicitly ask
-    // so a stopped or upgrading pet never becomes a fail-open security bypass.
+    // CodeWhale treats empty stdout as allow, and `ask` does not downgrade
+    // Full Access. Emit an explicit deny so an unavailable desktop permission
+    // service is fail-closed in every native approval posture.
     if provider == "codewhale" && permission {
         let payload = serde_json::to_vec(&serde_json::json!({
-            "decision":"ask",
-            "reason":format!("RE-LLMPET unavailable; use CodeWhale prompt ({})", reason.chars().take(160).collect::<String>())
+            "decision":"deny",
+            "reason":format!("Octopus permission service unavailable ({})", reason.chars().take(160).collect::<String>())
         })).map_err(|e| e.to_string())?;
         std::io::stdout()
             .write_all(&payload)
@@ -220,7 +260,7 @@ fn normalize_provider_body(
             "session_start" => ("SessionStart".into(), "idle"),
             "session_end" => ("SessionEnd".into(), "sleeping"),
             "message_submit" => ("UserPromptSubmit".into(), "thinking"),
-            "tool_call_before" => ("PreToolUse".into(), "waiting"),
+            "tool_call_before" => ("PreToolUse".into(), "working"),
             "tool_call_after" => ("PostToolUse".into(), "working"),
             "turn_end" => ("Stop".into(), "attention"),
             "on_error" => ("StopFailure".into(), "error"),
@@ -343,6 +383,24 @@ fn apply_codewhale_env_fallback(object: &mut Map<String, Value>) {
             "tool_input_json",
             ["DEEPSEEK_TOOL_ARGS", "CODEWHALE_TOOL_ARGS"],
         ),
+        ("text", ["DEEPSEEK_MESSAGE", "CODEWHALE_MESSAGE"]),
+        ("error", ["DEEPSEEK_ERROR", "CODEWHALE_ERROR"]),
+        (
+            "previous_mode",
+            ["DEEPSEEK_PREVIOUS_MODE", "CODEWHALE_PREVIOUS_MODE"],
+        ),
+        (
+            "tool_call_id",
+            ["DEEPSEEK_TOOL_CALL_ID", "CODEWHALE_TOOL_CALL_ID"],
+        ),
+        (
+            "tool_result",
+            ["DEEPSEEK_TOOL_RESULT", "CODEWHALE_TOOL_RESULT"],
+        ),
+        (
+            "tool_success",
+            ["DEEPSEEK_TOOL_SUCCESS", "CODEWHALE_TOOL_SUCCESS"],
+        ),
     ] {
         if object
             .get(key)
@@ -427,9 +485,9 @@ fn run_pretool(provider: &str, body: &Value) -> Result<(), String> {
     let decision = pretool_decision(tool, input);
     if let Some(decision) = decision {
         let reason = if decision == "deny" {
-            "RE-LLMPET denied an unsafe or unsupported automatic operation"
+            "Octopus denied an unsafe or unsupported automatic operation"
         } else {
-            "RE-LLMPET auto-approved an explicitly read-only operation"
+            "Octopus auto-approved an explicitly read-only operation"
         };
         let output = serde_json::to_vec(&serde_json::json!({
             "hookSpecificOutput": {
@@ -534,7 +592,10 @@ fn positional_value(args: &[String]) -> Option<String> {
             skip_next = true;
             continue;
         }
-        if arg == "--re-llmpet-hook" || arg == "--permission" || arg == "--pretool" {
+        if matches!(
+            arg.as_str(),
+            "--octopus-hook" | "--re-llmpet-hook" | "--permission" | "--pretool"
+        ) {
             continue;
         }
         if !arg.starts_with('-') {

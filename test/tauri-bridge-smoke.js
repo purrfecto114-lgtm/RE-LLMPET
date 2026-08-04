@@ -7,12 +7,22 @@ const vm = require('vm');
 
 const calls = [];
 const listeners = new Map();
+const windowHandlers = new Map();
+const deferredListeners = new Map();
+const nativeUnlistenCalls = [];
+const throwChannels = new Set();
+const loggedErrors = [];
 const context = {
-  console,
+  console: { ...console, error: (...args) => loggedErrors.push(args) },
   Promise,
   setTimeout,
   clearTimeout,
   window: {
+    addEventListener(type, handler) {
+      if (!windowHandlers.has(type)) windowHandlers.set(type, []);
+      windowHandlers.get(type).push(handler);
+    },
+    dispatchEvent() {},
     __TAURI__: {
       core: {
         invoke(command, args) {
@@ -27,8 +37,13 @@ const context = {
       },
       event: {
         listen(channel, callback) {
+          if (throwChannels.has(channel)) throw new Error('synchronous listen failure');
           listeners.set(channel, callback);
-          return Promise.resolve(() => listeners.delete(channel));
+          if (deferredListeners.has(channel)) return deferredListeners.get(channel).promise;
+          return Promise.resolve(() => {
+            nativeUnlistenCalls.push(channel);
+            listeners.delete(channel);
+          });
         },
       },
     },
@@ -41,7 +56,7 @@ vm.runInContext(source, context, { filename: 'tauri-bridge.js' });
 
 const api = context.window.pet;
 const expected = [
-  'onEvent', 'onStats', 'onPanelStats', 'onConfig', 'onPrice',
+  'onEvent', 'onStats', 'onPanelStats', 'onConfig', 'onPrice', 'onWindowBlur', 'onPanelShown', 'onPanelHidden',
   'getConfig', 'getStats', 'getPriceInfo', 'refreshModelPrices', 'setPriceAutoUpdate', 'setLanguage', 'openPanel', 'closePanel', 'setMode', 'setSkin',
   'setBudget', 'setCurrency', 'setSessionPrefs', 'toggleMute', 'setProviders', 'territoryRunNow',
   'territoryToggleAuto', 'quit', 'getWinPos', 'setWinPos', 'commitWinPos', 'launchClaude',
@@ -85,6 +100,16 @@ assert(Object.values(api).every((value) => typeof value === 'function'));
   assert(calls.some((call) => call.command === 'refresh_model_prices'));
   assert(calls.some((call) => call.command === 'set_price_auto_update' && call.args.enabled === false && call.args.refreshHours === 48));
 
+  // A malformed/unavailable native event layer may throw before returning a
+  // Promise. Subscribing must remain a no-op instead of escaping into UI code.
+  throwChannels.add('panel:hidden');
+  const offFailed = api.onPanelHidden(() => {});
+  assert.strictEqual(typeof offFailed, 'function');
+  offFailed();
+  throwChannels.delete('panel:hidden');
+  assert(loggedErrors.some((args) => String(args[0]).includes('listen panel:hidden failed')),
+    'synchronous listen failure must be contained and logged');
+
   let payload = null;
   const off = api.onStats((value) => { payload = value; });
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -92,6 +117,29 @@ assert(Object.values(api).every((value) => typeof value === 'function'));
   assert.strictEqual(payload.sessions[0].sessionId, 's1');
   off();
   assert(!listeners.has('pet:stats'), 'unsubscribe must detach Tauri event listener');
+
+  // All bridge-owned listeners must detach on WebView teardown. Tauri's
+  // listen() resolves asynchronously, so also cover the race where the native
+  // unlisten handle arrives after beforeunload has already fired.
+  let resolveLate;
+  deferredListeners.set('panel:shown', {
+    promise: new Promise((resolve) => { resolveLate = resolve; }),
+  });
+  api.onPrice(() => {});
+  api.onPanelShown(() => {});
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const beforeUnload = (windowHandlers.get('beforeunload') || [])[0];
+  assert.strictEqual(typeof beforeUnload, 'function', 'bridge must own beforeunload cleanup');
+  beforeUnload();
+  let lateDetached = false;
+  resolveLate(() => {
+    lateDetached = true;
+    listeners.delete('panel:shown');
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert(lateDetached, 'late listen resolution must immediately unlisten after teardown');
+  assert(!listeners.has('panel:price'), 'beforeunload must detach active subscriptions');
+  assert(!listeners.has('panel:shown'), 'beforeunload must detach late subscriptions');
 
   console.log('tauri-bridge-smoke: ok');
 })().catch((error) => {

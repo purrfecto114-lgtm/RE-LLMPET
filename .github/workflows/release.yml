@@ -1,19 +1,112 @@
-name: Signed Tauri Release
+name: Tauri Prerelease
 
 on:
   push:
     tags: ['v*.*.*']
   workflow_dispatch:
 
-permissions:
-  contents: write
-  id-token: write
-  attestations: write
-  artifact-metadata: write
+permissions: {}
 
 jobs:
+
+  validate:
+    name: Validate release source
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@e51e5fe84fc33b4c73ebe40526b2694712b5b858 # v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install JavaScript metadata exactly
+        run: npm ci --ignore-scripts
+
+      - name: Validate source and release contracts
+        run: |
+          npm test
+          npm run gate:assets
+          node scripts/check-release-gates.js --ci
+
+  prepare:
+    name: Prepare private release draft
+    needs: validate
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      publish: ${{ steps.release.outputs.publish }}
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@e51e5fe84fc33b4c73ebe40526b2694712b5b858 # v7
+        with:
+          node-version: 24
+
+      - name: Create or reuse an unpublished draft
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            EXPECTED_TAG="v$VERSION"
+            if [ "$GITHUB_REF_NAME" != "$EXPECTED_TAG" ]; then
+              echo "::error::Release tag $GITHUB_REF_NAME does not match package version $EXPECTED_TAG."
+              exit 1
+            fi
+            TAG_NAME="$EXPECTED_TAG"
+            RELEASE_NAME="Octopus v$VERSION"
+            PUBLISH=true
+          else
+            TAG_NAME="v$VERSION-draft-$GITHUB_RUN_NUMBER"
+            RELEASE_NAME="Octopus v$VERSION manual draft #$GITHUB_RUN_NUMBER"
+            PUBLISH=false
+          fi
+          # Every 0.5.x artifact remains a prerelease, including manual drafts.
+          # This prevents an accidentally published inspection draft from being
+          # promoted to the repository's stable/latest release.
+          PRERELEASE=true
+
+          BODY='Octopus — Tauri 2 / Rust desktop pet build. ⚠️ PRERELEASE — not for production use; real-machine testing required before stable. The updater plugin and updater artifacts are disabled, so no updater signatures are produced. Windows Authenticode and macOS Developer ID signing are applied only when the corresponding platform credentials are configured; verify each downloaded artifact and its attestation. Checksums, SPDX SBOM and attestations are attached. Status: source-contract-passed; installer-e2e-passed/real-provider-passed remain pending.'
+          if RELEASE_JSON=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" 2>/dev/null); then
+            IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(String(JSON.parse(s).draft)))")
+            if [ "$IS_DRAFT" != "true" ]; then
+              echo "::error::Release $TAG_NAME is already published; refusing to mutate it from a rerun."
+              exit 1
+            fi
+            RELEASE_ID=$(printf '%s' "$RELEASE_JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(String(JSON.parse(s).id)))")
+          else
+            RELEASE_ID=$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+              -f tag_name="$TAG_NAME" \
+              -f target_commitish="$GITHUB_SHA" \
+              -f name="$RELEASE_NAME" \
+              -f body="$BODY" \
+              -F draft=true \
+              -F prerelease="$PRERELEASE" \
+              --jq '.id')
+          fi
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+
   build:
     name: ${{ matrix.id }} bundle
+    needs: prepare
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     strategy:
       fail-fast: false
       matrix:
@@ -37,8 +130,6 @@ jobs:
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 90
     env:
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -47,6 +138,7 @@ jobs:
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
       WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      REQUIRE_PLATFORM_SIGNING: ${{ vars.REQUIRE_PLATFORM_SIGNING }}
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7
 
@@ -73,6 +165,7 @@ jobs:
         uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
         with:
           toolchain: stable
+          components: rustfmt, clippy
 
       - name: Add macOS target
         if: matrix.target != ''
@@ -95,9 +188,10 @@ jobs:
           if (-not $cert.Thumbprint) { throw 'Certificate import did not return a thumbprint' }
           "WINDOWS_CERTIFICATE_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      # Tag pushes are production releases and must be signed. Manual runs are
-      # isolated draft releases so they can be inspected without publishing or
-      # colliding with the production version tag.
+      # Tag pushes create version-matched prereleases during the 0.5.x line.
+      # Manual runs are isolated draft releases so they can be inspected without
+      # publishing or colliding with the version tag. Native platform signing is
+      # fail-closed only when REQUIRE_PLATFORM_SIGNING=true.
       - name: Detect signing and publication mode
         id: mode
         shell: bash
@@ -109,57 +203,29 @@ jobs:
               echo "::error::Release tag $GITHUB_REF_NAME does not match package version $EXPECTED_TAG."
               exit 1
             fi
-            # R34 (2026-07-31): tag pushes MUST fail-closed when signing key
-            # is missing. The previous behavior published an unsigned public
-            # prerelease on every tag push, contradicting README.md's promise
-            # that "tag 缺签名凭据会在构建前失败". Tag pushes are for stable
-            # releases; unsigned builds must go through workflow_dispatch
-            # (draft) instead.
-            if [ -z "${{ env.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
-              echo "::error::Tag release v$VERSION requires TAURI_SIGNING_PRIVATE_KEY to be set. Use workflow_dispatch for unsigned draft builds instead."
-              exit 1
-            fi
-            echo "signed=true" >> "$GITHUB_OUTPUT"
+            # Updater signing is intentionally out of scope for this release:
+            # the updater plugin is absent and createUpdaterArtifacts=false.
+            # Publication policy therefore depends only on source/CI gates and,
+            # when explicitly required, native platform publisher signing.
             echo "gate=--release" >> "$GITHUB_OUTPUT"
             echo "genflag=" >> "$GITHUB_OUTPUT"
-            # R35.1 (2026-07-31): The 0.5.11 deep-recheck (P0-6) flagged
-            # that the previous code conflated the Tauri updater signing
-            # key with platform code-signing. They are NOT the same:
-            #   - TAURI_SIGNING_PRIVATE_KEY signs updater artifacts (which
-            #     this project doesn't even produce — createUpdaterArtifacts=false).
-            #   - Windows Authenticode affects SmartScreen / publisher identity.
-            #   - macOS Developer ID + notarization affects Gatekeeper.
-            # The previous "signed=true" output was misleading. We now:
-            #   1. Emit prominent ::warning:: lines when platform certs are
-            #      missing, so the release is clearly marked "Tauri-updater-
-            #      signed only (no platform code-signing)".
-            #   2. Set a `platformSigned` output (true/false) that later
-            #      steps can use to label the GitHub Release body.
-            #   3. Honor a REQUIRE_PLATFORM_SIGNING env var (repo-level):
-            #      when true, missing platform certs HARD-FAIL the stable
-            #      tag build (the audit's strict recommendation). When
-            #      false (default, current behavior), the build proceeds
-            #      but with prominent warnings. This lets the project
-            #      enforce platform signing once certs are available
-            #      without blocking the current release pipeline.
             PLATFORM_SIGNED="true"
             if [ "${{ matrix.platform }}" = "windows-latest" ]; then
               if [ -z "${{ env.WINDOWS_CERTIFICATE }}" ] || [ -z "${{ env.WINDOWS_CERTIFICATE_PASSWORD }}" ]; then
                 PLATFORM_SIGNED="false"
-                echo "::warning::Stable tag v$VERSION on Windows: WINDOWS_CERTIFICATE is missing. The .exe will be Tauri-updater-signed only (no Authenticode). SmartScreen will show 'unknown publisher'. Set REQUIRE_PLATFORM_SIGNING=true to fail-closed."
+                echo "::warning::Version tag v$VERSION on Windows: WINDOWS_CERTIFICATE is missing. The .exe will have no Authenticode publisher signature. SmartScreen will show 'unknown publisher'. Set REQUIRE_PLATFORM_SIGNING=true to fail-closed."
               fi
             fi
             if [ "${{ matrix.platform }}" = "macos-latest" ]; then
               if [ -z "${{ env.APPLE_CERTIFICATE }}" ] || [ -z "${{ env.APPLE_CERTIFICATE_PASSWORD }}" ] || [ -z "${{ env.APPLE_SIGNING_IDENTITY }}" ]; then
                 PLATFORM_SIGNED="false"
-                echo "::warning::Stable tag v$VERSION on macOS: APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY is missing. The .dmg will be Tauri-updater-signed only (no Developer ID / notarization). Gatekeeper will require right-click > Open. Set REQUIRE_PLATFORM_SIGNING=true to fail-closed."
+                echo "::warning::Version tag v$VERSION on macOS: APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY is missing. The .dmg will have no Developer ID signature or notarization. Gatekeeper will require right-click > Open. Set REQUIRE_PLATFORM_SIGNING=true to fail-closed."
               fi
             fi
-            echo "platformSigned=$PLATFORM_SIGNED" >> "$GITHUB_OUTPUT"
             # R35.1: REQUIRE_PLATFORM_SIGNING (repo variable, default false)
             # enforces the audit's strict policy when the project is ready.
-            if [ "${{ vars.REQUIRE_PLATFORM_SIGNING }}" = "true" ] && [ "$PLATFORM_SIGNED" = "false" ]; then
-              echo "::error::Stable tag v$VERSION on ${{ matrix.platform }} requires platform code-signing (REQUIRE_PLATFORM_SIGNING=true). Configure WINDOWS_CERTIFICATE / APPLE_CERTIFICATE secrets, or use workflow_dispatch for an unsigned draft."
+            if [ "${{ env.REQUIRE_PLATFORM_SIGNING }}" = "true" ] && [ "$PLATFORM_SIGNED" = "false" ]; then
+              echo "::error::Version tag v$VERSION on ${{ matrix.platform }} requires platform code-signing (REQUIRE_PLATFORM_SIGNING=true). Configure WINDOWS_CERTIFICATE / APPLE_CERTIFICATE secrets, or use workflow_dispatch for an unsigned draft."
               exit 1
             fi
             # R34: macOS without APPLE_CERTIFICATE → pass --no-sign so the
@@ -179,66 +245,62 @@ jobs:
             # exit criteria. Only 0.6.0 stable (after RC validation) should
             # set prerelease=false. Until then, all tag releases are
             # prerelease and the release body warns "not for production".
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-            echo "releaseDraft=false" >> "$GITHUB_OUTPUT"
-            echo "make_latest=false" >> "$GITHUB_OUTPUT"
-            echo "tagName=v$VERSION" >> "$GITHUB_OUTPUT"
           else
-            echo "releaseDraft=true" >> "$GITHUB_OUTPUT"
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-            echo "tagName=v$VERSION-draft-$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
-            if [ -n "${{ env.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
-              echo "signed=true" >> "$GITHUB_OUTPUT"
-              echo "gate=--release" >> "$GITHUB_OUTPUT"
-              echo "genflag=" >> "$GITHUB_OUTPUT"
-              echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
-              echo "::notice::Building a signed manual draft release."
+            echo "gate=--release-draft" >> "$GITHUB_OUTPUT"
+            echo "genflag=--draft" >> "$GITHUB_OUTPUT"
+            echo "::notice::Building an isolated manual draft; updater artifacts are disabled."
+            if [ "${{ matrix.platform }}" = "macos-latest" ] && [ -z "${{ env.APPLE_CERTIFICATE }}" ]; then
+              echo "bundleArgs=${{ matrix.args }} --no-sign" >> "$GITHUB_OUTPUT"
             else
-              echo "signed=false" >> "$GITHUB_OUTPUT"
-              echo "gate=--release-draft" >> "$GITHUB_OUTPUT"
-              echo "genflag=--draft" >> "$GITHUB_OUTPUT"
-              echo "::notice::Building an unsigned manual draft; it will not be published."
-              if [ "${{ matrix.platform }}" = "macos-latest" ]; then
-                echo "bundleArgs=${{ matrix.args }} --no-sign" >> "$GITHUB_OUTPUT"
-              else
-                echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
-              fi
+              echo "bundleArgs=${{ matrix.args }}" >> "$GITHUB_OUTPUT"
             fi
           fi
 
       - name: Install JavaScript metadata exactly
         run: npm ci --ignore-scripts
 
-      - name: Release preflight and static regression
+      - name: Generate platform release configuration
         run: |
-          npm test
-          npm run gate:assets
           node scripts/check-release-gates.js ${{ steps.mode.outputs.gate }}
           node scripts/generate-release-config.js ${{ steps.mode.outputs.genflag }}
 
       - name: Resolve the committed lock without mutation
         run: cargo fetch --manifest-path src-tauri/Cargo.toml --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
 
-      - name: Build Rust entry points offline with the committed lock
+      - name: Verify Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+      - name: Compile and lint the release target offline
         env:
           CARGO_NET_OFFLINE: 'true'
-        run: cargo build --manifest-path src-tauri/Cargo.toml --release --bins --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+        run: |
+          cargo check --manifest-path src-tauri/Cargo.toml --all-targets --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }} -- -D warnings
+          cargo test --manifest-path src-tauri/Cargo.toml --lib --no-run --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+          cargo build --manifest-path src-tauri/Cargo.toml --release --bins --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
 
-      - name: Build bundles and create release
+      - name: Run Rust core unit tests on the host
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
+
+      - name: Build bundles into the prepared draft
         id: tauri
         uses: tauri-apps/tauri-action@abbd19ad15b37f89667db9cc46ec1cb5419f22be # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_NET_OFFLINE: 'true'
         with:
-          tagName: ${{ steps.mode.outputs.tagName }}
-          releaseName: 'RE-LLMPET v__VERSION__'
-          releaseBody: 'RE-LLMPET — Tauri 2 / Rust desktop pet build. ⚠️ PRERELEASE — not for production use; real-machine testing required before stable. Signing status: Windows Authenticode NOT applied (no code signing certificate); macOS Developer ID NOT applied (no Apple Developer account); Tauri updater plugin NOT enabled (TAURI_SIGNING_PRIVATE_KEY exists but updater is not configured). Builds are unsigned but functional — do NOT redistribute as official stable. Checksums, SPDX SBOM and attestations are attached. Status labels (per Roadmap v5 §7): source-contract-passed ✅; compiled/installer-e2e-passed/real-provider-passed/platform-signed ❌. See docs/RE-LLMPET-Roadmap-v5.md and the release notes for the testing roadmap.'
-          releaseDraft: ${{ steps.mode.outputs.releaseDraft }}
-          prerelease: ${{ steps.mode.outputs.prerelease }}
-          # We don't ship the tauri updater plugin, so disable updater JSON/
-          # signature upload (the action must not query plugins.updater config).
-          updaterJsonPreferNsis: false
+          releaseId: ${{ needs.prepare.outputs.release_id }}
+          # Every matrix job uploads only to the unpublished draft prepared by
+          # the single-owner prepare job. The publish job below is the only
+          # place allowed to make a tag release visible.
+          releaseDraft: true
+          # We don't ship the Tauri updater plugin/artifacts. Disable both
+          # latest.json generation and .sig uploads explicitly; merely setting
+          # updaterJsonPreferNsis does not disable either action input.
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
           args: ${{ steps.mode.outputs.bundleArgs }}
 
       - name: Generate checksums and SPDX SBOM
@@ -246,21 +308,9 @@ jobs:
           node scripts/generate-checksums.js src-tauri/target reports/SHA256SUMS-${{ matrix.id }}
           node scripts/generate-sbom.js reports/octopus-${{ matrix.id }}.spdx.json
 
-      # Remove non-distributable artifacts from the GitHub release.
-      # Tauri 2 always generates .app.tar.gz (updater sidecar) on macOS even
-      # when createUpdaterArtifacts=false; we don't ship the updater plugin,
-      # so these are unnecessary and confuse users.
-      - name: Remove non-distributable release assets
-        if: matrix.platform == 'macos-latest'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          for asset in $(gh release view "v$VERSION" --json assets --jq '.assets[].name' 2>/dev/null | grep -E '\.app\.tar\.gz$|\.sig$'); do
-            echo "Removing non-distributable asset: $asset"
-            gh release delete-asset "v$VERSION" "$asset" --yes || true
-          done
+      # Updater artifacts are disabled at the Tauri bundler and action layers.
+      # Do not add a post-upload deletion loop: it hides configuration drift and
+      # can race with the other matrix jobs that share this release tag.
 
       # Attest only the distributable bundle files (by extension), not every
       # file under bundle/ — the previous `**/*` glob matched duplicate paths
@@ -292,9 +342,9 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          VERSION=$(node -p "require('./package.json').version")
-          gh release upload "${{ steps.mode.outputs.tagName }}" reports/SHA256SUMS-${{ matrix.id }} reports/octopus-${{ matrix.id }}.spdx.json --clobber
+          gh release upload "${{ needs.prepare.outputs.tag_name }}" reports/SHA256SUMS-${{ matrix.id }} reports/octopus-${{ matrix.id }}.spdx.json --clobber
 
       - name: Upload release evidence
         if: always()
@@ -305,3 +355,42 @@ jobs:
             reports/
             src-tauri/tauri.release.generated.json
           if-no-files-found: warn
+
+  publish:
+    name: Publish complete prerelease
+    needs: [prepare, build]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@e51e5fe84fc33b4c73ebe40526b2694712b5b858 # v7
+        with:
+          node-version: 24
+
+      - name: Verify draft asset closure
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-audit
+          gh release view "${{ needs.prepare.outputs.tag_name }}" \
+            --json assets,isDraft,isPrerelease,tagName > release-audit/release.json
+          gh release download "${{ needs.prepare.outputs.tag_name }}" \
+            -p 'SHA256SUMS-*' -p 'octopus-*.spdx.json' \
+            --dir release-audit
+          node scripts/verify-release-assets.js release-audit/release.json release-audit 4
+
+      - name: Make the fully assembled tag release visible
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release edit "${{ needs.prepare.outputs.tag_name }}" --draft=false --prerelease

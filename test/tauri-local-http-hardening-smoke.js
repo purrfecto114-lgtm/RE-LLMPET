@@ -7,12 +7,13 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
 const server = read('src-tauri/src/http_server.rs');
+const protocol = read('src-tauri/src/instance_probe.rs');
 const client = read('src-tauri/src/hook_client.rs');
 const installer = read('src-tauri/src/hook_install.rs');
 const nodeInstaller = read('scripts/install-native-hooks.js');
 
 // Authorization material stays in the 0600 runtime file and HTTP header, never hook URLs.
-assert.match(server, /const TOKEN_HEADER: &str = "x-re-llmpet-token"/);
+assert.match(protocol, /const TOKEN_HEADER: &str = "x-re-llmpet-token"/);
 assert.match(server, /fn client_identity_allowed/);
 assert.match(server, /get\(SERVER_HEADER\)/);
 assert.match(server, /fn authorized[\s\S]*get\(TOKEN_HEADER\)/);

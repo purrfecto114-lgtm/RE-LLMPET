@@ -23,47 +23,50 @@ check(lock,'resolved src-tauri/Cargo.lock committed',mode==='source'?'block':'fa
 for(const wf of ['.github/workflows/ci.yml','.github/workflows/release.yml']){
  const text=fs.readFileSync(path.join(ROOT,wf),'utf8');
  check(/cargo (check|test|build)[^\n]*--locked|--locked[^\n]*cargo/.test(text)||text.includes('cargo tauri build --locked'),`${wf} enforces --locked`);
+ check(/components:[^\n]*clippy/.test(text),`${wf} installs the clippy component`);
+ check(/cargo clippy[^\n]*--all-targets[^\n]*--locked[^\n]*-- -D warnings/.test(text),`${wf} treats Rust and Clippy warnings as errors`);
+ check(/cargo fmt[^\n]*--check/.test(text),`${wf} verifies Rust formatting`);
 }
+const releaseWorkflow=fs.readFileSync(path.join(ROOT,'.github/workflows/release.yml'),'utf8');
+check(releaseWorkflow.includes('name: Validate release source'),'.github/workflows/release.yml separates source validation');
+check(/validate:[\s\S]*?permissions:\s*\n\s*contents: read/.test(releaseWorkflow),'.github/workflows/release.yml keeps validation read-only');
+check(/prepare:[\s\S]*?needs: validate/.test(releaseWorkflow),'.github/workflows/release.yml creates drafts only after validation');
+check(releaseWorkflow.includes('name: Prepare private release draft'),'.github/workflows/release.yml has a single draft owner');
+check((releaseWorkflow.match(/npm test/g)||[]).length===1,'.github/workflows/release.yml runs source regression once');
+check(releaseWorkflow.indexOf('npm test')<releaseWorkflow.indexOf('prepare:'),'.github/workflows/release.yml validates source before the write-enabled draft job');
+check(releaseWorkflow.includes('releaseId: ${{ needs.prepare.outputs.release_id }}'),'.github/workflows/release.yml matrix uploads to the prepared release');
+check(releaseWorkflow.includes('releaseDraft: true'),'.github/workflows/release.yml keeps matrix output private');
+check(releaseWorkflow.includes('needs: [prepare, build]'),'.github/workflows/release.yml publishes only after every matrix build succeeds');
+check(/gh release edit[^\n]*--draft=false[^\n]*--prerelease/.test(releaseWorkflow),'.github/workflows/release.yml has one post-build publication step');
+check(releaseWorkflow.includes('permissions: {}'),'.github/workflows/release.yml has no workflow-wide write token');
+check(/prepare:[\s\S]*?permissions:\s*\n\s*contents: write/.test(releaseWorkflow),'.github/workflows/release.yml scopes draft creation permission');
+check(/build:[\s\S]*?permissions:[\s\S]*?id-token: write[\s\S]*?attestations: write/.test(releaseWorkflow),'.github/workflows/release.yml scopes build attestation permission');
+check(/publish:[\s\S]*?permissions:\s*\n\s*contents: write/.test(releaseWorkflow),'.github/workflows/release.yml scopes publication permission');
+check(releaseWorkflow.includes('GH_REPO: ${{ github.repository }}'),'.github/workflows/release.yml gives gh an explicit repository outside checkout');
+check(releaseWorkflow.includes('name: Verify draft asset closure'),'.github/workflows/release.yml verifies release assets before publication');
+check(releaseWorkflow.includes('node scripts/verify-release-assets.js release-audit/release.json release-audit 4'),'.github/workflows/release.yml reconciles four platform manifests');
+check(releaseWorkflow.indexOf('Verify draft asset closure')<releaseWorkflow.indexOf('Make the fully assembled tag release visible'),'.github/workflows/release.yml reconciles assets before publishing');
+check(fs.existsSync(path.join(ROOT,'scripts/verify-release-assets.js')),'release asset verifier is committed');
+check(tauri.bundle?.createUpdaterArtifacts===false,'Tauri updater artifacts remain disabled');
+check(!cargo.includes('tauri-plugin-updater'),'Tauri updater plugin remains absent');
 if(mode==='release'){
  const platform=process.platform;
- // R34 (2026-07-31): TAURI_SIGNING_PRIVATE_KEY is the HARD requirement
- // for `--release` mode — it signs the Tauri updater artifact so auto-
- // updates can be verified. Without it, tag pushes fail-closed (see
- // .github/workflows/release.yml).
- //
- // Platform code-signing certs (Windows code-signing cert, Apple Developer
- // ID + notarization) are a SEPARATE concern from Tauri updater signing.
- // They suppress "unknown publisher" warnings and unlock OS-gated features
- // (SmartScreen reputation, Gatekeeper notarization), but their absence
- // does NOT make the build unverifiable — the Tauri signature still
- // proves the binary came from us.
- //
- // The 0.5.7 audit (§P0-4) called out Tauri-signing-key-missing as a
- // blocker because v0.5.7 published TRULY UNSIGNED binaries. With the
- // Tauri key now configured, missing platform certs become a soft warn
- // (production hardening, not a security hole). When platform certs are
- // available, set them as GitHub secrets to silence the warning.
- const required=['TAURI_SIGNING_PRIVATE_KEY'];
- for(const name of required) check(Boolean(process.env[name]),`release secret present: ${name}`);
+ const requirePlatform=String(process.env.REQUIRE_PLATFORM_SIGNING||'').toLowerCase()==='true';
  const platformCerts = {
    darwin: ['APPLE_CERTIFICATE','APPLE_CERTIFICATE_PASSWORD','APPLE_SIGNING_IDENTITY','APPLE_ID','APPLE_PASSWORD','APPLE_TEAM_ID'],
    win32: ['WINDOWS_CERTIFICATE','WINDOWS_CERTIFICATE_PASSWORD'],
  };
  const platformCertList = platformCerts[platform] || [];
  for(const name of platformCertList){
-   const present = Boolean(process.env[name]);
-   if(present){
-     ok.push(`platform cert present: ${name}`);
-   } else {
-     // Soft warn — does not fail the build. Tauri updater signing is
-     // sufficient for the binary to be cryptographically attributable;
-     // platform certs only affect OS-level UX (SmartScreen/Gatekeeper).
-     console.error(`WARN     platform cert missing: ${name} (OS 'unknown publisher' warning will show; not a security blocker)`);
-   }
+   const present=Boolean(process.env[name]);
+   if(present) ok.push(`platform cert present: ${name}`);
+   else if(requirePlatform) failures.push(`required platform cert missing: ${name}`);
+   else console.error(`WARN     platform cert missing: ${name} (artifact will not carry the native OS publisher signature)`);
  }
 }
-// 'release-draft' mode: build unsigned draft artifacts (no signing secrets).
-// Used for pre-release/testing builds. production signed releases use --release.
+// 'release-draft' mode is an isolated inspection build. 'release' enforces
+// native platform publisher signing only when REQUIRE_PLATFORM_SIGNING=true.
+// Tauri updater signing stays out of scope while updater artifacts are disabled.
 for(const item of ok) console.log(`OK      ${item}`);
 for(const item of blocked) console.log(`BLOCKED ${item}`);
 for(const item of failures) console.error(`FAIL    ${item}`);

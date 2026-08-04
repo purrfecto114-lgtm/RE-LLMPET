@@ -272,7 +272,9 @@ assert.ok(
 assert.ok(hookInstall.includes('OPENCODE_MARKER_LEGACY'),
   'P0C-11: OPENCODE_MARKER_LEGACY must still exist for backward compat');
 // HOOK_OWNER tag must still exist (R41 ownership check)
-assert.ok(hookInstall.includes('const HOOK_OWNER: &str = "--owner re-llmpet";'),
-  'P0C-11: HOOK_OWNER constant must still exist');
+assert.ok(hookInstall.includes('const HOOK_OWNER: &str = "--owner octopus";'),
+  'P0C-11: current HOOK_OWNER constant must exist');
+assert.ok(hookInstall.includes('const LEGACY_HOOK_OWNER: &str = "--owner re-llmpet";'),
+  'P0C-11: legacy owner must remain cleanup-compatible');
 
 console.log('✓ R44 Phase 0C (0.5.41) backup + receipt smoke: all assertions passed');

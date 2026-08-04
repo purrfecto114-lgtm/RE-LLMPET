@@ -450,7 +450,7 @@ body.skin-cat #cat { display: flex; }
 /* ====================================================================
    出错（error）：抖一下 + 泛红，短暂
    ==================================================================== */
-#pixel.error { animation: errShake 0.42s ease-in-out 3; }
+#pixel.error .pixel-sprite { animation: errShake 0.42s ease-in-out 3; }
 @keyframes errShake {
   0%, 100% { transform: translateX(0); }
   25% { transform: translateX(-5px) rotate(-2deg); }
@@ -622,7 +622,7 @@ body.skin-cat #cat { display: flex; }
 #mascot.act-check #mascot-img { animation: actNod 0.4s ease-in-out 2; }
 
 /* ====================================================================
-   月薪喵（cat）—— 猫 meme 表情包皮肤
+   月薪喵（cat）—— 普通动画猫皮肤
    每个状态一张 GIF，本体动效由 GIF 自带；这里只加轻微浮动 + 醒目态强调。
    ==================================================================== */
 #cat {
@@ -853,7 +853,7 @@ body.skin-cat #cat { display: flex; }
 /* 弹层标题栏可拖动整窗（内容长时可挪开），按钮/输入/选项/行不拖 */
 .ask-head, .sl-top, .tp-top { -webkit-app-region: drag; cursor: move; }
 .ask-opt, .ask-btn, .ask-term, .ask-other input, .sl-row, .sl-foot button,
-.sl-close, .sl-back, .sl-meme-entry, .sl-meme-card, .tp-close, .tp-ops button, .tp-act, #ask-text, .meme-close { -webkit-app-region: no-drag; }
+.sl-close, .tp-close, .tp-ops button, .tp-act, #ask-text { -webkit-app-region: no-drag; }
 
 /* SVG icon (替代 emoji) 的内联样式：1em 大小、跟随文本颜色，垂直对齐文本 */
 .oi { display: inline-flex; align-items: center; justify-content: center; vertical-align: -0.18em; line-height: 1; }
@@ -863,7 +863,7 @@ body.skin-cat #cat { display: flex; }
    持续「忙碌基线」act-work —— 进入 working 即挂、贯穿整段干活，
    mascot / pixel 都显得在埋头苦干；具体 tool 动作在其上叠加。
    ==================================================================== */
-#mascot.act-work, #pixel.act-work .pixel-sprite {
+#mascot.act-work #mascot-img, #pixel.act-work .pixel-sprite {
   animation: busyBob 0.85s ease-in-out infinite !important;
 }
 @keyframes busyBob {
@@ -872,86 +872,6 @@ body.skin-cat #cat { display: flex; }
 }
 
 
-/* ---------- 上游 1.1.1 会话 HUD 二级表情包页 + 安全本地预览 ---------- */
-.sl-back {
-  width: 24px; height: 24px; flex: 0 0 24px; border: 0; border-radius: 7px;
-  background: rgba(255,255,255,.08); color: #fff; cursor: pointer;
-  font-size: 22px; line-height: 20px;
-}
-.sl-back:hover { background: rgba(255,255,255,.15); }
-.sl-back.hidden, #sl-session-view.hidden, .sl-meme-view.hidden { display: none; }
-#sl-session-view, .sl-meme-view {
-  min-height: 0; display: flex; flex: 1 1 auto; flex-direction: column;
-}
-.sl-meme-entry {
-  flex: 0 0 auto; border: 1px solid rgba(255,255,255,.12); border-radius: 9px;
-  background: rgba(255,255,255,.07); color: #eeeef2; padding: 6px 9px;
-  font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap;
-}
-.sl-meme-entry:hover { border-color: rgba(217,119,87,.75); background: rgba(217,119,87,.18); }
-
-.sl-meme-session {
-  margin: 0 4px 8px; padding: 8px 10px; border-radius: 10px;
-  background: rgba(217,119,87,.11); color: #dfb09a;
-  font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.sl-meme-grid {
-  min-height: 0; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden;
-  overscroll-behavior: contain; display: grid;
-  grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; padding: 1px 4px 4px;
-}
-.sl-meme-grid::-webkit-scrollbar { width: 7px; }
-.sl-meme-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 4px; }
-.sl-meme-card {
-  min-width: 0; border: 1px solid rgba(255,255,255,.1); border-radius: 12px;
-  padding: 8px; background: rgba(255,255,255,.035); color: #fff;
-  text-align: left; cursor: pointer;
-}
-.sl-meme-card:hover { border-color: rgba(217,119,87,.75); background: rgba(217,119,87,.1); }
-.sl-meme-thumb {
-  display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover;
-  border-radius: 8px; margin-bottom: 7px; background: rgba(0,0,0,.25);
-}
-.sl-meme-label { display: block; font-size: 12px; font-weight: 750; line-height: 1.3; }
-.sl-meme-desc { display: block; margin-top: 3px; color: #94949b; font-size: 10px; line-height: 1.35; }
-.sl-meme-status { min-height: 17px; padding: 7px 5px 0; font-size: 10.5px; color: #9a9aa0; }
-.sl-meme-status.warn { color: #ffbd59; }
-
-/* 表情预览恢复上游 1.1.1 的桌宠侧边媒体布局。位置与宽度由 JS 按
-   当前皮肤真实 DOMRect 计算，避免 cat/mascot/pixel 尺寸差异造成裁切。 */
-.meme-player {
-  position: absolute; z-index: 35; left: 0; top: 0; width: 260px;
-  color: #fff; -webkit-app-region: no-drag; pointer-events: none;
-  opacity: 1; transform: translateX(0) scale(1); animation: memeEnter .2s ease-out;
-}
-.meme-player.hidden { display: none; }
-@keyframes memeEnter { from { opacity: 0; transform: translateX(8px) scale(.96); } to { opacity: 1; transform: none; } }
-.meme-player img {
-  display: block; width: 100%; height: auto; max-height: 180px; object-fit: contain;
-  background: transparent; border: 0; border-radius: 0;
-  filter: drop-shadow(0 7px 13px rgba(0,0,0,.35));
-}
-.meme-close {
-  position: absolute; top: -8px; right: -8px; z-index: 2; width: 25px; height: 25px;
-  cursor: pointer; border: 1px solid rgba(255,255,255,.3); border-radius: 50%;
-  background: rgba(25,25,28,.86); color: #fff; box-shadow: 0 3px 10px rgba(0,0,0,.28);
-  pointer-events: auto;
-}
-.meme-caption, .meme-status {
-  width: max-content; max-width: 250px; margin-left: auto; margin-right: auto;
-  border-radius: 999px; background: rgba(25,25,28,.82); color: #fff;
-  text-align: center; box-shadow: 0 3px 10px rgba(0,0,0,.24);
-}
-.meme-caption { margin-top: 5px; padding: 4px 9px; font-size: 11px; font-weight: 700; }
-.meme-status { margin-top: 4px; padding: 3px 8px; font-size: 9.5px; color: #d9aa91; }
-
-/* ---------- Upstream 1.1.1 visual parity: bounded ask body + fixed action toolbar ---------- */
-.ask {
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  max-height: min(calc(100vh - 210px), 520px);
-}
 .ask-head {
   display: flex;
   align-items: center;
@@ -1070,21 +990,26 @@ body.skin-cat #cat { display: flex; }
    是 UX + 信任问题。
    ==================================================================== */
 .provider-chooser {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 30;
+  position: fixed;
+  inset: 0;
+  z-index: 180;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  pointer-events: auto;
+  background: transparent;
   -webkit-app-region: no-drag;
 }
 .provider-chooser.hidden { display: none; }
 .provider-chooser .pc-card {
-  min-width: 220px;
-  max-width: 320px;
+  width: min(360px, calc(100vw - 28px));
+  max-height: min(480px, calc(100vh - 30px));
   background: rgba(36, 24, 20, 0.97);
   border: 1px solid rgba(217, 119, 87, 0.35);
   border-radius: 14px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  filter: none;
   overflow: hidden;
 }
 .provider-chooser .pc-head {

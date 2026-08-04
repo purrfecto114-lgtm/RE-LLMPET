@@ -1,9 +1,10 @@
+use crate::diagnostic_control::DiagnosticControl;
+use crate::diagnostic_io::drain_bounded;
 use crate::hook_install;
 use crate::model::{home_dir, AppState, Point};
 use crate::platform;
 use serde_json::{json, Value};
 use std::ffi::OsString;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -17,78 +18,11 @@ fn emit_config(app: &AppHandle, state: &AppState) {
     let _ = app.emit("panel:config", config);
 }
 
-/// R38.1 (2026-08-01): throttled stats emit with revision. The 0.5.16
-/// full audit (P0-1) flagged that the old throttle had no trailing flush
-/// and no revision — final events could be permanently lost, and stale
-/// snapshots could overwrite newer ones. Now: force=true bypasses throttle
-/// and always emits with a bumped revision. force=false checks the throttle
-/// window; if within it, marks dirty so the http_server.rs coalescer's
-/// trailing flush will pick it up.
-fn emit_stats_throttled(app: &AppHandle, state: &AppState, force: bool) {
-    const STATS_THROTTLE_MS: u128 = 150;
-    // R40.1 (audit P0-4): use the consolidated `stats_coalescer` state
-    // to avoid the split-mutex race. When force=true, bypass the throttle
-    // and emit immediately. When force=false, check the throttle window
-    // atomically; if within it, mark dirty and let the http_server.rs
-    // trailing timer pick it up.
-    if !force {
-        let now = Instant::now();
-        let should_skip = {
-            let guard = state
-                .runtime
-                .stats_coalescer
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            guard
-                .last_emit
-                .map(|last| now.duration_since(last).as_millis() < STATS_THROTTLE_MS)
-                .unwrap_or(false)
-        };
-        if should_skip {
-            // Mark dirty so the trailing flush picks it up. This is
-            // atomic with the scheduled check in http_server.rs because
-            // both use the same `stats_coalescer` mutex.
-            let mut guard = state
-                .runtime
-                .stats_coalescer
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            guard.dirty = true;
-            return;
-        }
-        // Update last_emit in both the legacy field and the consolidated state.
-        let mut guard = state
-            .runtime
-            .stats_coalescer
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.last_emit = Some(now);
-        drop(guard);
-        // Also update the legacy field for smoke-test compatibility.
-        let mut legacy_guard = state
-            .runtime
-            .last_stats_emit
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *legacy_guard = Some(now);
-    }
-    // Bump revision and emit.
-    let revision = {
-        let mut guard = state
-            .runtime
-            .stats_revision
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *guard += 1;
-        *guard
-    };
-    let stats = state.runtime.stats();
-    let mut stats_with_rev = stats.clone();
-    if let Some(obj) = stats_with_rev.as_object_mut() {
-        obj.insert("__revision".into(), json!(revision));
-    }
-    let _ = app.emit("pet:stats", stats_with_rev.clone());
-    let _ = app.emit("panel:stats", stats_with_rev);
+/// User-initiated permission decisions need immediate UI feedback. Stats
+/// revisioning and coalescer timestamps are owned by http_server so there is
+/// only one broadcast implementation to keep correct.
+fn emit_stats_now(app: &AppHandle, state: &AppState) {
+    crate::http_server::emit_stats_now(app, &state.runtime);
 }
 
 fn emit_price(app: &AppHandle, state: &AppState) {
@@ -261,7 +195,7 @@ pub fn set_mode(app: AppHandle, state: State<'_, AppState>, mode: String) -> Res
 }
 
 /// R13 (2026-07-30): tray-driven single-provider hook uninstall. Removes
-/// only the RE-LLMPET-owned hook block for the given provider, leaving the
+/// only the Octopus-owned hook block for the given provider, leaving the
 /// user's own config and other providers intact. Mirrors the upstream
 /// Electron tray's `tray.uninstallHook` action.
 /// R22 (2026-07-30): if provider is "all", clean ALL providers and clear
@@ -416,7 +350,7 @@ pub fn uninstall_hooks(
     // (for backward compat with the 0.5.38 frontend expectation).
     if provider == "all" {
         let message = if all_clean {
-            "All RE-LLMPET hooks removed; config.providers cleared".to_string()
+            "All Octopus hooks removed; config.providers cleared".to_string()
         } else {
             format!(
                 "Provider selection cleared. Some external hooks could not be fully verified: {}",
@@ -465,15 +399,15 @@ pub fn uninstall_hooks(
             "driftDetected": drift_detected,
             "cleanupResult": single,
             "message": if drift_detected {
-                "RE-LLMPET hooks removed; WARNING: config was modified after install — verify backup"
+                "Octopus hooks removed; WARNING: config was modified after install — verify backup"
             } else if status == "unowned" {
-                "File exists but is not owned by RE-LLMPET; left intact"
+                "File exists but is not owned by Octopus; left intact"
             } else if status == "notFound" {
-                "No RE-LLMPET hooks found for this provider; nothing to remove"
+                "No Octopus hooks found for this provider; nothing to remove"
             } else if status == "residue" {
                 "Partial cleanup; residue remains — see cleanupResult.detail"
             } else {
-                "RE-LLMPET hooks removed for this provider; user config preserved"
+                "Octopus hooks removed for this provider; user config preserved"
             }
         }))
     }
@@ -481,7 +415,7 @@ pub fn uninstall_hooks(
 
 /// R44 Phase 0D: return the latest install receipt per provider. Used by
 /// the frontend's "Uninstall" confirmation dialog to show the user:
-///   "你于 2026-08-03 14:23 通过 RE-LLMPET 0.5.38 安装了 Claude hooks。
+///   "你于 2026-08-03 14:23 通过 Octopus 0.5.38 安装了 Claude hooks。
 ///    备份文件：~/.claude/.settings.re-llmpet-bak-1722700000000.json。
 ///    配置漂移：未检测到 / 已检测到（用户或第三方工具修改过）。"
 ///
@@ -703,21 +637,130 @@ pub fn territory_run_now(app: AppHandle, platform_state: State<'_, Arc<platform:
     );
 }
 
+const PANEL_DEFAULT_WIDTH: f64 = 560.0;
+const PANEL_DEFAULT_HEIGHT: f64 = 720.0;
+const PANEL_MIN_WIDTH: f64 = 420.0;
+const PANEL_MIN_HEIGHT: f64 = 320.0;
+const PANEL_WORK_AREA_MARGIN: f64 = 24.0;
+
+#[derive(Clone, Copy)]
+enum PanelPlacement {
+    CenterOnPet,
+    PreserveCurrentCenter,
+}
+
+fn fit_panel(
+    app: &AppHandle,
+    window: &tauri::WebviewWindow,
+    requested_height: Option<f64>,
+    placement: PanelPlacement,
+) -> Result<[f64; 2], String> {
+    // Opening is anchored to the pet's display. Subsequent content-fit calls
+    // use the panel's current display and preserve its center so a user move
+    // is not undone by the next stats render.
+    let pet_monitor = app
+        .get_webview_window("pet")
+        .and_then(|pet| pet.current_monitor().ok().flatten());
+    let panel_monitor = window.current_monitor().ok().flatten();
+    let monitor = match placement {
+        PanelPlacement::CenterOnPet => pet_monitor.or(panel_monitor),
+        PanelPlacement::PreserveCurrentCenter => panel_monitor.or(pet_monitor),
+    }
+    .or(window.primary_monitor().map_err(|error| error.to_string())?)
+    .ok_or("monitor information unavailable")?;
+
+    let scale = monitor.scale_factor().max(0.1);
+    let work = monitor.work_area();
+    let work_width = f64::from(work.size.width) / scale;
+    let work_height = f64::from(work.size.height) / scale;
+    let max_width = (work_width - PANEL_WORK_AREA_MARGIN * 2.0).max(1.0);
+    let max_height = (work_height - PANEL_WORK_AREA_MARGIN * 2.0).max(1.0);
+
+    let current_height = window
+        .outer_size()
+        .map(|size| f64::from(size.height) / scale)
+        .unwrap_or(PANEL_DEFAULT_HEIGHT);
+    let desired_height = requested_height
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .unwrap_or(current_height);
+
+    let logical_width = PANEL_DEFAULT_WIDTH
+        .min(max_width)
+        .max(PANEL_MIN_WIDTH.min(max_width));
+    let logical_height = desired_height
+        .min(PANEL_DEFAULT_HEIGHT)
+        .min(max_height)
+        .max(PANEL_MIN_HEIGHT.min(max_height));
+    let physical_width = logical_to_physical(logical_width, scale);
+    let physical_height = logical_to_physical(logical_height, scale);
+
+    let centered_x = i64::from(work.position.x)
+        + (i64::from(work.size.width) - i64::from(physical_width)) / 2;
+    let centered_y = i64::from(work.position.y)
+        + (i64::from(work.size.height) - i64::from(physical_height)) / 2;
+    let (candidate_x, candidate_y) = match placement {
+        PanelPlacement::CenterOnPet => (centered_x, centered_y),
+        PanelPlacement::PreserveCurrentCenter => {
+            match (window.outer_position(), window.outer_size()) {
+                (Ok(position), Ok(size)) => (
+                    i64::from(position.x)
+                        + (i64::from(size.width) - i64::from(physical_width)) / 2,
+                    i64::from(position.y)
+                        + (i64::from(size.height) - i64::from(physical_height)) / 2,
+                ),
+                _ => (centered_x, centered_y),
+            }
+        }
+    };
+
+    let margin = i64::from(logical_to_physical(PANEL_WORK_AREA_MARGIN, scale));
+    let min_x = i64::from(work.position.x) + margin;
+    let min_y = i64::from(work.position.y) + margin;
+    let max_x = (i64::from(work.position.x) + i64::from(work.size.width)
+        - margin
+        - i64::from(physical_width))
+        .max(min_x);
+    let max_y = (i64::from(work.position.y) + i64::from(work.size.height)
+        - margin
+        - i64::from(physical_height))
+        .max(min_y);
+    let x = candidate_x.clamp(min_x, max_x);
+    let y = candidate_y.clamp(min_y, max_y);
+
+    window
+        .set_size(Size::Physical(PhysicalSize::new(
+            physical_width,
+            physical_height,
+        )))
+        .map_err(|error| error.to_string())?;
+    window
+        .set_position(Position::Physical(PhysicalPosition::new(
+            x.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+            y.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+        )))
+        .map_err(|error| error.to_string())?;
+    Ok([logical_width, logical_height])
+}
+
+fn fit_and_center_panel(
+    app: &AppHandle,
+    window: &tauri::WebviewWindow,
+    requested_height: Option<f64>,
+) -> Result<[f64; 2], String> {
+    fit_panel(app, window, requested_height, PanelPlacement::CenterOnPet)
+}
+
 #[tauri::command]
 pub fn open_panel(app: AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("panel")
         .ok_or("panel window missing")?;
+    fit_and_center_panel(&app, &window, None)?;
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
-    // R35.1 (2026-07-31): emit a panel:shown event so the frontend can
-    // reset its auto-fit state (userSized, lastFitHeight, lastFitRequestTs).
-    // The 0.5.11 deep-recheck (P0-2 #2) noted that close_panel only hides
-    // the window (WebView JS context persists), so userSized was never
-    // reset and a single manual resize permanently disabled auto-fit.
-    // This event gives the frontend an explicit "you've been shown again"
-    // signal to reset. We emit AFTER show()+set_focus() so the frontend
-    // sees the event only when the window is actually visible.
+    // The panel WebView survives hide/show. Emit an explicit lifecycle event
+    // after the native window is visible so the renderer can begin a fresh
+    // auto-fit cycle without rebuilding its subscriptions.
     let _ = app.emit("panel:shown", ());
     Ok(())
 }
@@ -728,12 +771,9 @@ pub fn close_panel(app: AppHandle) -> Result<(), String> {
         .get_webview_window("panel")
         .ok_or("panel window missing")?;
     window.hide().map_err(|e| e.to_string())?;
-    // R38 (2026-08-01): emit panel:hidden so the frontend can set
-    // panelVisible=false and stop rendering. The 0.5.15 full audit (P0-4)
-    // flagged that only the close button handler set panelVisible=false;
-    // if the panel was hidden via tray or any other path, the frontend
-    // kept rendering on a hidden window. This event gives the frontend
-    // an explicit signal regardless of how the panel was hidden.
+    // Every hide path shares this lifecycle signal, allowing the renderer to
+    // stop hidden-window rendering regardless of whether the close button,
+    // tray or native command initiated the transition.
     let _ = app.emit("panel:hidden", ());
     Ok(())
 }
@@ -883,44 +923,16 @@ pub fn set_pet_size(app: AppHandle, width: f64, height: f64) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub fn set_panel_height(app: AppHandle, height: f64) -> Result<(), String> {
+pub fn set_panel_height(app: AppHandle, height: f64) -> Result<[f64; 2], String> {
     let window = app
         .get_webview_window("panel")
         .ok_or("panel window missing")?;
-    let scale = window
-        .scale_factor()
-        .ok()
-        .filter(|value| value.is_finite() && *value > 0.0)
-        .unwrap_or(1.0);
-    let current = window.outer_size().map_err(|error| error.to_string())?;
-    // R35 (2026-07-31): clamp the requested logical height to the current
-    // monitor's work area so the panel bottom edge never falls below the
-    // taskbar / off-screen on small displays. The audit's P0-2 noted that
-    // long diagnostics could push the panel past the work area boundary.
-    // We subtract a 48px safety margin to leave room for the titlebar and
-    // any OS chrome that the work_area calculation may not include.
-    let work_area_max_logical = window
-        .current_monitor()
-        .map_err(|error| error.to_string())?
-        .map(|monitor| {
-            let work = monitor.work_area();
-            // work_area is in physical pixels; convert to logical.
-            let work_logical_height = f64::from(work.size.height) / scale;
-            (work_logical_height - 48.0).max(480.0)
-        })
-        .unwrap_or(1200.0);
-    let logical_height = if height <= 0.0 {
-        720.0
-    } else {
-        height.clamp(480.0, work_area_max_logical)
-    };
-    let min_width = logical_to_physical(420.0, scale);
-    window
-        .set_size(Size::Physical(PhysicalSize::new(
-            current.width.max(min_width),
-            logical_to_physical(logical_height, scale),
-        )))
-        .map_err(|error| error.to_string())
+    fit_panel(
+        &app,
+        &window,
+        Some(height),
+        PanelPlacement::PreserveCurrentCenter,
+    )
 }
 
 #[tauri::command]
@@ -948,8 +960,8 @@ pub fn decide_permission(
     if !state.runtime.decide_value(&perm_id, &behavior)? {
         return Err("permission request no longer exists".into());
     }
-    // R37: force=true — user-initiated, needs immediate UI feedback.
-    emit_stats_throttled(&app, &state, true);
+    // User-initiated: bypass hook-ingestion throttling for immediate feedback.
+    emit_stats_now(&app, &state);
     Ok(())
 }
 
@@ -963,8 +975,8 @@ pub fn decide_permission_batch(
     if !state.runtime.decide_batch(&perm_id, &mode) {
         return Err("permission request no longer exists".into());
     }
-    // R37: force=true — user-initiated, needs immediate UI feedback.
-    emit_stats_throttled(&app, &state, true);
+    // User-initiated: bypass hook-ingestion throttling for immediate feedback.
+    emit_stats_now(&app, &state);
     Ok(())
 }
 
@@ -1195,13 +1207,13 @@ fn companion_for(spec: AgentSpec, executable: &Path) -> Option<PathBuf> {
 fn resolve_agent(spec: AgentSpec) -> Result<PathBuf, String> {
     let executable = which(spec.command).ok_or_else(|| {
         format!(
-            "{} CLI not found in the desktop application's PATH; restart RE-LLMPET after installing it",
+            "{} CLI not found in the desktop application's PATH; restart Octopus after installing it",
             spec.title
         )
     })?;
     if spec.id == "codewhale" && companion_for(spec, &executable).is_none() {
         return Err(
-            "CodeWhale installation is incomplete (MISSING_COMPANION_BINARY): codewhale-tui is missing or is a different installation. Reinstall the matched CodeWhale bundle, then restart RE-LLMPET."
+            "CodeWhale installation is incomplete (MISSING_COMPANION_BINARY): codewhale-tui is missing or is a different installation. Reinstall the matched CodeWhale bundle, then restart Octopus."
                 .into(),
         );
     }
@@ -1499,33 +1511,33 @@ struct CodeWhaleDoctorProbe {
     attempts: Vec<Value>,
 }
 
-fn run_probe_capture(
-    executable: &Path,
-    args: &[&str],
-    cwd: &Path,
-    timeout: Duration,
-) -> ProbeCapture {
-    run_probe_capture_with_pid(executable, args, cwd, timeout, &|_| {})
+fn cancelled_probe_capture() -> ProbeCapture {
+    ProbeCapture {
+        report: json!({
+            "started": false,
+            "success": false,
+            "cancelled": true,
+            "error": "diagnostic cancelled"
+        }),
+        json: None,
+    }
 }
 
-// R35.2 (2026-07-31): variant that registers the spawned child's PID via
-// a callback, so `cancel_diagnostic` can kill the process tree. The 0.5.12
-// carpet audit P0-4 flagged that the old code had no way to cancel a
-// running probe — dropping the frontend result left the Rust Child (and
-// on Windows, the cmd.exe-spawned Node grandchild) running indefinitely.
-fn run_probe_capture_with_pid(
+/// Runs one bounded diagnostic child process. Cancellation, PID ownership and
+/// worker completion all use the same state machine.
+fn run_diagnostic_probe_capture(
     executable: &Path,
     args: &[&str],
     cwd: &Path,
     timeout: Duration,
-    register_pid: &dyn Fn(u32),
+    control: &DiagnosticControl,
 ) -> ProbeCapture {
+    if control.is_cancel_requested() {
+        return cancelled_probe_capture();
+    }
+
     #[cfg(windows)]
     let mut command = if is_windows_script(executable) {
-        // R35 (2026-07-31): use raw_arg so cmd.exe /S /C receives the
-        // unescaped `call "C:\path\file.cmd" "arg1" ...` tail. The previous
-        // `.arg(cmd_probe_call(...))` re-escaped the tail per CreateProcessW
-        // rules, producing literal `\"...\"` quotes that broke .cmd shims.
         let mut command = Command::new("cmd.exe");
         append_cmd_tail(&mut command, cmd_probe_call(executable, args));
         command
@@ -1536,8 +1548,9 @@ fn run_probe_capture_with_pid(
     };
     #[cfg(not(windows))]
     let mut command = {
+        use std::os::unix::process::CommandExt;
         let mut command = Command::new(executable);
-        command.args(args);
+        command.args(args).process_group(0);
         command
     };
     let mut child = match command
@@ -1555,51 +1568,92 @@ fn run_probe_capture_with_pid(
             }
         }
     };
-    // R35.2: register the child's PID so cancel_diagnostic can kill the
-    // process tree if the user cancels. On Windows, cmd.exe /C spawns a
-    // Node grandchild — Child::kill only kills cmd.exe, so cancel_diagnostic
-    // uses `taskkill /F /T /PID` to kill the whole tree. On Unix, the
-    // child is the direct executable (no shell wrapper), so kill on the
-    // PID suffices, but we still use process-group kill for safety.
     let pid = child.id();
-    register_pid(pid);
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let stdout_reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        if let Some(pipe) = stdout {
-            let _ = pipe.take(64 * 1024).read_to_end(&mut bytes);
-        }
-        bytes
+        stdout
+            .map(|pipe| drain_bounded(pipe, 64 * 1024).unwrap_or_default())
+            .unwrap_or_default()
     });
     let stderr_reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        if let Some(pipe) = stderr {
-            let _ = pipe.take(64 * 1024).read_to_end(&mut bytes);
-        }
-        bytes
+        stderr
+            .map(|pipe| drain_bounded(pipe, 64 * 1024).unwrap_or_default())
+            .unwrap_or_default()
     });
+
+    if !control.register_pid(pid) {
+        let _ = kill_process_tree(pid);
+        let _ = child.wait();
+        let _ = stdout_reader.join();
+        let _ = stderr_reader.join();
+        return cancelled_probe_capture();
+    }
+
     let started = Instant::now();
-    let (status, timed_out) = loop {
+    let mut cancelled = false;
+    let mut timed_out = false;
+    let mut termination_error: Option<String> = None;
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => break (Some(status), false),
-            Ok(None) if started.elapsed() < timeout => thread::sleep(Duration::from_millis(25)),
-            Ok(None) => {
-                let _ = child.kill();
-                break (child.wait().ok(), true);
+            Ok(Some(status)) => {
+                control.clear_pid(pid);
+                break Some(status);
             }
-            Err(_) => break (None, false),
+            Ok(None) => {}
+            Err(error) => {
+                if control.claim_pid_for_termination(pid) {
+                    if let Err(kill_error) = kill_process_tree(pid) {
+                        termination_error = Some(format!(
+                            "failed to poll child process: {error}; termination failed: {kill_error}"
+                        ));
+                    } else {
+                        termination_error = Some(format!(
+                            "failed to poll child process: {error}"
+                        ));
+                    }
+                }
+                // A Child handle targets the spawned process object directly,
+                // so this is safe even if a concurrent cancel already claimed
+                // the numeric PID for tree termination.
+                let _ = child.kill();
+                break child.wait().ok();
+            }
         }
+
+        let cancellation_now = control.is_cancel_requested();
+        let timeout_now = !cancellation_now && started.elapsed() >= timeout;
+        cancelled |= cancellation_now;
+        timed_out |= timeout_now;
+        if cancellation_now || timeout_now {
+            if control.claim_pid_for_termination(pid) {
+                if let Err(error) = kill_process_tree(pid) {
+                    termination_error = Some(error);
+                    // Child::kill uses the process handle and therefore avoids
+                    // PID-reuse ambiguity. It is a direct-child fallback when
+                    // tree termination is unavailable.
+                    let _ = child.kill();
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(25));
     };
+    control.clear_pid(pid);
     let stdout = stdout_reader.join().unwrap_or_default();
     let stderr = stderr_reader.join().unwrap_or_default();
-    let parsed_json = sanitized_probe_json(&stdout).or_else(|| sanitized_probe_json(&stderr));
+    let parsed_json = if cancelled || timed_out {
+        None
+    } else {
+        sanitized_probe_json(&stdout).or_else(|| sanitized_probe_json(&stderr))
+    };
     ProbeCapture {
         report: json!({
             "started": true,
             "timedOut": timed_out,
-            "success": status.as_ref().is_some_and(|value| value.success()),
+            "cancelled": cancelled,
+            "success": !cancelled && status.as_ref().is_some_and(|value| value.success()),
             "exitCode": status.and_then(|value| value.code()),
+            "terminationError": termination_error,
             "stdout": bounded_probe_text(&stdout),
             "stderr": bounded_probe_text(&stderr)
         }),
@@ -1607,15 +1661,14 @@ fn run_probe_capture_with_pid(
     }
 }
 
-// R35.2: like run_probe_capture but registers the spawned child's PID via callback.
-fn run_probe_with_pid(
+fn run_diagnostic_probe(
     executable: &Path,
     args: &[&str],
     cwd: &Path,
     timeout: Duration,
-    register_pid: &dyn Fn(u32),
+    control: &DiagnosticControl,
 ) -> Value {
-    run_probe_capture_with_pid(executable, args, cwd, timeout, register_pid).report
+    run_diagnostic_probe_capture(executable, args, cwd, timeout, control).report
 }
 
 fn probe_succeeded(probe: &Value) -> bool {
@@ -1685,6 +1738,7 @@ fn codewhale_doctor_probe(
     dispatcher: Option<&Path>,
     companion: Option<&Path>,
     cwd: &Path,
+    control: &DiagnosticControl,
 ) -> CodeWhaleDoctorProbe {
     // R10 (2026-07-30): probe the matched codewhale-tui companion FIRST.
     //
@@ -1717,7 +1771,13 @@ fn codewhale_doctor_probe(
     // tells the next maintainer to flip the order.
     let mut attempts = Vec::new();
     let mut companion_capture = companion.map(|path| {
-        let capture = run_probe_capture(path, &["doctor", "--json"], cwd, Duration::from_secs(15));
+        let capture = run_diagnostic_probe_capture(
+            path,
+            &["doctor", "--json"],
+            cwd,
+            Duration::from_secs(15),
+            control,
+        );
         attempts.push(json!({
             "surface": "companion",
             "target": path.to_string_lossy(),
@@ -1749,8 +1809,13 @@ fn codewhale_doctor_probe(
         if let Some(path) = dispatcher {
             let duplicate = companion.is_some_and(|companion| companion == path);
             if !duplicate {
-                let capture =
-                    run_probe_capture(path, &["doctor", "--json"], cwd, Duration::from_secs(15));
+                let capture = run_diagnostic_probe_capture(
+                    path,
+                    &["doctor", "--json"],
+                    cwd,
+                    Duration::from_secs(15),
+                    control,
+                );
                 attempts.push(json!({
                     "surface": "dispatcher",
                     "target": path.to_string_lossy(),
@@ -2100,173 +2165,66 @@ fn executable_kind(path: &Path) -> &'static str {
     }
 }
 
-// R35.1 (2026-07-31): the public command is now `async` and offloads the
-// synchronous probe work to `tauri::async_runtime::spawn_blocking`. The
-// 0.5.11 deep-recheck (P0-3) noted that the previous synchronous command
-// froze the IPC thread for the full duration of all probes (up to ~30s
-// in the worst case: 5s version + 15s doctor + 8s auth + smaller probes).
-// During that window, pet/panel couldn't receive any other IPC responses.
-//
-// Verified via web-search of Tauri 2 docs (v2.tauri.app/develop/calling-rust,
-// Jun 2026): "Asynchronous commands are preferred in Tauri to perform heavy
-// work ... use async_runtime::spawn" and `spawn_blocking` is the correct
-// primitive for CPU/IO-bound blocking work that shouldn't run on the async
-// executor. The async command signature is `pub async fn ...` and Tauri
-// handles the rest.
-//
-// What this does NOT do yet (deferred to R36 / 0.5.12 per the roadmap):
-//   - Per-step progress via Tauri Channel (the audit's full recommendation)
-//   - Real cancellation via a CancellationToken + child kill
-//   - A DiagnosticRegistry that prevents duplicate concurrent runs
-// The frontend's `diagnosticGeneration` counter (R35) still handles stale-
-// result suppression; this R35.1 change just unblocks the IPC thread so
-// pet/panel stay responsive during a diagnostic.
-//
-// The body is extracted into `diagnose_agent_sync` (unchanged) so the
-// spawn_blocking closure can call it without holding the async runtime.
-// R35.2 (2026-07-31): the public command now accepts an optional
-// `cancel_token` shared with the spawn_blocking task, and registers the
-// active child PID into AppState so `cancel_diagnostic` can kill the
-// process tree. The 0.5.12 carpet audit P0-4 flagged that the old code
-// only dropped the frontend result — the Rust Child (and on Windows, the
-// cmd.exe-spawned Node grandchild) kept running. Verified via web-search
-// of Rust docs: "There is no implementation of Drop for child processes,
-// so if you do not ensure the Child has exited then it will continue to
-// run." cancel_diagnostic uses taskkill /F /T (Windows) or killpg (Unix)
-// to kill the whole tree.
-//
-// What this does NOT do yet (deferred to R36):
-//   - Per-step progress via Tauri Channel
-//   - A DiagnosticRegistry preventing duplicate concurrent runs
-//   - CancellationToken-based cooperative cancel inside run_probe_capture
-// The frontend's `diagnosticGeneration` counter (R35) still handles stale-
-// result suppression; R35.2 adds real process-tree kill on cancel.
+// Provider diagnostics are globally single-owner because the UI exposes one
+// result at a time. Blocking CLI probes run off the IPC executor;
+// DiagnosticControl owns provider, PID and cancellation transitions.
 #[tauri::command]
 pub async fn diagnose_agent(provider: String, state: State<'_, AppState>) -> Result<Value, String> {
-    // R38 (2026-08-01): the 0.5.15 full audit (P0-2) flagged that the R36
-    // per-provider guard still allowed different providers to run concurrently,
-    // overwriting the shared PID/provider slot. This caused races:
-    //   1. Start Claude diag → provider=claude, pid=A
-    //   2. Start CodeWhale diag → provider=codewhale, pid=B (overwrites A)
-    //   3. Claude completes → clears global slot (B is now orphaned)
-    //   4. Cancel → can't find B, or kills wrong PID
-    //
-    // Fix: make diagnostics GLOBALLY mutually exclusive. Only one diagnostic
-    // can run at a time, regardless of provider. This is the simplest correct
-    // fix — a full DiagnosticRegistry with per-request-ID tracking is R38.1.
-    // The frontend only shows one diagnostic at a time anyway, so concurrent
-    // multi-provider diagnostics have no UI benefit.
-    {
-        let mut provider_guard = state
-            .runtime
-            .active_diagnostic_provider
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if let Some(active) = provider_guard.as_ref() {
-            return Err(format!(
-                "{active} diagnostic already in progress; cancel it first or wait for completion"
-            ));
-        }
-        *provider_guard = Some(provider.clone());
-    }
-    // R35.2: clear any stale PID from a previous diagnostic, then run.
-    // The PID is updated by run_probe_capture_with_pid before each probe.
-    {
-        let mut pid_guard = state
-            .runtime
-            .active_diagnostic_pid
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *pid_guard = None;
-    }
+    state.runtime.diagnostic_control.begin(provider.clone())?;
     let runtime = state.runtime.clone();
-    let provider_for_closure = provider.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        diagnose_agent_sync(provider_for_closure, &|pid| {
-            let mut pid_guard = runtime
-                .active_diagnostic_pid
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            *pid_guard = Some(pid);
-        })
+    let provider_for_worker = provider;
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        diagnose_agent_sync(provider_for_worker, &runtime.diagnostic_control)
     })
-    .await
-    .map_err(|join_error| format!("diagnostic task panicked: {join_error}"))?;
-    // R35.2: clear the PID on completion (or panic) so a late cancel
-    // doesn't kill an unrelated process that reused the PID.
-    {
-        let mut pid_guard = state
-            .runtime
-            .active_diagnostic_pid
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *pid_guard = None;
+    .await;
+
+    // Release ownership before propagating either the worker result or a join
+    // failure. The previous `?` returned early on panic and left diagnostics
+    // permanently busy with a stale PID slot.
+    state.runtime.diagnostic_control.finish();
+    match task {
+        Ok(result) => result,
+        Err(join_error) => Err(format!("diagnostic task panicked: {join_error}")),
     }
-    // R36: clear the active provider so the same provider can be diagnosed again.
-    {
-        let mut provider_guard = state
-            .runtime
-            .active_diagnostic_provider
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *provider_guard = None;
-    }
-    result
 }
 
-// R35.2 (2026-07-31): cancel_diagnostic — kills the currently-running
-// diagnostic process tree. The 0.5.12 carpet audit P0-4 flagged that
-// "cancel" only dropped the frontend result; the Rust Child kept running.
-// This command reads active_diagnostic_pid and kills the tree:
-//   - Windows: `taskkill /F /T /PID <pid>` (kills the cmd.exe + Node tree)
-//   - Unix: `kill -TERM <pid>` then `kill -KILL <pid>` after 200ms
-// Verified via web-search: taskkill /T "terminates the specified process
-// and any child processes which were started by it" (Microsoft docs).
-// Rust Child::kill only kills the direct child (cmd.exe), not the Node
-// grandchild — hence the taskkill /T approach on Windows.
+/// Requests cooperative cancellation and kills the child that currently owns
+/// the diagnostic slot. If cancellation lands between probes, the next PID
+/// registration is rejected and that just-spawned process is killed before it
+/// can become an untracked child.
 #[tauri::command]
 pub async fn cancel_diagnostic(state: State<'_, AppState>) -> Result<Value, String> {
-    let pid = {
-        let guard = state
-            .runtime
-            .active_diagnostic_pid
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *guard
-    };
-    let Some(pid) = pid else {
+    let request = state.runtime.diagnostic_control.request_cancel();
+    if !request.active {
         return Ok(json!({"cancelled": false, "reason": "no active diagnostic"}));
-    };
-    let kill_result = kill_process_tree(pid);
-    // R38.1 (2026-08-01): the 0.5.16 full audit (P0-2) flagged that
-    // cancel cleared the provider lock immediately, allowing a new
-    // diagnostic to start while the old spawn_blocking worker was still
-    // running its next probe. Now we ONLY clear the PID (so the worker's
-    // subsequent register_pid calls write to None — harmless). We do NOT
-    // clear active_diagnostic_provider here — that stays locked until the
-    // worker's spawn_blocking returns and the diagnose_agent async wrapper
-    // clears it in its completion block. This prevents new diagnostics
-    // from starting until the cancelled worker has fully terminated.
-    {
-        let mut pid_guard = state
-            .runtime
-            .active_diagnostic_pid
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *pid_guard = None;
     }
-    // NOTE: active_diagnostic_provider is NOT cleared here. It is cleared
-    // by the diagnose_agent async wrapper when spawn_blocking returns.
-    match kill_result {
+    let Some(pid) = request.pid else {
+        return Ok(json!({
+            "cancelled": true,
+            "reason": "cancellation requested between diagnostic probes"
+        }));
+    };
+    match kill_process_tree(pid) {
         Ok(()) => Ok(json!({"cancelled": true, "pid": pid})),
-        Err(error) => Ok(json!({"cancelled": false, "pid": pid, "error": error})),
+        Err(error) => {
+            state
+                .runtime
+                .diagnostic_control
+                .restore_pid_after_failed_termination(pid);
+            Ok(json!({
+                "cancelled": true,
+                "pid": pid,
+                "killError": error,
+                "reason": "cancellation remains active; the worker will retry process termination"
+            }))
+        }
     }
 }
 
 /// R35.2: Kill a process and all its descendants. On Windows, uses
 /// `taskkill /F /T /PID` which kills the whole tree (cmd.exe + Node).
-/// On Unix, sends SIGTERM then SIGKILL to the direct PID (the probes
-/// don't spawn subprocesses on Unix, so tree-kill isn't needed there).
+/// On Unix, each probe is spawned in a fresh process group; cancellation sends
+/// SIGTERM then SIGKILL to the negative PGID so descendants are included.
 fn kill_process_tree(pid: u32) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -2291,10 +2249,7 @@ fn kill_process_tree(pid: u32) -> Result<(), String> {
             // taskkill returns non-zero if the process already exited —
             // treat "not found" as success (the diagnostic is over anyway).
             let combined = format!("{} {}", stdout, stderr).to_lowercase();
-            if combined.contains("not found")
-                || combined.contains("no tasks")
-                || combined.contains("could not be terminated")
-            {
+            if combined.contains("not found") || combined.contains("no tasks") {
                 Ok(())
             } else {
                 Err(format!("taskkill failed: {stderr}"))
@@ -2303,22 +2258,34 @@ fn kill_process_tree(pid: u32) -> Result<(), String> {
     }
     #[cfg(unix)]
     {
-        // On Unix, the diagnostic probes spawn the direct executable
-        // (no shell wrapper), so killing the direct PID suffices.
-        // Send SIGTERM first for graceful shutdown, then SIGKILL.
-        // Safety: kill(2) with a positive PID sends the signal to that
-        // process. We ignore ESRCH (process already exited).
-        let pid_i32 = pid as i32;
-        // SIGTERM
-        unsafe {
-            libc_kill(pid_i32, 15);
+        // process_group(0) makes the child PID its PGID. kill(2) with a
+        // negative value targets the entire process group.
+        let process_group = -i32::try_from(pid)
+            .map_err(|_| "diagnostic PID exceeds i32".to_string())?;
+        if !signal_process_group(process_group, 15)? {
+            return Ok(());
         }
-        // Give it 200ms to exit gracefully, then SIGKILL.
         thread::sleep(Duration::from_millis(200));
-        unsafe {
-            libc_kill(pid_i32, 9);
-        }
+        let _ = signal_process_group(process_group, 9)?;
         Ok(())
+    }
+}
+
+#[cfg(unix)]
+fn signal_process_group(process_group: i32, signal: i32) -> Result<bool, String> {
+    let result = unsafe { libc_kill(process_group, signal) };
+    if result == 0 {
+        return Ok(true);
+    }
+    let error = std::io::Error::last_os_error();
+    // ESRCH is 3 on the supported Unix targets and means the group already
+    // exited, which is the desired cancellation result.
+    if error.raw_os_error() == Some(3) {
+        Ok(false)
+    } else {
+        Err(format!(
+            "failed to signal diagnostic process group {process_group}: {error}"
+        ))
     }
 }
 
@@ -2332,7 +2299,7 @@ unsafe fn libc_kill(pid: i32, sig: i32) -> i32 {
     kill(pid, sig)
 }
 
-fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<Value, String> {
+fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<Value, String> {
     let spec = agent_spec(&provider)?;
     // Diagnostics intentionally use the application-owned working directory.
     // The always-on WebView cannot supply an arbitrary path and cause provider
@@ -2346,7 +2313,7 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
     let mut warnings = Vec::<String>::new();
     if executable.is_none() {
         issues.push(format!(
-            "{} CLI was not found in RE-LLMPET PATH",
+            "{} CLI was not found in Octopus PATH",
             spec.title
         ));
     }
@@ -2359,12 +2326,12 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
     let version = executable
         .as_deref()
         .map(|path| {
-            run_probe_with_pid(
+            run_diagnostic_probe(
                 path,
                 &["--version"],
                 &working_directory,
                 Duration::from_secs(5),
-                register_pid,
+                control,
             )
         })
         .unwrap_or(Value::Null);
@@ -2372,12 +2339,12 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
         companion
             .as_deref()
             .map(|path| {
-                run_probe_with_pid(
+                run_diagnostic_probe(
                     path,
                     &["--version"],
                     &working_directory,
                     Duration::from_secs(5),
-                    register_pid,
+                    control,
                 )
             })
             .unwrap_or(Value::Null)
@@ -2394,6 +2361,7 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
                 executable.as_deref(),
                 companion.as_deref(),
                 &working_directory,
+                control,
             );
             (
                 result.report,
@@ -2407,12 +2375,12 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
             executable
                 .as_deref()
                 .map(|path| {
-                    run_probe_with_pid(
+                    run_diagnostic_probe(
                         path,
                         &["doctor"],
                         &working_directory,
                         Duration::from_secs(15),
-                        register_pid,
+                        control,
                     )
                 })
                 .unwrap_or(Value::Null),
@@ -2429,24 +2397,24 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
         "codewhale" => executable
             .as_deref()
             .map(|path| {
-                run_probe_with_pid(
+                run_diagnostic_probe(
                     path,
                     &["auth", "status"],
                     &working_directory,
                     Duration::from_secs(8),
-                    register_pid,
+                    control,
                 )
             })
             .unwrap_or(Value::Null),
         "codex" => executable
             .as_deref()
             .map(|path| {
-                run_probe_with_pid(
+                run_diagnostic_probe(
                     path,
                     &["login", "status"],
                     &working_directory,
                     Duration::from_secs(8),
-                    register_pid,
+                    control,
                 )
             })
             .unwrap_or(Value::Null),
@@ -2472,12 +2440,12 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
                 // will surface the failure and we'll add a fixture
                 // then. Inventing unverified fallbacks is what got
                 // us here.
-                run_probe_with_pid(
+                run_diagnostic_probe(
                     path,
                     &["auth", "list"],
                     &working_directory,
                     Duration::from_secs(8),
-                    register_pid,
+                    control,
                 )
             })
             .unwrap_or(Value::Null),
@@ -2495,7 +2463,7 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
         if let Some(actual) = semverish_from_probe(&version) {
             if version_is_older(&actual, "2.1.200") {
                 warnings.push(format!(
-                    "Claude Code {actual} predates the 2.1.200 sleep/wake and background-session reliability fixes; upgrade before attributing resumed-session authentication failures to RE-LLMPET"
+                    "Claude Code {actual} predates the 2.1.200 sleep/wake and background-session reliability fixes; upgrade before attributing resumed-session authentication failures to Octopus"
                 ));
             }
         }
@@ -2614,7 +2582,7 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
         let config_raw = std::fs::read_to_string(&path).ok();
         let hook_block = config_raw
             .as_deref()
-            .is_some_and(|raw| raw.contains("# >>> re-llmpet:codewhale-hooks:v3 >>>"));
+            .is_some_and(hook_install::codewhale_config_has_owned_block);
         // R40 (2026-08-01): detect stale `message_submit` (and any other
         // pre-R22) hooks that are still present in the user's config.toml
         // from installs done prior to the R22 fix. These hooks cause
@@ -2622,40 +2590,40 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
         // whenever the LLMPET HTTP server is briefly unavailable, which
         // completely blocks the user's prompt from being submitted.
         // The previous diagnostic only checked `hook_block` (the v2
-        // marker), so it reported "all good" while the user's CodeWhale
+        // marker block), so it reported "all good" while the user's CodeWhale
         // was actually broken. This is the "诊断功能失效" failure mode
         // the user reported.
         let stale_hooks: Vec<String> = config_raw
             .as_deref()
             .map(|raw| {
                 // Look for any `event = "..."` line whose value is in
-                // the legacy/pre-R22 set AND which is NOT inside the v2
+                // the legacy/pre-R22 set AND which is NOT inside an Octopus-owned
                 // marker block. The most common offender is
                 // `message_submit` (removed in R22).
                 let legacy_events = ["message_submit"];
-                let mut in_v2 = false;
+                let mut in_owned_block = false;
                 let mut found: Vec<String> = Vec::new();
                 let mut current_table_events: Vec<String> = Vec::new();
-                let mut current_table_is_outside_v2 = false;
+                let mut current_table_is_outside_owned_block = false;
                 for line in raw.lines() {
                     let t = line.trim();
-                    if t == "# >>> re-llmpet:codewhale-hooks:v3 >>>" {
-                        in_v2 = true;
+                    if hook_install::is_codewhale_marker_begin(t) {
+                        in_owned_block = true;
                         continue;
                     }
-                    if t == "# <<< re-llmpet:codewhale-hooks:v3 <<<" {
-                        in_v2 = false;
+                    if hook_install::is_codewhale_marker_end(t) {
+                        in_owned_block = false;
                         continue;
                     }
                     if t.starts_with("[[hooks.hooks]]") {
                         // start new table
                         current_table_events.clear();
-                        current_table_is_outside_v2 = !in_v2;
+                        current_table_is_outside_owned_block = !in_owned_block;
                         continue;
                     }
                     if t.starts_with('[') && !t.starts_with("[[hooks.hooks]]") {
                         // different section — flush
-                        if current_table_is_outside_v2 {
+                        if current_table_is_outside_owned_block {
                             for ev in &current_table_events {
                                 if legacy_events.contains(&ev.as_str()) {
                                     found.push(ev.clone());
@@ -2663,7 +2631,7 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
                             }
                         }
                         current_table_events.clear();
-                        current_table_is_outside_v2 = false;
+                        current_table_is_outside_owned_block = false;
                         continue;
                     }
                     // capture `event = "..."` from inside a hooks table
@@ -2672,7 +2640,7 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
                     }
                 }
                 // flush trailing
-                if current_table_is_outside_v2 {
+                if current_table_is_outside_owned_block {
                     for ev in &current_table_events {
                         if legacy_events.contains(&ev.as_str()) {
                             found.push(ev.clone());
@@ -2683,13 +2651,10 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
             })
             .unwrap_or_default();
         if !stale_hooks.is_empty() {
-            // R40.1: the 0.5.19 auto-cleanup was disabled (audit P0-2).
-            // We surface the stale hooks as an ISSUE so the user knows
-            // exactly what to delete manually. The next install will
-            // create a timestamped backup before writing, so the user
-            // can safely edit ~/.codewhale/config.toml by hand.
+            // These tables have no exact ownership marker. Surface them for
+            // manual review instead of risking deletion of user-owned TOML.
             issues.push(format!(
-                "CodeWhale config.toml 仍包含 pre-R22 残留 hook 事件: {}。这些 hook 会在 LLMPET HTTP 服务短暂不可用时让 CodeWhale 报 \"message_submit hook failed and blocked\" 并阻止消息发送。R40.1 已禁用自动清理（避免误删用户 TOML 配置）。请手动编辑 ~/.codewhale/config.toml，删除所有 event = \"{}\" 的 [[hooks.hooks]] 表（LLMPET 已在文件旁创建 .config-re-llmpet-backup-*.toml 备份），或等待 R41 引入基于 TOML AST 的安全清理。",
+                "CodeWhale config.toml 仍包含无 Octopus 所有权标记的旧 hook 事件: {}。这些 hook 可能在 Octopus HTTP 服务不可用时阻止消息发送。为避免误删用户 TOML，Octopus 只自动迁移精确 marker 块，不会删除无标记表。请备份后手动删除 event = \"{}\" 的对应 [[hooks.hooks]] 表；安装器生成的旁路备份可用于恢复。",
                 stale_hooks.join(", "),
                 stale_hooks.join("\" 或 event = \"")
             ));
@@ -2746,7 +2711,7 @@ fn diagnose_agent_sync(provider: String, register_pid: &dyn Fn(u32)) -> Result<V
             .and_then(Value::as_array)
             .is_some_and(|items| !items.is_empty());
         if executable.is_some() && !has_config && !has_credential_env {
-            warnings.push("Aider is installed but no .aider.conf.yml or common credential environment variable is visible to RE-LLMPET; keyring, provider-specific config, or interactive setup may still work".into());
+            warnings.push("Aider is installed but no .aider.conf.yml or common credential environment variable is visible to Octopus; keyring, provider-specific config, or interactive setup may still work".into());
         }
         summary
     } else {
@@ -2933,7 +2898,7 @@ pub fn pet_visual_bounds(
 pub fn quit_app(app: AppHandle, state: State<'_, AppState>) {
     state
         .runtime
-        .cancel_all_pending("RE-LLMPET is shutting down; permission denied");
+        .cancel_all_pending("Octopus is shutting down; permission denied");
     app.exit(0);
 }
 

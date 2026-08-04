@@ -26,7 +26,7 @@ assert(platform.includes('mouse_ignore_requested: AtomicBool'), 'renderer click-
 assert(platform.includes('cursor_hit_test_started: AtomicBool'), 'native cursor hit-test worker must be single-start');
 assert(platform.includes('window.cursor_position()'), 'click-through recovery must not depend on ignored renderer mouse events');
 assert(platform.includes('.scale_factor()'), 'hit testing must account for Windows DPI scaling');
-assert(platform.includes('window.set_ignore_cursor_events(ignore)'), 'native worker must own the applied click-through state');
+assert(platform.includes('window.set_ignore_cursor_events(decision.ignore)'), 'native worker must own the applied click-through state');
 assert(platform.includes('value.is_finite()'), 'visual bounds must reject NaN/Infinity');
 assert(platform.includes('bounds.width <= 0.0'), 'visual bounds must reject non-positive dimensions');
 assert(platform.includes('bounds.width > 4096.0'), 'visual bounds must enforce a sane maximum');

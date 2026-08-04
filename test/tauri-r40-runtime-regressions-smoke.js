@@ -45,8 +45,8 @@ assert.strictEqual(packageJson.version, '0.5.41',
 // ──────────────────────────────────────────────────────────────────────────
 
 // The plugin source is a raw string in hook_install.rs.
-assert(hookInstall.includes('re-llmpet-opencode-plugin-v1'),
-  'R40-1: opencode plugin marker must be bumped to v3');
+assert(hookInstall.includes('octopus-opencode-plugin-v3'),
+  'R40-1: opencode plugin marker must use the current Octopus v3 identity');
 assert(!hookInstall.includes('"session.status": ["UserPromptSubmit", "thinking"]'),
   'R40-1: session.status MUST NOT map to UserPromptSubmit (causes "收到新任务" on every tool call)');
 // R40.1: session.status now uses a dynamic handler that reads the actual
@@ -113,15 +113,15 @@ assert(hookInstall.includes('backup_codewhale_config(&path, runtime)'),
 // Diagnostic must surface `stalePreR22Hooks` field and an issue string.
 assert(commands.includes('stalePreR22Hooks'),
   'R40-4: diagnostic JSON must include stalePreR22Hooks field');
-assert(commands.includes('pre-R22 残留 hook'),
-  'R40-4: diagnostic must push an issue string mentioning pre-R22 stale hooks');
+assert(commands.includes('无 Octopus 所有权标记的旧 hook'),
+  'R40-4: diagnostic must push an issue string for unowned legacy hooks');
 assert(commands.includes('fn parse_codewhale_toml_string'),
   'R40-4: commands.rs must have parse_codewhale_toml_string helper');
 
 // ──────────────────────────────────────────────────────────────────────────
 // R40-5/R40.7: Panel fullscreen border — opaque panel (poller removed)
 // ──────────────────────────────────────────────────────────────────────────
-// R40.7 (audit §7.1): panel is now opaque + decorated. The 500ms poller,
+// R40.7 (audit §7.1): panel is now opaque + undecorated. The 500ms poller,
 // near-fullscreen heuristic, and 96% screen check were workarounds for
 // the transparent double-layer. With a normal opaque window, the OS
 // handles maximize/fullscreen border suppression natively.
@@ -136,8 +136,10 @@ const tauriConf = JSON.parse(read('src-tauri/tauri.conf.json'));
 const panelWin = tauriConf.app.windows.find(w => w.label === 'panel');
 assert.strictEqual(panelWin.transparent, false,
   'R40.7: panel window must be transparent=false (opaque)');
-assert.strictEqual(panelWin.decorations, true,
-  'R40.7: panel window must have decorations=true (native titlebar)');
+assert.strictEqual(panelWin.decorations, false,
+  'Octopus panel must be frameless so the self-drawn close button is not duplicated');
+assert.strictEqual(panelWin.shadow, false,
+  'frameless panel must disable native shadow to avoid the Windows border artifact');
 assert(panelJs.includes('syncWindowMode'),
   'R40.7: panel.js must still have syncWindowMode (event-driven)');
 assert(panelJs.includes('applyWindowMode'),

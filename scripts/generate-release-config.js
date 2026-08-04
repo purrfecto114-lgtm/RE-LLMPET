@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const args = process.argv.slice(2);
 const draft = args.includes('--draft');
+const requirePlatformSigning = String(process.env.REQUIRE_PLATFORM_SIGNING || '').toLowerCase() === 'true';
 const output = path.resolve(args.find((a) => !a.startsWith('-')) || 'src-tauri/tauri.release.generated.json');
 // We don't ship the tauri updater plugin, so createUpdaterArtifacts stays
 // false in all modes (the action's updater JSON/signature upload is also
@@ -17,8 +18,10 @@ if (process.platform === 'darwin') {
     // CSC_IDENTITY_AUTO_DISCOVERY env var in release.yml, not the config.
     config.bundle.macOS = { signingIdentity: identity };
   }
-  // In draft mode (no APPLE_SIGNING_IDENTITY), we set CSC_IDENTITY_AUTO_DISCOVERY=false
-  // in the workflow env to skip signing entirely; no config change needed here.
+  if (!identity && !draft && requirePlatformSigning) {
+    console.error('generate-release-config: APPLE_SIGNING_IDENTITY is required when REQUIRE_PLATFORM_SIGNING=true');
+    process.exit(1);
+  }
 }
 if (process.platform === 'win32') {
   const thumbprint = String(process.env.WINDOWS_CERTIFICATE_THUMBPRINT || '').replace(/\s/g, '');
@@ -29,23 +32,11 @@ if (process.platform === 'win32') {
       timestampUrl: process.env.WINDOWS_TIMESTAMP_URL || 'http://timestamp.digicert.com'
     };
   } else if (!draft) {
-    // R34 (2026-07-31): previously this was a hard FAIL. But the Tauri
-    // updater signing key (TAURI_SIGNING_PRIVATE_KEY) is the cryptographic
-    // root of trust for the binary — Windows code-signing cert is a separate
-    // OS-UX concern (suppresses "unknown publisher" SmartScreen warning).
-    // With the Tauri key configured, missing WINDOWS_CERTIFICATE_THUMBPRINT
-    // should NOT block the build. The .exe will still be Tauri-signed; it
-    // just won't be Windows code-signed, so Windows SmartScreen will show
-    // "unknown publisher" on first run.
-    //
-    // To re-enable hard-fail when platform code-signing is procured, set
-    // REQUIRE_PLATFORM_CERT=1 in the workflow env.
-    if (process.env.REQUIRE_PLATFORM_CERT === '1') {
-      console.error('generate-release-config: WINDOWS_CERTIFICATE_THUMBPRINT is required on Windows when REQUIRE_PLATFORM_CERT=1');
+    if (requirePlatformSigning) {
+      console.error('generate-release-config: WINDOWS_CERTIFICATE_THUMBPRINT is required when REQUIRE_PLATFORM_SIGNING=true');
       process.exit(1);
-    } else {
-      console.error('generate-release-config: WINDOWS_CERTIFICATE_THUMBPRINT not set — building without Windows code-signing (Tauri updater signing still active). Set REQUIRE_PLATFORM_CERT=1 to enforce.');
     }
+    console.error('generate-release-config: WINDOWS_CERTIFICATE_THUMBPRINT not set — building without Authenticode publisher signing.');
   }
 }
 fs.mkdirSync(path.dirname(output), { recursive: true });

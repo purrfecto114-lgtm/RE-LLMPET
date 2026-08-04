@@ -21,6 +21,7 @@ const bridge = read('frontend/renderer/tauri-bridge.js');
 const petJs = read('frontend/renderer/pet.js');
 const panelJs = read('frontend/renderer/panel.js');
 const commands = read('src-tauri/src/commands.rs');
+const diagnosticControl = read('src-tauri/src/diagnostic_control.rs');
 const httpServer = read('src-tauri/src/http_server.rs');
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -51,11 +52,14 @@ assert(!panelCodeOnly.includes('.window.getCurrent()'),
 // P0-2: Diagnostic registry — global mutual exclusion
 // ──────────────────────────────────────────────────────────────────────────
 
-// The guard must reject ANY active diagnostic, not just same-provider
-assert(commands.includes('if let Some(active) = provider_guard.as_ref()'),
-  'R38: diagnose_agent must check for ANY active diagnostic');
-assert(!commands.includes('if active == &provider'),
-  'R38: diagnose_agent must NOT do per-provider matching (was race-prone)');
+// The guard must reject ANY active diagnostic, not just same-provider.
+// Provider, PID and cancellation are owned by one mutex-backed controller.
+assert(commands.includes('diagnostic_control.begin(provider.clone())?'),
+  'R38: diagnose_agent must acquire the global DiagnosticControl owner');
+assert(diagnosticControl.includes('if let Some(active) = state.provider.as_deref()'),
+  'R38: DiagnosticControl must reject any active provider');
+assert(!diagnosticControl.includes('if active == &provider'),
+  'R38: DiagnosticControl must NOT allow cross-provider overlap');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0-3: Stats trailing flush
@@ -74,8 +78,8 @@ assert(httpServer.includes('STATS_THROTTLE_MS as u64'),
 
 assert(commands.includes('app.emit("panel:hidden"'),
   'R38: close_panel must emit panel:hidden event');
-assert(panelJs.includes("ev.listen('panel:hidden'"),
-  'R38: panel.js must subscribe to panel:hidden event');
+assert(panelJs.includes('window.pet.onPanelHidden'),
+  'R38: panel.js must subscribe to panel:hidden through the bridge');
 assert(panelJs.includes('panelVisible = false'),
   'R38: panel:hidden handler must set panelVisible = false');
 assert(panelJs.includes('w.isVisible()'),

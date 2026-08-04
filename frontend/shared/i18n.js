@@ -7,11 +7,6 @@
 // the shared/states.js UMD shim.
 //
 // Translation rule for this project: EN/JA are NOT literal translations. The
-// pet's voice is built on Chinese internet memes, and a meme that survives
-// word-for-word translation stops being a meme. Each locale gets the closest
-// *native* meme carrying the same function, so the joke lands instead of the
-// footnote. See assets/memes/catalog.json for the same rule applied to the
-// meme catalog.
 //
 // Placeholders use {name} and are substituted by t(key, vars).
 
@@ -24,7 +19,7 @@
 
   const zh = {
     // ── tray ────────────────────────────────────────────────────────────────
-    'tray.tooltip': 'LLMPET — Claude Code / Codex 桌宠',
+    'tray.tooltip': 'Octopus — Claude Code / Codex 桌宠',
     'tray.panel': '📊 详情面板',
     'tray.showPet': '🐙 显示桌宠',
     'tray.codexPet': '🛰️ Codex 桌宠',
@@ -64,11 +59,11 @@
     // ── dialogs ─────────────────────────────────────────────────────────────
     'dlg.axTitle': '巡视桌宠需要「辅助功能」权限',
     'dlg.axBody': '小章鱼要移动别的桌宠窗口，才能把闯进地盘的它顶到屏幕边上。\n',
-    'dlg.axHint': '点「打开辅助功能设置」，在列表里勾选 LLMPET 即可——授权成功会自动开始巡视，不用退出重开。',
+    'dlg.axHint': '点「打开辅助功能设置」，在列表里勾选 Octopus 即可——授权成功会自动开始巡视，不用退出重开。',
     'dlg.axOpen': '打开辅助功能设置',
     'dlg.later': '稍后',
-    'dlg.dupTitle': 'LLMPET 已在运行',
-    'dlg.dupBody': '检测到另一个 LLMPET 实例正在端口 {port} 上服务（可能来自其他代码副本）。\n',
+    'dlg.dupTitle': 'Octopus 已在运行',
+    'dlg.dupBody': '检测到另一个 Octopus 实例正在端口 {port} 上服务（可能来自其他代码副本）。\n',
     'dlg.dupHint': '本实例将退出，避免抢占会话事件。\n开发需要多开时：OCTOPUS_ALLOW_MULTI=1',
 
     // ── waiting reasons ─────────────────────────────────────────────────────
@@ -205,22 +200,6 @@
     'sess.archive': '归档',
     'sess.unarchive': '移出归档',
 
-    // ── meme picker ─────────────────────────────────────────────────────────
-    'meme.entry': '🎭 表情包',
-    'meme.entryTitle': '给这个 session 发一个表情包',
-    'meme.pickTitle': '🎭 选择表情包',
-    'meme.loading': '正在读取表情包…',
-    'meme.sending': '正在投递到指定 session…',
-    'meme.failed': '表情包执行失败',
-    'meme.sent': '{label} · Prompt 已直发',
-    'meme.copied': '{label} · Prompt 已复制',
-    'meme.hint': '点击后会播放 GIF/语音，并把对应 Prompt 发给当前 session。',
-    'meme.none': '还没有可用表情包。',
-    'meme.fallbackLabel': '表情包',
-    'meme.unknown': '未知表情包，已拒绝执行。',
-    'meme.targetOffline': '目标 session 已离线或不可交互，请重新选择。',
-    'meme.targetForeign': '目标 session 不属于当前桌宠，已拒绝误发。',
-    'meme.noDispatcher': 'Prompt 下发器尚未就绪。',
 
     // ── pet bubbles ─────────────────────────────────────────────────────────
     'bub.loved': '🥰 谢谢夸奖！',
@@ -284,11 +263,11 @@
     'todo.notepadTitle': '待办清单',
 
     // ── detail panel ────────────────────────────────────────────────────────
-    'panel.title': 'LLMPET · 详情',
+    'panel.title': 'Octopus · 详情',
     'panel.waitingSession': '等待会话…',
     'panel.close': '关闭',
     'recovery.title': '配置文件损坏',
-    'recovery.explain': 'RE-LLMPET 检测到配置文件无法安全读取。为防止默认配置覆盖您的现有设置，所有保存操作已被阻止。您可以备份当前文件并重置为默认配置。',
+    'recovery.explain': 'Octopus 检测到配置文件无法安全读取。为防止默认配置覆盖您的现有设置，所有保存操作已被阻止。您可以备份当前文件并重置为默认配置。',
     'recovery.backupReset': '备份并重置',
     'recovery.retry': '重新检测',
     'recovery.close': '关闭面板',
@@ -366,7 +345,7 @@
     'diag.entries': '项',
     'diag.config': '配置文件',
     'diag.configSource': '配置来源',
-    'diag.hooks': 'RE-LLMPET Hook',
+    'diag.hooks': 'Octopus Hook',
     'diag.present': '已存在',
     'diag.absent': '未发现',
     'diag.notRun': '未运行',
@@ -428,7 +407,7 @@
   };
 
   const en = {
-    'tray.tooltip': 'LLMPET — Claude Code / Codex desk pet',
+    'tray.tooltip': 'Octopus — Claude Code / Codex desk pet',
     'tray.panel': '📊 Dashboard',
     'tray.showPet': '🐙 Show pet',
     'tray.codexPet': '🛰️ Codex pet',
@@ -464,11 +443,11 @@
 
     'dlg.axTitle': 'Patrol needs Accessibility permission',
     'dlg.axBody': 'The pet has to move other pets’ windows to shove intruders to the screen edge.\n',
-    'dlg.axHint': 'Click "Open Accessibility Settings" and tick LLMPET in the list — patrol starts automatically once granted, no restart needed.',
+    'dlg.axHint': 'Click "Open Accessibility Settings" and tick Octopus in the list — patrol starts automatically once granted, no restart needed.',
     'dlg.axOpen': 'Open Accessibility Settings',
     'dlg.later': 'Later',
-    'dlg.dupTitle': 'LLMPET is already running',
-    'dlg.dupBody': 'Another LLMPET instance is already serving on port {port} (possibly from a different copy of the code).\n',
+    'dlg.dupTitle': 'Octopus is already running',
+    'dlg.dupBody': 'Another Octopus instance is already serving on port {port} (possibly from a different copy of the code).\n',
     'dlg.dupHint': 'This instance will quit so it does not steal session events.\nTo run several during development: OCTOPUS_ALLOW_MULTI=1',
 
     'wait.reply': 'needs your reply',
@@ -596,21 +575,6 @@
     'sess.archive': 'Archive',
     'sess.unarchive': 'Unarchive',
 
-    'meme.entry': '🎭 Meme',
-    'meme.entryTitle': 'Send a meme to this session',
-    'meme.pickTitle': '🎭 Pick a meme',
-    'meme.loading': 'Loading memes…',
-    'meme.sending': 'Delivering to the target session…',
-    'meme.failed': 'Meme failed to run',
-    'meme.sent': '{label} · prompt sent',
-    'meme.copied': '{label} · prompt copied',
-    'meme.hint': 'Plays the GIF + sound and sends its prompt to this session.',
-    'meme.none': 'No memes available yet.',
-    'meme.fallbackLabel': 'Meme',
-    'meme.unknown': 'Unknown meme — refusing to run it.',
-    'meme.targetOffline': 'Target session is offline or not interactive. Pick another.',
-    'meme.targetForeign': 'That session belongs to another pet — refusing to misfire.',
-    'meme.noDispatcher': 'Prompt dispatcher is not ready yet.',
 
     'bub.loved': '🥰 Aw, thanks!',
     'bub.sad': '😢 Don’t be mad…',
@@ -668,11 +632,11 @@
     'todo.log': '📄 Log',
     'todo.notepadTitle': 'Todo list',
 
-    'panel.title': 'LLMPET · Details',
+    'panel.title': 'Octopus · Details',
     'panel.waitingSession': 'Waiting for a session…',
     'panel.close': 'Close',
     'recovery.title': 'Config File Corrupted',
-    'recovery.explain': 'RE-LLMPET detected that the config file cannot be safely read. To prevent default config from overwriting your existing settings, all save operations are blocked. You can back up the current file and reset to defaults.',
+    'recovery.explain': 'Octopus detected that the config file cannot be safely read. To prevent default config from overwriting your existing settings, all save operations are blocked. You can back up the current file and reset to defaults.',
     'recovery.backupReset': 'Backup and Reset',
     'recovery.retry': 'Re-check',
     'recovery.close': 'Close Panel',
@@ -749,7 +713,7 @@
     'diag.entries': 'entries',
     'diag.config': 'Config file',
     'diag.configSource': 'Config source',
-    'diag.hooks': 'RE-LLMPET hooks',
+    'diag.hooks': 'Octopus hooks',
     'diag.present': 'Present',
     'diag.absent': 'Not found',
     'diag.notRun': 'Not run',
@@ -810,7 +774,7 @@
   };
 
   const ja = {
-    'tray.tooltip': 'LLMPET — Claude Code / Codex デスクトップペット',
+    'tray.tooltip': 'Octopus — Claude Code / Codex デスクトップペット',
     'tray.panel': '📊 ダッシュボード',
     'tray.showPet': '🐙 ペットを表示',
     'tray.codexPet': '🛰️ Codex ペット',
@@ -846,11 +810,11 @@
 
     'dlg.axTitle': 'パトロールには「アクセシビリティ」権限が必要です',
     'dlg.axBody': '侵入してきた他のペットを画面の端へ押しやるには、そのウィンドウを動かす必要があります。\n',
-    'dlg.axHint': '「アクセシビリティ設定を開く」を押して一覧の LLMPET にチェックを入れてください。許可されると自動でパトロールを開始します（再起動不要）。',
+    'dlg.axHint': '「アクセシビリティ設定を開く」を押して一覧の Octopus にチェックを入れてください。許可されると自動でパトロールを開始します（再起動不要）。',
     'dlg.axOpen': 'アクセシビリティ設定を開く',
     'dlg.later': 'あとで',
-    'dlg.dupTitle': 'LLMPET はすでに起動しています',
-    'dlg.dupBody': '別の LLMPET がポート {port} で動作しています（別のコピーの可能性があります）。\n',
+    'dlg.dupTitle': 'Octopus はすでに起動しています',
+    'dlg.dupBody': '別の Octopus がポート {port} で動作しています（別のコピーの可能性があります）。\n',
     'dlg.dupHint': 'セッションイベントの奪い合いを避けるため、このインスタンスは終了します。\n開発で複数起動したい場合は OCTOPUS_ALLOW_MULTI=1',
 
     'wait.reply': 'があなたの返信待ちです',
@@ -978,21 +942,6 @@
     'sess.archive': 'アーカイブ',
     'sess.unarchive': 'アーカイブ解除',
 
-    'meme.entry': '🎭 ミーム',
-    'meme.entryTitle': 'このセッションにミームを送る',
-    'meme.pickTitle': '🎭 ミームを選ぶ',
-    'meme.loading': 'ミームを読み込み中…',
-    'meme.sending': '対象セッションへ送信中…',
-    'meme.failed': 'ミームの実行に失敗',
-    'meme.sent': '{label} · プロンプト送信済み',
-    'meme.copied': '{label} · プロンプトをコピー',
-    'meme.hint': 'GIF と音声を再生し、対応するプロンプトをこのセッションへ送ります。',
-    'meme.none': '利用できるミームがありません。',
-    'meme.fallbackLabel': 'ミーム',
-    'meme.unknown': '未知のミームのため実行を拒否しました。',
-    'meme.targetOffline': '対象セッションがオフライン、または操作できません。選び直してください。',
-    'meme.targetForeign': 'そのセッションは別のペットの担当です。誤送信を防ぎました。',
-    'meme.noDispatcher': 'プロンプト送信機能がまだ準備できていません。',
 
     'bub.loved': '🥰 褒められた！',
     'bub.sad': '😢 怒らないで…',
@@ -1050,11 +999,11 @@
     'todo.log': '📄 ログ',
     'todo.notepadTitle': 'ToDo リスト',
 
-    'panel.title': 'LLMPET · 詳細',
+    'panel.title': 'Octopus · 詳細',
     'panel.waitingSession': 'セッション待ち…',
     'panel.close': '閉じる',
     'recovery.title': '設定ファイルが破損',
-    'recovery.explain': 'RE-LLMPET は設定ファイルを安全に読み取れないことを検出しました。デフォルト設定で既存の設定を上書きするのを防ぐため、保存操作はすべてブロックされています。現在のファイルをバックアップしてデフォルトにリセットできます。',
+    'recovery.explain': 'Octopus は設定ファイルを安全に読み取れないことを検出しました。デフォルト設定で既存の設定を上書きするのを防ぐため、保存操作はすべてブロックされています。現在のファイルをバックアップしてデフォルトにリセットできます。',
     'recovery.backupReset': 'バックアップしてリセット',
     'recovery.retry': '再確認',
     'recovery.close': 'パネルを閉じる',
@@ -1131,7 +1080,7 @@
     'diag.entries': '件',
     'diag.config': '設定ファイル',
     'diag.configSource': '設定元',
-    'diag.hooks': 'RE-LLMPET Hook',
+    'diag.hooks': 'Octopus Hook',
     'diag.present': 'あり',
     'diag.absent': '見つかりません',
     'diag.notRun': '未実行',

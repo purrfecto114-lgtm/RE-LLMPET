@@ -58,7 +58,7 @@ assert.match(pricing, /OCTOPUS_DISABLE_MODELS_DEV_FETCH/);
 assert.match(pricing, /OCTOPUS_NO_NET/);
 assert.match(pricing, /if disabled_by_env \{[\s\S]*forced = false;[\s\S]*network-disabled/);
 assert.doesNotMatch(pricing, /if forced \|\| \(config\.price_auto_update && !disabled_by_env/);
-assert.match(pricing, /thread::Builder::new\(\)[\s\S]*re-llmpet-pricing-sync/);
+assert.match(pricing, /thread::Builder::new\(\)[\s\S]*octopus-pricing-sync/);
 
 // Manual refresh queues work; it never performs the network operation on the Tauri command thread.
 assert.match(commands, /pub fn refresh_model_prices/);

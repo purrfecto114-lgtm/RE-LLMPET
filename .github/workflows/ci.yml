@@ -22,7 +22,7 @@ jobs:
           toolchain: stable
 
       - name: Install pinned cargo-audit
-        run: cargo install cargo-audit --version 0.22.2
+        run: cargo install cargo-audit --version 0.22.2 --locked
 
       - name: Audit the committed Rust lockfile
         working-directory: src-tauri
@@ -61,7 +61,7 @@ jobs:
         uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
         with:
           toolchain: stable
-          components: rustfmt
+          components: rustfmt, clippy
 
       - name: Cache Rust build
         uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -82,6 +82,9 @@ jobs:
 
       - name: Resolve and type-check every Rust target
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets --locked
+
+      - name: Lint every Rust target without warnings
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
 
       - name: Run Rust core unit tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked

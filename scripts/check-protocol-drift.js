@@ -6,7 +6,11 @@ const { spawnSync } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
 const baselinePath = path.join(root, 'protocol-baseline.json');
-const reportPath = path.join(root, 'reports', 'protocol-drift.json');
+const reportFlag = process.argv.indexOf('--report');
+const reportPath = reportFlag >= 0
+  ? path.resolve(root, process.argv[reportFlag + 1] || '')
+  : path.join(root, 'reports', 'protocol-drift.json');
+if (reportFlag >= 0 && !process.argv[reportFlag + 1]) throw new Error('--report requires a path');
 const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
 const remoteEnabled = process.argv.includes('--remote');
 const strictNetwork = process.argv.includes('--strict-network');
@@ -72,7 +76,7 @@ async function fetchContract(contract) {
   try {
     const response = await fetch(contract.url, {
       redirect: 'follow',
-      headers: { 'user-agent': 'RE-LLMPET-protocol-drift-check/0.5.0', accept: 'text/html,application/json,text/plain;q=0.9,*/*;q=0.1' },
+      headers: { 'user-agent': 'Octopus-protocol-drift-check/0.5.41', accept: 'text/html,application/json,text/plain;q=0.9,*/*;q=0.1' },
       signal: controller.signal,
     });
     const text = await readBoundedResponse(response);

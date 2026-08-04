@@ -56,7 +56,8 @@ assert(!commands.includes('.args(["/C", "start", "", path'), 'paths must never b
 
 const main = read('src-tauri/src/main.rs');
 const hook = read('src-tauri/src/hook_client.rs');
-assert(main.includes('--re-llmpet-hook'), 'packaged executable must support native hook mode');
+assert(main.includes('--octopus-hook'), 'packaged executable must support Octopus native hook mode');
+assert(main.includes('--re-llmpet-hook'), 'packaged executable must accept legacy hook mode during migration');
 assert(hook.includes('USERPROFILE'), 'hook client needs a Windows home fallback');
 assert(hook.includes('X-Re-Llmpet-Token'), 'hook transport must authenticate local requests');
 

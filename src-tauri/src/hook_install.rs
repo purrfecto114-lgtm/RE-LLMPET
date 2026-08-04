@@ -51,14 +51,13 @@ fn current_exe_clean() -> Result<PathBuf, String> {
 }
 
 pub(crate) const MAX_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
-const MARKER: &str = "--re-llmpet-hook";
-/// R41 (audit §10): stable ownership tag embedded in every hook command.
-/// `remove_all_ours` checks for this to avoid matching user hooks that
-/// happen to contain "re-llmpet" in their command string. Before this,
-/// ownership was inferred from `MARKER` ("--octopus-hook") + filename
-/// patterns ("re-llmpet-hook.js"), which could false-positive on user
-/// hooks that mentioned octopus.
-const HOOK_OWNER: &str = "--owner re-llmpet";
+const MARKER: &str = "--octopus-hook";
+const LEGACY_MARKER: &str = "--re-llmpet-hook";
+/// Stable ownership tags embedded in hook commands. New installs use the
+/// Octopus name; the legacy tag remains cleanup-only so existing users can
+/// migrate without leaving duplicate hooks behind.
+const HOOK_OWNER: &str = "--owner octopus";
+const LEGACY_HOOK_OWNER: &str = "--owner re-llmpet";
 // Install only observer-safe lifecycle events. Claude Code exposes additional
 // decision/replacement hooks (for example ConfigChange, UserPromptExpansion,
 // WorktreeCreate and FileChanged), but registering a generic desktop observer
@@ -137,16 +136,24 @@ const CODEWHALE_EVENTS: [&str; 10] = [
     "subagent_complete",
     "message_submit",
 ];
-const CW_BEGIN: &str = "# >>> re-llmpet:codewhale-hooks:v3 >>>";
-const CW_END: &str = "# <<< re-llmpet:codewhale-hooks:v3 <<<";
-const AIDER_BEGIN: &str = "# >>> re-llmpet:aider-notification:v3 >>>";
-const AIDER_END: &str = "# <<< re-llmpet:aider-notification:v3 <<<";
-// R40 (2026-08-01): bumped marker to v3 because the plugin source
-// changed in a backward-incompatible way (session.status mapping).
-// Existing v2 files are detected by `is_octopus_marker` and replaced
-// on the next sync_enabled() call — see `install_opencode()`.
-const OPENCODE_MARKER: &str = "re-llmpet-opencode-plugin-v1";
-const OPENCODE_MARKER_LEGACY: &[&str] = &["octopus-opencode-plugin-v2"];
+const CW_BEGIN: &str = "# >>> octopus:codewhale-hooks:v4 >>>";
+const CW_END: &str = "# <<< octopus:codewhale-hooks:v4 <<<";
+const CW_LEGACY_BEGIN: &str = "# >>> re-llmpet:codewhale-hooks:v3 >>>";
+const CW_LEGACY_END: &str = "# <<< re-llmpet:codewhale-hooks:v3 <<<";
+const CW_MARKERS: &[(&str, &str)] = &[(CW_BEGIN, CW_END), (CW_LEGACY_BEGIN, CW_LEGACY_END)];
+const AIDER_BEGIN: &str = "# >>> octopus:aider-notification:v4 >>>";
+const AIDER_END: &str = "# <<< octopus:aider-notification:v4 <<<";
+const AIDER_LEGACY_BEGIN: &str = "# >>> re-llmpet:aider-notification:v3 >>>";
+const AIDER_LEGACY_END: &str = "# <<< re-llmpet:aider-notification:v3 <<<";
+const AIDER_MARKERS: &[(&str, &str)] = &[
+    (AIDER_BEGIN, AIDER_END),
+    (AIDER_LEGACY_BEGIN, AIDER_LEGACY_END),
+];
+const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v3";
+const OPENCODE_MARKER_LEGACY: &[&str] = &[
+    "re-llmpet-opencode-plugin-v1",
+    "octopus-opencode-plugin-v2",
+];
 
 #[derive(Debug, Default)]
 pub struct InstallResult {
@@ -216,7 +223,7 @@ impl CleanupResult {
             CleanupResult::Unowned { path } => json!({
                 "status": "unowned",
                 "path": path.to_string_lossy(),
-                "message": "File exists but is not owned by RE-LLMPET; left intact",
+                "message": "File exists but is not owned by Octopus; left intact",
             }),
             CleanupResult::Changed { path } => json!({
                 "status": "changed",
@@ -273,7 +280,7 @@ impl CleanupResult {
 
 /// R44 0.5.41: return the config file path for a provider (for status
 /// reporting when idempotent-sync skips the install). This is the same
-/// path that `install_*` writes to and `is_hook_installed` checks.
+/// path that `install_*` writes to and the hook-presence checks inspect.
 fn provider_config_path(id: &str) -> PathBuf {
     match id {
         "claude" => home_dir().join(".claude").join("settings.json"),
@@ -304,12 +311,10 @@ pub fn sync_enabled(
             // files + receipts). The 5-backup cap prevents unbounded growth,
             // but skipping the write entirely is cleaner.
             //
-            // Edge case: if the user DOWNGRADED from a newer RE version
-            // that wrote a different hook format, `is_hook_installed` might
-            // return true for the old format. In that case, the user should
-            // explicitly uninstall + reinstall to get the new format. The
-            // sync path is not the place to force format upgrades.
-            if is_hook_installed(id) {
+            // Exact legacy ownership is not treated as current here. An
+            // explicit resync rewrites those blocks to Octopus markers while
+            // startup verification remains read-only.
+            if is_current_hook_installed(id) {
                 Ok(InstallResult {
                     path: provider_config_path(id),
                     message: "Hook 已安装（幂等跳过）".into(),
@@ -336,10 +341,10 @@ pub fn sync_enabled(
             };
             let message = match &cleanup {
                 CleanupResult::Removed { .. } => {
-                    "未启用；已清理 RE-LLMPET 自有 Hook，保留用户其他配置"
+                    "未启用；已清理 Octopus 自有 Hook，保留用户其他配置"
                 }
                 CleanupResult::NotFound { .. } => "未启用；无 Hook 需要清理",
-                CleanupResult::Unowned { .. } => "未启用；配置文件存在但不属于 RE-LLMPET，未修改",
+                CleanupResult::Unowned { .. } => "未启用；配置文件存在但不属于 Octopus，未修改",
                 CleanupResult::Changed { .. } => "未启用；Hook 块已移除但检测到残留，请检查",
                 CleanupResult::Residue { detail, .. } => detail.as_str(),
                 CleanupResult::PathDrift { .. } => "未启用；配置路径发生变化，未执行清理",
@@ -454,71 +459,147 @@ fn install_provider(
     }
 }
 
-/// R36 (2026-07-31): check whether a provider's hook is currently installed,
-/// WITHOUT modifying anything. Used by `verify_enabled` at startup so we
-/// don't auto-modify external provider configs (the 0.5.12 carpet audit
-/// P1-3 trust concern). Each provider has a different detection method:
-///   - claude: settings.json contains the Octopus hook block marker
-///   - codewhale: config.toml contains the CW_BEGIN marker
-///   - codex: config.toml contains the Octopus hook block marker
-///   - opencode: config file contains the OPENCODE_MARKER string
-///   - aider: .aider.conf.yml contains the AIDER_BEGIN marker
-fn is_hook_installed(id: &str) -> bool {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HookPresence {
+    Missing,
+    Legacy,
+    Current,
+    Mixed,
+}
+
+fn marker_presence(content: &str, current: &[&str], legacy: &[&str]) -> HookPresence {
+    let has_current = current.iter().any(|marker| content.contains(marker));
+    let has_legacy = legacy.iter().any(|marker| content.contains(marker));
+    match (has_current, has_legacy) {
+        (true, true) => HookPresence::Mixed,
+        (true, false) => HookPresence::Current,
+        (false, true) => HookPresence::Legacy,
+        (false, false) => HookPresence::Missing,
+    }
+}
+
+fn file_marker_presence(
+    path: impl AsRef<Path>,
+    current: &[&str],
+    legacy: &[&str],
+) -> HookPresence {
+    fs::read_to_string(path)
+        .map(|content| marker_presence(&content, current, legacy))
+        .unwrap_or(HookPresence::Missing)
+}
+
+fn block_marker_presence(
+    content: &str,
+    current: (&str, &str),
+    legacy: &[(&str, &str)],
+) -> HookPresence {
+    let current_complete = content.contains(current.0) && content.contains(current.1);
+    let legacy_complete = legacy
+        .iter()
+        .any(|(begin, end)| content.contains(begin) && content.contains(end));
+    let any_current = content.contains(current.0) || content.contains(current.1);
+    let any_legacy = legacy
+        .iter()
+        .any(|(begin, end)| content.contains(begin) || content.contains(end));
+
+    match (current_complete, legacy_complete, any_current, any_legacy) {
+        (true, true, _, _) => HookPresence::Mixed,
+        (true, false, _, true) => HookPresence::Mixed,
+        (true, false, _, false) => HookPresence::Current,
+        (false, true, _, _) => HookPresence::Legacy,
+        (false, false, true, _) | (false, false, false, true) => HookPresence::Legacy,
+        (false, false, false, false) => HookPresence::Missing,
+    }
+}
+
+fn file_block_presence(
+    path: impl AsRef<Path>,
+    current: (&str, &str),
+    legacy: &[(&str, &str)],
+) -> HookPresence {
+    fs::read_to_string(path)
+        .map(|content| block_marker_presence(&content, current, legacy))
+        .unwrap_or(HookPresence::Missing)
+}
+
+/// Read-only ownership probe. Startup verification accepts both current and
+/// exact legacy ownership so existing integrations remain visible, while an
+/// explicit resync can distinguish legacy files and migrate them.
+fn hook_presence(id: &str) -> HookPresence {
     match id {
-        "claude" => {
-            // Claude hooks live in ~/.claude/settings.json under the
-            // hooks key. Check for the Octopus-owned marker.
-            let path = home_dir().join(".claude").join("settings.json");
-            file_contains(path, "re-llmpet")
-        }
-        "codewhale" => {
-            let path = codewhale_config_path();
-            file_contains(path, CW_BEGIN)
-        }
-        "codex" => {
-            // R44 (audit v3 P0-4): Codex hooks live in ~/.codex/hooks.json
-            // (that's where install_codex writes them). The old detector
-            // checked config.toml which is a different file.
-            let path = home_dir().join(".codex").join("hooks.json");
-            file_contains(path, "re-llmpet")
-        }
+        "claude" => file_marker_presence(
+            home_dir().join(".claude").join("settings.json"),
+            &[MARKER, HOOK_OWNER],
+            &[LEGACY_MARKER, LEGACY_HOOK_OWNER],
+        ),
+        "codewhale" => file_block_presence(
+            codewhale_config_path(),
+            (CW_BEGIN, CW_END),
+            &[(CW_LEGACY_BEGIN, CW_LEGACY_END)],
+        ),
+        "codex" => file_marker_presence(
+            home_dir().join(".codex").join("hooks.json"),
+            &[MARKER, HOOK_OWNER],
+            &[LEGACY_MARKER, LEGACY_HOOK_OWNER],
+        ),
         "opencode" => {
-            // R40: the install_opencode() function writes the plugin to
-            // `$OPENCODE_CONFIG_DIR/plugins/llmpet-hook.js` (defaults to
-            // `~/.config/opencode/plugins/llmpet-hook.js`). The previous
-            // check looked at `~/.opencode/config.json` — a path the
-            // installer NEVER writes — so the "installed?" probe always
-            // returned false, and the diagnostic silently misreported
-            // OpenCode as "not installed" even when the plugin was present.
-            // Fix: probe the actual plugin file path, and accept either the
-            // current v3 marker or any legacy v2 marker.
             let base = std::env::var_os("OPENCODE_CONFIG_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
-            let path = base.join("plugins").join("llmpet-hook.js");
-            match fs::read_to_string(&path) {
-                Ok(raw) => {
-                    raw.contains(OPENCODE_MARKER)
-                        || OPENCODE_MARKER_LEGACY.iter().any(|m| raw.contains(m))
-                }
-                Err(_) => false,
-            }
+            file_marker_presence(
+                base.join("plugins").join("llmpet-hook.js"),
+                &[OPENCODE_MARKER],
+                OPENCODE_MARKER_LEGACY,
+            )
         }
-        "aider" => {
-            let path = home_dir().join(".aider.conf.yml");
-            file_contains(path, AIDER_BEGIN)
-        }
-        _ => false,
+        "aider" => file_block_presence(
+            home_dir().join(".aider.conf.yml"),
+            (AIDER_BEGIN, AIDER_END),
+            &[(AIDER_LEGACY_BEGIN, AIDER_LEGACY_END)],
+        ),
+        _ => HookPresence::Missing,
     }
+}
+
+fn is_hook_installed(id: &str) -> bool {
+    hook_presence(id) != HookPresence::Missing
+}
+
+fn is_current_hook_installed(id: &str) -> bool {
+    hook_presence(id) == HookPresence::Current
 }
 
 /// Helper: read a file and check if it contains a marker string.
 /// Returns false if the file doesn't exist or can't be read (not an error —
 /// the hook simply isn't installed).
-fn file_contains(path: PathBuf, marker: &str) -> bool {
-    fs::read_to_string(&path)
+fn file_contains(path: impl AsRef<Path>, marker: &str) -> bool {
+    fs::read_to_string(path)
         .map(|content| content.contains(marker))
         .unwrap_or(false)
+}
+
+fn contains_any_marker(content: &str, markers: &[(&str, &str)]) -> bool {
+    markers.iter().any(|(begin, _)| content.contains(begin))
+}
+
+fn file_contains_any_marker(path: impl AsRef<Path>, markers: &[(&str, &str)]) -> bool {
+    fs::read_to_string(path)
+        .map(|content| contains_any_marker(&content, markers))
+        .unwrap_or(false)
+}
+
+pub(crate) fn codewhale_config_has_owned_block(content: &str) -> bool {
+    contains_any_marker(content, CW_MARKERS)
+}
+
+pub(crate) fn is_codewhale_marker_begin(line: &str) -> bool {
+    let line = line.trim();
+    CW_MARKERS.iter().any(|(begin, _)| line == *begin)
+}
+
+pub(crate) fn is_codewhale_marker_end(line: &str) -> bool {
+    let line = line.trim();
+    CW_MARKERS.iter().any(|(_, end)| line == *end)
 }
 
 /// R44 0.5.39 (roadmap v5 §3+§4): unified cleanup pipeline returning
@@ -553,7 +634,7 @@ fn cleanup_provider_with_path(id: &str, receipt_path: Option<&Path>) -> CleanupR
             let path = receipt_path
                 .map(|p| p.to_path_buf())
                 .unwrap_or_else(codewhale_config_path);
-            uninstall_marker_file(&path, CW_BEGIN, CW_END)
+            uninstall_marker_variants(&path, CW_MARKERS)
         }
         "codex" => {
             let path = receipt_path
@@ -571,7 +652,7 @@ fn cleanup_provider_with_path(id: &str, receipt_path: Option<&Path>) -> CleanupR
             let path = receipt_path
                 .map(|p| p.to_path_buf())
                 .unwrap_or_else(|| home_dir().join(".aider.conf.yml"));
-            uninstall_marker_file(&path, AIDER_BEGIN, AIDER_END)
+            uninstall_marker_variants(&path, AIDER_MARKERS)
         }
         _ => CleanupResult::ManualActionRequired {
             path: PathBuf::new(),
@@ -587,6 +668,37 @@ fn opencode_plugin_path() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
     base.join("plugins").join("llmpet-hook.js")
+}
+
+fn finish_json_hook_cleanup(path: &Path) -> CleanupResult {
+    let post_raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            return CleanupResult::Unreadable {
+                path: path.to_path_buf(),
+                error: format!("post-clean verify read failed: {error}"),
+            }
+        }
+    };
+    let post: Value = match serde_json::from_str(&post_raw) {
+        Ok(value) => value,
+        Err(error) => {
+            return CleanupResult::ManualActionRequired {
+                path: path.to_path_buf(),
+                detail: format!("post-clean JSON verify failed: {error}"),
+            }
+        }
+    };
+    if json_config_contains_our_hooks(&post) {
+        CleanupResult::Residue {
+            path: path.to_path_buf(),
+            detail: "Octopus-owned hook remains after cleanup".into(),
+        }
+    } else {
+        CleanupResult::Removed {
+            path: path.to_path_buf(),
+        }
+    }
 }
 
 /// R44 0.5.41: Claude uninstall at a specific path (receipt-driven).
@@ -614,7 +726,7 @@ fn uninstall_claude_at(path: &Path) -> CleanupResult {
             }
         }
     };
-    if !raw.contains("re-llmpet") {
+    if !json_config_contains_our_hooks(&settings) {
         return CleanupResult::Unowned {
             path: path.to_path_buf(),
         };
@@ -628,23 +740,7 @@ fn uninstall_claude_at(path: &Path) -> CleanupResult {
             detail: format!("write failed: {e}"),
         };
     }
-    match fs::read_to_string(path) {
-        Ok(post_raw) => {
-            if post_raw.contains("re-llmpet") {
-                return CleanupResult::Residue {
-                    path: path.to_path_buf(),
-                    detail: "re-llmpet marker still present after remove_all_ours".into(),
-                };
-            }
-            CleanupResult::Removed {
-                path: path.to_path_buf(),
-            }
-        }
-        Err(e) => CleanupResult::Unreadable {
-            path: path.to_path_buf(),
-            error: format!("post-clean verify read failed: {e}"),
-        },
-    }
+    finish_json_hook_cleanup(path)
 }
 
 /// R44 0.5.41: Codex uninstall at a specific path (receipt-driven).
@@ -672,7 +768,7 @@ fn uninstall_codex_at(path: &Path) -> CleanupResult {
             }
         }
     };
-    if !raw.contains("re-llmpet") {
+    if !json_config_contains_our_hooks(&root) {
         return CleanupResult::Unowned {
             path: path.to_path_buf(),
         };
@@ -686,25 +782,7 @@ fn uninstall_codex_at(path: &Path) -> CleanupResult {
             detail: format!("write failed: {e}"),
         };
     }
-    match fs::read_to_string(path) {
-        Ok(post_raw) => {
-            if post_raw.contains("re-llmpet") {
-                return CleanupResult::Residue {
-                    path: path.to_path_buf(),
-                    detail: "re-llmpet marker still present after remove_all_ours".into(),
-                };
-            }
-        }
-        Err(e) => {
-            return CleanupResult::Unreadable {
-                path: path.to_path_buf(),
-                error: format!("post-clean verify read failed: {e}"),
-            }
-        }
-    }
-    CleanupResult::Removed {
-        path: path.to_path_buf(),
-    }
+    finish_json_hook_cleanup(path)
 }
 
 /// R44 0.5.41: OpenCode uninstall at a specific path (receipt-driven).
@@ -883,105 +961,18 @@ pub fn install_claude(
 #[allow(dead_code)]
 fn uninstall_claude() -> CleanupResult {
     let path = home_dir().join(".claude").join("settings.json");
-    if !path.exists() {
-        return CleanupResult::NotFound { path };
-    }
-    // Read the file; if it can't be read, report Unreadable (not Err).
-    let raw = match fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(e) => {
-            return CleanupResult::Unreadable {
-                path,
-                error: e.to_string(),
-            }
-        }
-    };
-    // Parse JSON; if it fails, the user's settings.json is corrupt —
-    // refuse to write (ManualActionRequired) instead of overwriting with
-    // defaults.
-    let mut settings: Value = match serde_json::from_str(&raw) {
-        Ok(v) => v,
-        Err(e) => {
-            return CleanupResult::ManualActionRequired {
-                path,
-                detail: format!("settings.json is not valid JSON: {e}. Refusing to overwrite; manual cleanup required."),
-            }
-        }
-    };
-    // Check if we own anything before mutating. If not, return Unowned.
-    if !raw.contains("re-llmpet") {
-        return CleanupResult::Unowned { path };
-    }
-    if let Some(hooks) = settings.get_mut("hooks").and_then(Value::as_object_mut) {
-        remove_all_ours(hooks);
-    }
-    if let Err(e) = write_json_atomic(&path, &settings) {
-        return CleanupResult::ManualActionRequired {
-            path,
-            detail: format!("write failed: {e}"),
-        };
-    }
-    // R44 0.5.40 (Roadmap v6 P0-05): post-write verification must NOT
-    // report Removed when the verify read fails. The 0.5.39 version used
-    // `if let Ok(post_raw) = ...` which silently fell through to
-    // `Removed` on read failure — that's a false positive. The new code
-    // explicitly handles the read-failure case as Unreadable (verify
-    // could not complete), so `allHooksVerifiedAbsent` in bulk uninstall
-    // won't count this as clean.
-    match fs::read_to_string(&path) {
-        Ok(post_raw) => {
-            if post_raw.contains("re-llmpet") {
-                return CleanupResult::Residue {
-                    path,
-                    detail: "re-llmpet marker still present after remove_all_ours".into(),
-                };
-            }
-            CleanupResult::Removed { path }
-        }
-        Err(e) => CleanupResult::Unreadable {
-            path,
-            error: format!("post-clean verify read failed: {e}"),
-        },
-    }
+    uninstall_claude_at(&path)
 }
 
 fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
     let path = codewhale_config_path();
     let executable = current_exe_clean().map_err(|e| e.to_string())?;
 
-    // R40.1 (2026-08-01): the 0.5.19 `strip_legacy_codewhale_hooks` was
-    // DISABLED. The 0.5.19 carpet audit (P0-2) proved the line-oriented
-    // state machine could absorb user-owned `[provider]` / `[[models]]`
-    // / arbitrary TOML tables into a legacy `[[hooks.hooks]]` body and
-    // silently delete them when dropping the hook table. That is a data
-    // corruption bug — losing a `[provider] api_key = "..."` block is
-    // far worse than the original "message_submit blocked" symptom.
-    //
-    // Emergency closure for 0.5.20:
-    //   1. Do NOT auto-run the legacy cleanup.
-    //   2. Create a timestamped backup before any write.
-    //   3. The diagnostic (in commands.rs) still DETECTS stale
-    //      pre-R22 hooks and surfaces them as an issue with
-    //      instructions, so the user knows they exist.
-    //   4. A future R41 will reintroduce cleanup via a real TOML AST
-    //      editor with exact ownership metadata, not a line scanner.
-    //
-    // The diagnostic-side detection (`stalePreR22Hooks` field in
-    // commands.rs) is preserved — it tells the user "you have stale
-    // message_submit hooks; here's how to manually remove them or
-    // wait for R41". This is the safe trade-off: detect + inform
-    // instead of detect + auto-mutate.
-    //
-    // R40.5 (audit P0-5): backup failure is now fail-closed. The previous
-    // code logged and continued writing, which could corrupt user config
-    // if the write also failed mid-way (no backup to restore from). Now
-    // we abort the install entirely if backup fails — the user's existing
-    // config is preserved untouched.
-    //
-    // R44 Phase 0C: `backup_codewhale_config` delegates to the generic
-    // `backup_config_file` and now returns `Option<PathBuf>` (Phase 0D
-    // audit fix Minor #1) so we can record the actual backup path in
-    // the install receipt.
+    // Protect user-owned TOML before replacing Octopus-owned marker blocks.
+    // Exact current/legacy marker pairs are safe to migrate. Unmarked legacy
+    // hook tables are detected by diagnostics but never deleted here because
+    // ownership cannot be proven without parsing and preserving the full TOML.
+    // Backup failure is fail-closed: no provider config is modified.
     let backup_path: Option<PathBuf> = if path.exists() {
         match backup_codewhale_config(&path, runtime) {
             Ok(p) => p,
@@ -1004,7 +995,7 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
         let command = hook_command(&executable, "codewhale", Some(event), permission);
         block.push_str("\n[[hooks.hooks]]\n");
         block.push_str(&format!(
-            "name = \"re-llmpet-{event}\"\nevent = \"{event}\"\n"
+            "name = \"octopus-{event}\"\nevent = \"{event}\"\n"
         ));
         block.push_str(&format!("command = {}\n", toml_string(&command)));
         block.push_str(&format!(
@@ -1012,7 +1003,8 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
             if permission { 600 } else { 5 }
         ));
         // A stale/missing binary must not turn a permission hook into an allow.
-        // Observer hooks remain best-effort; the permission hook fails closed.
+        // Observer hooks remain best-effort; the permission hook is strict and
+        // the helper emits an explicit deny when the desktop service is absent.
         block.push_str(&format!(
             "continue_on_error = {}\n",
             if permission { "false" } else { "true" }
@@ -1022,7 +1014,7 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
         }
     }
     block.push_str(CW_END);
-    replace_marker_block(&path, CW_BEGIN, CW_END, &block)?;
+    replace_codewhale_marker_block(&path, &block)?;
     write_install_receipt(
         runtime,
         "codewhale",
@@ -1032,12 +1024,12 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
     );
     runtime.write_log(
         "hooks",
-        "CodeWhale hooks synced (v2); legacy cleanup disabled in R40.1 (see audit P0-2)",
+        "CodeWhale hooks synced (v4, global hooks enabled); exact legacy markers migrated; unmarked legacy cleanup remains disabled",
     );
     Ok(InstallResult {
         added: CODEWHALE_EVENTS.len(),
         path,
-        message: "CodeWhale 原生 TOML Hook 已同步（含 background message_submit observer）；权限失败时回退到 ask。".into(),
+        message: "CodeWhale 原生 TOML Hook 已同步并启用 [hooks]；权限链路异常时显式拒绝，避免 Full Access 下静默放行。".into(),
     })
 }
 
@@ -1197,18 +1189,9 @@ fn backup_codewhale_config(path: &Path, runtime: &Runtime) -> Result<Option<Path
     Ok(backup_path)
 }
 
-// R44 0.5.39 (roadmap v5 §6): the dormant `strip_legacy_codewhale_hooks`
-// function and its helper `parse_toml_string_value` were DELETED. The
-// function was a line-oriented TOML state machine that could absorb
-// user-owned `[provider]` / `[[models]]` / arbitrary TOML tables into a
-// legacy `[[hooks.hooks]]` body and silently delete them. It was disabled
-// (not called) since R40.1 (0.5.20) but kept as "dead code for reference".
-// The roadmap v5 §6 explicitly forbids keeping a destructive function
-// that "isn't called now but could delete user TOML tables if enabled".
-//
-// Legacy CodeWhale cleanup is now the responsibility of the Legacy Repair
-// flow (R44 0.5.40+), which uses ownership metadata (receipt + marker +
-// executable path) instead of a line scanner.
+// `strip_legacy_codewhale_hooks` and its permissive parser were DELETED:
+// they could remove user-owned TOML. Marker-owned blocks use
+// `strip_marker_variants`; unmarked legacy tables remain diagnostics-only.
 
 fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
     let path = home_dir().join(".codex").join("hooks.json");
@@ -1216,7 +1199,7 @@ fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
     let backup_path = backup_config_file(&path, runtime)?;
     let mut root = read_json_object(&path, "Codex hooks")?;
     root.entry("description")
-        .or_insert(json!("RE-LLMPET multi-agent desktop integration"));
+        .or_insert(json!("Octopus multi-agent desktop integration"));
     let hooks = ensure_object(&mut root, "hooks")?;
     remove_all_ours(hooks);
     let executable = current_exe_clean().map_err(|e| e.to_string())?;
@@ -1252,59 +1235,7 @@ fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
 #[allow(dead_code)]
 fn uninstall_codex() -> CleanupResult {
     let path = home_dir().join(".codex").join("hooks.json");
-    if !path.exists() {
-        return CleanupResult::NotFound { path };
-    }
-    let raw = match fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(e) => {
-            return CleanupResult::Unreadable {
-                path,
-                error: e.to_string(),
-            }
-        }
-    };
-    let mut root: Value = match serde_json::from_str(&raw) {
-        Ok(v) => v,
-        Err(e) => {
-            return CleanupResult::ManualActionRequired {
-                path,
-                detail: format!("hooks.json is not valid JSON: {e}. Refusing to overwrite."),
-            }
-        }
-    };
-    if !raw.contains("re-llmpet") {
-        return CleanupResult::Unowned { path };
-    }
-    if let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) {
-        remove_all_ours(hooks);
-    }
-    if let Err(e) = write_json_atomic(&path, &root) {
-        return CleanupResult::ManualActionRequired {
-            path,
-            detail: format!("write failed: {e}"),
-        };
-    }
-    // R44 0.5.40 (Roadmap v6 P0-05): post-clean verify must not report
-    // Removed on read failure — return Unreadable so bulk uninstall's
-    // allHooksVerifiedAbsent stays accurate.
-    match fs::read_to_string(&path) {
-        Ok(post_raw) => {
-            if post_raw.contains("re-llmpet") {
-                return CleanupResult::Residue {
-                    path,
-                    detail: "re-llmpet marker still present after remove_all_ours".into(),
-                };
-            }
-        }
-        Err(e) => {
-            return CleanupResult::Unreadable {
-                path,
-                error: format!("post-clean verify read failed: {e}"),
-            }
-        }
-    }
-    CleanupResult::Removed { path }
+    uninstall_codex_at(&path)
 }
 
 fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
@@ -1420,7 +1351,7 @@ fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
             e
         )),
     };
-    let stripped = strip_marker_block(&current, AIDER_BEGIN, AIDER_END)?;
+    let stripped = strip_marker_variants(&current, AIDER_MARKERS)?;
     // Aider YAML config uses underscores (notifications_command); the CLI flag
     // uses hyphens (--notifications-command). Detect either form to avoid
     // clobbering a pre-existing foreign notification command.
@@ -1443,7 +1374,7 @@ fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
         "{AIDER_BEGIN}\nnotifications: true\nnotifications_command: {}\n{AIDER_END}",
         yaml_string(&command)
     );
-    replace_marker_block(&path, AIDER_BEGIN, AIDER_END, &block)?;
+    replace_marker_variants(&path, AIDER_MARKERS, &block)?;
     write_install_receipt(
         runtime,
         "aider",
@@ -1536,7 +1467,7 @@ fn command_hook(command: String, timeout: u64) -> Value {
     // `mut` is only used on Windows (to insert commandWindows); on other
     // platforms the value is never mutated, hence the allow.
     #[allow(unused_mut)]
-    let mut value = json!({"type":"command","command":command,"timeout":timeout,"statusMessage":"Updating RE-LLMPET"});
+    let mut value = json!({"type":"command","command":command,"timeout":timeout,"statusMessage":"Updating Octopus"});
     #[cfg(target_os = "windows")]
     if let Some(object) = value.as_object_mut() {
         object.insert("commandWindows".into(), json!(windows_command));
@@ -1564,6 +1495,51 @@ fn add_group(hooks: &mut Map<String, Value>, event: &str, desired: Value) {
     }
 }
 
+fn command_is_ours(command: &str) -> bool {
+    command.contains(HOOK_OWNER)
+        || command.contains(LEGACY_HOOK_OWNER)
+        || command.contains(MARKER)
+        || command.contains(LEGACY_MARKER)
+        || [
+            "re-llmpet-hook.js",
+            "re-llmpet-pretool-hook.js",
+            "re-llmpet-llmpet-hook.js",
+            "octopus-hook.js",
+            "pretool-hook.js",
+            "llmpet-hook.js",
+            "llmpet-octopus.js",
+        ]
+        .iter()
+        .any(|marker| command.contains(marker))
+}
+
+fn hooks_contain_ours(hooks: &Map<String, Value>) -> bool {
+    hooks.values().any(|groups| {
+        groups.as_array().is_some_and(|groups| {
+            groups.iter().any(|group| {
+                group
+                    .get("hooks")
+                    .and_then(Value::as_array)
+                    .is_some_and(|entries| {
+                        entries.iter().any(|entry| {
+                            entry
+                                .get("command")
+                                .and_then(Value::as_str)
+                                .is_some_and(command_is_ours)
+                        })
+                    })
+            })
+        })
+    })
+}
+
+fn json_config_contains_our_hooks(value: &Value) -> bool {
+    value
+        .get("hooks")
+        .and_then(Value::as_object)
+        .is_some_and(hooks_contain_ours)
+}
+
 fn remove_all_ours(hooks: &mut Map<String, Value>) {
     let events: Vec<String> = hooks.keys().cloned().collect();
     for event in events {
@@ -1580,28 +1556,9 @@ fn remove_all_ours(hooks: &mut Map<String, Value>) {
             };
             entries.retain(|entry| {
                 let command = entry.get("command").and_then(Value::as_str).unwrap_or("");
-                // R44 (audit v3 P0-1): primary ownership check — the --owner re-llmpet tag.
-                // This is exact and cannot false-positive on user hooks.
-                if command.contains("re-llmpet") {
-                    return false; // ours — remove
-                }
-                // R44: legacy markers for hooks installed before R41.
-                // Only match command strings containing our exact marker or
-                // known legacy hook script filenames. Do NOT match based on
-                // URL patterns (http://127.0.0.1:413xx + /permission) —
-                // that would delete official LLMPET's HTTP permission hooks.
-                !command.contains(MARKER)
-                    && ![
-                        "re-llmpet-hook.js",
-                        "re-llmpet-pretool-hook.js",
-                        "re-llmpet-llmpet-hook.js",
-                        "octopus-hook.js",
-                        "pretool-hook.js",
-                        "llmpet-hook.js",
-                        "llmpet-octopus.js",
-                    ]
-                    .iter()
-                    .any(|m| command.contains(m))
+                // Ownership is centralized so install detection, cleanup,
+                // and post-clean verification cannot drift apart.
+                !command_is_ours(command)
             });
             !entries.is_empty()
         });
@@ -1638,20 +1595,82 @@ fn ensure_object<'a>(
         .ok_or_else(|| format!("{key} must be an object"))
 }
 
-fn replace_marker_block(path: &Path, begin: &str, end: &str, block: &str) -> Result<(), String> {
-    // R44 (audit P0-03): only NotFound is safe to treat as empty.
-    // Unreadable files must fail closed to prevent data loss.
+
+fn ensure_codewhale_hooks_enabled(input: &str) -> String {
+    // CodeWhale ignores every [[hooks.hooks]] entry unless the global
+    // [hooks].enabled switch is true. Touch only the exact top-level table
+    // and preserve every unrelated user-owned TOML line.
+    let mut lines = input.lines().map(str::to_string).collect::<Vec<_>>();
+    let mut hooks_header = None;
+    let mut hooks_end = lines.len();
+    for (index, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed == "[hooks]" {
+            hooks_header = Some(index);
+            continue;
+        }
+        if let Some(header) = hooks_header {
+            if index > header && trimmed.starts_with('[') {
+                hooks_end = index;
+                break;
+            }
+        }
+    }
+
+    if let Some(header) = hooks_header {
+        let enabled_line = (header + 1..hooks_end).find(|index| {
+            let trimmed = lines[*index].trim_start();
+            trimmed
+                .strip_prefix("enabled")
+                .map(|rest| rest.trim_start().starts_with('='))
+                .unwrap_or(false)
+        });
+        if let Some(index) = enabled_line {
+            let original = &lines[index];
+            let indent_len = original.len() - original.trim_start().len();
+            let indent = &original[..indent_len];
+            let comment = original
+                .find('#')
+                .map(|position| format!(" {}", original[position..].trim_start()))
+                .unwrap_or_default();
+            lines[index] = format!("{indent}enabled = true{comment}");
+        } else {
+            lines.insert(header + 1, "enabled = true".into());
+        }
+    } else {
+        while lines
+            .last()
+            .map(|line| line.trim().is_empty())
+            .unwrap_or(false)
+        {
+            lines.pop();
+        }
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.push("[hooks]".into());
+        lines.push("enabled = true".into());
+    }
+
+    let mut output = lines.join("\n");
+    if !output.is_empty() {
+        output.push('\n');
+    }
+    output
+}
+
+fn replace_codewhale_marker_block(path: &Path, block: &str) -> Result<(), String> {
     let existing = match fs::read_to_string(path) {
         Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
             return Err(format!(
-                "Config file exists but cannot be read ({}). Aborting to protect existing config.",
-                e
+                "CodeWhale config exists but cannot be read ({error}); aborting to protect it"
             ))
         }
     };
-    let mut clean = strip_marker_block(&existing, begin, end)?
+    let stripped = strip_marker_variants(&existing, CW_MARKERS)?;
+    let mut clean = ensure_codewhale_hooks_enabled(&stripped)
         .trim_end()
         .to_string();
     if !clean.is_empty() {
@@ -1662,11 +1681,36 @@ fn replace_marker_block(path: &Path, begin: &str, end: &str, block: &str) -> Res
     write_text_atomic(path, clean.as_bytes())
 }
 
-/// R44 0.5.39 (roadmap v5 §3): marker-file uninstall now returns
-/// `CleanupResult`. Used by CodeWhale (config.toml) and Aider
-/// (.aider.conf.yml) — both use the `>>> re-llmpet:... >>>` / `<<<
-/// re-llmpet:... <<<` block markers.
-fn uninstall_marker_file(path: &Path, begin: &str, end: &str) -> CleanupResult {
+fn replace_marker_variants(
+    path: &Path,
+    markers: &[(&str, &str)],
+    block: &str,
+) -> Result<(), String> {
+    let existing = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => {
+            return Err(format!(
+                "Config file exists but cannot be read ({}). Aborting to protect existing config.",
+                e
+            ))
+        }
+    };
+    let mut clean = strip_marker_variants(&existing, markers)?
+        .trim_end()
+        .to_string();
+    if !clean.is_empty() {
+        clean.push_str("
+
+");
+    }
+    clean.push_str(block);
+    clean.push('
+');
+    write_text_atomic(path, clean.as_bytes())
+}
+
+fn uninstall_marker_variants(path: &Path, markers: &[(&str, &str)]) -> CleanupResult {
     if !path.exists() {
         return CleanupResult::NotFound {
             path: path.to_path_buf(),
@@ -1681,13 +1725,12 @@ fn uninstall_marker_file(path: &Path, begin: &str, end: &str) -> CleanupResult {
             }
         }
     };
-    // Check ownership before mutating.
-    if !existing.contains(begin) {
+    if !contains_any_marker(&existing, markers) {
         return CleanupResult::Unowned {
             path: path.to_path_buf(),
         };
     }
-    let clean = match strip_marker_block(&existing, begin, end) {
+    let clean = match strip_marker_variants(&existing, markers) {
         Ok(c) => c,
         Err(e) => {
             return CleanupResult::ManualActionRequired {
@@ -1702,26 +1745,27 @@ fn uninstall_marker_file(path: &Path, begin: &str, end: &str) -> CleanupResult {
             detail: format!("write failed: {e}"),
         };
     }
-    // R44 0.5.40 (Roadmap v6 P0-05): post-write verify must not report
-    // Removed on read failure — return Unreadable so bulk uninstall's
-    // allHooksVerifiedAbsent stays accurate.
     match fs::read_to_string(path) {
-        Ok(post) => {
-            if post.contains(begin) {
-                return CleanupResult::Residue {
-                    path: path.to_path_buf(),
-                    detail: "marker still present after strip".into(),
-                };
-            }
-            CleanupResult::Removed {
-                path: path.to_path_buf(),
-            }
-        }
+        Ok(post) if contains_any_marker(&post, markers) => CleanupResult::Residue {
+            path: path.to_path_buf(),
+            detail: "owned marker still present after strip".into(),
+        },
+        Ok(_) => CleanupResult::Removed {
+            path: path.to_path_buf(),
+        },
         Err(e) => CleanupResult::Unreadable {
             path: path.to_path_buf(),
             error: format!("post-clean verify read failed: {e}"),
         },
     }
+}
+
+fn strip_marker_variants(input: &str, markers: &[(&str, &str)]) -> Result<String, String> {
+    let mut clean = input.to_string();
+    for (begin, end) in markers {
+        clean = strip_marker_block(&clean, begin, end)?;
+    }
+    Ok(clean)
 }
 
 fn strip_marker_block(input: &str, begin: &str, end: &str) -> Result<String, String> {
@@ -1730,7 +1774,7 @@ fn strip_marker_block(input: &str, begin: &str, end: &str) -> Result<String, Str
     for (index, line) in input.lines().enumerate() {
         if line.trim() == begin {
             if inside {
-                return Err(format!("nested RE-LLMPET marker at line {}", index + 1));
+                return Err(format!("nested Octopus marker at line {}", index + 1));
             }
             inside = true;
             continue;
@@ -1738,7 +1782,7 @@ fn strip_marker_block(input: &str, begin: &str, end: &str) -> Result<String, Str
         if line.trim() == end {
             if !inside {
                 return Err(format!(
-                    "unmatched RE-LLMPET marker end at line {}",
+                    "unmatched Octopus marker end at line {}",
                     index + 1
                 ));
             }
@@ -1751,7 +1795,7 @@ fn strip_marker_block(input: &str, begin: &str, end: &str) -> Result<String, Str
         }
     }
     if inside {
-        return Err("unterminated RE-LLMPET marker block; configuration was not modified".into());
+        return Err("unterminated Octopus marker block; configuration was not modified".into());
     }
     Ok(output)
 }
@@ -2036,7 +2080,7 @@ pub fn read_install_receipts() -> Map<String, Value> {
 }
 
 fn opencode_plugin_source() -> &'static str {
-    r#"// re-llmpet-opencode-plugin-v1
+    r#"// octopus-opencode-plugin-v3
 // R40 (2026-08-01): rewrite of the OpenCode plugin event mapping.
 //
 // Root-cause analysis (systematic-debugging Phase 1):
@@ -2184,3 +2228,24 @@ export const LLMPETPlugin = async ({ directory }) => ({
 });
 "#
 }
+
+#[cfg(test)]
+mod codewhale_config_tests {
+    use super::ensure_codewhale_hooks_enabled;
+
+    #[test]
+    fn adds_the_global_hook_switch_without_losing_other_tables() {
+        let edited = ensure_codewhale_hooks_enabled("[provider]\nname = \"deepseek\"\n");
+        assert!(edited.contains("[hooks]\nenabled = true"));
+        assert!(edited.contains("[provider]\nname = \"deepseek\""));
+    }
+
+    #[test]
+    fn reenables_an_existing_hook_table_and_preserves_its_comment() {
+        let input = "[hooks]\nenabled = false # user disabled it\ndefault_timeout_secs = 30\n\n[provider]\napi_key = \"secret\"\n";
+        let edited = ensure_codewhale_hooks_enabled(input);
+        assert!(edited.contains("enabled = true # user disabled it"));
+        assert!(edited.contains("[provider]\napi_key = \"secret\""));
+    }
+}
+

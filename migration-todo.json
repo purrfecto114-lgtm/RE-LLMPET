@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "project": "LLMPET / Octopus Tauri migration",
-  "release": "0.5.38",
-  "updatedAt": "2026-08-03",
+  "release": "0.5.41",
+  "updatedAt": "2026-08-04T03:59:00Z",
   "statusDefinitions": {
     "done": "Acceptance evidence exists and the stated verification gate passed.",
-    "ci-verified": "Code is present and static/smoke checks pass, but Rust compilation or real-provider execution is still missing.",
+    "ci-verified": "Implementation and repository-local static/smoke evidence pass. This status must not be used to claim native compilation, installer execution or real-provider success without an attached CI/run artifact.",
     "blocked": "Cannot be completed in the current environment or depends on an external prerequisite.",
     "todo": "Not yet implemented.",
     "deferred": "Intentionally postponed because the cost/risk is currently greater than the value."
@@ -212,7 +212,7 @@
       "id": "P1-003",
       "phase": "P1 provider adapter",
       "priority": "P0",
-      "title": "CodeWhale first-class TOML hooks with fail-safe ask",
+      "title": "CodeWhale first-class TOML hooks with fail-closed denial",
       "status": "ci-verified",
       "risk": "high",
       "dependencies": [
@@ -221,14 +221,14 @@
       "acceptance": [
         "Current maintained lifecycle/subagent events are installed",
         "tool_call_before runs foreground",
-        "Local service failure returns explicit ask instead of empty stdout"
+        "Local service failure returns explicit deny instead of empty stdout"
       ],
       "evidence": [
         "src-tauri/src/hook_install.rs",
         "src-tauri/src/hook_client.rs",
         "test/tauri-provider-phase2-smoke.js"
       ],
-      "nextAction": "Validate with the exact CodeWhale fork CLI, including Standard and Full Access modes."
+      "nextAction": "Validate with the exact CodeWhale fork CLI in Ask, Auto-Review and Full Access modes; retain the denied tool result when the local service is unavailable."
     },
     {
       "id": "P1-004",
@@ -712,7 +712,7 @@
       "phase": "P6 release quality",
       "priority": "P0",
       "title": "Idle CPU, RSS, startup and long-run benchmark",
-      "status": "ci-verified",
+      "status": "blocked",
       "risk": "critical",
       "dependencies": [
         "P0-005",
@@ -730,7 +730,11 @@
         ".github/workflows/desktop-real-machine.yml",
         "test/tauri-phase4-cutover-smoke.js"
       ],
-      "nextAction": "Run 5-minute smoke and 8-hour release benchmarks on real desktop runners; publish raw CPU/RSS/startup/wakeup samples before accepting targets."
+      "nextAction": "Run 5-minute smoke and 8-hour release benchmarks on real desktop runners; publish raw CPU/RSS/startup/wakeup samples before accepting targets.",
+      "blockedBy": [
+        "No compiled desktop binary or graphical session is available in the current audit container",
+        "Static polling checks cannot establish CPU, RSS, wakeup, startup or eight-hour growth targets"
+      ]
     },
     {
       "id": "P6-002",
@@ -760,7 +764,7 @@
       "phase": "P6 release quality",
       "priority": "P0",
       "title": "Signed and reproducible Windows/macOS/Linux packages",
-      "status": "ci-verified",
+      "status": "blocked",
       "risk": "critical",
       "dependencies": [
         "P0-004",
@@ -779,9 +783,16 @@
         "scripts/generate-release-config.js",
         "scripts/generate-checksums.js",
         "scripts/generate-sbom.js",
-        "test/tauri-phase4-cutover-smoke.js"
+        "test/tauri-phase4-cutover-smoke.js",
+        "scripts/verify-release-assets.js",
+        "test/release-asset-verifier.test.js",
+        "test/tauri-r45-release-lifecycle-smoke.js"
       ],
-      "nextAction": "Provide protected updater, Windows and Apple signing/notarization secrets, commit Cargo.lock, run the release workflow and verify installed artifacts plus attestations."
+      "nextAction": "Run the private-draft release workflow with protected Windows and Apple native signing credentials; verify installed artifacts, notarization, checksums, SPDX output and attestations before publishing.",
+      "blockedBy": [
+        "No retained release run proves Windows Authenticode signing, macOS Developer ID signing/notarization or Linux baseline installation for this source revision",
+        "Three-platform compilation and real-machine performance gates remain blocked"
+      ]
     },
     {
       "id": "P6-004",
@@ -811,7 +822,9 @@
         "src-tauri/build.rs",
         "src-tauri/capabilities/pet.json",
         "src-tauri/capabilities/panel.json",
-        "test/tauri-capability-boundary-smoke.js"
+        "test/tauri-capability-boundary-smoke.js",
+        "src-tauri/src/instance_probe.rs",
+        "test/tauri-single-instance-smoke.js"
       ],
       "nextAction": "Compile and fuzz the raw HTTP parser on all three OSes, verify generated pet/panel ACL permissions at runtime, then execute real shell/path-metacharacter provider tests."
     },
@@ -1192,28 +1205,28 @@
       "id": "R20-001",
       "phase": "R20 Compile verification + source packaging + doc merge",
       "priority": "P0",
-      "title": "Verify Windows compile (cargo check), fix 3 warnings, package source, merge R10-R19 docs",
-      "status": "ci-verified",
-      "risk": "low",
+      "title": "Revalidate Windows compilation and source-package evidence on the current release",
+      "status": "blocked",
+      "risk": "critical",
       "dependencies": [
         "R19-001"
       ],
       "acceptance": [
-        "cargo check --target x86_64-pc-windows-gnu --locked passes with 0 errors and 0 warnings",
-        "Unused mut warnings in commands.rs:846/853 fixed",
-        "known_keys() dead_code warning fixed with #[allow(dead_code)]",
-        "Source tree packaged as tar.gz (4.4 MB, excludes target/node_modules/.git)",
-        "All R10-R19 decision records merged into MIGRATION_COMPLETE_R10_R19.md",
-        "npm test still 45/45 PASS, check:static still 22/22 PASS"
+        "cargo check --manifest-path src-tauri/Cargo.toml --all-targets --locked passes on the current 0.5.41 commit",
+        "cargo build --manifest-path src-tauri/Cargo.toml --release --bins --locked passes on a Windows runner",
+        "Compiler output and the exact commit SHA are retained as repository or CI artifacts",
+        "The source archive is generated from the same verified commit and its checksum is retained"
       ],
       "evidence": [
-        "cargo check output: 0 errors, 0 warnings",
-        "src-tauri/src/commands.rs mut pipe fix",
-        "src-tauri/src/i18n.rs #[allow(dead_code)] on known_keys",
-        "/home/z/my-project/download/RE-LLMPET-v0.5.5-reworked-r19-source.tar.gz",
-        "/home/z/my-project/download/MIGRATION_COMPLETE_R10_R19.md"
+        ".github/workflows/ci.yml",
+        ".github/workflows/desktop-real-machine.yml",
+        "docs/TASK_RECOVERY_2026-08-03_RUST_COMPILE.md"
       ],
-      "nextAction": "On a machine with mingw-w64 installed, run cargo build --target x86_64-pc-windows-gnu --release --locked to produce the real Windows .exe. The cargo check verification confirms all R10-R19 Rust code compiles correctly for Windows."
+      "nextAction": "Run the current 0.5.41 commit through the three-platform CI workflow and retain the run URL, commit SHA, compiler logs and source-archive checksum before changing this task from blocked.",
+      "blockedBy": [
+        "Rust/Cargo are unavailable in the current audit container",
+        "No authenticated CI run artifact for the historical Windows cargo-check claim is bundled with this source tree"
+      ]
     },
     {
       "id": "R44-0C",

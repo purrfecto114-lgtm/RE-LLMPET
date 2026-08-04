@@ -84,8 +84,8 @@ assert.ok(commands.includes('receipt_path'),
 // 3. Idempotent sync
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.ok(hookInstall.includes('if is_hook_installed(id)'),
-  '3: sync_enabled must check is_hook_installed before installing (idempotent)');
+assert.ok(hookInstall.includes('if is_current_hook_installed(id)'),
+  '3: sync_enabled must skip only current hooks; legacy/mixed hooks must migrate');
 assert.ok(hookInstall.includes('幂等跳过'),
   '3: sync_enabled must return idempotent-skip message');
 assert.ok(hookInstall.includes('fn provider_config_path('),

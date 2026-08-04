@@ -5,7 +5,7 @@
 //
 // Locks the 5 R36 fixes from the 0.5.12 carpet audit roadmap §14:
 //
-//   R36-1  DiagnosticRegistry: single active job per provider (reject
+//   R36-1  DiagnosticControl: one global active diagnostic job (reject
 //          duplicate concurrent diagnose_agent for the same provider)
 //   R36-2  geometry revision/ack: onResized listener replaces 260ms timer
 //          as primary clear mechanism (timer kept as fallback)
@@ -26,28 +26,29 @@ const petCss = read('frontend/renderer/pet.css');
 const panelCss = read('frontend/renderer/panel.css');
 const commands = read('src-tauri/src/commands.rs');
 const model = read('src-tauri/src/model.rs');
+const diagnosticControl = read('src-tauri/src/diagnostic_control.rs');
 const hookInstall = read('src-tauri/src/hook_install.rs');
 const lib = read('src-tauri/src/lib.rs');
 
 // ──────────────────────────────────────────────────────────────────────────
-// R36-1: DiagnosticRegistry — single active job per provider
+// R36-1: DiagnosticControl — one atomic lifecycle owner
 // ──────────────────────────────────────────────────────────────────────────
 
-assert(model.includes('pub active_diagnostic_provider: Mutex<Option<String>>'),
-  'R36: Runtime must have active_diagnostic_provider field');
-assert(model.includes('active_diagnostic_provider: Mutex::new(None)'),
-  'R36: AppState::new must initialize active_diagnostic_provider');
-// diagnose_agent checks for duplicate and returns Err("already in progress")
-assert(commands.includes('active_diagnostic_provider'),
-  'R36: diagnose_agent must reference active_diagnostic_provider');
-assert(commands.includes('diagnostic already in progress'),
-  'R36: diagnose_agent must reject duplicate concurrent runs with "already in progress"');
-// cancel_diagnostic clears the provider flag
-assert(/cancel_diagnostic[\s\S]{0,1000}active_diagnostic_provider/.test(commands),
-  'R36: cancel_diagnostic must clear active_diagnostic_provider');
-// diagnose_agent clears the provider flag on completion
-assert(/diagnose_agent[\s\S]{0,1000}provider_guard = None/.test(commands),
-  'R36: diagnose_agent must clear active_diagnostic_provider on completion');
+assert(model.includes('pub diagnostic_control: crate::diagnostic_control::DiagnosticControl'),
+  'Runtime must delegate diagnostic lifecycle ownership to DiagnosticControl');
+assert(diagnosticControl.includes('struct DiagnosticState')
+  && diagnosticControl.includes('provider: Option<String>')
+  && diagnosticControl.includes('pid: Option<u32>')
+  && diagnosticControl.includes('cancel_requested: bool'),
+  'provider, PID and cancellation must share one mutex-owned state');
+assert(diagnosticControl.includes('diagnostic already in progress'),
+  'DiagnosticControl must reject overlapping provider diagnostics');
+assert(commands.includes('diagnostic_control.begin(provider.clone())'),
+  'diagnose_agent must acquire the single-owner diagnostic control');
+assert(commands.includes('state.runtime.diagnostic_control.finish();'),
+  'diagnose_agent must release ownership after worker completion or panic');
+assert(commands.includes('diagnostic_control.request_cancel()'),
+  'cancel_diagnostic must request cancellation through the same owner');
 
 // ──────────────────────────────────────────────────────────────────────────
 // R36-2: geometry revision/ack (onResized replaces 260ms timer as primary)
@@ -84,7 +85,7 @@ assert(hookInstall.includes('pub fn verify_enabled('),
   'R36: hook_install.rs must define verify_enabled function');
 assert(hookInstall.includes('fn is_hook_installed(id: &str) -> bool'),
   'R36: hook_install.rs must define is_hook_installed predicate');
-assert(hookInstall.includes('fn file_contains(path: PathBuf, marker: &str) -> bool'),
+assert(hookInstall.includes('fn file_contains(path: impl AsRef<Path>, marker: &str) -> bool'),
   'R36: hook_install.rs must define file_contains helper');
 // verify_enabled reports "missing" state (not "error") for uninstalled hooks
 assert(hookInstall.includes('"missing"'),
@@ -124,4 +125,4 @@ assert(petCss.includes('animation: none !important'),
 assert(panelCss.includes('@media (prefers-reduced-motion: reduce)'),
   'R36: panel.css must include prefers-reduced-motion media query');
 
-console.log('tauri-r36-lifecycle-smoke: ok (5 R36 fixes locked: R36-1 DiagnosticRegistry per-provider, R36-2 geometry revision/ack, R36-3 hook verify-only startup, R36-4 log rotation, R36-5 prefers-reduced-motion)');
+console.log('tauri-r36-lifecycle-smoke: ok (5 R36 fixes locked: R36-1 DiagnosticControl global owner, R36-2 geometry revision/ack, R36-3 hook verify-only startup, R36-4 log rotation, R36-5 prefers-reduced-motion)');

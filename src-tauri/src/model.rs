@@ -284,39 +284,10 @@ pub struct Runtime {
     pub transcripts: Mutex<TranscriptScanner>,
     pub price_sync_status: Mutex<Value>,
     pub price_refresh_tx: Mutex<Option<SyncSender<()>>>,
-    // R35.2 (2026-07-31): active diagnostic child PID for real cancellation.
-    //
-    // The 0.5.12 carpet audit P0-4 flagged that "cancel" only dropped the
-    // frontend result — the Rust Child (and on Windows, the cmd.exe-spawned
-    // Node grandchild) kept running. Verified via web-search of Rust docs
-    // (doc.rust-lang.org/std/process/struct.Child.html): "There is no
-    // implementation of Drop for child processes, so if you do not ensure
-    // the Child has exited then it will continue to run."
-    //
-    // This field stores the PID of the currently-running diagnostic probe
-    // child. `cancel_diagnostic` reads it and kills the process tree
-    // (taskkill /F /T on Windows, killpg on Unix). `diagnose_agent_sync`
-    // updates it before each probe spawn and clears it when the diagnostic
-    // completes. Only one diagnostic runs at a time per process (the
-    // frontend's diagnosticGeneration prevents new ones while one is
-    // pending); this is a single-slot registry, not a full DiagnosticRegistry
-    // (which is R36).
-    pub active_diagnostic_pid: Mutex<Option<u32>>,
-    // R36 (2026-07-31): the provider currently being diagnosed. Used by
-    // `diagnose_agent` to reject duplicate concurrent runs for the SAME
-    // provider — the 0.5.12 carpet audit P0-4 noted "用户反复点击'重新
-    // 诊断'可能同时创建多组 blocking jobs / CLI child / reader threads".
-    // The frontend's `diagnosticGeneration` already suppresses stale
-    // results, but the Rust side had no guard against duplicate spawns.
-    // Now if `active_diagnostic_provider == Some("claude")` and a new
-    // `diagnose_agent("claude")` arrives, we return Err("busy") immediately
-    // without spawning. Different providers can run concurrently (the
-    // single PID slot is shared, but that's acceptable since the frontend
-    // only shows one diagnostic at a time).
-    pub active_diagnostic_provider: Mutex<Option<String>>,
-    /// R41 (audit §10): cooperative cancellation flag for diagnose_agent.
-    #[allow(dead_code)]
-    pub diagnostic_cancelled: Arc<std::sync::atomic::AtomicBool>,
+    /// Single-owner diagnostic lifecycle state. Provider ownership, active PID
+    /// and cancellation are intentionally consolidated so cancellation cannot
+    /// race a later child registration or leave a stale busy flag.
+    pub diagnostic_control: crate::diagnostic_control::DiagnosticControl,
     // R38.1 (2026-08-01): Singleton StatsCoalescer state. The 0.5.16 full
     // audit (P0-1) flagged that the R38 trailing flush created a new
     // spawn_blocking task PER throttled event — 1000 events/s would spawn
@@ -330,20 +301,8 @@ pub struct Runtime {
     //   - scheduled: true if a trailing flush timer is already pending
     //   - revision: monotonically increasing, sent with each stats payload
     //
-    // R40.1 (audit P0-4): the 0.5.19 split-mutex design had a race where
-    // dirty=true but no timer was scheduled (trailing timer clears
-    // scheduled between the new event's dirty-set and scheduled-check).
-    // The consolidated `stats_coalescer` mutex below fixes this by
-    // making the check-and-set atomic. The old fields are kept for
-    // backward compatibility with existing smoke tests but are no
-    // longer used in the hot path.
-    pub last_stats_emit: Mutex<Option<Instant>>,
-    // R38.1/R40.1: legacy fields kept for smoke-test compatibility;
-    // the consolidated `stats_coalescer` mutex is the source of truth.
-    #[allow(dead_code)]
-    pub stats_dirty: Mutex<bool>,
-    #[allow(dead_code)]
-    pub stats_scheduled: Mutex<bool>,
+    // R40.1 (audit P0-4): the split-mutex throttle was removed. Revision
+    // and throttle state now each have one explicit owner.
     pub stats_revision: Mutex<u64>,
     /// R40.1: consolidated coalescer state — all three flags under one
     /// lock so the trailing timer's "read dirty, clear dirty, clear
@@ -395,9 +354,8 @@ pub enum ConfigState {
     TooLarge { size: u64 },
     /// File parsed but its schema version is newer than this build
     /// understands. Writes blocked (would lose unknown fields).
-    /// Never constructed by the current loader; kept as the forward
-    /// contract for handling future config schema versions.
-    #[allow(dead_code)]
+    /// Constructed when a config declares a schema newer than this build.
+    /// The recovery UI can then preserve the original file before reset.
     SchemaTooNew { version: u32 },
 }
 
@@ -464,12 +422,7 @@ impl AppState {
                     "refreshHours":price_refresh_hours
                 })),
                 price_refresh_tx: Mutex::new(None),
-                active_diagnostic_pid: Mutex::new(None),
-                active_diagnostic_provider: Mutex::new(None),
-                diagnostic_cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                last_stats_emit: Mutex::new(None),
-                stats_dirty: Mutex::new(false),
-                stats_scheduled: Mutex::new(false),
+                diagnostic_control: crate::diagnostic_control::DiagnosticControl::default(),
                 stats_revision: Mutex::new(0),
                 stats_coalescer: Mutex::new(StatsCoalescerState::default()),
                 app_dir,
@@ -881,7 +834,7 @@ impl Runtime {
                         *lock.lock().unwrap_or_else(|e| e.into_inner()) =
                             Some(PermissionDecision {
                                 behavior: "deny".into(),
-                                message: Some("RE-LLMPET permission queue is full".into()),
+                                message: Some("Octopus permission queue is full".into()),
                                 updated_input: None,
                                 updated_permissions: Vec::new(),
                             });
@@ -903,7 +856,7 @@ impl Runtime {
         self.finish_permission(
             id,
             PermissionDecision {
-                behavior: if behavior == "deny" { "deny" } else { "allow" }.into(),
+                behavior: if behavior == "allow" { "allow" } else { "deny" }.into(),
                 message,
                 updated_input: None,
                 updated_permissions: Vec::new(),
@@ -1804,17 +1757,9 @@ fn write_private_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
     crate::model::windows_safe_rename(&tmp, path)
 }
 
-/// R44 (audit P0-02): config loading now distinguishes error cases.
-/// - NotFound → default (new install, safe)
-/// - Too large → default + log warning (don't crash, but user should know)
-/// - Permission/IO error → default + log error (was silently swallowing)
-/// - Invalid JSON → default + log error (was silently swallowing)
-///
-/// NOTE: The audit also recommends preserving unknown fields via
-/// `#[serde(flatten)] extras: Map<String, Value>`. That requires changing
-/// AppConfig's serde derives and is a larger change. For now, we at least
-/// log errors instead of silently returning default. The full
-/// unknown-field preservation is deferred to Phase 0B (namespace migration).
+/// Config loading distinguishes absence from corruption or unreadability.
+/// Unknown fields are preserved by `AppConfig::extras`; schema versions newer
+/// than this build are quarantined to avoid destructive downgrade writes.
 /// R44 0.5.39 (roadmap v5 §2): load_config now returns `(AppConfig, ConfigState)`
 /// instead of just `AppConfig`. The ConfigState is stored on Runtime and
 /// checked by save_config to enforce quarantine. The old design returned
@@ -1849,7 +1794,7 @@ pub fn load_config(path: &Path) -> (AppConfig, ConfigState) {
         }
         Err(e) => {
             eprintln!(
-                "[re-llmpet] ERROR: config.json metadata failed: {e}. Writes are quarantined."
+                "[octopus] ERROR: config.json metadata failed: {e}. Writes are quarantined."
             );
             return (
                 AppConfig::default(),
@@ -1861,7 +1806,7 @@ pub fn load_config(path: &Path) -> (AppConfig, ConfigState) {
     };
     if meta.len() > 1024 * 1024 {
         eprintln!(
-            "[re-llmpet] WARNING: config.json is {} bytes (>1MB), using defaults. Writes are quarantined.",
+            "[octopus] WARNING: config.json is {} bytes (>1MB), using defaults. Writes are quarantined.",
             meta.len()
         );
         return (
@@ -1879,7 +1824,7 @@ pub fn load_config(path: &Path) -> (AppConfig, ConfigState) {
                 // changes we can't safely handle).
                 if config.schema_version > CURRENT_SCHEMA_VERSION {
                     eprintln!(
-                        "[re-llmpet] WARNING: config schemaVersion {} is newer than this build supports ({}). Writes are quarantined.",
+                        "[octopus] WARNING: config schemaVersion {} is newer than this build supports ({}). Writes are quarantined.",
                         config.schema_version, CURRENT_SCHEMA_VERSION
                     );
                     return (
@@ -1893,7 +1838,7 @@ pub fn load_config(path: &Path) -> (AppConfig, ConfigState) {
             }
             Err(e) => {
                 eprintln!(
-                    "[re-llmpet] ERROR: config.json parse failed: {e}. Using defaults. Writes are quarantined until the file is fixed."
+                    "[octopus] ERROR: config.json parse failed: {e}. Using defaults. Writes are quarantined until the file is fixed."
                 );
                 (
                     AppConfig::default(),
@@ -1905,7 +1850,7 @@ pub fn load_config(path: &Path) -> (AppConfig, ConfigState) {
         },
         Err(e) => {
             eprintln!(
-                "[re-llmpet] ERROR: config.json read failed: {e}. Using defaults. Writes are quarantined."
+                "[octopus] ERROR: config.json read failed: {e}. Using defaults. Writes are quarantined."
             );
             (
                 AppConfig::default(),
@@ -2034,16 +1979,6 @@ pub struct ResetResult {
     pub reset: bool,
     pub backup_created: bool,
     pub backup_path: Option<PathBuf>,
-}
-
-/// R44 0.5.39 (roadmap v5 §2): save_config free function kept for
-/// backward compat with `update_config`'s internal call site. It
-/// delegates to `save_config_unchecked` (no quarantine check) — the
-/// quarantine is enforced by `Runtime::save_config` which is what
-/// `update_config` actually calls.
-#[allow(dead_code)]
-pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {
-    save_config_unchecked(path, config)
 }
 
 /// Write config to disk WITHOUT checking the quarantine state. Used by

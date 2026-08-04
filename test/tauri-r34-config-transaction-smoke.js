@@ -15,7 +15,7 @@
 //      and rejects on partial failure
 //   3. commands.rs uninstall_hooks('all'): returns { allHooksRemoved, results,
 //      failures } and does NOT clear config.providers on partial failure
-//   4. release.yml: tag pushes without TAURI_SIGNING_PRIVATE_KEY exit 1
+//   4. release.yml: updater signing is not confused with platform signing
 //   5. panel.js setSessionPrefs caller: snapshot → optimistic update →
 //      await → revert on failure → toast
 
@@ -39,10 +39,11 @@ assert(model.includes('let candidate = {'),
   'model.rs update_config must snapshot into a `candidate` local');
 // R44 0.5.39: update_config now calls self.save_config(&candidate) (instance
 // method) instead of the free function, so the config_state quarantine is
-// enforced. The free function save_config(path, config) still exists for
-// backward compat but delegates to save_config_unchecked (no quarantine).
+// enforced. No unchecked compatibility wrapper is exposed to production callers.
 assert(model.includes('self.save_config(&candidate)?'),
   'model.rs update_config must call self.save_config (instance method, 0.5.39) to enforce quarantine');
+assert(!/pub fn save_config\(path: &Path/.test(model),
+  'model.rs must not expose a dead unchecked save_config compatibility wrapper');
 assert(model.includes('*guard = candidate'),
   'model.rs update_config must commit the candidate to the Mutex AFTER save');
 assert(model.includes('copy-on-write transaction'),
@@ -91,16 +92,17 @@ assert(commands.includes('if all_clean'),
 assert(commands.includes('could not be fully verified'),
   'uninstall_hooks must surface partial verification in message (0.5.39)');
 
-// ── P0-4: release.yml tag pushes fail-closed without signing key ──────────
-assert(release.includes('Tag release v$VERSION requires TAURI_SIGNING_PRIVATE_KEY'),
-  'release.yml must emit ::error:: when tag push lacks signing key');
-assert(release.includes('Use workflow_dispatch for unsigned draft builds instead'),
-  'release.yml must direct users to workflow_dispatch for unsigned builds');
-assert(release.match(/if \[ -z "\$\{\{ env\.TAURI_SIGNING_PRIVATE_KEY \}\}" \]; then[\s\S]*?exit 1/),
-  'release.yml tag-without-key branch must exit 1 (fail-closed)');
-// The old warning + unsigned prerelease path must be GONE for tag pushes.
+// ── P0-4: release signing contracts are not conflated ───────────────────
+assert(!release.includes('TAURI_SIGNING_PRIVATE_KEY'),
+  'release.yml must not require an updater key while updater artifacts are disabled');
+assert(release.includes('REQUIRE_PLATFORM_SIGNING'),
+  'release.yml must expose an explicit fail-closed native signing policy');
+assert(release.includes('WINDOWS_CERTIFICATE') && release.includes('APPLE_CERTIFICATE'),
+  'release.yml must keep native platform credentials separate');
+assert(release.includes('createUpdaterArtifacts=false'),
+  'release.yml must document that updater artifacts are disabled');
 assert(!release.includes('UNSIGNED PRERELEASE'),
-  'release.yml must NOT publish unsigned public prereleases on tag pushes');
+  'release.yml must not use the obsolete ambiguous unsigned label');
 
 // ── P1-1: panel.js setSessionPrefs caller awaits + reverts on failure ────
 assert(panelJs.includes('const prevPinned = sessionPinned.slice()'),

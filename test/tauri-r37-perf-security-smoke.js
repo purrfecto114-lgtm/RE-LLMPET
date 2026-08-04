@@ -29,21 +29,20 @@ const panelCap = read('src-tauri/capabilities/panel.json');
 // R37-4: Stats push throttling (150ms minimum interval)
 // ──────────────────────────────────────────────────────────────────────────
 
-assert(model.includes('pub last_stats_emit: Mutex<Option<Instant>>'),
-  'R37: Runtime must have last_stats_emit field');
-assert(model.includes('last_stats_emit: Mutex::new(None)'),
-  'R37: AppState::new must initialize last_stats_emit');
-assert(commands.includes('fn emit_stats_throttled(app: &AppHandle, state: &AppState, force: bool)'),
-  'R37: commands.rs must define emit_stats_throttled with force parameter');
-assert(commands.includes('STATS_THROTTLE_MS: u128 = 150'),
-  'R37: commands.rs must define STATS_THROTTLE_MS = 150');
-assert(commands.includes('emit_stats_throttled(&app, &state, true)'),
-  'R37: decide_permission must use force=true for immediate UI feedback');
-// http_server.rs also throttles
+assert(model.includes('pub stats_coalescer: Mutex<StatsCoalescerState>'),
+  'R37/R40: Runtime must have one consolidated stats coalescer');
+assert(model.includes('stats_coalescer: Mutex::new(StatsCoalescerState::default())'),
+  'R37/R40: AppState::new must initialize the consolidated coalescer');
 assert(httpServer.includes('STATS_THROTTLE_MS: u128 = 150'),
-  'R37: http_server.rs must also throttle emit_stats');
-assert(httpServer.includes('last_stats_emit'),
-  'R37: http_server.rs must reference last_stats_emit');
+  'R37: http_server.rs must throttle stats emits');
+assert(commands.includes('crate::http_server::emit_stats_now(app, &state.runtime)'),
+  'R37/R45: permission commands must use the shared immediate emitter');
+assert(commands.includes('emit_stats_now(&app, &state)'),
+  'R37/R45: user permission decisions must emit immediately');
+assert(httpServer.includes('pub(crate) fn emit_stats_now'),
+  'R37/R45: http_server.rs must own the sole immediate stats emitter');
+assert(!model.includes('last_stats_emit') && !model.includes('stats_dirty') && !model.includes('stats_scheduled'),
+  'R45: obsolete split-mutex compatibility fields must not return');
 
 // ──────────────────────────────────────────────────────────────────────────
 // R37-5: Hidden panel render suppression
@@ -71,17 +70,21 @@ assert(panelJs.includes('panelVisible = false;'),
 // R37-6: Cursor hit-test adaptive backoff
 // ──────────────────────────────────────────────────────────────────────────
 
-assert(platform.includes('const CURSOR_HIT_TEST_IDLE_MS: u64 = 250;'),
-  'R37: platform.rs must define CURSOR_HIT_TEST_IDLE_MS = 250');
-assert(platform.includes('CURSOR_HIT_TEST_IDLE_MS'),
-  'R37: cursor hit-test loop must use IDLE_MS constant');
-assert(platform.includes('let requested = state.mouse_ignore_requested.load(Ordering::Acquire)'),
-  'R37: cursor hit-test must check mouse_ignore_requested before choosing sleep interval');
-assert(platform.includes('let sleep_ms = if requested'),
-  'R37: cursor hit-test must choose sleep_ms adaptively');
-// The original 24ms constant is still there for active mode
-assert(platform.includes('const CURSOR_HIT_TEST_MS: u64 = 24;'),
-  'R37: CURSOR_HIT_TEST_MS = 24 must still exist for active mode');
+for (const [name, value] of [
+  ['CURSOR_HIT_TEST_NEAR_MS', '45'],
+  ['CURSOR_HIT_TEST_FAR_MS', '240'],
+  ['CURSOR_HIT_TEST_IDLE_MS', '500'],
+  ['CURSOR_HIT_TEST_HIDDEN_MS', '1000'],
+]) {
+  assert(platform.includes(`const ${name}: u64 = ${value};`),
+    `R37: adaptive cursor constant missing: ${name}=${value}`);
+}
+assert(platform.includes('fn cursor_hit_decision') && platform.includes('struct CursorHitDecision'),
+  'R37: cursor hit-test must compute ignore state and cadence in one decision');
+assert(platform.includes('!window.is_visible().unwrap_or(false)'),
+  'R37: hidden pet window must use the slowest cadence');
+assert(platform.includes('!self.mouse_ignore_requested.load(Ordering::Acquire)'),
+  'R37: idle mode must avoid active cursor hit-testing');
 
 // ──────────────────────────────────────────────────────────────────────────
 // R37-8: Capability minimization (replace core:default)

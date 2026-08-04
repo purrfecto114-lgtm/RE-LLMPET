@@ -35,7 +35,7 @@
 /// lookup tables.
 #[rustfmt::skip]
 pub const TRAY_LABELS: &[(&str, &str, &str, &str)] = &[
-    ("tray.tooltip",        "LLMPET — Claude Code / Codex 桌宠",   "LLMPET — Claude Code / Codex desk pet",   "LLMPET — Claude Code / Codex デスクトップペット"),
+    ("tray.tooltip",        "Octopus — Claude Code / Codex 桌宠",   "Octopus — Claude Code / Codex desk pet",   "Octopus — Claude Code / Codex デスクトップペット"),
     ("tray.panel",          "📊 详情面板",                         "📊 Dashboard",                            "📊 ダッシュボード"),
     ("tray.showPet",        "🐙 显示桌宠",                         "🐙 Show pet",                             "🐙 ペットを表示"),
     ("tray.settings",       "⚙️ 设置",                             "⚙️ Settings",                             "⚙️ 設定"),

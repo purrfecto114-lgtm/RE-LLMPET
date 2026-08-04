@@ -12,6 +12,14 @@ const active = path.join(ROOT, 'frontend', 'assets');
 const baselinePath = path.join(ROOT, 'reports', 'asset-visual-baseline.json');
 const update = process.argv.includes('--update-baseline');
 
+function sourceTimestamp() {
+  const raw = fs.readFileSync(path.join(ROOT, 'SOURCE_DATE_EPOCH'), 'utf8').trim();
+  if (!/^\d+$/.test(raw)) throw new Error('SOURCE_DATE_EPOCH must be a non-negative integer');
+  const epoch = Number(raw);
+  if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('SOURCE_DATE_EPOCH is invalid');
+  return new Date(epoch * 1000).toISOString();
+}
+
 function walk(dir, prefix = '') {
   const out = [];
   for (const ent of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -56,7 +64,7 @@ function writeBaseline(files) {
   });
   const report = {
     schemaVersion: 1,
-    generatedAt: new Date().toISOString(),
+    generatedAt: sourceTimestamp(),
     assetCount: rows.length,
     byteIdenticalCount: rows.length,
     optimizationApplied: false,

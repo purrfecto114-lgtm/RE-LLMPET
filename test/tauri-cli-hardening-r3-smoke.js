@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const root = path.resolve(__dirname, '..');
 const commands = fs.readFileSync(path.join(root, 'src-tauri/src/commands.rs'), 'utf8');
+const diagnosticIo = fs.readFileSync(path.join(root, 'src-tauri/src/diagnostic_io.rs'), 'utf8');
 const hooks = fs.readFileSync(path.join(root, 'src-tauri/src/hook_install.rs'), 'utf8');
 const lib = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');
 const ps = fs.readFileSync(path.join(root, 'scripts/windows-cli-diagnostics.ps1'), 'utf8');
@@ -21,7 +22,7 @@ check('CodeWhale dispatcher and companion versions are compared', commands.inclu
 check('failed probes make diagnostics unready', commands.includes('probe_succeeded') && commands.includes('--version failed'));
 check('Windows cmd/bat version probes use cmd.exe', commands.includes('cmd_probe_call') && commands.includes('.args(["/D", "/S", "/C"])'));
 check('diagnostics capture stdout and stderr', commands.includes('"stdout"') && commands.includes('"stderr"'));
-check('diagnostics are bounded', commands.includes('.take(8192)') && commands.includes('pipe.take(64 * 1024)'));
+check('diagnostics are bounded without closing full pipes early', commands.includes('.take(8192)') && commands.includes('drain_bounded(pipe, 64 * 1024)') && diagnosticIo.includes('read == 0'));
 check('working directory can be explicit', commands.includes('LLMPET_AGENT_CWD') && commands.includes('launch_agent_in'));
 check('PATH resolver rejects non-executable Unix files', commands.includes('fn is_executable_file') && commands.includes('permissions().mode() & 0o111'));
 check('CodeWhale doctor uses a bounded companion-first fallback chain', commands.includes('fn codewhale_doctor_probe') && commands.includes('probe_indicates_unknown_command') && commands.includes('doctor_attempts'));

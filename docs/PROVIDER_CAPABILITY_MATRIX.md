@@ -7,7 +7,7 @@
 | Provider | 官方/维护扩展点 | 生命周期 | 外部权限决策 | 用量来源 | 本轮实现 | 必须保留的限制 |
 |---|---|---:|---:|---|---|---|
 | Claude Code | JSON hooks，包含 `PreToolUse`、`PermissionRequest` 等 | 完整 | 支持 | transcript / hook payload，仍待迁移 | merge-safe hooks；当前 `hookSpecificOutput`；HTTP 权限桥 | 必须实测 CLI 版本；不能把旧顶层决策结构继续当作有效协议 |
-| CodeWhale | `config.toml` 的 `[[hooks.hooks]]` | 完整，含 subagent/turn_end | 支持 `allow/deny/ask` | `turn_end.usage` 原生字段 | 10 类 Hook；`tool_call_before` 前台且失败不继续；服务失联显式 `ask` | Full Access 模式可能绕过 `ask`；空 stdout 不能作为安全降级 |
+| CodeWhale | `config.toml` 的 `[[hooks.hooks]]` | 完整，含 subagent/turn_end | 支持 `allow/deny/ask` | `turn_end.usage` 原生字段 | 10 类 Hook；`tool_call_before` 前台且失败不继续；服务失联显式 `deny` | `ask` 在 Full Access 下不会降级权限，因此仅用于正常交互，不作为故障回退；空 stdout 不能作为安全降级 |
 | Codex | `~/.codex/hooks.json` 与 `/hooks` 信任审查；后续评估只读 rollout 旁路 | 条件完整 | 支持 `PermissionRequest` | 尚待实测选择 | 当前嵌套 schema；信任提示；Windows 安全命令行 | 写入文件不等于已信任；Windows/大 payload/非 ASCII Stop 仍有上游问题，不能把 Hook 当唯一状态源 |
 | OpenCode | 官方 ESM plugin API | 完整观察 | 本轮不外部接管 | 尚待事件/存储实测 | ESM 插件；session/tool/permission 观察事件 | 权限由 OpenCode 原生交互处理；不能宣传与 Claude 权限气泡等价 |
 | Aider | `notifications-command` | 仅可靠覆盖回复完成 | 不支持 | 尚无统一精确来源 | 合并式 YAML 通知桥；不覆盖用户已有命令 | 不承诺 session/tool/permission 全生命周期；只显示 turn-end 能力 |

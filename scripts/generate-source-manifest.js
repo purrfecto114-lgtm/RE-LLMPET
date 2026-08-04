@@ -2,20 +2,15 @@
 'use strict';
 
 /**
- * R40.4 (2026-08-01): Canonical SOURCE_MANIFEST generator.
+ * Canonical, deterministic SOURCE_MANIFEST generator.
  *
- * Fixes the 0.5.22 audit P0-4 issues:
- *   - Exact file set (no missing, no unlisted)
- *   - Per-file SHA-256 verified
- *   - No self-include ambiguity (manifest excludes itself)
- *   - Deterministic ordering (bytewise sorted paths)
- *   - SOURCE_REVISION must be a 40-hex git commit SHA
+ * The manifest excludes only itself and generated reports. Provenance inputs
+ * (SOURCE_REVISION and SOURCE_DATE_EPOCH) are hashed like every other source
+ * file, so verification detects tampering instead of trusting metadata that is
+ * outside the digest set.
  *
  * Usage:
- *   node scripts/generate-source-manifest.js [--verify]
- *
- * --verify: compare existing SOURCE_MANIFEST.json against actual files;
- *           exit non-zero on any mismatch (for CI gate).
+ *   node scripts/generate-source-manifest.js [--generate|--verify]
  */
 
 const fs = require('fs');
@@ -25,16 +20,13 @@ const crypto = require('crypto');
 const ROOT = path.resolve(__dirname, '..');
 const MANIFEST_PATH = path.join(ROOT, 'SOURCE_MANIFEST.json');
 const REVISION_PATH = path.join(ROOT, 'SOURCE_REVISION');
+const EPOCH_PATH = path.join(ROOT, 'SOURCE_DATE_EPOCH');
 
 const EXCLUDE_FILES = new Set([
   'SOURCE_MANIFEST.json',
-  'SOURCE_REVISION',
-  'SOURCE_DATE_EPOCH',
-  // R40.4: protocol-drift.json contains a generatedAt timestamp that
-  // changes on every check-protocol-drift run. It is a build-time report,
-  // not a source artifact.
+  // protocol-drift.json contains a generatedAt timestamp and is evidence,
+  // not source input.
   'reports/protocol-drift.json',
-  // R40.4: .env is a local build input, never a source artifact.
   '.env',
 ]);
 
@@ -48,7 +40,6 @@ const EXCLUDE_DIRS = new Set([
   'dist',
   '.vscode',
   '.idea',
-  // R40.5: exclude non-project dirs that may leak from parent workspace
   'skills',
   'work',
   'workspace',
@@ -57,68 +48,78 @@ const EXCLUDE_DIRS = new Set([
   'download',
 ]);
 
+function compareUtf8(left, right) {
+  return Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'));
+}
+
 function walk(dir, prefix = '') {
   const out = [];
-  let entries;
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return out;
-  }
-  for (const ent of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const ent of entries.sort((a, b) => compareUtf8(a.name, b.name))) {
     const rel = prefix ? `${prefix}/${ent.name}` : ent.name;
+    if (ent.isSymbolicLink()) {
+      throw new Error(`symbolic link is not allowed in the release source tree: ${JSON.stringify(rel)}`);
+    }
     if (ent.isDirectory()) {
       if (EXCLUDE_DIRS.has(rel) || EXCLUDE_DIRS.has(ent.name)) continue;
       out.push(...walk(path.join(dir, ent.name), rel));
     } else if (ent.isFile()) {
       if (EXCLUDE_FILES.has(rel) || EXCLUDE_FILES.has(ent.name)) continue;
       out.push(rel);
+    } else {
+      throw new Error(`unsupported filesystem entry in release source tree: ${JSON.stringify(rel)}`);
     }
   }
   return out;
 }
 
 function sha256(filePath) {
-  const data = fs.readFileSync(filePath);
-  return crypto.createHash('sha256').update(data).digest('hex');
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function hashEntries(entries) {
+  const ordered = {};
+  for (const key of Object.keys(entries).sort(compareUtf8)) ordered[key] = entries[key];
+  return crypto.createHash('sha256').update(JSON.stringify(ordered, null, 2)).digest('hex');
 }
 
 function readRevision() {
-  // R40.5 (audit P0-1): SOURCE_REVISION is now flexible:
-  //   - 're-llmpet-x.y.z' (local dev, human-readable)
-  //   - 40-hex SHA (CI sets GITHUB_SHA)
-  //   - empty (not yet set)
-  // The previous design forced a 40-hex SHA, creating a self-referential
-  // paradox (commit must contain its own SHA, but writing it changes the
-  // SHA). Now we accept both forms; the real provenance chain is
-  // tag → workflow → artifact digest → attestation.
   const raw = fs.readFileSync(REVISION_PATH, 'utf8').trim();
   return raw || null;
+}
+
+function readSourceEpoch() {
+  const raw = fs.readFileSync(EPOCH_PATH, 'utf8').trim();
+  if (!/^\d+$/.test(raw)) throw new Error(`SOURCE_DATE_EPOCH must be a non-negative integer (got ${JSON.stringify(raw)})`);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error('SOURCE_DATE_EPOCH is outside the JavaScript safe integer range');
+  return value;
+}
+
+function displayRevision(revision) {
+  if (!revision) return '(none)';
+  return /^[0-9a-f]{40}$/.test(revision) ? revision.slice(0, 12) : revision;
 }
 
 function generate() {
   const files = walk(ROOT);
   const entries = {};
-  for (const rel of files) {
-    entries[rel] = sha256(path.join(ROOT, rel));
-  }
+  for (const rel of files) entries[rel] = sha256(path.join(ROOT, rel));
+
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   const sourceCommit = readRevision();
   const manifest = {
     version: pkg.version,
-    generated: Math.floor(Date.now() / 1000),
-    root: `RE-LLMPET-${pkg.version}`,
+    generated: readSourceEpoch(),
+    root: `Octopus-${pkg.version}`,
     file_count: files.length,
     files: entries,
+    sha256_of_manifest: hashEntries(entries),
   };
-  if (sourceCommit) {
-    manifest.source_commit = sourceCommit;
-  }
-  const sortedJson = JSON.stringify(entries, Object.keys(entries).sort(), 2);
-  manifest.sha256_of_manifest = crypto.createHash('sha256').update(sortedJson).digest('hex');
+  if (sourceCommit) manifest.source_commit = sourceCommit;
+
   fs.writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + '\n');
-  const commitStr = sourceCommit ? sourceCommit.slice(0,7) : '(none)';
-  console.log(`generate-source-manifest: wrote ${files.length} files, version=${pkg.version}, commit=${commitStr}`);
+  console.log(`generate-source-manifest: wrote ${files.length} files, version=${pkg.version}, commit=${displayRevision(sourceCommit)}`);
 }
 
 function verify() {
@@ -129,76 +130,67 @@ function verify() {
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
   const actualFiles = walk(ROOT);
   const manifestFiles = Object.keys(manifest.files || {});
-
   let errors = 0;
 
+  const report = (message) => {
+    process.stderr.write(`ERROR: ${message}\n`);
+    errors += 1;
+  };
+
   if (manifest.file_count !== actualFiles.length) {
-    process.stderr.write(
-      `ERROR: file_count mismatch — manifest=${manifest.file_count}, actual=${actualFiles.length}\n`
-    );
-    errors++;
+    report(`file_count mismatch — manifest=${manifest.file_count}, actual=${actualFiles.length}`);
   }
 
   const actualSet = new Set(actualFiles);
-  for (const f of manifestFiles) {
-    if (!actualSet.has(f)) {
-      process.stderr.write(`ERROR: manifest lists "${f}" but file does not exist\n`);
-      errors++;
-    }
-  }
-
+  for (const file of manifestFiles) if (!actualSet.has(file)) report(`manifest lists ${JSON.stringify(file)} but file does not exist`);
   const manifestSet = new Set(manifestFiles);
-  for (const f of actualFiles) {
-    if (!manifestSet.has(f)) {
-      process.stderr.write(`ERROR: file "${f}" exists but is not in manifest\n`);
-      errors++;
-    }
-  }
+  for (const file of actualFiles) if (!manifestSet.has(file)) report(`file ${JSON.stringify(file)} exists but is not in manifest`);
 
-  for (const f of actualFiles) {
-    if (!manifest.files[f]) continue;
-    const actualHash = sha256(path.join(ROOT, f));
-    if (actualHash !== manifest.files[f]) {
-      process.stderr.write(`ERROR: hash mismatch for "${f}"\n`);
-      errors++;
-    }
-  }
-
-  // R40.5: source_commit is optional. If present, must be either:
-  //   - 40-hex SHA (CI release build)
-  //   - 're-llmpet-x.y.z' (local dev)
-  if (manifest.source_commit) {
-    const isSha = /^[0-9a-f]{40}$/.test(manifest.source_commit);
-    const isHumanReadable = /^re-llmpet-/.test(manifest.source_commit);
-    if (!isSha && !isHumanReadable) {
-      process.stderr.write(
-        `ERROR: manifest.source_commit must be 40-hex SHA or 're-llmpet-*' (got: "${manifest.source_commit}")\n`
-      );
-      errors++;
-    }
+  for (const file of actualFiles) {
+    if (!manifest.files[file]) continue;
+    if (sha256(path.join(ROOT, file)) !== manifest.files[file]) report(`hash mismatch for ${JSON.stringify(file)}`);
   }
 
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  if (manifest.version !== pkg.version) {
-    process.stderr.write(
-      `ERROR: manifest.version (${manifest.version}) != package.json version (${pkg.version})\n`
-    );
-    errors++;
+  if (manifest.version !== pkg.version) report(`manifest.version (${manifest.version}) != package.json version (${pkg.version})`);
+  if (manifest.root !== `Octopus-${pkg.version}`) report(`manifest.root (${manifest.root}) != Octopus-${pkg.version}`);
+
+  const expectedRevision = readRevision();
+  if ((manifest.source_commit || null) !== expectedRevision) {
+    report(`manifest.source_commit (${manifest.source_commit || '(none)'}) != SOURCE_REVISION (${expectedRevision || '(none)'})`);
+  }
+  if (manifest.source_commit) {
+    const valid = /^[0-9a-f]{40}$/.test(manifest.source_commit)
+      || /^(?:octopus|re-llmpet)-/.test(manifest.source_commit);
+    if (!valid) report(`manifest.source_commit has unsupported format: ${JSON.stringify(manifest.source_commit)}`);
+  }
+
+  const expectedEpoch = readSourceEpoch();
+  if (manifest.generated !== expectedEpoch) {
+    report(`manifest.generated (${manifest.generated}) != SOURCE_DATE_EPOCH (${expectedEpoch})`);
+  }
+
+  const expectedEntriesHash = hashEntries(manifest.files || {});
+  if (manifest.sha256_of_manifest !== expectedEntriesHash) {
+    report('sha256_of_manifest does not match the canonical file-hash map');
   }
 
   if (errors > 0) {
     process.stderr.write(`\nmanifest verification FAILED with ${errors} error(s)\n`);
     process.exit(1);
   }
-  console.log(`manifest verification OK: ${actualFiles.length} files, version=${pkg.version}, commit=${manifest.source_commit.slice(0,7)}`);
+  console.log(`manifest verification OK: ${actualFiles.length} files, version=${pkg.version}, commit=${displayRevision(manifest.source_commit)}`);
 }
 
 const mode = process.argv[2] || '--generate';
-if (mode === '--verify') {
-  verify();
-} else if (mode === '--generate') {
-  generate();
-} else {
-  process.stderr.write('Usage: generate-source-manifest.js [--generate|--verify]\n');
+try {
+  if (mode === '--verify') verify();
+  else if (mode === '--generate') generate();
+  else {
+    process.stderr.write('Usage: generate-source-manifest.js [--generate|--verify]\n');
+    process.exit(1);
+  }
+} catch (error) {
+  process.stderr.write(`ERROR: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(1);
 }

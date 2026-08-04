@@ -28,18 +28,18 @@ const panelJs = read('frontend/renderer/panel.js');
 // P0-1: Singleton StatsCoalescer
 // ──────────────────────────────────────────────────────────────────────────
 
-assert(model.includes('pub stats_dirty: Mutex<bool>'),
-  'R38.1: model.rs must have stats_dirty field');
-assert(model.includes('pub stats_scheduled: Mutex<bool>'),
-  'R38.1: model.rs must have stats_scheduled field');
+assert(model.includes('pub struct StatsCoalescerState'),
+  'R38.1/R40.1: model.rs must define the consolidated coalescer state');
+assert(model.includes('pub stats_coalescer: Mutex<StatsCoalescerState>'),
+  'R38.1/R40.1: Runtime must own one coalescer mutex');
 assert(model.includes('pub stats_revision: Mutex<u64>'),
   'R38.1: model.rs must have stats_revision field');
-assert(model.includes('stats_dirty: Mutex::new(false)'),
-  'R38.1: AppState::new must initialize stats_dirty');
-assert(model.includes('stats_scheduled: Mutex::new(false)'),
-  'R38.1: AppState::new must initialize stats_scheduled');
+assert(model.includes('stats_coalescer: Mutex::new(StatsCoalescerState::default())'),
+  'R38.1/R40.1: AppState::new must initialize the coalescer');
 assert(model.includes('stats_revision: Mutex::new(0)'),
   'R38.1: AppState::new must initialize stats_revision');
+assert(!model.includes('pub stats_dirty:') && !model.includes('pub stats_scheduled:') && !model.includes('last_stats_emit'),
+  'R45: obsolete split state must be removed rather than retained for smoke tests');
 // R40.1: the split-mutex design was consolidated into a single
 // `stats_coalescer: Mutex<StatsCoalescerState>`. The R38.1 assertions
 // below check for the new consolidated pattern instead of the old
@@ -50,28 +50,32 @@ assert(httpServer.includes('guard.scheduled'),
   'R38.1/R40.1: http_server.rs must check scheduled flag before spawning (now via consolidated state)');
 assert(httpServer.includes('CoalescerAction::ScheduleTrailing'),
   'R38.1/R40.1: http_server.rs must schedule trailing timer only if not already scheduled');
-assert(httpServer.includes('fn do_emit_stats'),
-  'R38.1: http_server.rs must have do_emit_stats function');
+assert(httpServer.includes('pub(crate) fn emit_stats_now'),
+  'R38.1/R45: http_server.rs must own the immediate stats emitter');
 assert(httpServer.includes('__revision'),
-  'R38.1: do_emit_stats must attach __revision to stats payload');
-// commands.rs also uses the consolidated coalescer + revision
-assert(commands.includes('stats_coalescer'),
-  'R38.1/R40.1: commands.rs emit_stats_throttled must reference stats_coalescer');
-assert(commands.includes('__revision'),
-  'R38.1: commands.rs must attach __revision to stats payload');
+  'R38.1: shared stats emitter must attach __revision to stats payload');
+// commands.rs delegates to the sole revision owner instead of duplicating
+// payload mutation or revision counters.
+assert(commands.includes('crate::http_server::emit_stats_now'),
+  'R38.1/R45: commands.rs must delegate instead of duplicating coalescer logic');
+assert(!commands.includes('stats_with_rev'),
+  'commands.rs must not reintroduce a second revisioned stats emitter');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0-2: Diagnostic cancel keeps provider locked
 // ──────────────────────────────────────────────────────────────────────────
 
-// cancel_diagnostic should NOT clear active_diagnostic_provider in code
+// cancel_diagnostic marks cancellation but does not release ownership. The
+// async diagnose wrapper calls finish only after the blocking worker returns.
 const cancelBlock = commands.slice(
   commands.indexOf('pub async fn cancel_diagnostic'),
   commands.indexOf('/// R35.2: Kill a process')
 );
 const cancelCodeOnly = cancelBlock.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
-assert(!cancelCodeOnly.includes('*provider_guard = None'),
-  'R38.1: cancel_diagnostic code must NOT clear active_diagnostic_provider (was race)');
+assert(cancelCodeOnly.includes('diagnostic_control.request_cancel()'),
+  'cancel_diagnostic must atomically mark the active diagnostic cancelled');
+assert(!cancelCodeOnly.includes('diagnostic_control.finish()'),
+  'cancel_diagnostic must not release provider ownership before worker exit');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0-3: Panel init visibility renders cached stats

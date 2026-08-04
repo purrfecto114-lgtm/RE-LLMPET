@@ -16,8 +16,8 @@ name = "octopus"
 path = "src/main.rs"
 
 [[bin]]
-name = "re-llmpet-hook"
-path = "src/bin/re-llmpet-hook.rs"
+name = "octopus-hook"
+path = "src/bin/octopus-hook.rs"
 
 [build-dependencies]
 tauri-build = { version = "=2.6.3", features = [] }

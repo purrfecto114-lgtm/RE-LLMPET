@@ -45,7 +45,7 @@ assert(commands.includes('hook_install::resync_current'));
 // R36: startup uses verify_enabled; sync_enabled still exists in hook_install.rs.
 assert(lib.includes('hook_install::verify_enabled') || lib.includes('hook_install::sync_enabled'));
 
-// CodeWhale: current TOML shape, current maintained events and fail-safe ask.
+// CodeWhale: current TOML shape, maintained events and fail-closed denial.
 for (const needle of [
   '[[hooks.hooks]]', 'tool_call_before', 'turn_end', 'subagent_spawn',
   'subagent_complete', 'CODEWHALE_HOME', 'background = true',
@@ -53,14 +53,16 @@ for (const needle of [
 for (const obsolete of ['subagent_start", "subagent_stop', 'plan_start', 'shell_start']) {
   assert(!installer.includes(obsolete), `obsolete/unverified CodeWhale event installed: ${obsolete}`);
 }
-assert(client.includes('"decision":"ask"'));
+assert(client.includes('"decision":"deny"'));
+assert(!client.includes('"decision":"ask"'));
+assert(client.includes('std::process::exit(1)'));
 assert(client.includes('DEEPSEEK_TOOL_ARGS'));
 assert(client.includes('CODEWHALE_TOOL_ARGS'));
 assert(installerC.includes('hook_command_with_flags(&executable, "claude", Some("PreToolUse"), false, true)'));
 assert(installerC.includes('if pretool { args.push_str(" --pretool"); }'));
 assert(installerC.includes('cmd.exe /D /S /C')); // Windows quoted-path invocation
-assert(installerC.includes('unterminated RE-LLMPET marker block'));
-assert(installerC.includes('unmatched RE-LLMPET marker end'));
+assert(installerC.includes('unterminated Octopus marker block'));
+assert(installerC.includes('unmatched Octopus marker end'));
 assert(client.includes('native_event'));
 assert(installerC.includes('if permission { "false" } else { "true" }'));
 
@@ -82,7 +84,7 @@ assert(!installer.includes('module.exports'));
 // R40: plugin marker was bumped from v2 -> v3 to flag the
 // session.status mapping rewrite. Accept either marker so the test
 // doesn't break on future version bumps.
-const pluginMatch = installer.match(/r#"(\/\/ re-llmpet-opencode-plugin-v\d+[\s\S]*?)"#\n}/);
+const pluginMatch = installer.match(/r#"(\/\/ octopus-opencode-plugin-v\d+[\s\S]*?)"#\n}/);
 assert(pluginMatch, 'embedded OpenCode plugin source not found');
 const temp = path.join(os.tmpdir(), `llmpet-opencode-${process.pid}.mjs`);
 fs.writeFileSync(temp, pluginMatch[1]);
