@@ -1705,8 +1705,7 @@ fn replace_marker_variants(
 ");
     }
     clean.push_str(block);
-    clean.push('
-');
+    clean.push('\n');
     write_text_atomic(path, clean.as_bytes())
 }
 
