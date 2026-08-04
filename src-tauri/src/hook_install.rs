@@ -577,6 +577,7 @@ fn contains_any_marker(content: &str, markers: &[(&str, &str)]) -> bool {
     markers.iter().any(|(begin, _)| content.contains(begin))
 }
 
+#[allow(dead_code)]
 fn file_contains_any_marker(path: impl AsRef<Path>, markers: &[(&str, &str)]) -> bool {
     fs::read_to_string(path)
         .map(|content| contains_any_marker(&content, markers))

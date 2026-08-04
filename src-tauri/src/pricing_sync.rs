@@ -777,7 +777,7 @@ fn persist_sync_state(app_dir: &Path, state: &PersistedSyncState) -> Result<(), 
 fn atomic_replace(temp: &Path, final_path: &Path) -> Result<(), String> {
     #[cfg(not(windows))]
     {
-        return fs::rename(temp, final_path).map_err(|error| error.to_string());
+        fs::rename(temp, final_path).map_err(|error| error.to_string())
     }
     #[cfg(windows)]
     {

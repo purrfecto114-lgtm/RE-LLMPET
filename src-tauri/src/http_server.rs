@@ -170,7 +170,7 @@ fn write_runtime_file(runtime: &Runtime, port: u16, token: &str) -> Result<(), S
     }
     #[cfg(not(windows))]
     {
-        return fs::rename(tmp, &runtime.runtime_path).map_err(|e| e.to_string());
+        fs::rename(tmp, &runtime.runtime_path).map_err(|e| e.to_string())
     }
     #[cfg(windows)]
     {

@@ -232,8 +232,8 @@
     "src-tauri/src/diagnostic_io.rs": "0e6a4d42d3a9bd2bffc3506551131d68770af22ccbc5331154fb63888339f33f",
     "src-tauri/src/emotion.rs": "ffab61788372ed4bd81b3c68338efee1318a237e02274b5f7413c395dddf901c",
     "src-tauri/src/hook_client.rs": "5e0151b79d542c58a3a51b56e272616219f71255660472cb8c1358b211331146",
-    "src-tauri/src/hook_install.rs": "104b5bd63326e3c993e0f9bb0ff37d93c6c97ecc8aab6cbcfeb28eca98966271",
-    "src-tauri/src/http_server.rs": "c15dc223b5486ccec83a7a5361ec0ecd977fa1126364b8924c0010ea4f1f8892",
+    "src-tauri/src/hook_install.rs": "a2bb2baf6e09d9932a6aab8c41a4252b48da82df556d623efa3bc9b5c79c0819",
+    "src-tauri/src/http_server.rs": "2365edba1e5284829446bd3f6907364e708477cd69f2bd8da1fd7fb740443659",
     "src-tauri/src/i18n.rs": "044318b3c9524cae22cd6af0af7a03ddde99e0666f0d6122477399bb2a08be93",
     "src-tauri/src/instance_probe.rs": "91ff774527c7d7f5567158c9c2492a97c25e086a2c37bed0367923c61c870ac8",
     "src-tauri/src/lib.rs": "4fed275454f13d4bbf9cda105b0c42e04a5701ca366b7b387b9feaacacc077ca",
@@ -241,7 +241,7 @@
     "src-tauri/src/metering.rs": "21c20767b5fc647fe8f46ce0c1b2aafb45504a9dc00ff11c34ac61a9c4e4ddab",
     "src-tauri/src/model.rs": "07931c1e12d901fdb862238ab6e0ed43e191d978fa1fc156020d213fb57b7c31",
     "src-tauri/src/platform.rs": "411d897e34f77e7ff524e75cc7148122dd6e3dfdb080d675a28cccf264b2ab8e",
-    "src-tauri/src/pricing_sync.rs": "165be6ffa20eb57a3b42cf2b7a621437926a8d6bd18c91f19567682906f5a87c",
+    "src-tauri/src/pricing_sync.rs": "323d11906d05c148c0a222cb488510844cd5610e06382ee3f212f1d7f26a4e98",
     "src-tauri/src/transcript.rs": "28c2eb4b19ea3dbed6c8114c0f32f4b1c656209a5fea2fc14c69fe8b76fbeeec",
     "src-tauri/tauri.conf.json": "cd68ddf0d33a34ed006d805dfb276f07dcacef111134a42d18a46430eb7bb0d9",
     "src-tauri/tauri.linux.conf.json": "d82bedd08746ae0fe47cde39993b568486b552b32f3359641327d51487658cd2",
@@ -313,6 +313,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "6b0f46ef478a1afac514bd4cf29a9059c91486c994e8f5fc9da93fb0c8722fbe"
   },
-  "sha256_of_manifest": "9df8806796a8f5b386de1f981b13fbcde53d1a61224d97e02a053b9af86a6861",
+  "sha256_of_manifest": "f21cf6952e140a49bff685368b09357e1cb3a2af26fde60630d7c05485d35feb",
   "source_commit": "octopus-0.5.42"
 }
