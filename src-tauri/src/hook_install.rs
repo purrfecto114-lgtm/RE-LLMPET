@@ -566,6 +566,7 @@ fn is_current_hook_installed(id: &str) -> bool {
 /// Helper: read a file and check if it contains a marker string.
 /// Returns false if the file doesn't exist or can't be read (not an error —
 /// the hook simply isn't installed).
+#[allow(dead_code)]
 fn file_contains(path: impl AsRef<Path>, marker: &str) -> bool {
     fs::read_to_string(path)
         .map(|content| content.contains(marker))
@@ -639,7 +640,7 @@ fn cleanup_provider_with_path(id: &str, receipt_path: Option<&Path>) -> CleanupR
         "opencode" => {
             let path = receipt_path
                 .map(|p| p.to_path_buf())
-                .unwrap_or_else(|| opencode_plugin_path());
+                .unwrap_or_else(opencode_plugin_path);
             uninstall_opencode_at(&path)
         }
         "aider" => {

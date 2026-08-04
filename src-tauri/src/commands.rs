@@ -1107,10 +1107,9 @@ fn is_executable_file(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        return path
-            .metadata()
+        path.metadata()
             .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false);
+            .unwrap_or(false)
     }
     #[cfg(windows)]
     {
@@ -1624,15 +1623,10 @@ fn run_diagnostic_probe_capture(
         let timeout_now = !cancellation_now && started.elapsed() >= timeout;
         cancelled |= cancellation_now;
         timed_out |= timeout_now;
-        if cancellation_now || timeout_now {
-            if control.claim_pid_for_termination(pid) {
-                if let Err(error) = kill_process_tree(pid) {
-                    termination_error = Some(error);
-                    // Child::kill uses the process handle and therefore avoids
-                    // PID-reuse ambiguity. It is a direct-child fallback when
-                    // tree termination is unavailable.
-                    let _ = child.kill();
-                }
+        if (cancellation_now || timeout_now) && control.claim_pid_for_termination(pid) {
+            if let Err(error) = kill_process_tree(pid) {
+                termination_error = Some(error);
+                let _ = child.kill();
             }
         }
         thread::sleep(Duration::from_millis(25));
@@ -2898,6 +2892,7 @@ pub fn quit_app(app: AppHandle, state: State<'_, AppState>) {
     app.exit(0);
 }
 
+#[allow(dead_code)]
 fn is_windows_script(path: &Path) -> bool {
     path.extension()
         .and_then(|value| value.to_str())
