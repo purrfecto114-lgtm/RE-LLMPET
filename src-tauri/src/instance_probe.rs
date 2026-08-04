@@ -115,10 +115,9 @@ fn read_runtime(runtime_path: &Path) -> Result<RuntimeFile, String> {
     if metadata.len() > 16 * 1024 {
         return Err("runtime file exceeds 16 KiB".into());
     }
-    let runtime: RuntimeFile = serde_json::from_slice(
-        &fs::read(runtime_path).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
+    let runtime: RuntimeFile =
+        serde_json::from_slice(&fs::read(runtime_path).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
     if runtime.app != SERVER_ID || !port_in_range(runtime.port) || !valid_token(&runtime.token) {
         return Err("runtime identity is invalid".into());
     }
@@ -131,15 +130,17 @@ fn port_in_range(port: u16) -> bool {
 
 fn exchange(port: u16, request: &[u8]) -> Result<Vec<u8>, String> {
     let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-    let mut stream = TcpStream::connect_timeout(&address, CONNECT_TIMEOUT)
-        .map_err(|error| error.to_string())?;
+    let mut stream =
+        TcpStream::connect_timeout(&address, CONNECT_TIMEOUT).map_err(|error| error.to_string())?;
     stream
         .set_read_timeout(Some(CONNECT_TIMEOUT))
         .map_err(|error| error.to_string())?;
     stream
         .set_write_timeout(Some(CONNECT_TIMEOUT))
         .map_err(|error| error.to_string())?;
-    stream.write_all(request).map_err(|error| error.to_string())?;
+    stream
+        .write_all(request)
+        .map_err(|error| error.to_string())?;
     stream.flush().map_err(|error| error.to_string())?;
 
     let mut response = Vec::with_capacity(2048);

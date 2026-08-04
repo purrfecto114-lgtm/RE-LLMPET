@@ -1793,9 +1793,7 @@ pub fn load_config(path: &Path) -> (AppConfig, ConfigState) {
             return (AppConfig::default(), ConfigState::NotFound);
         }
         Err(e) => {
-            eprintln!(
-                "[octopus] ERROR: config.json metadata failed: {e}. Writes are quarantined."
-            );
+            eprintln!("[octopus] ERROR: config.json metadata failed: {e}. Writes are quarantined.");
             return (
                 AppConfig::default(),
                 ConfigState::Unreadable {

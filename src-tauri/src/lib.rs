@@ -5,8 +5,8 @@ mod emotion;
 pub mod hook_client;
 mod hook_install;
 mod http_server;
-mod instance_probe;
 mod i18n;
+mod instance_probe;
 mod metering;
 mod model;
 mod platform;
@@ -163,10 +163,9 @@ pub fn run() {
                         }
                         Err(error) => {
                             let state = window.app_handle().state::<AppState>();
-                            state.runtime.write_log(
-                                "panel",
-                                &format!("native close hide failed: {error}"),
-                            );
+                            state
+                                .runtime
+                                .write_log("panel", &format!("native close hide failed: {error}"));
                         }
                     }
                 }

@@ -150,10 +150,8 @@ const AIDER_MARKERS: &[(&str, &str)] = &[
     (AIDER_LEGACY_BEGIN, AIDER_LEGACY_END),
 ];
 const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v3";
-const OPENCODE_MARKER_LEGACY: &[&str] = &[
-    "re-llmpet-opencode-plugin-v1",
-    "octopus-opencode-plugin-v2",
-];
+const OPENCODE_MARKER_LEGACY: &[&str] =
+    &["re-llmpet-opencode-plugin-v1", "octopus-opencode-plugin-v2"];
 
 #[derive(Debug, Default)]
 pub struct InstallResult {
@@ -478,11 +476,7 @@ fn marker_presence(content: &str, current: &[&str], legacy: &[&str]) -> HookPres
     }
 }
 
-fn file_marker_presence(
-    path: impl AsRef<Path>,
-    current: &[&str],
-    legacy: &[&str],
-) -> HookPresence {
+fn file_marker_presence(path: impl AsRef<Path>, current: &[&str], legacy: &[&str]) -> HookPresence {
     fs::read_to_string(path)
         .map(|content| marker_presence(&content, current, legacy))
         .unwrap_or(HookPresence::Missing)
@@ -1595,7 +1589,6 @@ fn ensure_object<'a>(
         .ok_or_else(|| format!("{key} must be an object"))
 }
 
-
 fn ensure_codewhale_hooks_enabled(input: &str) -> String {
     // CodeWhale ignores every [[hooks.hooks]] entry unless the global
     // [hooks].enabled switch is true. Touch only the exact top-level table
@@ -1700,9 +1693,11 @@ fn replace_marker_variants(
         .trim_end()
         .to_string();
     if !clean.is_empty() {
-        clean.push_str("
+        clean.push_str(
+            "
 
-");
+",
+        );
     }
     clean.push_str(block);
     clean.push('\n');
@@ -2247,4 +2242,3 @@ mod codewhale_config_tests {
         assert!(edited.contains("[provider]\napi_key = \"secret\""));
     }
 }
-

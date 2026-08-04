@@ -1,6 +1,4 @@
-use crate::instance_probe::{
-    self, BASE_PORT, PORT_COUNT, SERVER_HEADER, SERVER_ID, TOKEN_HEADER,
-};
+use crate::instance_probe::{self, BASE_PORT, PORT_COUNT, SERVER_HEADER, SERVER_ID, TOKEN_HEADER};
 use crate::model::{
     now_ms, permission_signature, PendingPermission, PermissionDecision, Runtime, Session,
 };

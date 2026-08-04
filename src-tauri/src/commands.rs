@@ -666,7 +666,9 @@ fn fit_panel(
         PanelPlacement::CenterOnPet => pet_monitor.or(panel_monitor),
         PanelPlacement::PreserveCurrentCenter => panel_monitor.or(pet_monitor),
     }
-    .or(window.primary_monitor().map_err(|error| error.to_string())?)
+    .or(window
+        .primary_monitor()
+        .map_err(|error| error.to_string())?)
     .ok_or("monitor information unavailable")?;
 
     let scale = monitor.scale_factor().max(0.1);
@@ -694,17 +696,16 @@ fn fit_panel(
     let physical_width = logical_to_physical(logical_width, scale);
     let physical_height = logical_to_physical(logical_height, scale);
 
-    let centered_x = i64::from(work.position.x)
-        + (i64::from(work.size.width) - i64::from(physical_width)) / 2;
-    let centered_y = i64::from(work.position.y)
-        + (i64::from(work.size.height) - i64::from(physical_height)) / 2;
+    let centered_x =
+        i64::from(work.position.x) + (i64::from(work.size.width) - i64::from(physical_width)) / 2;
+    let centered_y =
+        i64::from(work.position.y) + (i64::from(work.size.height) - i64::from(physical_height)) / 2;
     let (candidate_x, candidate_y) = match placement {
         PanelPlacement::CenterOnPet => (centered_x, centered_y),
         PanelPlacement::PreserveCurrentCenter => {
             match (window.outer_position(), window.outer_size()) {
                 (Ok(position), Ok(size)) => (
-                    i64::from(position.x)
-                        + (i64::from(size.width) - i64::from(physical_width)) / 2,
+                    i64::from(position.x) + (i64::from(size.width) - i64::from(physical_width)) / 2,
                     i64::from(position.y)
                         + (i64::from(size.height) - i64::from(physical_height)) / 2,
                 ),
@@ -719,11 +720,11 @@ fn fit_panel(
     let max_x = (i64::from(work.position.x) + i64::from(work.size.width)
         - margin
         - i64::from(physical_width))
-        .max(min_x);
+    .max(min_x);
     let max_y = (i64::from(work.position.y) + i64::from(work.size.height)
         - margin
         - i64::from(physical_height))
-        .max(min_y);
+    .max(min_y);
     let x = candidate_x.clamp(min_x, max_x);
     let y = candidate_y.clamp(min_y, max_y);
 
@@ -1608,9 +1609,7 @@ fn run_diagnostic_probe_capture(
                             "failed to poll child process: {error}; termination failed: {kill_error}"
                         ));
                     } else {
-                        termination_error = Some(format!(
-                            "failed to poll child process: {error}"
-                        ));
+                        termination_error = Some(format!("failed to poll child process: {error}"));
                     }
                 }
                 // A Child handle targets the spawned process object directly,
@@ -2260,8 +2259,8 @@ fn kill_process_tree(pid: u32) -> Result<(), String> {
     {
         // process_group(0) makes the child PID its PGID. kill(2) with a
         // negative value targets the entire process group.
-        let process_group = -i32::try_from(pid)
-            .map_err(|_| "diagnostic PID exceeds i32".to_string())?;
+        let process_group =
+            -i32::try_from(pid).map_err(|_| "diagnostic PID exceeds i32".to_string())?;
         if !signal_process_group(process_group, 15)? {
             return Ok(());
         }
@@ -2312,10 +2311,7 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
     let mut issues = Vec::<String>::new();
     let mut warnings = Vec::<String>::new();
     if executable.is_none() {
-        issues.push(format!(
-            "{} CLI was not found in Octopus PATH",
-            spec.title
-        ));
+        issues.push(format!("{} CLI was not found in Octopus PATH", spec.title));
     }
     if spec.id == "codewhale" && executable.is_some() && companion.is_none() {
         issues.push(
