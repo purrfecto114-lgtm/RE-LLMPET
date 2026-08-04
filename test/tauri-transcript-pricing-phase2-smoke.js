@@ -26,7 +26,8 @@ assert.match(cargo, /version = "0.5.42"/);
 // Modules must be part of the active Tauri build and runtime, not dead drafts.
 assert.match(lib, /mod pricing_sync;/);
 assert.match(lib, /mod transcript;/);
-assert.match(lib, /pricing_sync::start\(state\.runtime\.clone\(\), app\.handle\(\)\.clone\(\)\)/);
+// R44 0.5.42: use cloned runtime Arc instead of state.runtime (borrow fix)
+assert.match(lib, /pricing_sync::start\(runtime\.clone\(\), app\.handle\(\)\.clone\(\)\)/);
 assert.match(model, /pub transcripts: Mutex<TranscriptScanner>/);
 assert.match(model, /scan_from_hook\([\s\S]*?body,[\s\S]*?&id,[\s\S]*?&mut usage,[\s\S]*?now,/);
 assert.match(model, /"transcriptDiagnostics"/);
