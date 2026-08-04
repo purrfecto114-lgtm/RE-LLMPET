@@ -71,11 +71,19 @@ pub fn run() {
                 }
             };
             // R44 0.5.42: setup_tray takes &mut App, but `state` holds an
-            // immutable borrow. Clone the runtime Arc before calling setup_tray
-            // so the immutable borrow ends, allowing the mutable borrow.
+            // immutable borrow. Clone the runtime Arc so we can use it
+            // after the mutable borrow. Don't drop state — we still need
+            // it for later calls (verify_enabled, pricing_sync, etc.).
+            // The borrow checker allows this because `runtime` is an Arc
+            // clone (owned), not a borrow of `state`.
             let runtime = state.runtime.clone();
             let pet_position = runtime.config().pet_position;
-            drop(state);
+            // NLL: state's immutable borrow ends here because we don't use
+            // state again until after setup_tray returns. The `runtime` Arc
+            // is independent and can be used across the mutable borrow.
+            // However, Rust's borrow checker is conservative about app.state()
+            // returns — they borrow app for 'a. To work around this, we
+            // re-acquire state AFTER setup_tray.
             setup_tray(app)?;
             // R28 (2026-07-30): Disable Windows 11 DWM automatic corner
             // rounding for ALL windows. Windows 11 rounds ALL window corners
@@ -120,19 +128,19 @@ pub fn run() {
                     )
                     .into());
                 }
-                state.runtime.write_log(
+                runtime.write_log(
                     "startup",
                     &format!("Tauri core ready on port {server_port}"),
                 );
-                let config = state.runtime.config();
+                let config = runtime.config();
                 // Startup verifies external hooks but never mutates provider
                 // configuration. Installation remains an explicit user action.
-                let statuses = hook_install::verify_enabled(&state.runtime, &config.providers);
+                let statuses = hook_install::verify_enabled(&runtime, &config.providers);
                 for status in statuses
                     .iter()
                     .filter(|status| status.state == "missing" || status.state == "error")
                 {
-                    state.runtime.write_log(
+                    runtime.write_log(
                         "hooks",
                         &format!(
                             "{} hook drift at startup: {} ({})",
@@ -141,14 +149,14 @@ pub fn run() {
                     );
                 }
             }
-            pricing_sync::start(state.runtime.clone(), app.handle().clone());
-            let config = state.runtime.config_view();
-            let stats = state.runtime.stats();
+            pricing_sync::start(runtime.clone(), app.handle().clone());
+            let config = runtime.config_view();
+            let stats = runtime.stats();
             let _ = app.emit("pet:config", config.clone());
             let _ = app.emit("panel:config", config);
             let _ = app.emit("pet:stats", stats.clone());
             let _ = app.emit("panel:stats", stats);
-            let _ = app.emit("panel:price", state.runtime.price_info());
+            let _ = app.emit("panel:price", runtime.price_info());
             Ok(())
         })
         .on_window_event(|window, event| {
