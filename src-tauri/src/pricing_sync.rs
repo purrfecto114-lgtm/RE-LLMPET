@@ -14,6 +14,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 const MODELS_DEV_URL: &str = "https://models.dev/api.json";
+const PRICE_SOURCE_ENV: &str = "RE_LLMPET_MODELS_DEV_URL";
 pub const PRICE_SYNC_STATE_FILE_NAME: &str = "pricing-sync-state.json";
 const STARTUP_DELAY: Duration = Duration::from_secs(5);
 const MAX_IDLE_WAIT: Duration = Duration::from_secs(6 * 60 * 60);
@@ -24,6 +25,10 @@ const MAX_STATE_BYTES: u64 = 64 * 1024;
 const MAX_MODELS: usize = 20_000;
 const MAX_PRICE_USD_PER_MILLION: f64 = 1_000.0;
 const MAX_HEADER_VALUE: usize = 1_024;
+const CURL_CONNECT_TIMEOUT_SECS: u64 = 15;
+const CURL_TOTAL_TIMEOUT_SECS: u64 = 60;
+const CURL_ATTEMPTS_PER_SOURCE: usize = 3;
+const CURL_RETRY_BACKOFF_MS: [u64; 2] = [750, 2_000];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -399,13 +404,102 @@ fn refresh_once(app_dir: &Path, previous: &PersistedSyncState) -> Result<Refresh
     result
 }
 
+fn price_source_urls() -> Vec<String> {
+    let mut urls = Vec::new();
+    if let Ok(value) = std::env::var(PRICE_SOURCE_ENV) {
+        let value = value.trim();
+        // Custom mirrors are useful on corporate/offline networks, but never
+        // permit plaintext, embedded credentials, control characters or an
+        // unbounded command-line argument.
+        if value.starts_with("https://")
+            && value.len() <= 2_048
+            && !value.chars().any(char::is_control)
+            && !value[8..].contains('@')
+        {
+            urls.push(value.to_string());
+        }
+    }
+    if !urls.iter().any(|existing| existing == MODELS_DEV_URL) {
+        urls.push(MODELS_DEV_URL.to_string());
+    }
+    urls
+}
+
+#[derive(Debug)]
+struct CurlAttemptError {
+    message: String,
+    retryable: bool,
+}
+
 fn download_with_curl(
     output: &Path,
     headers: &Path,
     etag: Option<&str>,
     last_modified: Option<&str>,
 ) -> Result<DownloadResult, String> {
-    let binary = trusted_curl_path().ok_or("trusted system curl is unavailable")?;
+    let mut errors = Vec::new();
+    for url in price_source_urls() {
+        // Validators belong to the primary models.dev representation. Sending
+        // them to a mirror can produce a false 304 for a different resource.
+        let validators = if url == MODELS_DEV_URL {
+            (etag, last_modified)
+        } else {
+            (None, None)
+        };
+
+        for attempt in 0..CURL_ATTEMPTS_PER_SOURCE {
+            let _ = fs::remove_file(output);
+            let _ = fs::remove_file(headers);
+            // A surprising number of desktop networks advertise an unusable
+            // IPv6 route. Retry #2 explicitly uses IPv4 instead of waiting for
+            // the same resolver/route failure three times.
+            let force_ipv4 = attempt == 1;
+            match download_single_with_curl(
+                output,
+                headers,
+                validators.0,
+                validators.1,
+                &url,
+                force_ipv4,
+            ) {
+                Ok(result) => return Ok(result),
+                Err(error) => {
+                    let route = if force_ipv4 { "ipv4" } else { "dual-stack" };
+                    errors.push(format!(
+                        "{url} attempt {}/{} ({route}): {}",
+                        attempt + 1,
+                        CURL_ATTEMPTS_PER_SOURCE,
+                        error.message
+                    ));
+                    if !error.retryable {
+                        break;
+                    }
+                    if attempt + 1 < CURL_ATTEMPTS_PER_SOURCE {
+                        let delay = CURL_RETRY_BACKOFF_MS
+                            .get(attempt)
+                            .copied()
+                            .unwrap_or(2_000);
+                        thread::sleep(Duration::from_millis(delay));
+                    }
+                }
+            }
+        }
+    }
+    Err(format!("all pricing sources failed: {}", errors.join(" | ")))
+}
+
+fn download_single_with_curl(
+    output: &Path,
+    headers: &Path,
+    etag: Option<&str>,
+    last_modified: Option<&str>,
+    url: &str,
+    force_ipv4: bool,
+) -> Result<DownloadResult, CurlAttemptError> {
+    let binary = trusted_curl_path().ok_or_else(|| CurlAttemptError {
+        message: "trusted system curl is unavailable".into(),
+        retryable: false,
+    })?;
     let mut command = Command::new(&binary);
     command.args([
         "--silent",
@@ -420,11 +514,14 @@ fn download_with_curl(
         "--tlsv1.2",
         "--compressed",
         "--connect-timeout",
-        "5",
-        "--max-time",
-        "20",
-        "--user-agent",
     ]);
+    command.arg(CURL_CONNECT_TIMEOUT_SECS.to_string());
+    command.arg("--max-time");
+    command.arg(CURL_TOTAL_TIMEOUT_SECS.to_string());
+    if force_ipv4 {
+        command.arg("--ipv4");
+    }
+    command.arg("--user-agent");
     command.arg(format!(
         "Octopus/{} pricing-sync",
         env!("CARGO_PKG_VERSION")
@@ -443,21 +540,29 @@ fn download_with_curl(
             .arg("--header")
             .arg(format!("If-Modified-Since: {value}"));
     }
-    command.arg(MODELS_DEV_URL);
+    command.arg(url);
     let result = command
         .stdin(Stdio::null())
         .output()
-        .map_err(|error| format!("curl unavailable: {error}"))?;
+        .map_err(|error| CurlAttemptError {
+            message: format!("curl could not start: {error}"),
+            retryable: false,
+        })?;
     if !result.status.success() {
+        let exit_code = result.status.code();
         let stderr = String::from_utf8_lossy(&result.stderr)
             .trim()
             .chars()
             .take(400)
             .collect::<String>();
-        return Err(if stderr.is_empty() {
+        let summary = if stderr.is_empty() {
             format!("curl exited with {}", result.status)
         } else {
-            format!("curl failed: {stderr}")
+            format!("curl exit {}: {stderr}", exit_code.map_or_else(|| "signal".into(), |code| code.to_string()))
+        };
+        return Err(CurlAttemptError {
+            message: summary,
+            retryable: retryable_curl_exit(exit_code),
         });
     }
     let status_text = String::from_utf8_lossy(&result.stdout).trim().to_string();
@@ -465,13 +570,24 @@ fn download_with_curl(
         .rsplit(|character: char| !character.is_ascii_digit())
         .find(|part| part.len() == 3)
         .and_then(|part| part.parse::<u16>().ok())
-        .ok_or_else(|| format!("curl returned invalid HTTP status: {status_text:?}"))?;
-    let (response_etag, response_last_modified) = parse_response_headers(headers)?;
+        .ok_or_else(|| CurlAttemptError {
+            message: format!("curl returned invalid HTTP status: {status_text:?}"),
+            retryable: false,
+        })?;
+    let (response_etag, response_last_modified) =
+        parse_response_headers(headers).map_err(|message| CurlAttemptError {
+            message,
+            retryable: false,
+        })?;
     Ok(DownloadResult {
         status_code,
         etag: response_etag,
         last_modified: response_last_modified,
     })
+}
+
+fn retryable_curl_exit(code: Option<i32>) -> bool {
+    matches!(code, Some(5 | 6 | 7 | 18 | 28 | 35 | 52 | 55 | 56 | 92))
 }
 
 fn parse_response_headers(path: &Path) -> Result<(Option<String>, Option<String>), String> {

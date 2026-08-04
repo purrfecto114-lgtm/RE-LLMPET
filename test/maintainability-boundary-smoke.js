@@ -47,8 +47,10 @@ assert(/function chooseProviderAndLaunch\(\) \{\s*openProviderChooser\(\);\s*\}/
   'new Agent must always open the explicit provider chooser');
 
 // Cursor polling computes geometry once per tick and exits early while hidden.
-assert.strictEqual((platform.match(/cursor_position\(\)/g) || []).length, 1,
-  'cursor polling must query cursor position once per active tick');
+assert.strictEqual((platform.match(/window\.cursor_position\(\)\.ok\(\)/g) || []).length, 1,
+  'non-Windows cursor polling must query cursor position once per active tick');
+assert(platform.includes('GetCursorPos'),
+  'Windows click-through recovery must use a system-global cursor query');
 assert(!platform.includes('fn should_ignore_cursor'));
 assert(!platform.includes('fn cursor_poll_delay'));
 assert(platform.includes('struct CursorHitDecision'));

@@ -40,7 +40,7 @@ sha2 = "0.10"
 # this, `String::from_utf8_lossy` would replace every non-ASCII byte with U+FFFD,
 # which the audit flagged as the second root cause of the CodeWhale/OpenCode
 # diagnostic "乱码" screenshot.
-windows-sys = { version = "0.61", features = ["Win32_Graphics_Dwm", "Win32_Foundation", "Win32_Globalization"] }
+windows-sys = { version = "0.61", features = ["Win32_Graphics_Dwm", "Win32_Foundation", "Win32_Globalization", "Win32_UI_WindowsAndMessaging"] }
 
 # R30 (2026-07-31): release profile for smaller, faster binaries.
 # Per audit roadmap §7 — official Tauri recommended configuration.

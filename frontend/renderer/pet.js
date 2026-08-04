@@ -16,6 +16,8 @@ const i18n = window.OctoI18n;
 const t = (key, vars) => i18n ? i18n.t(key, vars) : key;
 const LOCALES = { zh: 'zh-CN', en: 'en-US', ja: 'ja-JP' };
 let currentLang = 'zh';
+// Initialize before the deferred cat preload can observe it.
+let skin = 'mascot';
 
 function applyLanguage(next) {
   currentLang = i18n ? i18n.setLang(next) : 'zh';
@@ -37,7 +39,7 @@ const stage = document.getElementById('stage');
 const pixel = document.getElementById('pixel');
 const mascot = document.getElementById('mascot');
 const mascotImg = document.getElementById('mascot-img');
-const cat = document.getElementById('cat');
+const cat = document.getElementById('cat'), petAnchor = document.getElementById('pet-anchor');
 
 // 图标款按状态换眼神（每种状态一张只改眼睛的图）
 const MASCOT_EYES = {
@@ -132,13 +134,7 @@ function preloadCatAssets() {
     catAssetCache.set(file, image);
   }
 }
-// R30: only preload if current skin is cat; otherwise defer until skin switch.
-// R32 (2026-07-31): BUG FIX — `config.skin` was a ReferenceError (no `config`
-// symbol exists at module scope; the actual skin state is the `skin` variable
-// declared later in this file). The idle callback would throw and log noise
-// to console every startup. Use the canonical `skin` variable instead; it is
-// hoisted as a `let` binding so referencing it from a deferred callback is
-// safe even though its declaration appears later in the file.
+// Keep the canonical skin binding initialized before this deferred callback.
 function maybePreloadCatAssets() {
   if (skin === 'cat' && catAssetCache.size === 0) {
     preloadCatAssets();
@@ -177,6 +173,7 @@ const chipWindow = document.getElementById('chip-window');
 const chip = document.getElementById('chip');
 const sessionsEl = document.getElementById('sessions');
 const radial = document.getElementById('radial');
+const agentTag = document.getElementById('agent-tag');
 const thinkEl = document.getElementById('think');
 const sleepEl = document.getElementById('sleep');
 const propEl = document.getElementById('prop');
@@ -1164,15 +1161,18 @@ function persistSessionPref(sessionId, action, enabled, previous) {
     renderSessList();
   });
 }
-
+const sessionLifecycle = window.OctoPetSessionLifecycle.create({ element: sesslist,
+  isOpen: () => sessListOpen, setOpen: (v) => { sessListOpen = v; }, radialOpen: () => radialOpen, closeRadial,
+  todoOpen: () => todoPopOpen, closeTodo: closeTodoPop, providerChooserOpen: () => providerChooserOpen,
+  closeProviderChooser, hideAsk, render: renderSessList, syncBusy: syncUiBusy, log: rlog,
+  visibleCount: () => visibleSessions().length, fit: fitPopup, resetSize: resetPetSize });
+const { open: openSessList, close: closeSessList, toggle: toggleSessList } = sessionLifecycle;
 const travelView = window.OctoPetTravelView.create({
   api: window.pet,
   bubble: showBubble,
   close: closeSessList,
   provider: PET_AGENT,
 });
-
-
 // 工具 -> 干活动作；道具 emoji 的运动变体
 const TOOL_ACT = {
   Edit: 'type', MultiEdit: 'type', Write: 'type', NotebookEdit: 'type',
@@ -1195,7 +1195,6 @@ let currentFxRate = 7.2;
 let transientUntil = 0;   // 短暂状态（happy/error）持续到的时间
 let transientState = null;
 let muted = false;
-let skin = 'mascot';
 let lastWaiting = 0;
 let lastBgZombie = 0; // 后台疑似僵尸数
 let radialOpen = false;
@@ -2192,7 +2191,7 @@ function attachDrag(el) {
     toggleRadial();
   });
 }
-stateEls.forEach(attachDrag);
+if (petAnchor) attachDrag(petAnchor);
 
 // 启动时预加载窗口位置到缓存
 window.pet.getWinPos().then(([wx, wy]) => { lastWinPos = [wx, wy]; }).catch(() => {});
@@ -2467,7 +2466,7 @@ const visualBoundsObserver = typeof ResizeObserver === 'function'
   : null;
 if (visualBoundsObserver) {
   visualBoundsObserver.observe(stage);
-  stateEls.forEach((el) => visualBoundsObserver.observe(el));
+  if (petAnchor) visualBoundsObserver.observe(petAnchor);
 }
 
 // ---------- 生命周期清理 ----------

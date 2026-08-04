@@ -23,6 +23,28 @@ const CURSOR_HIT_TEST_HIDDEN_MS: u64 = 1000;
 const CURSOR_HIT_PADDING: f64 = 6.0;
 const VISIBLE_MARGIN: i32 = 48;
 
+#[cfg(windows)]
+fn global_cursor_position() -> Option<tauri::PhysicalPosition<f64>> {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+    let mut point = POINT { x: 0, y: 0 };
+    // SAFETY: GetCursorPos only writes to the valid POINT pointer supplied here.
+    if unsafe { GetCursorPos(&mut point) } == 0 {
+        None
+    } else {
+        Some(tauri::PhysicalPosition::new(
+            f64::from(point.x),
+            f64::from(point.y),
+        ))
+    }
+}
+
+#[cfg(not(windows))]
+fn global_cursor_position(window: &tauri::WebviewWindow) -> Option<tauri::PhysicalPosition<f64>> {
+    window.cursor_position().ok()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VisualBounds {
     pub x: f64,
@@ -134,10 +156,16 @@ impl PlatformState {
                 delay_ms: CURSOR_HIT_TEST_IDLE_MS,
             };
         };
-        let (Ok(cursor), Ok(origin)) = (window.cursor_position(), window.inner_position()) else {
+        #[cfg(windows)]
+        let cursor = global_cursor_position();
+        #[cfg(not(windows))]
+        let cursor = global_cursor_position(window);
+        let (Some(cursor), Ok(origin)) = (cursor, window.inner_position()) else {
+            // Fail open. An ignored window cannot receive renderer mouse events,
+            // so a cursor-query failure must never leave it permanently click-through.
             return CursorHitDecision {
                 ignore: false,
-                delay_ms: CURSOR_HIT_TEST_IDLE_MS,
+                delay_ms: CURSOR_HIT_TEST_NEAR_MS,
             };
         };
         let scale = window

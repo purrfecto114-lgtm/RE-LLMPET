@@ -33,6 +33,18 @@ assert.match(pricing, /"--proto-redir",\s*"=https"/);
 assert.match(pricing, /"--max-redirs",\s*"3"/);
 assert.match(pricing, /MAX_DOWNLOAD_BYTES: u64 = 16 \* 1024 \* 1024/);
 
+assert.match(pricing, /CURL_CONNECT_TIMEOUT_SECS: u64 = 15/);
+assert.match(pricing, /CURL_TOTAL_TIMEOUT_SECS: u64 = 60/);
+assert.match(pricing, /CURL_ATTEMPTS_PER_SOURCE: usize = 3/);
+assert.match(pricing, /PRICE_SOURCE_ENV: &str = \"RE_LLMPET_MODELS_DEV_URL\"/);
+assert(pricing.includes('value.starts_with("https://")'));
+assert.doesNotMatch(pricing, /MODELS_DEV_MIRROR_URL/);
+assert.match(pricing, /force_ipv4 = attempt == 1/);
+assert.match(pricing, /command\.arg\("--ipv4"\)/);
+assert.match(pricing, /retryable_curl_exit/);
+assert.match(pricing, /thread::sleep\(Duration::from_millis\(delay\)\)/);
+assert.doesNotMatch(pricing, /"--connect-timeout",\s*"5"/);
+
 // HTTP cache validators and a persisted scheduler prevent unnecessary full downloads.
 assert.match(pricing, /If-None-Match/);
 assert.match(pricing, /If-Modified-Since/);
