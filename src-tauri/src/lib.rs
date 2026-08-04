@@ -106,14 +106,10 @@ pub fn run() {
                         .set_position(Position::Physical(PhysicalPosition::new(phys_x, phys_y)));
                 }
             }
-            if let Err(error) =
-                platform_for_setup.recover_windows(app.handle(), &state.runtime, true)
-            {
-                state
-                    .runtime
-                    .write_log("display", &format!("startup recovery skipped: {error}"));
+            if let Err(error) = platform_for_setup.recover_windows(app.handle(), &runtime, true) {
+                runtime.write_log("display", &format!("startup recovery skipped: {error}"));
             }
-            platform_for_setup.start_health_check(app.handle().clone(), state.runtime.clone());
+            platform_for_setup.start_health_check(app.handle().clone(), runtime.clone());
             platform_for_setup.start_cursor_hit_test(app.handle().clone());
             if let Some(server) = server {
                 let server_port = server.port;
