@@ -35,8 +35,8 @@ pub fn run_now(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
     for label in ["pet", "pet-codex"] {
         if let Some(window) = app.get_webview_window(label) {
             let _ = window.set_always_on_top(true);
-            let should_show = config.mode != "hidePet"
-                && (label == "pet" || config.pet_mode == "duo");
+            let should_show =
+                config.mode != "hidePet" && (label == "pet" || config.pet_mode == "duo");
             if should_show {
                 let _ = window.show();
             }
@@ -55,11 +55,14 @@ pub fn run_now(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
             "moved": 0,
             "message": "Territory window pushing is available on macOS only; Octopus windows were raised.",
         });
-        let _ = app.emit("pet:event", json!({
-            "kind":"territory",
-            "phase":"unsupported",
-            "text":"领地模式的竞品窗口推动仅支持 macOS；已将 Octopus 窗口置顶。"
-        }));
+        let _ = app.emit(
+            "pet:event",
+            json!({
+                "kind":"territory",
+                "phase":"unsupported",
+                "text":"领地模式的竞品窗口推动仅支持 macOS；已将 Octopus 窗口置顶。"
+            }),
+        );
         Ok(result)
     }
 }
@@ -108,19 +111,25 @@ return output
         .map_err(|error| format!("launch osascript: {error}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(if stderr.to_ascii_lowercase().contains("not authorized")
-            || stderr.to_ascii_lowercase().contains("assistive")
-        {
-            "macOS Accessibility permission is required to inspect and move rival windows".into()
-        } else {
-            format!("System Events query failed: {}", clean(&stderr, 1200))
-        });
+        return Err(
+            if stderr.to_ascii_lowercase().contains("not authorized")
+                || stderr.to_ascii_lowercase().contains("assistive")
+            {
+                "macOS Accessibility permission is required to inspect and move rival windows"
+                    .into()
+            } else {
+                format!("System Events query failed: {}", clean(&stderr, 1200))
+            },
+        );
     }
 
     let monitor = app
         .get_webview_window("pet")
         .and_then(|window| window.current_monitor().ok().flatten())
-        .or_else(|| app.get_webview_window("pet").and_then(|window| window.primary_monitor().ok().flatten()))
+        .or_else(|| {
+            app.get_webview_window("pet")
+                .and_then(|window| window.primary_monitor().ok().flatten())
+        })
         .ok_or("monitor information unavailable")?;
     let work = monitor.work_area();
     let left = work.position.x;
@@ -143,7 +152,10 @@ return output
         if process_lower.contains("octopus") || process_lower.contains("re-llmpet") {
             continue;
         }
-        if !rivals.iter().any(|rival| process_lower.contains(&rival.to_lowercase())) {
+        if !rivals
+            .iter()
+            .any(|rival| process_lower.contains(&rival.to_lowercase()))
+        {
             continue;
         }
         let index = columns[1].parse::<u32>().unwrap_or(0);
@@ -162,7 +174,10 @@ return output
             right.saturating_sub(width)
         };
         let target_y = y.clamp(top, bottom.saturating_sub(height).max(top));
-        let _ = app.emit("pet:event", json!({"kind":"territory","phase":"spotted","rival":process.clone()}));
+        let _ = app.emit(
+            "pet:event",
+            json!({"kind":"territory","phase":"spotted","rival":process.clone()}),
+        );
         let move_script = format!(
             "tell application \"System Events\" to tell application process \"{}\" to set position of window {} to {{{}, {}}}",
             applescript_escape(&process), index, target_x, target_y
@@ -174,9 +189,15 @@ return output
             .unwrap_or(false);
         if moved_ok {
             moved += 1;
-            let _ = app.emit("pet:event", json!({"kind":"territory","phase":"victory","rival":process.clone()}));
+            let _ = app.emit(
+                "pet:event",
+                json!({"kind":"territory","phase":"victory","rival":process.clone()}),
+            );
         } else {
-            let _ = app.emit("pet:event", json!({"kind":"territory","phase":"defeat","rival":process.clone()}));
+            let _ = app.emit(
+                "pet:event",
+                json!({"kind":"territory","phase":"defeat","rival":process.clone()}),
+            );
         }
         details.push(json!({
             "process": process,
@@ -187,7 +208,10 @@ return output
         }));
     }
     if detected == 0 {
-        let _ = app.emit("pet:event", json!({"kind":"territory","phase":"clear","text":"巡视完成，没有发现其他桌宠。"}));
+        let _ = app.emit(
+            "pet:event",
+            json!({"kind":"territory","phase":"clear","text":"巡视完成，没有发现其他桌宠。"}),
+        );
     }
     Ok(json!({
         "supported": true,

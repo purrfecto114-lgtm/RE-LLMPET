@@ -13,9 +13,9 @@ mod migration;
 mod model;
 mod platform;
 mod pricing_sync;
+mod territory;
 mod transcript;
 mod travel;
-mod territory;
 
 use commands::*;
 use model::AppState;
@@ -106,10 +106,7 @@ pub fn run() {
                     }
                 }
             }
-            for (label, position) in [
-                ("pet", pet_position),
-                ("pet-codex", pet_position_codex),
-            ] {
+            for (label, position) in [("pet", pet_position), ("pet-codex", pet_position_codex)] {
                 if let (Some(position), Some(window)) = (position, app.get_webview_window(label)) {
                     let scale = window.scale_factor().unwrap_or(1.0);
                     let phys_x = (position.x as f64 * scale).round() as i32;
@@ -189,7 +186,9 @@ pub fn run() {
                         }
                     }
                 }
-            } else if window.label().starts_with("pet") && matches!(event, WindowEvent::Focused(false)) {
+            } else if window.label().starts_with("pet")
+                && matches!(event, WindowEvent::Focused(false))
+            {
                 let _ = window.emit("pet:window-blur", ());
             }
         })

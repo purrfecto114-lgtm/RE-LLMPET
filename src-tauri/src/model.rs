@@ -610,7 +610,10 @@ impl Runtime {
                 .get("codewhale")
                 .map(|status| status.installed)
                 .unwrap_or(false);
-            object.insert("territorySupported".into(), json!(cfg!(target_os = "macos")));
+            object.insert(
+                "territorySupported".into(),
+                json!(cfg!(target_os = "macos")),
+            );
             object.insert("officialMigration".into(), self.migration_report.clone());
             object.insert(
                 "providers".into(),
@@ -1554,11 +1557,14 @@ fn todo_response<'a>(body: &'a Value) -> &'a Value {
 }
 
 fn normalize_todo_status(value: Option<&str>) -> String {
-    match value.unwrap_or("pending").trim().to_ascii_lowercase().as_str() {
+    match value
+        .unwrap_or("pending")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "completed" | "complete" | "done" | "closed" => "completed".into(),
-        "in_progress" | "in-progress" | "progress" | "working" | "active" => {
-            "in_progress".into()
-        }
+        "in_progress" | "in-progress" | "progress" | "working" | "active" => "in_progress".into(),
         _ => "pending".into(),
     }
 }
@@ -1655,7 +1661,13 @@ fn extract_todo_snapshot(
         _ => direct,
     }
     .and_then(Value::as_array)?;
-    Some(values.iter().filter_map(todo_from_value).take(100).collect())
+    Some(
+        values
+            .iter()
+            .filter_map(todo_from_value)
+            .take(100)
+            .collect(),
+    )
 }
 
 fn merge_todo_patch(target: &mut TodoPatch, source: TodoPatch) {
@@ -1674,11 +1686,7 @@ fn merge_todo_patch(target: &mut TodoPatch, source: TodoPatch) {
     target.deleted |= source.deleted;
 }
 
-fn extract_todo_patch(
-    body: &Value,
-    tool_name: Option<&str>,
-    event: &str,
-) -> Option<TodoPatch> {
+fn extract_todo_patch(body: &Value, tool_name: Option<&str>, event: &str) -> Option<TodoPatch> {
     if event != "PostToolUse" {
         return None;
     }

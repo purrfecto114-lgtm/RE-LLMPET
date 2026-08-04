@@ -683,7 +683,10 @@ fn emit_hook_event(app: &AppHandle, body: &Value, session: &Session) {
     if let Some(object) = payload.as_object_mut() {
         object.insert("sessionId".into(), json!(session.id.clone()));
         object.insert("provider".into(), json!(session.provider.clone()));
-        object.insert("project".into(), json!(crate::model::project_name(&session.cwd, &session.id)));
+        object.insert(
+            "project".into(),
+            json!(crate::model::project_name(&session.cwd, &session.id)),
+        );
     }
     let _ = app.emit("pet:event", payload);
 }

@@ -12,9 +12,12 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, State};
 
-
 fn pet_label_for_agent(agent: Option<&str>) -> &'static str {
-    if agent == Some("codex") { "pet-codex" } else { "pet" }
+    if agent == Some("codex") {
+        "pet-codex"
+    } else {
+        "pet"
+    }
 }
 
 pub(crate) fn sync_pet_windows(app: &AppHandle, config: &crate::model::AppConfig) {

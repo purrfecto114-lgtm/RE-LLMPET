@@ -106,11 +106,7 @@ impl PlatformState {
             });
     }
 
-    fn cursor_hit_decision(
-        &self,
-        label: &str,
-        window: &tauri::WebviewWindow,
-    ) -> CursorHitDecision {
+    fn cursor_hit_decision(&self, label: &str, window: &tauri::WebviewWindow) -> CursorHitDecision {
         let ignore_requested = self
             .mouse_ignore_requested
             .lock()
@@ -209,8 +205,7 @@ impl PlatformState {
         {
             return Err("visual bounds outside supported range".into());
         }
-        self
-            .visual_bounds
+        self.visual_bounds
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .insert(label.to_string(), bounds);
@@ -218,8 +213,7 @@ impl PlatformState {
     }
 
     pub fn visual_bounds(&self, label: &str) -> Option<VisualBounds> {
-        self
-            .visual_bounds
+        self.visual_bounds
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .get(label)
@@ -296,9 +290,9 @@ impl PlatformState {
                             let logical_x = (position.x as f64 / scale).round() as i32;
                             let logical_y = (position.y as f64 / scale).round() as i32;
                             let point = Some(crate::model::Point {
-                                    x: logical_x,
-                                    y: logical_y,
-                                });
+                                x: logical_x,
+                                y: logical_y,
+                            });
                             let _ = runtime.update_config(|config| {
                                 if label == "pet-codex" {
                                     config.pet_position_codex = point;

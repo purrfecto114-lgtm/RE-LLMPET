@@ -108,7 +108,9 @@ pub fn import_official_data(home: &Path, target: &Path) -> MigrationReport {
             }
             Err(error) => {
                 retry_needed = true;
-                report.skipped.push(format!("{name}:metadata-error:{error}"));
+                report
+                    .skipped
+                    .push(format!("{name}:metadata-error:{error}"));
                 continue;
             }
         };
@@ -133,7 +135,8 @@ pub fn import_official_data(home: &Path, target: &Path) -> MigrationReport {
     }
 
     if retry_needed {
-        report.error = Some("one or more official files could not be imported; startup will retry".into());
+        report.error =
+            Some("one or more official files could not be imported; startup will retry".into());
         return report;
     }
 
@@ -174,7 +177,10 @@ fn copy_regular_private(
         let mut limited = source.take(MAX_IMPORT_BYTES + 1);
         let copied = io::copy(&mut limited, &mut output)?;
         if copied > MAX_IMPORT_BYTES {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "source grew beyond import limit"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "source grew beyond import limit",
+            ));
         }
         output.flush()?;
         output.sync_all()?;

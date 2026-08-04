@@ -4,9 +4,9 @@ use serde_json::{json, Value};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -93,7 +93,11 @@ impl TravelManager {
     }
 
     pub fn snapshot(&self) -> Value {
-        let active = self.active.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let active = self
+            .active
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let persisted = self
             .persisted
             .lock()
@@ -195,13 +199,16 @@ impl TravelManager {
         self.cancel.store(false, Ordering::Release);
         self.persist();
         let _ = app.emit("pet:travel", json!({"phase":"started","trip":trip.clone()}));
-        let _ = app.emit("pet:event", json!({
-            "kind":"travel",
-            "phase":"started",
-            "provider":provider,
-            "sessionId":trip.session_id,
-            "text":if mode == "wander" { "开始闲逛网络" } else { "开始项目旅行" }
-        }));
+        let _ = app.emit(
+            "pet:event",
+            json!({
+                "kind":"travel",
+                "phase":"started",
+                "provider":provider,
+                "sessionId":trip.session_id,
+                "text":if mode == "wander" { "开始闲逛网络" } else { "开始项目旅行" }
+            }),
+        );
 
         let manager = self.clone();
         thread::spawn(move || {
@@ -225,7 +232,10 @@ impl TravelManager {
             let stderr = private_output_file(&err_path)?;
             let prompt = build_prompt(&trip);
             let mut command = Command::new(&executable);
-            command.current_dir(&cwd).stdout(Stdio::from(stdout)).stderr(Stdio::from(stderr));
+            command
+                .current_dir(&cwd)
+                .stdout(Stdio::from(stdout))
+                .stderr(Stdio::from(stderr));
             if trip.provider == "claude" {
                 let tools = if trip.mode == "wander" {
                     "WebSearch,WebFetch"
@@ -258,7 +268,9 @@ impl TravelManager {
                     &prompt,
                 ]);
             }
-            let mut child = command.spawn().map_err(|e| format!("launch {}: {e}", trip.provider))?;
+            let mut child = command
+                .spawn()
+                .map_err(|e| format!("launch {}: {e}", trip.provider))?;
             *self.child_pid.lock().unwrap_or_else(|e| e.into_inner()) = Some(child.id());
             let started = Instant::now();
             let status = loop {
@@ -292,7 +304,10 @@ impl TravelManager {
             let output = read_bounded(&out_path);
             let errors = read_bounded(&err_path);
             if !status.success() {
-                return Err(clean_text(if errors.is_empty() { &output } else { &errors }, 2000));
+                return Err(clean_text(
+                    if errors.is_empty() { &output } else { &errors },
+                    2000,
+                ));
             }
             let tokens = usage_tokens(&output, &trip.provider);
             Ok((final_message(&output), tokens))
@@ -344,18 +359,26 @@ impl TravelManager {
                 "state": snapshot.clone()
             }),
         );
-        let _ = app.emit("pet:event", json!({
-            "kind":"travel",
-            "phase":status,
-            "provider":trip.provider,
-            "sessionId":trip.session_id,
-            "text":summary
-        }));
+        let _ = app.emit(
+            "pet:event",
+            json!({
+                "kind":"travel",
+                "phase":status,
+                "provider":trip.provider,
+                "sessionId":trip.session_id,
+                "text":summary
+            }),
+        );
         crate::http_server::emit_stats_now(&app, &runtime);
     }
 
     pub fn cancel(&self) -> Result<Value, String> {
-        if self.active.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
+        if self
+            .active
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_none()
+        {
             return Err("no active trip".into());
         }
         self.cancel.store(true, Ordering::Release);
@@ -363,7 +386,11 @@ impl TravelManager {
     }
 
     fn persist(&self) {
-        let active = self.active.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let active = self
+            .active
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let mut persisted = self
             .persisted
             .lock()
@@ -426,14 +453,30 @@ fn official_trip_to_postcard(value: &Value) -> Option<Postcard> {
     let text = |key: &str| object.get(key).and_then(Value::as_str).unwrap_or_default();
     let usage = object.get("usage").unwrap_or(&Value::Null);
     let id = clean_text(text("id"), 128);
-    if id.is_empty() { return None; }
+    if id.is_empty() {
+        return None;
+    }
     Some(Postcard {
         id,
         mode: clean_text(text("mode"), 24).replace("project", "travel"),
-        provider: clean_text(if text("agent").is_empty() { text("provider") } else { text("agent") }, 24),
+        provider: clean_text(
+            if text("agent").is_empty() {
+                text("provider")
+            } else {
+                text("agent")
+            },
+            24,
+        ),
         project: clean_text(text("project"), 160),
         mission: clean_text(text("mission"), 1200),
-        summary: clean_text(if text("result").is_empty() { text("summary") } else { text("result") }, 5000),
+        summary: clean_text(
+            if text("result").is_empty() {
+                text("summary")
+            } else {
+                text("result")
+            },
+            5000,
+        ),
         tokens: json_u64(usage.get("tokens")).max(json_u64(object.get("tokens"))),
         started_at: json_u64(object.get("startedAt")),
         completed_at: json_u64(object.get("endedAt")).max(json_u64(object.get("completedAt"))),
@@ -442,7 +485,10 @@ fn official_trip_to_postcard(value: &Value) -> Option<Postcard> {
 }
 
 fn json_u64(value: Option<&Value>) -> u64 {
-    value.and_then(Value::as_u64).or_else(|| value.and_then(Value::as_f64).map(|n| n.max(0.0) as u64)).unwrap_or(0)
+    value
+        .and_then(Value::as_u64)
+        .or_else(|| value.and_then(Value::as_f64).map(|n| n.max(0.0) as u64))
+        .unwrap_or(0)
 }
 
 fn interrupted_postcard(trip: &ActiveTrip) -> Postcard {
@@ -461,7 +507,9 @@ fn interrupted_postcard(trip: &ActiveTrip) -> Postcard {
 }
 
 fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if let Some(parent) = path.parent() { fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
     let temp = path.with_file_name(format!(".travel.{}.{}.tmp", std::process::id(), now_ms()));
     let mut options = OpenOptions::new();
     options.create_new(true).write(true);
@@ -479,7 +527,9 @@ fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     {
         let backup = path.with_extension("json.bak");
         let _ = fs::remove_file(&backup);
-        if path.exists() { fs::rename(path, &backup).map_err(|e| e.to_string())?; }
+        if path.exists() {
+            fs::rename(path, &backup).map_err(|e| e.to_string())?;
+        }
         if let Err(error) = fs::rename(&temp, path) {
             let _ = fs::rename(&backup, path);
             let _ = fs::remove_file(&temp);
@@ -522,7 +572,13 @@ fn project_name(cwd: &Path) -> String {
 fn clean_text(value: &str, max: usize) -> String {
     value
         .chars()
-        .map(|c| if c.is_control() && c != '\n' && c != '\t' { ' ' } else { c })
+        .map(|c| {
+            if c.is_control() && c != '\n' && c != '\t' {
+                ' '
+            } else {
+                c
+            }
+        })
         .collect::<String>()
         .trim()
         .chars()
@@ -538,7 +594,12 @@ fn executable_names(provider: &str) -> Vec<String> {
     };
     #[cfg(windows)]
     {
-        vec![format!("{base}.exe"), format!("{base}.cmd"), format!("{base}.bat"), base.into()]
+        vec![
+            format!("{base}.exe"),
+            format!("{base}.cmd"),
+            format!("{base}.bat"),
+            base.into(),
+        ]
     }
     #[cfg(not(windows))]
     {
@@ -548,7 +609,10 @@ fn executable_names(provider: &str) -> Vec<String> {
 
 fn find_executable(provider: &str) -> Result<PathBuf, String> {
     let names = executable_names(provider);
-    for dir in env::var_os("PATH").into_iter().flat_map(|path| env::split_paths(&path).collect::<Vec<_>>()) {
+    for dir in env::var_os("PATH")
+        .into_iter()
+        .flat_map(|path| env::split_paths(&path).collect::<Vec<_>>())
+    {
         for name in &names {
             let candidate = dir.join(name);
             if is_executable_file(&candidate) {
@@ -612,7 +676,11 @@ fn final_message(output: &str) -> String {
         }
     }
     let result = clean_text(&fallback, 5000);
-    if result.is_empty() { "旅行完成，但 CLI 没有返回可展示的明信片。".into() } else { result }
+    if result.is_empty() {
+        "旅行完成，但 CLI 没有返回可展示的明信片。".into()
+    } else {
+        result
+    }
 }
 
 fn usage_tokens(output: &str, provider: &str) -> u64 {
@@ -689,7 +757,6 @@ fn growth_view(persisted: &PersistedTravel) -> Value {
     })
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -735,7 +802,8 @@ mod tests {
 
     #[test]
     fn codex_cached_input_is_not_double_counted() {
-        let output = r#"{"usage":{"input_tokens":100,"cached_input_tokens":80,"output_tokens":40}}"#;
+        let output =
+            r#"{"usage":{"input_tokens":100,"cached_input_tokens":80,"output_tokens":40}}"#;
         assert_eq!(usage_tokens(output, "codex"), 140);
         assert_eq!(usage_tokens(output, "claude"), 220);
     }
