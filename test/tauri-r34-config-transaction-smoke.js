@@ -104,18 +104,20 @@ assert(release.includes('createUpdaterArtifacts=false'),
 assert(!release.includes('UNSIGNED PRERELEASE'),
   'release.yml must not use the obsolete ambiguous unsigned label');
 
-// ── P1-1: panel.js setSessionPrefs caller awaits + reverts on failure ────
-assert(panelJs.includes('const prevPinned = sessionPinned.slice()'),
-  'panel.js must snapshot prevPinned before optimistic update');
-assert(panelJs.includes('const prevArchived = sessionArchived.slice()'),
-  'panel.js must snapshot prevArchived before optimistic update');
-assert(panelJs.match(/setSessionPrefs[\s\S]{0,200}?\.catch\(\(err\) =>/),
-  'panel.js setSessionPrefs call must have .catch handler');
-assert(panelJs.includes('sessionPinned = prevPinned'),
-  'panel.js must revert sessionPinned on IPC failure');
-assert(panelJs.includes('sessionArchived = prevArchived'),
-  'panel.js must revert sessionArchived on IPC failure');
-assert(panelJs.includes("command: 'set_session_prefs'"),
-  'panel.js must dispatch re-llmpet:bridge-error with command=set_session_prefs');
+// ── P1-1: panel.js atomically saves + target-rolls back on failure ──────
+assert(panelJs.includes('const previous = { pinned: sessionPinned.includes(sid), archived: sessionArchived.includes(sid) }'),
+  'panel.js must snapshot only the target session membership');
+assert(panelJs.includes('pendingSessionPrefs.add(sid)'),
+  'panel.js must suppress duplicate writes for the same session');
+assert(panelJs.match(/OctoSessionPrefs\.save[\s\S]{0,300}?request\.catch\(\(err\) =>/),
+  'panel.js atomic session preference call must have .catch handler');
+assert(panelJs.includes('previous.pinned ? Array.from(new Set([...sessionPinned, sid]))'),
+  'panel.js must restore only the target pin membership on IPC failure');
+assert(panelJs.includes('previous.archived ? Array.from(new Set([...sessionArchived, sid]))'),
+  'panel.js must restore only the target archive membership on IPC failure');
+assert(panelJs.includes('pendingSessionPrefs.delete(sid)'),
+  'panel.js must release the per-session pending guard');
+assert(panelJs.includes("'set_session_pref' : 'set_session_prefs'"),
+  'panel.js must identify atomic and legacy session preference failures');
 
 console.log('tauri-r34-config-transaction-smoke: ok (5 P0/P1 fixes locked)');

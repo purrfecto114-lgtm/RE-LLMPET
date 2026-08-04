@@ -1,3 +1,4 @@
+use crate::secure_file::read_regular_bounded;
 use serde::Deserialize;
 use serde_json::Value;
 use std::fs;
@@ -111,13 +112,8 @@ pub(crate) fn remove_runtime_if_owned(
 }
 
 fn read_runtime(runtime_path: &Path) -> Result<RuntimeFile, String> {
-    let metadata = fs::metadata(runtime_path).map_err(|error| error.to_string())?;
-    if metadata.len() > 16 * 1024 {
-        return Err("runtime file exceeds 16 KiB".into());
-    }
-    let runtime: RuntimeFile =
-        serde_json::from_slice(&fs::read(runtime_path).map_err(|error| error.to_string())?)
-            .map_err(|error| error.to_string())?;
+    let raw = read_regular_bounded(runtime_path, 16 * 1024, "runtime file")?;
+    let runtime: RuntimeFile = serde_json::from_slice(&raw).map_err(|error| error.to_string())?;
     if runtime.app != SERVER_ID || !port_in_range(runtime.port) || !valid_token(&runtime.token) {
         return Err("runtime identity is invalid".into());
     }

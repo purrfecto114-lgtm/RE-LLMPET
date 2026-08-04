@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// R44 0.5.45 (Roadmap v6) — Product Closure & Config Durability smoke.
+// R44 0.5.46 (Roadmap v6) — Product Closure & Config Durability smoke.
 //
-// Locks the 0.5.45 deliverables from Roadmap v6:
+// Locks the 0.5.46 deliverables from Roadmap v6:
 //
 //   P0-01  Config recovery commands in panel capability + bridge + UI
 //   P0-02  metadata errors correctly classified (NotFound vs Unreadable)
@@ -39,8 +39,8 @@ const packageJson = JSON.parse(read('package.json'));
 // Version
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.45',
-  '0.5.45: package.json version must be 0.5.45');
+assert.strictEqual(packageJson.version, '0.5.46',
+  '0.5.46: package.json version must be 0.5.46');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0-01: Config recovery commands in panel capability + bridge + UI
@@ -110,9 +110,10 @@ for (const key of recoveryKeys) {
 // ──────────────────────────────────────────────────────────────────────────
 
 // load_config must distinguish NotFound from other metadata errors
-assert(model.includes('Err(e) if e.kind() == std::io::ErrorKind:: NotFound =>'.replace(' ', ' ')) ||
-       model.includes('Err(e) if e.kind() == std::io::ErrorKind::NotFound =>'),
+assert(/Err\((?:e|error)\) if (?:e|error)\.kind\(\) == std::io::ErrorKind::NotFound =>/.test(model),
   'P0-02: load_config must check ErrorKind::NotFound specifically');
+assert(model.includes('fs::symlink_metadata(path)'),
+  'P0-02: load_config must reject symlink config paths instead of following them');
 assert(model.includes('ConfigState::Unreadable'),
   'P0-02: load_config must return Unreadable for non-NotFound metadata errors');
 
@@ -170,7 +171,7 @@ assert(commands.includes('let drift_detected = drift_status == "changed"'),
 // CHANGELOG
 // ──────────────────────────────────────────────────────────────────────────
 
-assert(changelog.includes('0.5.45'),
-  'CHANGELOG must have 0.5.45 entry');
+assert(changelog.includes('0.5.46'),
+  'CHANGELOG must have 0.5.46 entry');
 
-console.log('✓ R44 0.5.45 (Roadmap v6) product closure smoke: all assertions passed');
+console.log('✓ R44 0.5.46 (Roadmap v6) product closure smoke: all assertions passed');

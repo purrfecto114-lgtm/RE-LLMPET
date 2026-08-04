@@ -164,6 +164,7 @@ function currentPetAgent() {
     // R32 (2026-07-31): upgraded to call() — session prefs persist user intent
     // (pin/archive), so silent loss on IPC failure is unacceptable.
     setSessionPrefs: (pinned, archived) => call('set_session_prefs', { pinned, archived }),
+    setSessionPref: (sessionId, pinned, archived) => call('set_session_pref', { sessionId, pinned, archived }),
     toggleMute: () => send('toggle_mute'),
     // R32 (2026-07-31): upgraded to call() — provider list is a security-
     // relevant state (controls which CLIs get hooks installed). Caller MUST
@@ -173,7 +174,7 @@ function currentPetAgent() {
     territoryToggleAuto: () => call('territory_toggle_auto'),
     getTravel: () => call('get_travel'),
     startTravel: (sessionId, mission) => call('start_travel', { sessionId, mission }),
-    startWander: (mission) => call('start_wander', { mission }),
+    startWander: (mission, provider) => call('start_wander', { mission, provider }),
     cancelTravel: () => call('cancel_travel'),
     quit: () => send('quit_app'),
     getWinPos: () => call('get_win_pos', { agent: currentPetAgent() }).then((pos) => {

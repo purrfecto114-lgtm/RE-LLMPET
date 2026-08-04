@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// R44 0.5.45: Codex rollout watcher + parity matrix verification.
+// R44 0.5.46: Codex rollout watcher + parity matrix verification.
 //
 // Verifies:
 // 1. codex_rollout.rs exists and is registered as a module
@@ -25,14 +25,14 @@ const changelog = read('CHANGELOG.md');
 const packageJson = JSON.parse(read('package.json'));
 
 // Version
-assert.strictEqual(packageJson.version, '0.5.45',
-  '0.5.45: package.json version must be 0.5.45');
+assert.strictEqual(packageJson.version, '0.5.46',
+  '0.5.46: package.json version must be 0.5.46');
 
 // ── 1. codex_rollout module ──────────────────────────────────────────────
 assert.ok(lib.includes('mod codex_rollout;'),
   '1: lib.rs must declare mod codex_rollout');
-assert.ok(codexRollout.includes('pub fn snapshot()'),
-  '1: codex_rollout.rs must have pub fn snapshot()');
+assert.ok(codexRollout.includes('pub fn snapshot(app_dir: &Path)'),
+  '1: codex_rollout.rs must have app-dir-aware pub fn snapshot(app_dir: &Path)');
 assert.ok(codexRollout.includes('token_count'),
   '1: codex_rollout.rs must parse token_count events');
 assert.ok(codexRollout.includes('rate_limits'),
@@ -45,8 +45,8 @@ assert.ok(codexRollout.includes('sessions'),
   '1: codex_rollout.rs must scan sessions directory');
 
 // ── 2. model.rs injects Codex data ──────────────────────────────────────
-assert.ok(model.includes('crate::codex_rollout::snapshot()'),
-  '2: model.rs must call codex_rollout::snapshot()');
+assert.ok(model.includes('crate::codex_rollout::snapshot(&self.app_dir)'),
+  '2: model.rs must call codex_rollout::snapshot(&self.app_dir)');
 assert.ok(model.includes('"codexLimits"'),
   '2: model.rs must inject codexLimits into stats');
 assert.ok(model.includes('"codexUsage"'),
@@ -65,8 +65,8 @@ const findItem = (feature) => parityMatrix.items.find(i => i.feature === feature
 const codexRolloutItem = findItem('Codex rollout watcher (token usage + rate limits)');
 assert.ok(codexRolloutItem && codexRolloutItem.reStatus === 'complete',
   '3: Codex rollout watcher must be marked complete');
-assert.ok(codexRolloutItem.implementedIn === '0.5.45',
-  '3: Codex rollout watcher must be marked implementedIn 0.5.45');
+assert.ok(codexRolloutItem.implementedIn === '0.5.46',
+  '3: Codex rollout watcher must be marked implementedIn 0.5.46');
 
 const territoryItem = findItem('Territory mode (macOS)');
 assert.ok(territoryItem && territoryItem.reStatus === 'complete',
@@ -85,7 +85,7 @@ assert.ok(!commands.includes('领地巡视尚未实现（stub）'),
   '4: territory run-now must no longer claim to be unimplemented');
 
 // ── 5. CHANGELOG ────────────────────────────────────────────────────────
-assert.ok(changelog.includes('0.5.45'),
-  'CHANGELOG must have 0.5.45 entry');
+assert.ok(changelog.includes('0.5.46'),
+  'CHANGELOG must have 0.5.46 entry');
 
-console.log('✓ R44 0.5.45 Codex rollout + parity matrix smoke: all assertions passed');
+console.log('✓ R44 0.5.46 Codex rollout + parity matrix smoke: all assertions passed');

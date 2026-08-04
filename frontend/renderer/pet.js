@@ -213,6 +213,7 @@ let slQuery = '';
 let slFilter = 'all'; // 'all' | 'claude' | 'codex' | 'attention' | 'archived'
 let pinnedSet = new Set();
 let archivedSet = new Set();
+const pendingSessionPrefs = new Set();
 
 let askActive = false;
 let askQueue = []; // 当前所有待处理的选择/输入（每项含 project）
@@ -1076,12 +1077,13 @@ function renderSessList() {
     // R44 0.5.44: pin/archive action buttons (shown on hover)
     const isPinned = pinnedSet.has(s.sessionId);
     const isArchived = archivedSet.has(s.sessionId);
+    const prefDisabled = pendingSessionPrefs.has(s.sessionId) ? ' disabled' : '';
     const pinBtn = isPinned
-      ? `<button class="sl-action sl-unpin" title="${t('sess.unpin')}">📌</button>`
-      : `<button class="sl-action sl-pin" title="${t('sess.pin')}">📍</button>`;
+      ? `<button class="sl-action sl-unpin" title="${t('sess.unpin')}"${prefDisabled}>📌</button>`
+      : `<button class="sl-action sl-pin" title="${t('sess.pin')}"${prefDisabled}>📍</button>`;
     const archiveBtn = isArchived
-      ? `<button class="sl-action sl-unarchive" title="${t('sess.unarchive')}">📥</button>`
-      : `<button class="sl-action sl-archive" title="${t('sess.archive')}">📤</button>`;
+      ? `<button class="sl-action sl-unarchive" title="${t('sess.unarchive')}"${prefDisabled}>📥</button>`
+      : `<button class="sl-action sl-archive" title="${t('sess.archive')}"${prefDisabled}>📤</button>`;
     const travelBtn = !s.headless && ['claude', 'codex'].includes(s.providerId || s.provider)
       ? `<button class="sl-action sl-travel" title="项目旅行">🧳</button>` : '';
     row.innerHTML =
@@ -1113,41 +1115,61 @@ function renderSessList() {
     const pinEl = row.querySelector('.sl-pin, .sl-unpin');
     if (pinEl) pinEl.addEventListener('click', (e) => {
       e.stopPropagation();
+      const previous = { pinned: isPinned, archived: isArchived };
+      pendingSessionPrefs.add(s.sessionId);
       if (isPinned) pinnedSet.delete(s.sessionId);
-      else pinnedSet.add(s.sessionId);
-      syncSessionPrefs();
+      else {
+        pinnedSet.add(s.sessionId);
+        archivedSet.delete(s.sessionId);
+      }
+      persistSessionPref(s.sessionId, 'pin', !isPinned, previous);
       renderSessList();
     });
     // Archive/unarchive
     const archEl = row.querySelector('.sl-archive, .sl-unarchive');
     if (archEl) archEl.addEventListener('click', (e) => {
       e.stopPropagation();
+      const previous = { pinned: isPinned, archived: isArchived };
+      pendingSessionPrefs.add(s.sessionId);
       if (isArchived) archivedSet.delete(s.sessionId);
-      else archivedSet.add(s.sessionId);
-      syncSessionPrefs();
+      else {
+        archivedSet.add(s.sessionId);
+        pinnedSet.delete(s.sessionId);
+      }
+      persistSessionPref(s.sessionId, 'archive', !isArchived, previous);
       renderSessList();
     });
     slRows.appendChild(row);
   }
 }
 
-// R44 0.5.44: sync pin/archive prefs to backend (persist across restarts)
-function syncSessionPrefs() {
-  if (!window.pet || !window.pet.setSessionPrefs) return;
-  const value = {
-    pinned: Array.from(pinnedSet),
-    archived: Array.from(archivedSet),
-  };
-  void configWrites.request('sessionPrefs', value, (next) =>
-    window.pet.setSessionPrefs(next.pinned, next.archived)
-  );
+function persistSessionPref(sessionId, action, enabled, previous) {
+  if (!window.pet) {
+    pendingSessionPrefs.delete(sessionId);
+    renderSessList();
+    return;
+  }
+  const request = Promise.resolve().then(() => window.OctoSessionPrefs.save(
+    window.pet, sessionId, action, enabled, pinnedSet, archivedSet,
+  ));
+  request.catch((err) => {
+    pinnedSet[previous.pinned ? 'add' : 'delete'](sessionId);
+    archivedSet[previous.archived ? 'add' : 'delete'](sessionId);
+    const message = String(err && (err.message || err) || 'unknown');
+    window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
+      detail: { command: window.pet.setSessionPref ? 'set_session_pref' : 'set_session_prefs', message },
+    }));
+  }).finally(() => {
+    pendingSessionPrefs.delete(sessionId);
+    renderSessList();
+  });
 }
-
 
 const travelView = window.OctoPetTravelView.create({
   api: window.pet,
   bubble: showBubble,
   close: closeSessList,
+  provider: PET_AGENT,
 });
 
 

@@ -11,6 +11,7 @@ const LEDGER_FILE_NAME: &str = "usage-events.jsonl";
 pub const PRICE_CACHE_FILE_NAME: &str = "pricing-cache.models-dev.json";
 const PRICE_OVERRIDE_FILE_NAME: &str = "pricing.json";
 const MAX_PRICE_FILE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_OFFICIAL_USAGE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_LEDGER_READ_BYTES: u64 = 64 * 1024 * 1024;
 const COMPACT_AT_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_LINE_BYTES: usize = 64 * 1024;
@@ -104,6 +105,8 @@ pub struct UsageLedger {
     malformed_lines: u64,
     duplicate_events: u64,
     load_message: Option<String>,
+    official_imported_events: u64,
+    official_malformed_records: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -177,11 +180,153 @@ impl UsageLedger {
             malformed_lines: 0,
             duplicate_events: 0,
             load_message: None,
+            official_imported_events: 0,
+            official_malformed_records: 0,
         };
         if let Err(error) = ledger.load(now_ms) {
-            ledger.load_message = Some(error);
+            ledger.append_load_message(error);
+        }
+        match ledger.import_official_usage(app_dir, now_ms) {
+            Ok(imported) if imported > 0 => {
+                ledger.official_imported_events = imported as u64;
+                ledger.events.sort_by_key(|event| event.timestamp_ms);
+                ledger.prune(now_ms);
+                if let Err(error) = ledger.compact() {
+                    ledger.append_load_message(format!(
+                        "official usage import was not persisted: {error}"
+                    ));
+                }
+            }
+            Ok(_) => {}
+            Err(error) => {
+                ledger.append_load_message(format!("official usage import ignored: {error}"))
+            }
         }
         ledger
+    }
+
+    fn append_load_message(&mut self, message: String) {
+        self.load_message = Some(match self.load_message.take() {
+            Some(existing) if !existing.is_empty() => format!("{existing}; {message}"),
+            _ => message,
+        });
+    }
+
+    /// Convert the official Electron aggregate record file into the native
+    /// append-only ledger. The event id deliberately matches the transcript
+    /// scanner (`claude:assistant:<message>|<request>`) so later transcript
+    /// discovery deduplicates rather than charging the imported row twice.
+    fn import_official_usage(&mut self, app_dir: &Path, now_ms: u64) -> Result<usize, String> {
+        let path = app_dir.join("usage.json");
+        let Some(document) = read_json_bounded(&path, MAX_OFFICIAL_USAGE_BYTES)? else {
+            return Ok(0);
+        };
+        let Some(records) = document.get("records").and_then(Value::as_object) else {
+            return Ok(0);
+        };
+        let cutoff = now_ms.saturating_sub(RETENTION_MS);
+        let mut imported = 0usize;
+        for (record_key, record) in records {
+            if record_key.is_empty() || record_key.chars().count() > 600 {
+                self.official_malformed_records = self.official_malformed_records.saturating_add(1);
+                continue;
+            }
+            let Some(object) = record.as_object() else {
+                self.official_malformed_records = self.official_malformed_records.saturating_add(1);
+                continue;
+            };
+            let timestamp_ms = object
+                .get("ts")
+                .and_then(json_timestamp_ms)
+                .filter(|value| *value >= cutoff && *value <= now_ms.saturating_add(5 * 60 * 1000));
+            let model = object
+                .get("model")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.chars().take(256).collect::<String>());
+            let usage = object.get("usage").and_then(Value::as_object);
+            let (Some(timestamp_ms), Some(model), Some(usage)) = (timestamp_ms, model, usage)
+            else {
+                self.official_malformed_records = self.official_malformed_records.saturating_add(1);
+                continue;
+            };
+            let input = number(usage, &["input", "input_tokens"]).unwrap_or(0);
+            let output = number(usage, &["output", "output_tokens"]).unwrap_or(0);
+            let cache_read = number(usage, &["cacheRead", "cache_read_input_tokens"]).unwrap_or(0);
+            let cache_write_5m = number(usage, &["cacheWrite5m", "cache_write_5m"]).unwrap_or(0);
+            let cache_write_1h = number(usage, &["cacheWrite1h", "cache_write_1h"]).unwrap_or(0);
+            let cache_create = number(usage, &["cacheCreate", "cache_creation_input_tokens"])
+                .unwrap_or_else(|| cache_write_5m.saturating_add(cache_write_1h));
+            if input == 0 && output == 0 && cache_read == 0 && cache_create == 0 {
+                continue;
+            }
+            let event_id = format!("claude:assistant:{record_key}");
+            if self.seen.contains(&event_id) {
+                continue;
+            }
+            let turn_id = record_key
+                .split_once('|')
+                .map(|(message_id, _)| message_id)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.chars().take(256).collect::<String>());
+            let session_id = object
+                .get("sessionId")
+                .or_else(|| object.get("session_id"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.chars().take(256).collect::<String>())
+                .unwrap_or_else(|| "official-import".into());
+            let context_used = input
+                .saturating_add(cache_read)
+                .saturating_add(cache_create);
+            let context_limit = self
+                .find_price(&model, Some("anthropic"))
+                .and_then(|entry| entry.context_window);
+            let quote = self.cost_for(
+                &model,
+                Some("anthropic"),
+                input,
+                output,
+                cache_read,
+                cache_create,
+                false,
+            );
+            let (cost_usd, price_source, price_updated_at) = quote_parts(quote);
+            let mut schema_keys = object.keys().cloned().collect::<Vec<_>>();
+            schema_keys.sort();
+            schema_keys.truncate(64);
+            self.seen.insert(event_id.clone());
+            self.events.push(UsageEvent {
+                event_id,
+                timestamp_ms,
+                provider: "claude".into(),
+                billing_provider: Some("anthropic".into()),
+                billing_surface: Some("official-electron-import".into()),
+                session_id,
+                turn_id,
+                model,
+                input,
+                output,
+                cache_read,
+                cache_create,
+                cache_write_5m,
+                cache_write_1h,
+                input_includes_cache: false,
+                reasoning: 0,
+                reasoning_replay: 0,
+                context_used: Some(context_used),
+                context_limit,
+                cost_usd,
+                cost_kind: cost_usd.map(|_| "api-equivalent-estimate".to_string()),
+                price_source,
+                price_updated_at,
+                schema_keys,
+            });
+            imported = imported.saturating_add(1);
+        }
+        Ok(imported)
     }
 
     pub fn record_hook(&mut self, body: &Value, observed_at: u64) -> Result<UsageIngest, String> {
@@ -326,6 +471,8 @@ impl UsageLedger {
                 "duplicateEvents": self.duplicate_events,
                 "malformedLines": self.malformed_lines,
                 "loadMessage": self.load_message.clone(),
+                "officialImportedEvents": self.official_imported_events,
+                "officialMalformedRecords": self.official_malformed_records,
             }
         })
     }
@@ -800,6 +947,17 @@ impl UsageLedger {
     }
 }
 
+fn json_timestamp_ms(value: &Value) -> Option<u64> {
+    if let Some(number) = value.as_u64() {
+        return Some(number);
+    }
+    if let Some(number) = value.as_i64().and_then(|number| u64::try_from(number).ok()) {
+        return Some(number);
+    }
+    let text = value.as_str()?.trim();
+    text.parse::<u64>().ok().or_else(|| parse_rfc3339_ms(text))
+}
+
 fn load_catalog(app_dir: &Path) -> PriceCatalog {
     let mut catalog = PriceCatalog::default();
     match serde_json::from_str::<Value>(CATALOG_JSON) {
@@ -911,18 +1069,38 @@ fn merge_catalog_document(
 }
 
 fn read_json_bounded(path: &Path, max_bytes: u64) -> Result<Option<Value>, String> {
-    let metadata = match fs::metadata(path) {
+    let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.to_string()),
     };
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+        return Err(format!("{} is not a regular file", path.display()));
+    }
     if metadata.len() > max_bytes {
         return Err(format!("{} exceeds {} bytes", path.display(), max_bytes));
     }
     let file = File::open(path).map_err(|error| error.to_string())?;
-    serde_json::from_reader(file)
+    let opened = file.metadata().map_err(|error| error.to_string())?;
+    if !opened.is_file() || opened.len() != metadata.len() || !same_opened_file(&metadata, &opened)
+    {
+        return Err(format!("{} changed while opening", path.display()));
+    }
+    serde_json::from_reader(file.take(max_bytes.saturating_add(1)))
         .map(Some)
         .map_err(|error| error.to_string())
+}
+
+fn same_opened_file(expected: &fs::Metadata, opened: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        expected.dev() == opened.dev() && expected.ino() == opened.ino()
+    }
+    #[cfg(not(unix))]
+    {
+        expected.len() == opened.len() && expected.is_file() == opened.is_file()
+    }
 }
 
 fn append_catalog_message(catalog: &mut PriceCatalog, message: String) {
@@ -1008,7 +1186,7 @@ fn stable_id_with_prefix(prefix: &str, value: &str) -> String {
     format!("{prefix}:{hash:016x}")
 }
 
-fn local_day_key(timestamp_ms: u64) -> String {
+pub(crate) fn local_day_key(timestamp_ms: u64) -> String {
     let timestamp = i64::try_from(timestamp_ms).unwrap_or(i64::MAX);
     Local
         .timestamp_millis_opt(timestamp)
@@ -1289,6 +1467,61 @@ mod tests {
         assert_eq!(info["source"], "user-override");
         assert_eq!(info["live"], true);
         assert_eq!(info["models"], info["count"]);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn official_usage_records_import_once_and_match_transcript_event_ids() {
+        let dir = temp_dir();
+        let now = crate::model::now_ms();
+        fs::write(
+            dir.join("usage.json"),
+            serde_json::to_vec(&json!({
+                "records": {
+                    "msg_official|req_official": {
+                        "day": local_day_key(now),
+                        "ts": now,
+                        "model": "claude-sonnet-4-6",
+                        "usage": {
+                            "input": 10,
+                            "output": 5,
+                            "cacheRead": 20,
+                            "cacheWrite5m": 3,
+                            "cacheWrite1h": 2
+                        }
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let ledger = UsageLedger::open(&dir, now);
+        let snapshot = ledger.snapshot(now);
+        assert_eq!(snapshot["today"]["messages"], 1);
+        assert_eq!(snapshot["today"]["tokens"], 40);
+        assert_eq!(snapshot["diagnostics"]["officialImportedEvents"], 1);
+        drop(ledger);
+
+        let mut reloaded = UsageLedger::open(&dir, now + 1);
+        assert_eq!(reloaded.snapshot(now + 1)["today"]["messages"], 1);
+        let transcript = json!({
+            "type": "assistant",
+            "requestId": "req_official",
+            "sessionId": "session-one",
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "message": {
+                "id": "msg_official",
+                "model": "claude-sonnet-4-6",
+                "usage": {"input_tokens": 10, "output_tokens": 5}
+            }
+        });
+        assert!(
+            reloaded
+                .record_claude_assistant(&transcript, "session-one", now + 1)
+                .unwrap()
+                .duplicate
+        );
+        assert_eq!(reloaded.snapshot(now + 1)["today"]["messages"], 1);
         let _ = fs::remove_dir_all(dir);
     }
 

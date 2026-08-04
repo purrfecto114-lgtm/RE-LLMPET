@@ -104,6 +104,7 @@ for (const [name, source, maxLines] of [
   ['frontend/shared/latest-value-controller.js', read('frontend/shared/latest-value-controller.js'), 220],
   ['frontend/shared/panel-fit-controller.js', read('frontend/shared/panel-fit-controller.js'), 220],
   ['frontend/shared/config-write-controller.js', configWriteController, 140],
+  ['frontend/shared/session-pref-client.js', read('frontend/shared/session-pref-client.js'), 100],
   ['src-tauri/src/diagnostic_control.rs', diagnosticControl, 180],
   ['src-tauri/src/diagnostic_io.rs', diagnosticIo, 100],
   ['src-tauri/src/instance_probe.rs', instanceProbe, 240],

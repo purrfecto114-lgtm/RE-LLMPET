@@ -145,11 +145,13 @@ pub fn start_wander(
     app: AppHandle,
     state: State<'_, AppState>,
     mission: Option<String>,
+    provider: Option<String>,
 ) -> Result<Value, String> {
     state.runtime.travel.start_wander(
         app,
         state.runtime.clone(),
         mission.unwrap_or_else(|| "寻找今天值得开发者关注的一个新工具或工程实践".into()),
+        provider,
     )
 }
 
@@ -547,6 +549,50 @@ pub fn set_session_prefs(
     state.runtime.update_config(|config| {
         config.pinned_sessions = pinned_clean;
         config.archived_sessions = archived_clean;
+    })?;
+    emit_config(&app, &state);
+    Ok(())
+}
+
+/// Atomically mutate one session preference. This avoids lost updates when the
+/// panel and two pet windows act on stale copies of the full preference arrays.
+#[tauri::command]
+pub fn set_session_pref(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    pinned: Option<bool>,
+    archived: Option<bool>,
+) -> Result<(), String> {
+    let session_id = session_id.trim().chars().take(256).collect::<String>();
+    if session_id.is_empty() {
+        return Err("session id is required".into());
+    }
+    if pinned == Some(true) && archived == Some(true) {
+        return Err("a session cannot be pinned and archived together".into());
+    }
+    if pinned.is_none() && archived.is_none() {
+        return Err("no session preference change was supplied".into());
+    }
+    state.runtime.update_config(|config| {
+        if let Some(enabled) = pinned {
+            config.pinned_sessions.retain(|value| value != &session_id);
+            if enabled {
+                config.pinned_sessions.push(session_id.clone());
+                config
+                    .archived_sessions
+                    .retain(|value| value != &session_id);
+            }
+        }
+        if let Some(enabled) = archived {
+            config
+                .archived_sessions
+                .retain(|value| value != &session_id);
+            if enabled {
+                config.archived_sessions.push(session_id.clone());
+                config.pinned_sessions.retain(|value| value != &session_id);
+            }
+        }
     })?;
     emit_config(&app, &state);
     Ok(())
@@ -2330,7 +2376,7 @@ pub async fn cancel_diagnostic(state: State<'_, AppState>) -> Result<Value, Stri
 /// `taskkill /F /T /PID` which kills the whole tree (cmd.exe + Node).
 /// On Unix, each probe is spawned in a fresh process group; cancellation sends
 /// SIGTERM then SIGKILL to the negative PGID so descendants are included.
-fn kill_process_tree(pid: u32) -> Result<(), String> {
+pub(crate) fn kill_process_tree(pid: u32) -> Result<(), String> {
     #[cfg(windows)]
     {
         // taskkill /F /T /PID <pid>:

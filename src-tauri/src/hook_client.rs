@@ -1,6 +1,6 @@
+use crate::secure_file::read_regular_bounded;
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
@@ -618,12 +618,8 @@ fn read_runtime() -> Result<RuntimeFile, String> {
         .map(PathBuf::from)
         .ok_or("home directory unavailable")?;
     let path = home.join(".re-llmpet").join("runtime.json");
-    let meta = fs::metadata(&path).map_err(|e| format!("runtime unavailable: {e}"))?;
-    if meta.len() > 16 * 1024 {
-        return Err("runtime file too large".into());
-    }
-    let runtime: RuntimeFile = serde_json::from_slice(&fs::read(path).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
+    let raw = read_regular_bounded(&path, 16 * 1024, "runtime file")?;
+    let runtime: RuntimeFile = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
     if runtime.app != "re-llmpet" || !(41330..=41334).contains(&runtime.port) {
         return Err("invalid runtime file".into());
     }

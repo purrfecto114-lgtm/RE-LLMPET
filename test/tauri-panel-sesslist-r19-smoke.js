@@ -85,8 +85,8 @@ assert(panelJs.includes('pinnedSet.has(String(a.sessionId'), 'renderSessList mus
 // pin/archive buttons
 assert(panelJs.includes('class="sess-pin"'), 'renderSessList must render pin buttons');
 assert(panelJs.includes('class="sess-archive"'), 'renderSessList must render archive buttons');
-assert(panelJs.includes('window.pet.setSessionPrefs(sessionPinned, sessionArchived)'),
-  'pin/archive click must persist via setSessionPrefs');
+assert(panelJs.includes('window.OctoSessionPrefs.save('),
+  'pin/archive click must persist through the atomic preference client');
 // config sync
 assert(panelJs.includes('cfg.pinnedSessions'), 'onConfig must sync pinnedSessions from config');
 assert(panelJs.includes('cfg.archivedSessions'), 'onConfig must sync archivedSessions from config');

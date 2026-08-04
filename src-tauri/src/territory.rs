@@ -6,7 +6,6 @@ use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
-#[cfg(target_os = "macos")]
 const DEFAULT_RIVALS: &[&str] = &[
     "desktop goose",
     "desktopgoose",
@@ -17,6 +16,84 @@ const DEFAULT_RIVALS: &[&str] = &[
     "桌面宠物",
     "桌宠",
 ];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WorkArea {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+impl WorkArea {
+    fn width(self) -> i64 {
+        i64::from(self.right.saturating_sub(self.left).max(1))
+    }
+
+    fn height(self) -> i64 {
+        i64::from(self.bottom.saturating_sub(self.top).max(1))
+    }
+}
+
+fn choose_work_area(
+    areas: &[WorkArea],
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> Option<WorkArea> {
+    let window_right = x.saturating_add(width.max(1));
+    let window_bottom = y.saturating_add(height.max(1));
+    areas.iter().copied().max_by(|left, right| {
+        let score = |area: WorkArea| {
+            let overlap_width = i64::from(
+                window_right
+                    .min(area.right)
+                    .saturating_sub(x.max(area.left))
+                    .max(0),
+            );
+            let overlap_height = i64::from(
+                window_bottom
+                    .min(area.bottom)
+                    .saturating_sub(y.max(area.top))
+                    .max(0),
+            );
+            let intersection = overlap_width.saturating_mul(overlap_height);
+            let window_center_x = i64::from(x) + i64::from(width.max(1)) / 2;
+            let window_center_y = i64::from(y) + i64::from(height.max(1)) / 2;
+            let area_center_x = i64::from(area.left) + area.width() / 2;
+            let area_center_y = i64::from(area.top) + area.height() / 2;
+            let dx = window_center_x.saturating_sub(area_center_x);
+            let dy = window_center_y.saturating_sub(area_center_y);
+            (
+                intersection,
+                -(dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy))),
+            )
+        };
+        score(*left).cmp(&score(*right))
+    })
+}
+
+fn is_rival_process(process_lower: &str, custom_rivals: &[String]) -> bool {
+    DEFAULT_RIVALS
+        .iter()
+        .any(|rival| process_lower.contains(&rival.to_lowercase()))
+        || custom_rivals.iter().any(|rival| rival == process_lower)
+}
+
+fn edge_target(area: WorkArea, x: i32, y: i32, width: i32, height: i32) -> (i32, i32) {
+    let width = width.max(1);
+    let height = height.max(1);
+    let center_x = i64::from(area.left) + area.width() / 2;
+    let window_center_x = i64::from(x) + i64::from(width) / 2;
+    let target_x = if window_center_x <= center_x {
+        area.left
+    } else {
+        area.right.saturating_sub(width).max(area.left)
+    };
+    let target_y = y.clamp(area.top, area.bottom.saturating_sub(height).max(area.top));
+    (target_x, target_y)
+}
 
 pub fn start_auto(app: AppHandle, runtime: Arc<Runtime>, platform: Arc<PlatformState>) {
     thread::spawn(move || loop {
@@ -45,7 +122,7 @@ pub fn run_now(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
 
     #[cfg(target_os = "macos")]
     {
-        macos_patrol(app, runtime)
+        return macos_patrol(app, runtime);
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -72,21 +149,12 @@ fn macos_patrol(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
     use std::process::Command;
 
     let config = runtime.config();
-    let mut rivals = DEFAULT_RIVALS
-        .iter()
-        .map(|value| value.to_string())
+    let custom_rivals = config
+        .territory_rivals
+        .into_iter()
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
         .collect::<Vec<_>>();
-    for custom in config.territory_rivals {
-        let custom = custom.trim();
-        if custom.is_empty()
-            || rivals
-                .iter()
-                .any(|known| known.eq_ignore_ascii_case(custom))
-        {
-            continue;
-        }
-        rivals.push(custom.to_string());
-    }
     let script = r#"
 set output to ""
 tell application "System Events"
@@ -123,20 +191,33 @@ return output
         );
     }
 
-    let monitor = app
+    let pet_window = app
         .get_webview_window("pet")
-        .and_then(|window| window.current_monitor().ok().flatten())
-        .or_else(|| {
-            app.get_webview_window("pet")
-                .and_then(|window| window.primary_monitor().ok().flatten())
+        .ok_or("pet window is unavailable")?;
+    let monitors = pet_window
+        .available_monitors()
+        .map_err(|error| format!("read monitor information: {error}"))?;
+    let work_areas = monitors
+        .into_iter()
+        .map(|monitor| {
+            let work = monitor.work_area();
+            WorkArea {
+                left: work.position.x,
+                top: work.position.y,
+                right: work
+                    .position
+                    .x
+                    .saturating_add(i32::try_from(work.size.width).unwrap_or(i32::MAX)),
+                bottom: work
+                    .position
+                    .y
+                    .saturating_add(i32::try_from(work.size.height).unwrap_or(i32::MAX)),
+            }
         })
-        .ok_or("monitor information unavailable")?;
-    let work = monitor.work_area();
-    let left = work.position.x;
-    let top = work.position.y;
-    let right = left.saturating_add(work.size.width as i32);
-    let bottom = top.saturating_add(work.size.height as i32);
-    let center_x = i64::from(left) + i64::from(work.size.width) / 2;
+        .collect::<Vec<_>>();
+    if work_areas.is_empty() {
+        return Err("monitor information unavailable".into());
+    }
 
     let mut detected = 0u32;
     let mut moved = 0u32;
@@ -152,28 +233,22 @@ return output
         if process_lower.contains("octopus") || process_lower.contains("re-llmpet") {
             continue;
         }
-        if !rivals
-            .iter()
-            .any(|rival| process_lower.contains(&rival.to_lowercase()))
-        {
+        if !is_rival_process(&process_lower, &custom_rivals) {
             continue;
         }
         let index = columns[1].parse::<u32>().unwrap_or(0);
-        let x = columns[2].parse::<i32>().unwrap_or(left);
-        let y = columns[3].parse::<i32>().unwrap_or(top);
+        let x = columns[2].parse::<i32>().unwrap_or(0);
+        let y = columns[3].parse::<i32>().unwrap_or(0);
         let width = columns[4].parse::<i32>().unwrap_or(200).max(1);
         let height = columns[5].parse::<i32>().unwrap_or(200).max(1);
         if index == 0 || detected >= 12 {
             continue;
         }
-        detected += 1;
-        let window_center = i64::from(x) + i64::from(width) / 2;
-        let target_x = if window_center <= center_x {
-            left
-        } else {
-            right.saturating_sub(width)
+        let Some(work_area) = choose_work_area(&work_areas, x, y, width, height) else {
+            continue;
         };
-        let target_y = y.clamp(top, bottom.saturating_sub(height).max(top));
+        detected += 1;
+        let (target_x, target_y) = edge_target(work_area, x, y, width, height);
         let _ = app.emit(
             "pet:event",
             json!({"kind":"territory","phase":"spotted","rival":process.clone()}),
@@ -204,6 +279,7 @@ return output
             "windowIndex": index,
             "from": [x, y],
             "to": [target_x, target_y],
+            "workArea": [work_area.left, work_area.top, work_area.right, work_area.bottom],
             "moved": moved_ok,
         }));
     }
@@ -237,4 +313,52 @@ fn clean(value: &str, max: usize) -> String {
         .chars()
         .take(max)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rival_window_stays_on_its_own_monitor() {
+        let areas = [
+            WorkArea {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1080,
+            },
+            WorkArea {
+                left: 1920,
+                top: 0,
+                right: 3840,
+                bottom: 1080,
+            },
+        ];
+        let selected = choose_work_area(&areas, 2400, 100, 400, 400).unwrap();
+        assert_eq!(selected, areas[1]);
+        let (x, _) = edge_target(selected, 2400, 100, 400, 400);
+        assert!(x >= 1920);
+    }
+
+    #[test]
+    fn custom_rivals_require_exact_process_name() {
+        let custom = vec!["cat".to_string()];
+        assert!(is_rival_process("cat", &custom));
+        assert!(!is_rival_process("catalog", &custom));
+        assert!(is_rival_process("desktop goose helper", &[]));
+    }
+
+    #[test]
+    fn oversized_window_never_targets_before_monitor_origin() {
+        let area = WorkArea {
+            left: 100,
+            top: 50,
+            right: 900,
+            bottom: 650,
+        };
+        let (x, y) = edge_target(area, 700, 600, 1200, 900);
+        assert_eq!(x, 100);
+        assert_eq!(y, 50);
+    }
 }

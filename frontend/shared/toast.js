@@ -101,7 +101,7 @@
       const command = detail.command || '';
       // R39: critical commands use persistent toast (no auto-dismiss).
       // Non-critical commands use the standard 4.5s auto-dismiss.
-      const criticalCommands = ['set_providers', 'set_session_prefs', 'close_panel', 'launch_agent'];
+      const criticalCommands = ['set_providers', 'set_session_prefs', 'set_session_pref', 'close_panel', 'launch_agent'];
       const persistent = criticalCommands.indexOf(command) >= 0;
       showToast(message, { command, timeout: persistent ? 0 : 4500, persistent });
     });

@@ -37,6 +37,7 @@
     "allow-pet-visual-bounds",
     "allow-quit-app",
     "allow-set-session-prefs",
+    "allow-set-session-pref",
     "allow-set-pet-mode",
     "allow-get-travel",
     "allow-start-travel",

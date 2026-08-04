@@ -17,6 +17,7 @@ const COMMANDS: &[&str] = &[
     "set_skin",
     "set_pet_mode",
     "set_session_prefs",
+    "set_session_pref",
     "set_budget",
     "set_currency",
     "toggle_mute",

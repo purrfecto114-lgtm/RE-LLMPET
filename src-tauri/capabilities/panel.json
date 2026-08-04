@@ -20,6 +20,7 @@
     "allow-set-budget",
     "allow-set-providers",
     "allow-set-session-prefs",
+    "allow-set-session-pref",
     "allow-close-panel",
     "allow-set-panel-height",
     "allow-diagnose-agent",

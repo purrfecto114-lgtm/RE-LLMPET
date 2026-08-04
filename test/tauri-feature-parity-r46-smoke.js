@@ -17,6 +17,7 @@ const lib = read('src-tauri/src/lib.rs');
 const travel = read('src-tauri/src/travel.rs');
 const territory = read('src-tauri/src/territory.rs');
 const migration = read('src-tauri/src/migration.rs');
+const metering = read('src-tauri/src/metering.rs');
 const bridge = read('frontend/renderer/tauri-bridge.js');
 const petHtml = read('frontend/renderer/pet.html');
 const petJs = read('frontend/renderer/pet.js');
@@ -46,10 +47,10 @@ assert(petJs.includes('!eventBelongsToThisPet(event)'), 'travel lifecycle events
 for (const token of ['id="sl-search"', 'data-filter="claude"', 'data-filter="codex"', 'data-filter="attention"', 'data-filter="archived"']) {
   assert(petHtml.includes(token), `pet HUD control missing: ${token}`);
 }
-for (const token of ['slQuery', 'visibleSessions()', 's.providerId || s.provider', 'pinnedSet', 'archivedSet', 'syncSessionPrefs()', "configWrites.request('sessionPrefs'", 'window.pet.setSessionPrefs']) {
+for (const token of ['slQuery', 'visibleSessions()', 's.providerId || s.provider', 'pinnedSet', 'archivedSet', 'persistSessionPref']) {
   assert(petJs.includes(token), `pet HUD behavior missing: ${token}`);
 }
-assert(petCap.includes('allow-set-session-prefs'), 'pet HUD must be permitted to persist pin/archive preferences');
+assert(petCap.includes('allow-set-session-prefs') && petCap.includes('allow-set-session-pref'), 'pet HUD must be permitted to persist pin/archive preferences');
 
 // P2 — real Todo ingest, per-session storage, and top-level stats.
 for (const token of ['pub struct TodoItem', 'pub id: Option<String>', 'extract_todo_snapshot', 'extract_todo_patch', 'apply_todo_patch', 'todo_response', '"todos":top_todos', '"todosProject":todos_project']) {
@@ -67,9 +68,10 @@ for (const token of ['MAX_TRAVEL_MS', 'MAX_OUTPUT_BYTES', 'another trip is alrea
 for (const token of ['--permission-mode', 'plan', '--tools', 'Read,Glob,Grep', 'WebSearch,WebFetch', '--strict-mcp-config', '--no-session-persistence']) {
   assert(travel.includes(token), `Claude travel isolation flag missing: ${token}`);
 }
-for (const token of ['exec', '--ephemeral', '--sandbox', 'read-only', '--ask-for-approval', 'never']) {
+for (const token of ['--search', 'exec', '--ephemeral', '--sandbox', 'read-only', '--ask-for-approval', 'never', 'native web_search']) {
   assert(travel.includes(token), `Codex travel isolation flag missing: ${token}`);
 }
+assert(travel.indexOf('args.push("--search"') < travel.indexOf('"exec",'), 'Codex --search must remain a global flag before exec');
 for (const token of ['getTravel', 'startTravel', 'startWander', 'cancelTravel']) {
   assert(bridge.includes(token), `travel bridge API missing: ${token}`);
 }
@@ -78,21 +80,22 @@ assert(panelHtml.includes('id="travel-growth"') && panelHtml.includes('id="trave
 
 // P3 — Territory performs real macOS discovery and rival-window movement, not a message-only stub.
 assert(territory.includes('tell application "System Events"'), 'Territory must inspect macOS application windows');
-assert(territory.includes('DEFAULT_RIVALS') && territory.includes('config.territory_rivals') && territory.includes('eq_ignore_ascii_case'), 'Territory custom rivals must extend and deduplicate the built-in list');
+assert(territory.includes('DEFAULT_RIVALS') && territory.includes('.territory_rivals') && territory.includes('is_rival_process'), 'Territory custom rivals must extend the built-in list with exact process-name matching');
 assert(territory.includes('config.mode != "hidePet"'), 'Territory patrol must not unhide pets when hidePet mode is active');
 assert(territory.includes('set position of window') && territory.includes('Command::new("osascript")'), 'Territory must move rival windows through the macOS accessibility API');
 assert(territory.includes('"kind":"territory","phase":"spotted"') && territory.includes('"phase":"victory"'), 'Territory must emit patrol lifecycle events');
 assert(!territory.toLowerCase().includes('stub'), 'Territory source must not remain a stub');
 assert(commands.includes('crate::territory::run_now') && lib.includes('territory::start_auto'), 'Territory commands and patrol worker must be wired');
 
-// P3 — one-time, non-destructive official ~/.octopus import.
-for (const token of ['.octopus', '.official-import-v1.json', 'MAX_IMPORT_BYTES', 'target data path is not a real directory', 'migration marker is not a regular file', 'symlink_metadata', 'target-exists', 'set_private_permissions', 'copy_regular_private', 'same_file', 'publish_noclobber', 'fs::hard_link', 'startup will retry']) {
+// P3 — incremental, non-destructive official ~/.octopus import.
+for (const token of ['.octopus', '.official-import-v3.json', 'MAX_IMPORT_BYTES', 'target data path is not a real directory', 'migration marker is not a regular file', 'symlink_metadata', 'target-exists', 'set_private_permissions', 'copy_regular_private', 'same_file', 'publish_noclobber', 'fs::hard_link', 'startup will retry']) {
   assert(migration.includes(token), `official data migration safeguard missing: ${token}`);
 }
-for (const file of ['config.json', 'usage.json', 'codex-usage.json', 'pricing.json', 'travel.json', 'pidwalk-cache.json']) {
+for (const file of ['config.json', 'usage.json', 'codex-usage.json', 'pricing.json', 'travel.json']) {
   assert(migration.includes(`"${file}"`), `official migration file missing: ${file}`);
 }
-assert(model.includes('import_official_data') && model.includes('officialMigration'), 'migration must run before load and be visible in diagnostics');
+assert(migration.includes('pidwalk-cache.json:runtime-cache-not-migrated'), 'transient PID cache must be explicitly skipped');
+assert(model.includes('import_official_data') && model.includes('officialMigration') && metering.includes('import_official_usage'), 'migration must run before load, convert official usage, and be visible in diagnostics');
 
 // Capability boundary must expose only the new commands each surface uses.
 for (const token of ['allow-get-travel', 'allow-start-travel', 'allow-start-wander', 'allow-cancel-travel']) {

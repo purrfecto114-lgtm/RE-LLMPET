@@ -113,6 +113,7 @@ let sessionQuery = '';
 // each session row. Persisted via window.pet.setSessionPrefs.
 let sessionPinned = [];
 let sessionArchived = [];
+const pendingSessionPrefs = new Set();
 let sessionAttentionOnly = false;
 let sessionShowArchived = false;
 let latestPriceInfo = null;
@@ -706,8 +707,9 @@ function renderSessList(sessions) {
       // R19: pin/archive buttons. Clicking toggles membership and persists.
       const isPinned = pinnedSet.has(sid);
       const isArchived = archivedSet.has(sid);
-      const pinBtn = `<button class="sess-pin" data-sid="${escapeHtml(sid)}" data-action="pin" title="${isPinned ? t('sess.unpin') : t('sess.pin')}">${isPinned ? '📌' : '📍'}</button>`;
-      const archiveBtn = `<button class="sess-archive" data-sid="${escapeHtml(sid)}" data-action="archive" title="${isArchived ? t('sess.unarchive') : t('sess.archive')}">${isArchived ? '📤' : '📥'}</button>`;
+      const prefDisabled = pendingSessionPrefs.has(sid) ? ' disabled' : '';
+      const pinBtn = `<button class="sess-pin" data-sid="${escapeHtml(sid)}" data-action="pin" title="${isPinned ? t('sess.unpin') : t('sess.pin')}"${prefDisabled}>${isPinned ? '📌' : '📍'}</button>`;
+      const archiveBtn = `<button class="sess-archive" data-sid="${escapeHtml(sid)}" data-action="archive" title="${isArchived ? t('sess.unarchive') : t('sess.archive')}"${prefDisabled}>${isArchived ? '📤' : '📥'}</button>`;
       return `<div class="row sess${isPinned ? ' pinned' : ''}${isArchived ? ' archived' : ''}" data-provider="${escapeHtml(provider)}" title="${escapeHtml(sid)}">`
         + `<span class="badge ${m.cls}">${escapeHtml(t(m.key))}</span>`
         + `<span class="sess-provider" title="${escapeHtml(meta.label)}">${escapeHtml(meta.icon)}</span>`
@@ -724,13 +726,8 @@ function renderSessList(sessions) {
       const sid = btn.dataset.sid;
       const action = btn.dataset.action;
       if (!sid) return;
-      // R34 (2026-07-31): snapshot the previous pin/archive arrays so we can
-      // roll back the optimistic UI update if setSessionPrefs() rejects.
-      // The bridge was upgraded from send() to call() in R32, but the caller
-      // was still fire-and-forget — failures silently dropped and the UI
-      // showed the new state while disk still held the old state.
-      const prevPinned = sessionPinned.slice();
-      const prevArchived = sessionArchived.slice();
+      const previous = { pinned: sessionPinned.includes(sid), archived: sessionArchived.includes(sid) };
+      pendingSessionPrefs.add(sid);
       if (action === 'pin') {
         sessionPinned = sessionPinned.includes(sid)
           ? sessionPinned.filter((x) => x !== sid)
@@ -744,24 +741,28 @@ function renderSessList(sessions) {
         // Archived can't be pinned.
         sessionPinned = sessionPinned.filter((x) => x !== sid);
       }
-      btn.disabled = true; // loading state
-      renderSessList(latestSessions); // optimistic UI
-      window.pet.setSessionPrefs(sessionPinned, sessionArchived)
-        .catch((err) => {
+      renderSessList(latestSessions);
+      const enabled = action === 'pin' ? sessionPinned.includes(sid)
+        : sessionArchived.includes(sid);
+      const request = Promise.resolve().then(() => window.OctoSessionPrefs.save(
+        window.pet, sid, action, enabled, sessionPinned, sessionArchived,
+      ));
+      request.catch((err) => {
           // Revert UI to previous state and surface the error.
-          sessionPinned = prevPinned;
-          sessionArchived = prevArchived;
-          renderSessList(latestSessions);
+          sessionPinned = previous.pinned ? Array.from(new Set([...sessionPinned, sid])) : sessionPinned.filter((x) => x !== sid);
+          sessionArchived = previous.archived ? Array.from(new Set([...sessionArchived, sid])) : sessionArchived.filter((x) => x !== sid);
           const msg = String(err && (err.message || err) || 'unknown');
           window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
-            detail: { command: 'set_session_prefs', message: msg }
+            detail: {
+              command: window.pet.setSessionPref ? 'set_session_pref' : 'set_session_prefs',
+              message: msg,
+            }
           }));
         })
-        .finally(() => { btn.disabled = false; });
+        .finally(() => { pendingSessionPrefs.delete(sid); renderSessList(latestSessions); });
     });
   });
 }
-
 const TODO_ICON = { completed: '✅', in_progress: '▶️', pending: '⬜️' };
 function renderTodos(todos, proj) {
   // 空待办不占版面（待办常年为空）——整块收起

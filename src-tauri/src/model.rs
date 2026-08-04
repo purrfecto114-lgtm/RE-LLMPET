@@ -2,8 +2,9 @@ use crate::metering::{UsageIngest, UsageLedger};
 use crate::transcript::TranscriptScanner;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::fs;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{
     mpsc::{SyncSender, TrySendError},
@@ -141,13 +142,18 @@ impl AppConfig {
         }
         self.fx_rate = self.fx_rate.clamp(0.01, 100.0);
         self.price_refresh_hours = self.price_refresh_hours.clamp(1, 168);
+        let mut rival_keys = HashSet::new();
         self.territory_rivals = self
             .territory_rivals
             .into_iter()
-            .map(|s| s.trim().chars().take(64).collect::<String>())
-            .filter(|s| !s.is_empty())
+            .map(|value| clean_config_text(&value, 64))
+            .filter(|value| !value.is_empty())
+            .filter(|value| rival_keys.insert(value.to_lowercase()))
             .take(30)
             .collect();
+        self.pinned_sessions = sanitize_session_ids(self.pinned_sessions, &HashSet::new());
+        let pinned = self.pinned_sessions.iter().cloned().collect::<HashSet<_>>();
+        self.archived_sessions = sanitize_session_ids(self.archived_sessions, &pinned);
         let known = ["claude", "codewhale", "codex", "opencode", "aider"];
         let mut providers = Vec::new();
         for provider in self.providers {
@@ -175,6 +181,34 @@ impl AppConfig {
         }
         self
     }
+}
+
+fn clean_config_text(value: &str, max_chars: usize) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .chars()
+        .take(max_chars)
+        .collect()
+}
+
+fn sanitize_session_ids(values: Vec<String>, excluded: &HashSet<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    values
+        .into_iter()
+        .map(|value| clean_config_text(&value, 256))
+        .filter(|value| !value.is_empty() && !excluded.contains(value))
+        .filter(|value| seen.insert(value.clone()))
+        .take(300)
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -246,6 +280,17 @@ pub struct BatchRule {
     pub expires_at: u64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecentOperation {
+    tool: String,
+    icon: String,
+    detail: String,
+    project: String,
+    provider: String,
+    ts: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderStatus {
@@ -303,6 +348,7 @@ pub struct Runtime {
     // the small config volume — a CAS / revision scheme is overkill here.
     pub config_write_lock: Mutex<()>,
     pub sessions: Mutex<HashMap<String, Session>>,
+    recent_ops: Mutex<VecDeque<RecentOperation>>,
     pub pending: Mutex<HashMap<String, PendingPermission>>,
     pub batch_rules: Mutex<Vec<BatchRule>>,
     pub provider_status: Mutex<HashMap<String, ProviderStatus>>,
@@ -440,6 +486,7 @@ impl AppState {
                 config: Mutex::new(config),
                 config_write_lock: Mutex::new(()),
                 sessions: Mutex::new(HashMap::new()),
+                recent_ops: Mutex::new(VecDeque::with_capacity(50)),
                 pending: Mutex::new(HashMap::new()),
                 batch_rules: Mutex::new(Vec::new()),
                 provider_status: Mutex::new(HashMap::new()),
@@ -690,14 +737,18 @@ impl Runtime {
         )
         .unwrap_or_default();
         let explicit_state = clean_text(body.get("state"), 32).unwrap_or_default();
+        let provider = clean_text(body.get("provider"), 32)
+            .map(|value| value.to_ascii_lowercase())
+            .unwrap_or_else(|| "claude".into());
         let id = clean_text(
             body.get("session_id")
                 .or_else(|| body.get("sessionId"))
                 .or_else(|| body.get("conversation_id")),
             256,
         )
-        .unwrap_or_else(|| "default".into());
-        let provider = clean_text(body.get("provider"), 32).unwrap_or_else(|| "claude".into());
+        // Providers that omit a session id must not collapse into the same
+        // global `default` row in duo mode.
+        .unwrap_or_else(|| format!("{provider}:default"));
         let cwd = clean_text(
             body.get("cwd")
                 .or_else(|| body.get("workspace"))
@@ -766,7 +817,7 @@ impl Runtime {
         };
 
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        let snapshot = {
+        let (snapshot, accepted) = {
             let entry = sessions.entry(id.clone()).or_insert_with(|| Session {
                 id: id.clone(),
                 provider: provider.clone(),
@@ -835,7 +886,7 @@ impl Runtime {
                 entry.context_limit = usage_result.context_limit.or(entry.context_limit);
                 entry.context_percent = context_percent(entry.context_used, entry.context_limit);
             }
-            entry.clone()
+            (entry.clone(), accepted)
         };
 
         if sessions.len() > 256 {
@@ -849,6 +900,23 @@ impl Runtime {
             }
         }
         drop(sessions);
+        if accepted {
+            if let Some(operation) = recent_operation_for_event(
+                &event,
+                snapshot.tool_name.as_deref(),
+                &snapshot.provider,
+                &snapshot.cwd,
+                &snapshot.id,
+                event_at,
+            ) {
+                let mut recent = self
+                    .recent_ops
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                recent.push_front(operation);
+                recent.truncate(50);
+            }
+        }
         if event == "SessionEnd" && snapshot.ended_at == Some(event_at) {
             self.close_session_pending(&snapshot.id, "Session ended");
         }
@@ -1342,52 +1410,75 @@ impl Runtime {
                 })
         });
 
-        let active = sessions
-            .iter()
-            .min_by(|a, b| {
-                session_state_priority(&a.state)
-                    .cmp(&session_state_priority(&b.state))
-                    .then_with(|| b.updated_at.cmp(&a.updated_at))
-                    .then_with(|| a.provider.cmp(&b.provider))
-                    .then_with(|| a.id.cmp(&b.id))
+        // `rows` already contains the effective state after pending-permission
+        // reconciliation and is sorted by the same priority the UI consumes.
+        // Derive active/context from that final ordering so every surface
+        // selects the same session.
+        let active_row = rows.first();
+        let active_session = active_row
+            .and_then(|row| row.get("sessionId"))
+            .and_then(Value::as_str)
+            .and_then(|id| sessions.iter().find(|session| session.id == id));
+        let active = active_row.map(|row| {
+            json!({
+                "sessionId":row.get("sessionId").cloned().unwrap_or(Value::Null),
+                "project":row.get("project").cloned().unwrap_or(Value::Null),
+                "state":row.get("state").cloned().unwrap_or(Value::Null),
+                "model":row.get("model").cloned().unwrap_or(Value::Null),
+                "provider":row.get("provider").cloned().unwrap_or(Value::Null),
+                "providerId":row.get("providerId").cloned().unwrap_or(Value::Null),
+                "todos":row.get("todos").cloned().unwrap_or_else(|| json!([]))
             })
-            .map(|s| {
-                let project = session_projects
-                    .get(s.id.as_str())
-                    .map(String::as_str)
-                    .unwrap_or("");
-                json!({
-                    "sessionId":s.id,
-                    "project":project,
-                    "state":s.state,
-                    "model":s.model,
-                    "provider":if s.provider == "claude" { Value::Null } else { json!(s.provider) },
-                    "providerId":s.provider,
-                    "todos":s.todos
-                })
-            });
-        let todo_session = sessions
-            .iter()
-            .filter(|session| !session.todos.is_empty())
-            .min_by(|a, b| {
-                session_state_priority(&a.state)
-                    .cmp(&session_state_priority(&b.state))
-                    .then_with(|| b.updated_at.cmp(&a.updated_at))
-            });
-        let top_todos = todo_session
-            .map(|session| session.todos.clone())
-            .unwrap_or_default();
-        let todos_project = todo_session
-            .and_then(|session| session_projects.get(session.id.as_str()).cloned())
-            .unwrap_or_default();
+        });
+        let context = active_session.and_then(|session| {
+            if session.context_used.is_none()
+                && session.context_limit.is_none()
+                && session.context_percent.is_none()
+            {
+                None
+            } else {
+                Some(json!({
+                    "percent":session.context_percent,
+                    "used":session.context_used.unwrap_or(0),
+                    "limit":session.context_limit
+                }))
+            }
+        });
+        // Select Todo data from the same effective/sorted session rows as
+        // active/context. Raw session state can lag a pending permission and
+        // previously made the HUD highlight one session while showing another
+        // session's task list.
+        let todo_row = rows.iter().find(|row| {
+            row.get("todos")
+                .and_then(Value::as_array)
+                .map(|items| !items.is_empty())
+                .unwrap_or(false)
+        });
+        let top_todos = todo_row
+            .and_then(|row| row.get("todos"))
+            .cloned()
+            .unwrap_or_else(|| json!([]));
+        let todos_project = todo_row
+            .and_then(|row| row.get("project"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
 
         let usage = self
             .usage
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .snapshot(now);
+        let last_ops = self
+            .recent_ops
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .iter()
+            .take(30)
+            .cloned()
+            .collect::<Vec<_>>();
         let mut stats = json!({
-            "lastOps":[],
+            "lastOps":last_ops,
             "active":active,
             "sessions":rows,
             "pendingChoices":pending_choices,
@@ -1404,15 +1495,16 @@ impl Runtime {
             "todosProject":todos_project,
             "lastActivityTs":sessions.iter().map(|s| s.updated_at).max().unwrap_or(self.started_at),
             "idleMs":now.saturating_sub(sessions.iter().map(|s| s.updated_at).max().unwrap_or(self.started_at)),
+            // Current upstream still exposes background reconciliation as a
+            // fixed empty contract. Keep the shape without inventing process data.
             "bg":{"running":0,"zombie":0,"total":0,"items":[]},
-            "context":Value::Null,
+            "context":context,
             "travel":self.travel.snapshot(),
             "ts":now
         });
-        // R44 0.5.43: inject Codex rollout data (token usage + rate limits).
-        // This scans ~/.codex/sessions/**/*.jsonl on each stats() call.
-        // Returns None when no Codex sessions exist → frontend hides blocks.
-        let (codex_limits, codex_usage) = crate::codex_rollout::snapshot();
+        // Inject cached/incremental Codex rollout data (token usage + rate limits).
+        // Returns None when neither rollout nor imported aggregate data exists.
+        let (codex_limits, codex_usage) = crate::codex_rollout::snapshot(&self.app_dir);
         if let Some(target) = stats.as_object_mut() {
             if let Some(cl) = codex_limits {
                 target.insert("codexLimits".into(), cl);
@@ -1542,7 +1634,7 @@ fn permission_choice(permission: &PendingPermission, project: &str) -> Value {
     })
 }
 
-fn todo_input(body: &Value) -> &Value {
+fn todo_input<'a>(body: &'a Value) -> &'a Value {
     body.get("tool_input")
         .or_else(|| body.get("toolInput"))
         .unwrap_or(body)
@@ -1550,7 +1642,7 @@ fn todo_input(body: &Value) -> &Value {
 
 static EMPTY_TODO_RESPONSE: Value = Value::Null;
 
-fn todo_response(body: &Value) -> &Value {
+fn todo_response<'a>(body: &'a Value) -> &'a Value {
     body.get("tool_response")
         .or_else(|| body.get("toolResponse"))
         .unwrap_or(&EMPTY_TODO_RESPONSE)
@@ -1698,7 +1790,9 @@ fn extract_todo_patch(body: &Value, tool_name: Option<&str>, event: &str) -> Opt
             if let Some(response_patch) = response.get("task").and_then(todo_patch_from_value) {
                 merge_todo_patch(&mut patch, response_patch);
             }
-            patch.content.as_ref()?;
+            if patch.content.is_none() {
+                return None;
+            }
             patch.status.get_or_insert_with(|| "pending".into());
             Some(patch)
         }
@@ -2080,30 +2174,36 @@ fn write_private_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
 /// write, preventing the defaults from overwriting the user's real
 /// (but unreadable) config file.
 pub fn load_config(path: &Path) -> (AppConfig, ConfigState) {
-    // R44 0.5.40 (Roadmap v6 P0-02): only ErrorKind::NotFound maps to
-    // ConfigState::NotFound. Other metadata errors (PermissionDenied,
-    // transient I/O, symlink/path issues, device errors) must map to
-    // Unreadable so writes are quarantined. The old code collapsed ALL
-    // metadata errors to NotFound, which re-allowed writes on permission
-    // errors — risking default-config overwrite of an inaccessible but
-    // present user config.
-    let meta = match fs::metadata(path) {
-        Ok(m) => m,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            // File genuinely doesn't exist — new install.
+    // Only a genuine absence allows writes. Symlinks, non-regular files,
+    // permission failures and open/stat races are quarantined so a default
+    // config can never overwrite an unreadable user document.
+    let meta = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return (AppConfig::default(), ConfigState::NotFound);
         }
-        Err(e) => {
-            eprintln!("[octopus] ERROR: config.json metadata failed: {e}. Writes are quarantined.");
+        Err(error) => {
+            eprintln!(
+                "[octopus] ERROR: config.json metadata failed: {error}. Writes are quarantined."
+            );
             return (
                 AppConfig::default(),
                 ConfigState::Unreadable {
-                    message: format!("metadata: {e}"),
+                    message: format!("metadata: {error}"),
                 },
             );
         }
     };
-    if meta.len() > 1024 * 1024 {
+    if meta.file_type().is_symlink() || !meta.file_type().is_file() {
+        return (
+            AppConfig::default(),
+            ConfigState::Unreadable {
+                message: "config path is not a regular file".into(),
+            },
+        );
+    }
+    const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
+    if meta.len() > MAX_CONFIG_BYTES {
         eprintln!(
             "[octopus] WARNING: config.json is {} bytes (>1MB), using defaults. Writes are quarantined.",
             meta.len()
@@ -2113,52 +2213,95 @@ pub fn load_config(path: &Path) -> (AppConfig, ConfigState) {
             ConfigState::TooLarge { size: meta.len() },
         );
     }
-    match fs::read_to_string(path) {
-        Ok(raw) => match serde_json::from_str::<AppConfig>(&raw) {
-            Ok(config) => {
-                // R44 0.5.41: check schema version. If the file's version
-                // is newer than this build understands, quarantine writes
-                // to prevent downgrade data loss (the extras Map preserves
-                // unknown fields, but a newer schema might have semantic
-                // changes we can't safely handle).
-                if config.schema_version > CURRENT_SCHEMA_VERSION {
-                    eprintln!(
-                        "[octopus] WARNING: config schemaVersion {} is newer than this build supports ({}). Writes are quarantined.",
-                        config.schema_version, CURRENT_SCHEMA_VERSION
-                    );
-                    return (
-                        AppConfig::default(),
-                        ConfigState::SchemaTooNew {
-                            version: config.schema_version,
-                        },
-                    );
-                }
-                (config.sanitize(), ConfigState::Healthy)
-            }
-            Err(e) => {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) => {
+            return (
+                AppConfig::default(),
+                ConfigState::Unreadable {
+                    message: format!("open: {error}"),
+                },
+            );
+        }
+    };
+    let opened = match file.metadata() {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            return (
+                AppConfig::default(),
+                ConfigState::Unreadable {
+                    message: format!("opened metadata: {error}"),
+                },
+            );
+        }
+    };
+    if !opened.is_file() || opened.len() != meta.len() || !same_opened_config_file(&meta, &opened) {
+        return (
+            AppConfig::default(),
+            ConfigState::Unreadable {
+                message: "config changed while opening".into(),
+            },
+        );
+    }
+    let mut bytes = Vec::with_capacity(opened.len() as usize);
+    if let Err(error) = file
+        .take(MAX_CONFIG_BYTES.saturating_add(1))
+        .read_to_end(&mut bytes)
+    {
+        return (
+            AppConfig::default(),
+            ConfigState::Unreadable {
+                message: format!("read: {error}"),
+            },
+        );
+    }
+    if bytes.len() as u64 > MAX_CONFIG_BYTES {
+        return (
+            AppConfig::default(),
+            ConfigState::TooLarge {
+                size: bytes.len() as u64,
+            },
+        );
+    }
+    match serde_json::from_slice::<AppConfig>(&bytes) {
+        Ok(config) => {
+            if config.schema_version > CURRENT_SCHEMA_VERSION {
                 eprintln!(
-                    "[octopus] ERROR: config.json parse failed: {e}. Using defaults. Writes are quarantined until the file is fixed."
+                    "[octopus] WARNING: config schemaVersion {} is newer than this build supports ({}). Writes are quarantined.",
+                    config.schema_version, CURRENT_SCHEMA_VERSION
                 );
-                (
+                return (
                     AppConfig::default(),
-                    ConfigState::ParseError {
-                        message: e.to_string(),
+                    ConfigState::SchemaTooNew {
+                        version: config.schema_version,
                     },
-                )
+                );
             }
-        },
-        Err(e) => {
+            (config.sanitize(), ConfigState::Healthy)
+        }
+        Err(error) => {
             eprintln!(
-                "[octopus] ERROR: config.json read failed: {e}. Using defaults. Writes are quarantined."
+                "[octopus] ERROR: config.json parse failed: {error}. Using defaults. Writes are quarantined until the file is fixed."
             );
             (
                 AppConfig::default(),
-                ConfigState::Unreadable {
-                    message: e.to_string(),
+                ConfigState::ParseError {
+                    message: error.to_string(),
                 },
             )
         }
     }
+}
+
+#[cfg(unix)]
+fn same_opened_config_file(before: &fs::Metadata, after: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    before.dev() == after.dev() && before.ino() == after.ino()
+}
+
+#[cfg(not(unix))]
+fn same_opened_config_file(before: &fs::Metadata, after: &fs::Metadata) -> bool {
+    before.len() == after.len()
 }
 
 /// R44 0.5.39 (roadmap v5 §2): save_config is now a method on Runtime
@@ -2496,6 +2639,45 @@ fn session_state_priority(state: &str) -> u8 {
     }
 }
 
+fn recent_operation_for_event(
+    event: &str,
+    tool_name: Option<&str>,
+    provider: &str,
+    cwd: &str,
+    session_id: &str,
+    ts: u64,
+) -> Option<RecentOperation> {
+    let tool = match event {
+        "PreToolUse" => tool_name?.trim(),
+        "SubagentStart" => "Task",
+        _ => return None,
+    };
+    if tool.is_empty() {
+        return None;
+    }
+    Some(RecentOperation {
+        tool: tool.chars().take(128).collect(),
+        icon: tool_icon(tool).into(),
+        detail: tool.chars().take(128).collect(),
+        project: project_name(cwd, session_id),
+        provider: provider.chars().take(32).collect(),
+        ts,
+    })
+}
+
+fn tool_icon(tool: &str) -> &'static str {
+    match tool {
+        "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => "📝",
+        "Read" => "📖",
+        "Bash" | "Exec" | "exec_command" => "⚙️",
+        "Grep" | "Glob" => "🔍",
+        "WebSearch" | "WebFetch" => "🌐",
+        "Task" | "Agent" => "🤖",
+        "TodoWrite" | "TaskCreate" | "TaskUpdate" | "TaskList" | "TaskGet" => "✅",
+        _ => "🔧",
+    }
+}
+
 pub(crate) fn project_name(cwd: &str, id: &str) -> String {
     Path::new(cwd)
         .file_name()
@@ -2503,6 +2685,35 @@ pub(crate) fn project_name(cwd: &str, id: &str) -> String {
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| id.get(..id.len().min(8)).unwrap_or(id))
         .to_string()
+}
+
+#[cfg(test)]
+mod recent_operation_tests {
+    use super::*;
+
+    #[test]
+    fn records_only_real_operation_events() {
+        let op = recent_operation_for_event(
+            "PreToolUse",
+            Some("Read"),
+            "claude",
+            "/tmp/demo",
+            "session",
+            42,
+        )
+        .expect("operation");
+        assert_eq!(op.icon, "📖");
+        assert_eq!(op.project, "demo");
+        assert!(recent_operation_for_event(
+            "PostToolUse",
+            Some("Read"),
+            "claude",
+            "/tmp/demo",
+            "session",
+            43,
+        )
+        .is_none());
+    }
 }
 
 fn humanize_tool(tool: &str, input: &Value) -> String {

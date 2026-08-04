@@ -307,10 +307,12 @@ fn handle_permission(
     let provider = if codewhale {
         "codewhale".to_string()
     } else {
-        text_field(&body, &["provider"], 32).unwrap_or_else(|| "claude".into())
+        text_field(&body, &["provider"], 32)
+            .map(|value| value.to_ascii_lowercase())
+            .unwrap_or_else(|| "claude".into())
     };
     let session_id = text_field(&body, &["session_id", "sessionId", "conversation_id"], 256)
-        .unwrap_or_else(|| "default".into());
+        .unwrap_or_else(|| format!("{provider}:default"));
     let tool_name = text_field(&body, &["tool_name", "toolName", "tool"], 256)
         .unwrap_or_else(|| "Unknown".into());
     let tool_input = body

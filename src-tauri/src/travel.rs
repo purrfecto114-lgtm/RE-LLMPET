@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 const MAX_TRAVEL_MS: u64 = 30 * 60 * 1000;
 const MAX_OUTPUT_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_TRAVEL_STATE_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -87,7 +88,9 @@ impl TravelManager {
             cancel: AtomicBool::new(false),
         });
         if recovered || converted_official {
-            manager.persist();
+            if let Err(error) = manager.persist() {
+                eprintln!("[octopus] travel recovery persistence failed: {error}");
+            }
         }
         manager
     }
@@ -151,12 +154,28 @@ impl TravelManager {
         app: AppHandle,
         runtime: Arc<Runtime>,
         mission: String,
+        provider: Option<String>,
     ) -> Result<Value, String> {
+        let requested = provider
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_ascii_lowercase);
+        let provider = match requested {
+            Some(value) if matches!(value.as_str(), "claude" | "codex") => value,
+            Some(_) => return Err("wander currently supports Claude and Codex only".into()),
+            None => runtime
+                .config()
+                .providers
+                .into_iter()
+                .find(|value| matches!(value.as_str(), "claude" | "codex"))
+                .unwrap_or_else(|| "claude".into()),
+        };
         self.start(
             app,
             runtime,
             "wander",
-            "claude",
+            &provider,
             None,
             "Web Wander".into(),
             crate::model::home_dir(),
@@ -197,7 +216,10 @@ impl TravelManager {
         *active_guard = Some(trip.clone());
         drop(active_guard);
         self.cancel.store(false, Ordering::Release);
-        self.persist();
+        if let Err(error) = self.persist() {
+            *self.active.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            return Err(format!("persist active travel state: {error}"));
+        }
         let _ = app.emit("pet:travel", json!({"phase":"started","trip":trip.clone()}));
         let _ = app.emit(
             "pet:event",
@@ -231,83 +253,80 @@ impl TravelManager {
             let stdout = private_output_file(&out_path)?;
             let stderr = private_output_file(&err_path)?;
             let prompt = build_prompt(&trip);
-            let mut command = Command::new(&executable);
+            let args = provider_args(&trip);
+            let mut command = provider_command(&executable, &args);
             command
                 .current_dir(&cwd)
+                .stdin(Stdio::piped())
                 .stdout(Stdio::from(stdout))
                 .stderr(Stdio::from(stderr));
-            if trip.provider == "claude" {
-                let tools = if trip.mode == "wander" {
-                    "WebSearch,WebFetch"
-                } else {
-                    "Read,Glob,Grep"
-                };
-                command.args([
-                    "-p",
-                    "--permission-mode",
-                    "plan",
-                    "--tools",
-                    tools,
-                    "--strict-mcp-config",
-                    "--output-format",
-                    "json",
-                    "--max-turns",
-                    "8",
-                    "--no-session-persistence",
-                    &prompt,
-                ]);
-            } else {
-                command.args([
-                    "exec",
-                    "--ephemeral",
-                    "--sandbox",
-                    "read-only",
-                    "--ask-for-approval",
-                    "never",
-                    "--json",
-                    &prompt,
-                ]);
-            }
             let mut child = command
                 .spawn()
-                .map_err(|e| format!("launch {}: {e}", trip.provider))?;
-            *self.child_pid.lock().unwrap_or_else(|e| e.into_inner()) = Some(child.id());
+                .map_err(|error| format!("launch {}: {error}", trip.provider))?;
+            let pid = child.id();
+            *self.child_pid.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
+            let stdin_result = child
+                .stdin
+                .take()
+                .ok_or_else(|| "travel CLI stdin was unavailable".to_string())
+                .and_then(|mut stdin| {
+                    stdin
+                        .write_all(prompt.as_bytes())
+                        .and_then(|_| stdin.flush())
+                        .map_err(|error| format!("write travel prompt to stdin: {error}"))
+                });
+            if let Err(error) = stdin_result {
+                let _ = crate::commands::kill_process_tree(pid);
+                let _ = child.wait();
+                return Err(error);
+            }
+
             let started = Instant::now();
             let status = loop {
-                if self.cancel.load(Ordering::Acquire) {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err("cancelled".into());
-                }
-                if started.elapsed() >= Duration::from_millis(MAX_TRAVEL_MS) {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err("travel timed out after 30 minutes".into());
-                }
-                let output_too_large = fs::metadata(&out_path)
-                    .map(|metadata| metadata.len() > MAX_OUTPUT_BYTES)
-                    .unwrap_or(false)
-                    || fs::metadata(&err_path)
-                        .map(|metadata| metadata.len() > MAX_OUTPUT_BYTES)
-                        .unwrap_or(false);
-                if output_too_large {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err("travel output exceeded 2 MiB".into());
-                }
                 match child.try_wait() {
                     Ok(Some(status)) => break status,
-                    Ok(None) => thread::sleep(Duration::from_millis(250)),
-                    Err(error) => return Err(error.to_string()),
+                    Ok(None) => {}
+                    Err(error) => {
+                        let kill_error = crate::commands::kill_process_tree(pid).err();
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(match kill_error {
+                            Some(kill_error) => format!(
+                                "poll travel process: {error}; terminate process tree: {kill_error}"
+                            ),
+                            None => format!("poll travel process: {error}"),
+                        });
+                    }
                 }
+                let stop_reason = if self.cancel.load(Ordering::Acquire) {
+                    Some("cancelled".to_string())
+                } else if started.elapsed() >= Duration::from_millis(MAX_TRAVEL_MS) {
+                    Some("travel timed out after 30 minutes".to_string())
+                } else if output_exceeded(&out_path, &err_path) {
+                    Some("travel output exceeded 2 MiB".to_string())
+                } else {
+                    None
+                };
+                if let Some(reason) = stop_reason {
+                    if let Err(error) = crate::commands::kill_process_tree(pid) {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(format!("{reason}; terminate process tree: {error}"));
+                    }
+                    let _ = child.wait();
+                    return Err(reason);
+                }
+                thread::sleep(Duration::from_millis(50));
             };
             let output = read_bounded(&out_path);
             let errors = read_bounded(&err_path);
             if !status.success() {
-                return Err(clean_text(
-                    if errors.is_empty() { &output } else { &errors },
-                    2000,
-                ));
+                let message = clean_text(if errors.is_empty() { &output } else { &errors }, 2000);
+                return Err(if message.is_empty() {
+                    format!("{} exited with status {status}", trip.provider)
+                } else {
+                    message
+                });
             }
             let tokens = usage_tokens(&output, &trip.provider);
             Ok((final_message(&output), tokens))
@@ -347,7 +366,12 @@ impl TravelManager {
             }
         }
         *self.active.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        self.persist();
+        if let Err(error) = self.persist() {
+            runtime.write_log(
+                "travel",
+                &format!("persist completed travel state failed: {error}"),
+            );
+        }
         let snapshot = self.snapshot();
         let _ = app.emit(
             "pet:travel",
@@ -385,7 +409,7 @@ impl TravelManager {
         Ok(self.snapshot())
     }
 
-    fn persist(&self) {
+    fn persist(&self) -> Result<(), String> {
         let active = self
             .active
             .lock()
@@ -397,23 +421,75 @@ impl TravelManager {
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         persisted.active = active;
-        if let Ok(bytes) = serde_json::to_vec_pretty(&persisted) {
-            let _ = write_private_atomic(&self.path, &bytes);
-        }
+        let bytes = serde_json::to_vec_pretty(&persisted).map_err(|error| error.to_string())?;
+        write_private_atomic(&self.path, &bytes)
     }
 }
 
 fn load_persisted(path: &Path) -> (PersistedTravel, bool) {
-    let Ok(bytes) = fs::read(path) else {
-        return (PersistedTravel::default(), false);
-    };
-    let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
-        return (PersistedTravel::default(), false);
+    let value = match read_travel_value(path) {
+        Ok(Some(value)) => value,
+        Ok(None) => return (PersistedTravel::default(), false),
+        Err(error) => {
+            eprintln!("[octopus] ignored invalid travel state: {error}");
+            return (PersistedTravel::default(), false);
+        }
     };
     if value.get("postcards").is_some() || value.get("totalTokens").is_some() {
         return (serde_json::from_value(value).unwrap_or_default(), false);
     }
-    (official_travel_to_persisted(&value), true)
+    let looks_official = value.get("schemaVersion").is_some()
+        || value.get("history").is_some()
+        || value.get("growth").is_some();
+    if looks_official {
+        return (official_travel_to_persisted(&value), true);
+    }
+    // Unknown/future documents must not be rewritten as an empty current file.
+    (PersistedTravel::default(), false)
+}
+
+fn read_travel_value(path: &Path) -> Result<Option<Value>, String> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+        return Err(format!("{} is not a regular file", path.display()));
+    }
+    if metadata.len() > MAX_TRAVEL_STATE_BYTES {
+        return Err(format!("{} exceeds the travel state limit", path.display()));
+    }
+    let file = File::open(path).map_err(|error| error.to_string())?;
+    let opened = file.metadata().map_err(|error| error.to_string())?;
+    if !opened.is_file() || opened.len() != metadata.len() || !same_opened_file(&metadata, &opened)
+    {
+        return Err(format!("{} changed while opening", path.display()));
+    }
+    let mut bytes = Vec::with_capacity(opened.len().min(MAX_TRAVEL_STATE_BYTES) as usize);
+    file.take(MAX_TRAVEL_STATE_BYTES.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > MAX_TRAVEL_STATE_BYTES {
+        return Err(format!(
+            "{} grew beyond the travel state limit",
+            path.display()
+        ));
+    }
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(unix)]
+fn same_opened_file(before: &fs::Metadata, after: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    before.dev() == after.dev() && before.ino() == after.ino()
+}
+
+#[cfg(not(unix))]
+fn same_opened_file(before: &fs::Metadata, after: &fs::Metadata) -> bool {
+    before.len() == after.len()
 }
 
 fn official_travel_to_persisted(value: &Value) -> PersistedTravel {
@@ -436,15 +512,38 @@ fn official_travel_to_persisted(value: &Value) -> PersistedTravel {
             interrupted_count = 1;
         }
     }
+    postcards.truncate(100);
+    let history_tokens = postcards.iter().fold(0u64, |total, postcard| {
+        total.saturating_add(postcard.tokens)
+    });
+    let derived_completed = postcards
+        .iter()
+        .filter(|row| row.status == "completed")
+        .count() as u64;
+    let derived_failed = postcards
+        .iter()
+        .filter(|row| matches!(row.status.as_str(), "failed" | "interrupted"))
+        .count() as u64;
+    let derived_cancelled = postcards
+        .iter()
+        .filter(|row| row.status == "cancelled")
+        .count() as u64;
     // Official history is newest-first; this fork stores oldest-first.
     postcards.reverse();
+    let growth_tokens = json_u64(growth.get("totalTokens"));
     PersistedTravel {
         active: None,
         postcards,
-        total_tokens: json_u64(growth.get("totalTokens")),
-        completed: json_u64(growth.get("completed")),
-        failed: json_u64(growth.get("failed")).saturating_add(interrupted_count),
-        cancelled: json_u64(growth.get("cancelled")),
+        total_tokens: if growth_tokens > 0 {
+            growth_tokens
+        } else {
+            history_tokens
+        },
+        completed: json_u64(growth.get("completed")).max(derived_completed),
+        failed: json_u64(growth.get("failed"))
+            .saturating_add(interrupted_count)
+            .max(derived_failed),
+        cancelled: json_u64(growth.get("cancelled")).max(derived_cancelled),
     }
 }
 
@@ -456,17 +555,34 @@ fn official_trip_to_postcard(value: &Value) -> Option<Postcard> {
     if id.is_empty() {
         return None;
     }
+    let mode = match clean_text(text("mode"), 24).as_str() {
+        "project" | "travel" => "travel".to_string(),
+        "wander" => "wander".to_string(),
+        _ => "travel".to_string(),
+    };
+    let provider = clean_text(
+        if text("agent").is_empty() {
+            text("provider")
+        } else {
+            text("agent")
+        },
+        24,
+    )
+    .to_ascii_lowercase();
+    let status = match clean_text(text("status"), 32).as_str() {
+        "completed" => "completed",
+        "cancelled" | "canceled" => "cancelled",
+        "interrupted" => "interrupted",
+        _ => "failed",
+    };
     Some(Postcard {
         id,
-        mode: clean_text(text("mode"), 24).replace("project", "travel"),
-        provider: clean_text(
-            if text("agent").is_empty() {
-                text("provider")
-            } else {
-                text("agent")
-            },
-            24,
-        ),
+        mode,
+        provider: if provider.is_empty() {
+            "claude".into()
+        } else {
+            provider
+        },
         project: clean_text(text("project"), 160),
         mission: clean_text(text("mission"), 1200),
         summary: clean_text(
@@ -480,7 +596,7 @@ fn official_trip_to_postcard(value: &Value) -> Option<Postcard> {
         tokens: json_u64(usage.get("tokens")).max(json_u64(object.get("tokens"))),
         started_at: json_u64(object.get("startedAt")),
         completed_at: json_u64(object.get("endedAt")).max(json_u64(object.get("completedAt"))),
-        status: clean_text(text("status"), 32),
+        status: status.into(),
     })
 }
 
@@ -510,7 +626,7 @@ fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let temp = path.with_file_name(format!(".travel.{}.{}.tmp", std::process::id(), now_ms()));
+    let temp = path.with_file_name(format!(".travel.{}.tmp", Uuid::new_v4()));
     let mut options = OpenOptions::new();
     options.create_new(true).write(true);
     #[cfg(unix)]
@@ -547,10 +663,106 @@ fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+fn provider_args(trip: &ActiveTrip) -> Vec<String> {
+    if trip.provider == "claude" {
+        let tools = if trip.mode == "wander" {
+            "WebSearch,WebFetch"
+        } else {
+            "Read,Glob,Grep"
+        };
+        [
+            "-p",
+            "--permission-mode",
+            "plan",
+            "--tools",
+            tools,
+            "--strict-mcp-config",
+            "--output-format",
+            "json",
+            "--max-turns",
+            "8",
+            "--no-session-persistence",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+    } else {
+        let mut args = Vec::new();
+        if trip.mode == "wander" {
+            // `--search` is a global Codex flag, so it must precede `exec`.
+            // It exposes the hosted web_search tool without granting shell
+            // network access or relaxing the read-only sandbox.
+            args.push("--search".to_string());
+        }
+        args.extend(
+            [
+                "exec",
+                "--ephemeral",
+                "--sandbox",
+                "read-only",
+                "--ask-for-approval",
+                "never",
+                "--json",
+                "-",
+            ]
+            .into_iter()
+            .map(str::to_string),
+        );
+        args
+    }
+}
+
+#[cfg(unix)]
+fn provider_command(executable: &Path, args: &[String]) -> Command {
+    use std::os::unix::process::CommandExt;
+    let mut command = Command::new(executable);
+    command.args(args).process_group(0);
+    command
+}
+
+#[cfg(windows)]
+fn provider_command(executable: &Path, args: &[String]) -> Command {
+    use std::os::windows::process::CommandExt;
+    let extension = executable
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat") {
+        let mut tail = vec![cmd_quote_arg(&executable.to_string_lossy())];
+        tail.extend(args.iter().map(|value| cmd_quote_arg(value)));
+        let mut command = Command::new("cmd.exe");
+        command.args(["/D", "/S", "/C"]).raw_arg(tail.join(" "));
+        command
+    } else {
+        let mut command = Command::new(executable);
+        command.args(args);
+        command
+    }
+}
+
+#[cfg(windows)]
+fn cmd_quote_arg(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+fn output_exceeded(stdout: &Path, stderr: &Path) -> bool {
+    [stdout, stderr]
+        .iter()
+        .filter_map(|path| fs::metadata(path).ok())
+        .map(|metadata| metadata.len())
+        .fold(0u64, u64::saturating_add)
+        > MAX_OUTPUT_BYTES
+}
+
 fn build_prompt(trip: &ActiveTrip) -> String {
     if trip.mode == "wander" {
+        let tool_boundary = if trip.provider == "claude" {
+            "Use only WebSearch/WebFetch."
+        } else {
+            "Use only the native web_search tool; do not use shell commands or local network clients."
+        };
         format!(
-            "You are Octopus on a short web wander. Use only WebSearch/WebFetch. Do not modify local files. Mission: {}. Return a concise postcard in Chinese with: discoveries, useful links described by title/domain, and one practical takeaway.",
+            "You are Octopus on a short web wander. {tool_boundary} Do not modify local files. Mission: {}. Return a concise postcard in Chinese with: discoveries, useful links described by title/domain, and one practical takeaway.",
             trip.mission
         )
     } else {
@@ -587,7 +799,11 @@ fn clean_text(value: &str, max: usize) -> String {
 }
 
 fn executable_names(provider: &str) -> Vec<String> {
-    let base = provider;
+    let base = match provider {
+        "claude" => "claude",
+        "codex" => "codex",
+        _ => provider,
+    };
     #[cfg(windows)]
     {
         vec![
@@ -648,9 +864,19 @@ fn private_output_file(path: &Path) -> Result<File, String> {
 }
 
 fn read_bounded(path: &Path) -> String {
-    let bytes = fs::read(path).unwrap_or_default();
-    let start = bytes.len().saturating_sub(MAX_OUTPUT_BYTES as usize);
-    String::from_utf8_lossy(&bytes[start..]).into_owned()
+    let Ok(file) = File::open(path) else {
+        return String::new();
+    };
+    let mut bytes = Vec::with_capacity(MAX_OUTPUT_BYTES as usize);
+    if file
+        .take(MAX_OUTPUT_BYTES.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .is_err()
+    {
+        return String::new();
+    }
+    bytes.truncate(MAX_OUTPUT_BYTES as usize);
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn final_message(output: &str) -> String {
@@ -805,6 +1031,26 @@ mod tests {
     }
 
     #[test]
+    fn codex_wander_enables_hosted_search_before_exec() {
+        let trip = ActiveTrip {
+            id: "trip".into(),
+            mode: "wander".into(),
+            provider: "codex".into(),
+            session_id: None,
+            project: "Web Wander".into(),
+            mission: "look around".into(),
+            started_at: 1,
+        };
+        let args = provider_args(&trip);
+        assert_eq!(args.first().map(String::as_str), Some("--search"));
+        assert_eq!(args.get(1).map(String::as_str), Some("exec"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--sandbox" && pair[1] == "read-only"));
+        assert!(build_prompt(&trip).contains("native web_search"));
+    }
+
+    #[test]
     fn official_active_trip_is_archived_as_failed() {
         let value = json!({
             "schemaVersion": 2,
@@ -825,5 +1071,42 @@ mod tests {
         assert_eq!(persisted.failed, 3);
         assert_eq!(persisted.postcards.len(), 1);
         assert_eq!(persisted.postcards[0].status, "interrupted");
+    }
+    #[test]
+    fn unknown_travel_document_is_not_marked_for_conversion() {
+        let path = std::env::temp_dir().join(format!(
+            "octopus-travel-unknown-{}-{}.json",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        fs::write(&path, br#"{"futureFormat":true}"#).unwrap();
+        let (persisted, converted) = load_persisted(&path);
+        assert!(!converted);
+        assert!(persisted.postcards.is_empty());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn official_history_is_capped_after_inserting_interrupted_trip() {
+        let history = (0..100)
+            .map(|index| {
+                json!({
+                    "id": format!("trip-{index}"),
+                    "mode": "project",
+                    "agent": "Claude",
+                    "status": "completed",
+                    "usage": {"tokens": 1}
+                })
+            })
+            .collect::<Vec<_>>();
+        let value = json!({
+            "history": history,
+            "active": {"id":"active","mode":"project","agent":"codex","status":"running"},
+            "growth": {}
+        });
+        let persisted = official_travel_to_persisted(&value);
+        assert_eq!(persisted.postcards.len(), 100);
+        assert_eq!(persisted.total_tokens, 99);
+        assert_eq!(persisted.failed, 1);
     }
 }

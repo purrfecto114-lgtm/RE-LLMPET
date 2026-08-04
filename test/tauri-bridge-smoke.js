@@ -58,7 +58,7 @@ const api = context.window.pet;
 const expected = [
   'onEvent', 'onStats', 'onPanelStats', 'onConfig', 'onPrice', 'onTravel', 'onWindowBlur', 'onPanelShown', 'onPanelHidden',
   'getConfig', 'getStats', 'getPriceInfo', 'getTravel', 'refreshModelPrices', 'setPriceAutoUpdate', 'setLanguage', 'openPanel', 'closePanel', 'setMode', 'setPetMode', 'setSkin',
-  'setBudget', 'setCurrency', 'setSessionPrefs', 'toggleMute', 'setProviders', 'territoryRunNow',
+  'setBudget', 'setCurrency', 'setSessionPrefs', 'setSessionPref', 'toggleMute', 'setProviders', 'territoryRunNow',
   'territoryToggleAuto', 'startTravel', 'startWander', 'cancelTravel', 'quit', 'getWinPos', 'setWinPos', 'commitWinPos', 'launchClaude',
   'launchCodeWhale', 'launchCodex', 'launchOpenCode', 'launchAider', 'diagnoseAgent', 'cancelDiagnostic', 'launchAgent', 'launchAgentChecked', 'launchAgentGui',
   'decidePermission', 'decideCwPermission',

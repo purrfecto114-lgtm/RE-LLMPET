@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "upstreamCommit": "d51311eb7f3a4efb678f425a20bef360f383295c",
   "upstreamRepo": "https://github.com/myunwang/LLMPET",
-  "reVersion": "0.5.45",
+  "reVersion": "0.5.46",
   "generatedAt": "2026-08-04",
   "items": [
     {
@@ -54,15 +54,15 @@
       "evidence": "Two uniquely labelled Tauri windows with independent provider query, skin, saved position, event/stat filtering and per-window native click-through state.",
       "source": "src-tauri/tauri.conf.json, src-tauri/src/commands.rs, src-tauri/src/platform.rs, frontend/renderer/pet-agent-view.js",
       "priority": "P1",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Codex rollout watcher (token usage + rate limits)",
       "upstream": "N/A (RE enhancement)",
       "reStatus": "complete",
-      "evidence": "codex_rollout.rs tails ~/.codex/sessions/**/*.jsonl, parses token_count events",
-      "source": "src-tauri/src/codex_rollout.rs",
-      "implementedIn": "0.5.45"
+      "evidence": "Incremental cached parser prefers last_token_usage, otherwise cumulative deltas; traverses newest directories first, keys cache entries by file identity/size/mtime, bounds reads, removes stale entries, and falls back to imported official aggregates only when rollouts are unavailable.",
+      "source": "src-tauri/src/codex_rollout.rs, src-tauri/src/model.rs",
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Codex 5h/weekly quota display",
@@ -70,7 +70,7 @@
       "reStatus": "complete",
       "evidence": "Panel renders codexLimits.usedPercent, secondaryUsedPercent, planType; codex_rollout.rs provides data",
       "source": "frontend/renderer/panel.js:196-216, src-tauri/src/codex_rollout.rs",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Codex today/lifetime token grid",
@@ -78,7 +78,7 @@
       "reStatus": "complete",
       "evidence": "Panel renders codexUsage.today/lifetime; codex_rollout.rs provides data",
       "source": "frontend/renderer/panel.js:218-449, src-tauri/src/codex_rollout.rs",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Pet HUD session search",
@@ -87,7 +87,7 @@
       "evidence": "Pet HUD includes type=search and live project/op/session/provider matching.",
       "source": "frontend/renderer/pet.html, frontend/renderer/pet.js",
       "priority": "P1",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Pet HUD provider filter",
@@ -96,16 +96,16 @@
       "evidence": "HUD filters all/Claude/Codex/attention/archived; dual-pet renderer also isolates sessions and events by provider identity.",
       "source": "frontend/renderer/pet.js, frontend/renderer/pet-agent-view.js",
       "priority": "P1",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Pet HUD pin/archive",
       "upstream": "Full (in-session operations)",
       "reStatus": "complete",
-      "evidence": "HUD pin/archive controls persist through set_session_prefs; pet capability grants the command.",
-      "source": "frontend/renderer/pet.js, src-tauri/capabilities/pet.json, src-tauri/src/commands.rs",
+      "evidence": "HUD pin/archive controls persist through an atomic single-session transaction with optimistic rollback; the legacy bulk API remains compatible.",
+      "source": "frontend/shared/session-pref-client.js, frontend/renderer/pet.js, src-tauri/src/commands.rs",
       "priority": "P1",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Session focus (terminal/client switch)",
@@ -118,19 +118,19 @@
       "feature": "Travel (read-only exploration)",
       "upstream": "Full (mission templates, single-lock, cancel, timeout)",
       "reStatus": "complete",
-      "evidence": "Rust single-flight manager launches isolated read-only Claude/Codex CLI trips with cancel and 30-minute timeout.",
+      "evidence": "Single-flight read-only Claude/Codex trips use stdin prompts, provider-specific isolation flags, process-tree cancellation, bounded output/state reads, crash recovery, and unknown-format preservation.",
       "source": "src-tauri/src/travel.rs, src-tauri/src/commands.rs",
       "priority": "P2",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Wander (no-project public web exploration)",
       "upstream": "Full",
       "reStatus": "complete",
-      "evidence": "Claude wander uses WebSearch/WebFetch-only plan mode and has a HUD launch/status flow.",
-      "source": "src-tauri/src/travel.rs, frontend/renderer/pet.html, frontend/renderer/pet.js",
+      "evidence": "Provider-aware Claude/Codex wander uses isolated non-interactive read-only execution, stdin prompts, timeout/cancel, and persisted HUD status.",
+      "source": "src-tauri/src/travel.rs, frontend/renderer/pet-travel-view.js",
       "priority": "P2",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Postcards / travel mailbox",
@@ -139,7 +139,7 @@
       "evidence": "Bounded persisted postcard history is exposed in pet HUD and panel. Official history is migrated.",
       "source": "src-tauri/src/travel.rs, frontend/renderer/pet.js, frontend/renderer/panel.js",
       "priority": "P2",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Growth system (leaf/star/moon/day)",
@@ -148,52 +148,51 @@
       "evidence": "Token-derived leaf/star/moon/day progress plus completed/failed/cancelled counters is persisted and rendered.",
       "source": "src-tauri/src/travel.rs, frontend/renderer/panel.js",
       "priority": "P2",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Territory mode (macOS)",
       "upstream": "Full (rival detection, window top, accessibility, push)",
       "reStatus": "complete",
-      "evidence": "macOS patrol queries System Events for rival windows and moves them to the nearest screen edge; unsupported platforms degrade explicitly.",
+      "evidence": "macOS patrol queries System Events and moves each rival to the nearest edge of its own monitor/work area; built-ins allow known variants, custom entries require exact process names, and unsupported platforms degrade explicitly.",
       "source": "src-tauri/src/territory.rs, src-tauri/src/commands.rs",
       "priority": "P3",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Todo (session todos)",
       "upstream": "Full",
-      "reStatus": "partial",
-      "evidence": "Legacy TodoWrite input snapshots and current TaskList/TaskGet/TaskCreate/TaskUpdate PostToolUse data are normalized into ID-aware per-session TodoItem values and surfaced in session/top-level stats.",
+      "reStatus": "complete",
+      "evidence": "Legacy TodoWrite and current Task tools are normalized into ID-aware per-session items; top-level Todo is selected from the same effective sorted rows as active/context.",
       "source": "src-tauri/src/model.rs, frontend/renderer/pet.js, frontend/renderer/panel.js",
       "priority": "P2",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "lastOps (recent operations)",
       "upstream": "Full",
-      "reStatus": "partial",
-      "evidence": "model.rs:1328 returns fixed empty array",
-      "source": "src-tauri/src/model.rs:1328",
+      "reStatus": "complete",
+      "evidence": "Accepted tool/subagent lifecycle events enter a bounded 50-entry ring; stats exposes the newest 30 with tool, icon, detail, project, provider, and timestamp.",
+      "source": "src-tauri/src/model.rs",
       "priority": "P2",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Background task status",
-      "upstream": "Full (running/zombie/items)",
-      "reStatus": "partial",
-      "evidence": "model.rs:1345 returns fixed zeros",
-      "source": "src-tauri/src/model.rs:1345",
-      "priority": "P3",
-      "implementedIn": "0.5.45"
+      "upstream": "Placeholder in current upstream adapter (fixed zero/empty values)",
+      "reStatus": "placeholder",
+      "evidence": "RE intentionally preserves the same fixed empty compatibility shape because current provider events do not supply a trustworthy process reconciliation feed; no synthetic running/zombie data is fabricated.",
+      "source": "src-tauri/src/model.rs; upstream backend/adapter.js",
+      "priority": "P4"
     },
     {
       "feature": "Context summary",
       "upstream": "Full",
-      "reStatus": "partial",
-      "evidence": "model.rs:1346 returns null",
-      "source": "src-tauri/src/model.rs:1346",
+      "reStatus": "complete",
+      "evidence": "Top-level percent/used/limit is derived from the same effective first session row used by UI ordering, including pending-permission priority.",
+      "source": "src-tauri/src/model.rs",
       "priority": "P3",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Permission card / structured Q&A",
@@ -213,10 +212,10 @@
       "feature": "Config migration from official ~/.octopus",
       "upstream": "N/A (upstream IS the source)",
       "reStatus": "complete",
-      "evidence": "One-time non-destructive import rejects symlinks/oversized files, preserves existing targets, uses private permissions, and converts official travel history/growth.",
-      "source": "src-tauri/src/migration.rs, src-tauri/src/travel.rs, src-tauri/src/model.rs",
+      "evidence": "Incremental v3 receipt never blocks later files; bounded no-clobber scans reject links/races/oversized sources, preserve targets, convert travel/growth and Claude usage into native stores, use private permissions, and exclude transient PID caches.",
+      "source": "src-tauri/src/migration.rs, src-tauri/src/travel.rs, src-tauri/src/metering.rs, src-tauri/src/model.rs",
       "priority": "P3",
-      "implementedIn": "0.5.45"
+      "implementedIn": "0.5.46"
     },
     {
       "feature": "Config quarantine + recovery UI",

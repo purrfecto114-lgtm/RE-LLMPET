@@ -13,6 +13,7 @@ mod migration;
 mod model;
 mod platform;
 mod pricing_sync;
+mod secure_file;
 mod territory;
 mod transcript;
 mod travel;
@@ -211,6 +212,7 @@ pub fn run() {
             set_skin,
             set_pet_mode,
             set_session_prefs,
+            set_session_pref,
             set_budget,
             set_currency,
             toggle_mute,

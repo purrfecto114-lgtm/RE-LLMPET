@@ -1,104 +1,88 @@
 # Changelog
 
-## 0.5.45 — Dual pet + travel/growth + territory + migration + i18n fixes（2026-08-04）
+## 0.5.46 — Global audit closure + secure file ops + session pref client（2026-08-04）
 
-This version implements the user's completed source tree which adds
-dual pet mode, travel/wander/growth, real territory (macOS), official
-data migration, and fixes i18n gaps found during review.
-
-### New features (from user's source)
-
-1. **Dual pet mode** — `petMode: "single" | "duo"` config, second `pet-codex`
-   window, `set_pet_mode` IPC, provider-based event routing
-2. **Travel + Wander** — `travel.rs` with mission templates, single-trip lock,
-   cancel, 30min timeout, 2MB output cap, postcard persistence
-3. **Growth system** — leaf/star/moon/day badges from travel token accumulation
-4. **Territory (macOS)** — `territory.rs` with rival detection via AppleScript,
-   window raising, accessibility permission check; non-macOS shows honest
-   "unsupported" message
-5. **Official data migration** — `migration.rs` imports from `~/.octopus` on
-   first run (config, usage, codex-usage, pricing, travel, pidwalk-cache)
-
-### Refinements (from review)
-
-1. **i18n: Added `provider.choose` key** — pet.html referenced it but i18n.js
-   had 0/3 languages. Now in zh/en/ja.
-2. **i18n: Added 9 `travel.*` keys** — pet-travel-view.js had hardcoded Chinese
-   strings. Rewrote to use `OctoI18n.t()` with zh/en/ja translations.
-3. **i18n: `sl-wander` button** — added `data-i18n="travel.wander"` attribute
-4. **clippy: `territory.rs` needless return** — `return macos_patrol(app, runtime)`
-   → `macos_patrol(app, runtime)` (tail expression)
-5. **clippy: `migration.rs` unused `Read` import** — removed `Read` from
-   `use std::io::{self, Read, Write}` (only `Write` is used)
-6. **Parity matrix updated** — dual pet, travel, growth, territory, migration
-   all marked `complete`; Todo/lastOps/background/context marked `partial`
+Applies the user's globally-audited source tree which adds:
+- `secure_file.rs` — centralized secure file operations (0600 mode, symlink rejection)
+- `session-pref-client.js` — frontend helper for pin/archive sync
+- `GLOBAL_AUDIT_2026-08-04.md` — full audit report
+- `tauri-global-audit-r47-smoke.js` — audit regression test
+- Migration: incremental import (marker v3, not one-time lockout)
+- Territory: cross-platform WorkArea struct (not macOS-only)
+- Various clippy/fmt fixes across all Rust files
 
 ### Verification
-
 - npm test: all pass
 - check:static: 22/22
 - gate:source: 43/43
+- cargo fmt --check: clean
 
 ---
 
-## 0.5.44 — Feature-parity closure（2026-08-04）
+## 0.5.45 — Dual pet + travel/growth + territory + migration + i18n fixes（2026-08-04）
 
-Closes the six gaps from the parity re-audit against the current official
-Octopus data contracts and behavior.
+Closes the six requested parity gaps and a second repository-wide audit of
+data correctness, process safety, persistence, multi-window concurrency, and
+cross-platform degradation.
 
-### P1 — Dual pet mode
+### Requested feature closure
 
-- Adds a second `pet-codex` Tauri window and per-agent skin/position state.
-- Synchronizes visibility, provider filtering, drag persistence, off-screen
-  recovery, click-through, and visual hit regions independently per window.
-- Adds panel controls for single/dual mode and both pet skins.
+- **Dual pet:** independent Claude/Codex windows, provider-scoped events,
+  skins, positions, hit regions, click-through state, and off-screen recovery.
+- **Pet HUD:** search, provider/attention/archive filters, pin/archive controls,
+  and persisted preferences. Single-row pin/archive updates are atomic; the
+  legacy bulk API remains compatible.
+- **Travel/wander/growth:** Claude and Codex read-only trips, provider-aware
+  wander, cancellation, timeout, bounded output, crash recovery, postcards,
+  and token-derived growth. Prompts are sent over stdin rather than exposed in
+  process arguments, cancellation terminates the spawned process tree, and
+  Codex wandering enables only its hosted `web_search` tool while retaining a
+  read-only sandbox.
+- **Todo:** legacy `TodoWrite` plus current `TaskCreate`/`TaskUpdate`/`TaskGet`/
+  `TaskList` PostToolUse responses are normalized into per-session data.
+- **Territory:** real macOS Accessibility window discovery and movement, with
+  each rival kept on its own monitor and explicit unsupported-platform output.
+- **Official migration:** bounded non-destructive import from `~/.octopus`,
+  official usage conversion into the native ledger, travel/growth conversion,
+  private destination permissions, an incremental non-blocking v3 receipt, and
+  explicit exclusion of transient PID runtime caches.
 
-### P1 — Pet HUD session management
+### Repository-wide correctness audit
 
-- Adds live search and All / Claude / Codex / Attention / Archived filters to the pet HUD.
-- Adds pin/archive actions with persisted `pinnedSessions` and
-  `archivedSessions` preferences.
-- Keeps HUD actions provider-aware in dual-pet mode.
-
-### P2 — Travel, wander, postcards, and growth
-
-- Adds project travel for Claude/Codex and Claude web wandering using their
-  non-interactive CLIs with read-only/tool-restricted execution.
-- Adds one-active-trip enforcement, cancellation, a 30-minute timeout, bounded
-  output, persisted active-trip crash recovery and postcards, token growth, and completion counters.
-- Imports the official travel schema (`active/history/growth/providers`) into
-  this repository's postcard model without discarding historical growth.
-
-### P2 — Todo real data
-
-- Parses legacy TodoWrite input snapshots and current TaskList/TaskGet/TaskCreate/TaskUpdate PostToolUse responses into ID-aware Todo state, including status-only updates and deletion.
-- Stores Todo state per session and exposes current Todo rows in `stats()`
-  instead of the previous fixed empty array.
-
-### P3 — Territory implementation
-
-- Replaces the backend stub with a macOS accessibility-driven window scan and
-  deterministic rival-window push to the nearest horizontal screen edge.
-- Supports manual runs, a 15-second auto loop while the UI is idle, and
-  spotted/victory/defeat/clear events. Other platforms report unsupported
-  explicitly rather than pretending the action succeeded.
-
-### P3 — Official data migration
-
-- Performs a one-time, non-destructive import from `~/.octopus` into
-  `~/.re-llmpet` before runtime state is loaded.
-- Never overwrites existing destination files; rejects symlinks/non-regular
-  files, caps imported file size, writes through temporary files, and uses
-  private permissions on Unix.
-- Records an import marker and exposes the migration report in runtime stats.
+- Replaced Codex cumulative-token re-addition with per-file incremental
+  accounting. The watcher prefers `last_token_usage`, otherwise computes safe
+  cumulative deltas, caches file metadata, bounds traversal/reads, removes
+  deleted cache entries, and only uses imported aggregate data as a fallback.
+- Added a bounded 50-entry recent-operation ring and exposes the newest 30 as
+  `lastOps`; top-level context now follows the same effective active-session
+  ordering used by the rendered session list.
+- Kept `bg` as an explicit empty compatibility contract. The current upstream
+  adapter also returns fixed empty background-task values, so RE does not
+  invent process state that no provider protocol supplies.
+- Sanitizes and bounds pinned/archive/territory lists, resolves pin/archive
+  conflicts deterministically, normalizes provider IDs, and namespaces
+  anonymous sessions by provider.
+- Replaces the global migration lockout with an idempotent incremental scan, so
+  official usage/travel files created after config can still be imported.
+- Hardens config, travel, Codex, and official-data reads against symlinks,
+  replacement races, same-size inode swaps, and oversized files. Unknown travel
+  formats are preserved rather than rewritten as empty state.
+- Routes every `runtime.json` credential read through one bounded regular-file
+  helper, so duplicate-instance activation, provider hooks, and hook resync use
+  the same symlink and replacement-race defenses.
+- Makes custom Territory rivals exact process-name matches while retaining
+  built-in variant matching, preventing short custom strings from moving
+  unrelated application windows.
 
 ### Verification
 
-- Added `tauri-feature-parity-r46-smoke.js` covering all six feature groups.
-- Updated dual-window, bridge, capability, CLI-hardening, drag, tray, and
-  per-window platform contract tests.
-- Native Rust compilation remains dependent on a machine with the Rust/Tauri
-  toolchain and platform SDKs; source/static gates are run in this workspace.
+- Added focused tests for atomic session preferences and the global audit
+  contracts. The complete historical `npm test` suite passes, static checks are
+  22/22, protocol drift passes, all 35 retained assets remain byte-identical,
+  release source gates are 43/43, and the 322-file source manifest verifies.
+- Rust syntax and ownership-sensitive paths were manually audited, but native
+  `cargo fmt/check/test/build` still require a machine with the Rust/Tauri
+  toolchain and platform SDKs; this workspace does not claim those commands ran.
 
 ## 0.5.43 — Codex rollout watcher + parity matrix + territory honesty（2026-08-04）
 

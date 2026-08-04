@@ -1,4 +1,5 @@
 use crate::model::{home_dir, now_ms, ProviderStatus, Runtime, APP_DIR_NAME};
+use crate::secure_file::read_regular_bounded;
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 use std::fs;
@@ -363,8 +364,7 @@ pub fn sync_enabled(
 }
 
 pub fn resync_current(runtime: &Runtime) -> Result<Vec<ProviderStatus>, String> {
-    let raw = fs::read(&runtime.runtime_path)
-        .map_err(|e| format!("runtime metadata unavailable: {e}"))?;
+    let raw = read_regular_bounded(&runtime.runtime_path, 16 * 1024, "runtime metadata")?;
     let value: Value = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
     let port = value
         .get("port")

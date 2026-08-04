@@ -19,14 +19,14 @@ const panel = read('frontend/renderer/panel.js');
 const panelHtml = read('frontend/renderer/panel.html');
 const claudeFixture = JSON.parse(read('test/fixtures/claude-transcript-assistant.jsonl').trim());
 
-assert.strictEqual(pkg.version, '0.5.45');
-assert.strictEqual(tauri.version, '0.5.45');
-assert.match(cargo, /version = "0.5.45"/);
+assert.strictEqual(pkg.version, '0.5.46');
+assert.strictEqual(tauri.version, '0.5.46');
+assert.match(cargo, /version = "0.5.46"/);
 
 // Modules must be part of the active Tauri build and runtime, not dead drafts.
 assert.match(lib, /mod pricing_sync;/);
 assert.match(lib, /mod transcript;/);
-// R44 0.5.45: use cloned runtime Arc instead of state.runtime (borrow fix)
+// R44 0.5.46: use cloned runtime Arc instead of state.runtime (borrow fix)
 assert.match(lib, /pricing_sync::start\(runtime\.clone\(\), app\.handle\(\)\.clone\(\)\)/);
 assert.match(model, /pub transcripts: Mutex<TranscriptScanner>/);
 assert.match(model, /scan_from_hook\([\s\S]*?body,[\s\S]*?&id,[\s\S]*?&mut usage,[\s\S]*?now,/);

@@ -1,8 +1,7 @@
 'use strict';
 
-// R44 0.5.45: i18n-aware travel view. Uses OctoI18n.t() for all user-visible strings.
 window.OctoPetTravelView = (() => {
-  function create({ api, bubble, close }) {
+  function create({ api, bubble, close, provider }) {
     const wander = document.getElementById('sl-wander');
     const status = document.getElementById('sl-travel-status');
     let state = null;
@@ -12,35 +11,29 @@ window.OctoPetTravelView = (() => {
       const snapshot = state || {};
       const active = snapshot.active;
       const growth = snapshot.growth || {};
-      const t = window.OctoI18n ? window.OctoI18n.t : (k) => k;
-      if (wander) wander.textContent = active ? t('travel.cancel') : t('travel.wander');
+      if (wander) wander.textContent = active ? '⏹ 取消旅行' : '🐾 闲逛';
       if (!status) return;
       const badges = `${'🌿'.repeat(Number(growth.leaves) || 0)}${'⭐'.repeat(Number(growth.stars) || 0)}${'🌙'.repeat(Number(growth.moons) || 0)}${Number(growth.days) ? `☀️×${growth.days}` : ''}`;
-      if (active) {
-        const min = Math.max(0, Math.floor((Date.now() - active.startedAt) / 60000));
-        status.textContent = t('travel.active', { project: active.project || active.mode || '', min });
-      } else if (badges) {
-        status.textContent = t('travel.growthBadges', { badges, tokens: (Number(growth.totalTokens) || 0).toLocaleString() });
-      } else {
-        status.textContent = t('travel.hintLeaf');
-      }
+      status.textContent = active
+        ? `🧳 ${active.project || active.mode} · ${Math.max(0, Math.floor((Date.now() - active.startedAt) / 60000))} min`
+        : badges
+          ? `成长 ${badges} · ${(Number(growth.totalTokens) || 0).toLocaleString()} tokens`
+          : '每 10k 旅行 token 长出一片叶子';
     }
 
     async function toggle() {
-      const t = window.OctoI18n ? window.OctoI18n.t : (k) => k;
       try {
         if (state && state.active) {
           await api.cancelTravel();
-          bubble(t('travel.cancelling'), 2400, true);
+          bubble('⏹ 正在取消旅行…', 2400, true);
           return;
         }
-        const result = await api.startWander(t('travel.wanderMission'));
+        const result = await api.startWander('在公开网络上寻找一个值得开发者今天了解的新工具、方法或趋势', provider);
         update(result);
-        bubble(t('travel.wanderStart'), 3600, true);
+        bubble('🐾 出门闲逛啦，回来会带明信片！', 3600, true);
         close();
       } catch (error) {
-        const msg = String(error && (error.message || error) || 'unknown');
-        bubble(t('travel.wanderFailed', { error: msg }), 5000, true);
+        bubble(`⚠️ 闲逛失败：${String(error && (error.message || error) || 'unknown')}`, 5000, true);
       }
     }
 
