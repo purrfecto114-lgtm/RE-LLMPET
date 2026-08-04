@@ -244,12 +244,12 @@
     "src-tauri/src/main.rs": "85cddcc5c686d710971144ddb7d04ed57c8875f6ef6a1bef8236a114c25bfebc",
     "src-tauri/src/metering.rs": "21c20767b5fc647fe8f46ce0c1b2aafb45504a9dc00ff11c34ac61a9c4e4ddab",
     "src-tauri/src/migration.rs": "d76d55bfce90a2a5faf7bf843a589055bcae9ed68713867f2b203014ebbf8e95",
-    "src-tauri/src/model.rs": "f1b41e9e73d1375fc63002824c7c7ab1797f146b92195d574ba3998e86a8834e",
+    "src-tauri/src/model.rs": "3c7384fc1555c255e8a808f0f963d4d2826237be17c15dbd0aee48a94a7f3f7a",
     "src-tauri/src/platform.rs": "470d72bf3d18c124c3430a6a030f1e53b62b34d182694e78b6eb5aa71490ef0f",
     "src-tauri/src/pricing_sync.rs": "323d11906d05c148c0a222cb488510844cd5610e06382ee3f212f1d7f26a4e98",
     "src-tauri/src/territory.rs": "1751d80d3dd50f9ee8f20b0f42b4b950959ebf67d0f95b60ea855f8209538898",
     "src-tauri/src/transcript.rs": "28c2eb4b19ea3dbed6c8114c0f32f4b1c656209a5fea2fc14c69fe8b76fbeeec",
-    "src-tauri/src/travel.rs": "ca584ee98e14d03c94a3c25a7d20a35529f61c5d908b90174adc4591f4bad8db",
+    "src-tauri/src/travel.rs": "0dc35bacd60510460040ece86458ffa02bf7e17b045d55dea8e182a19bd13058",
     "src-tauri/tauri.conf.json": "eaa28a66ea24f1bc99bc12c72447799834bf0aebef6d2cea897ff28cd536103f",
     "src-tauri/tauri.linux.conf.json": "d82bedd08746ae0fe47cde39993b568486b552b32f3359641327d51487658cd2",
     "src-tauri/tauri.macos.conf.json": "836a67f119ce724d58dff3b2f3440498ea8208cb2b130249566848f5f84292ca",
@@ -322,6 +322,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "6b0f46ef478a1afac514bd4cf29a9059c91486c994e8f5fc9da93fb0c8722fbe"
   },
-  "sha256_of_manifest": "aa483fa6a3e31d6b2f6305dffcc2966348e8a730d73a2a29db778005a4a8e82a",
+  "sha256_of_manifest": "ffc8038678a991e8579c5315c6b8665105b09e0bfe3f77f35417ca6f01770d27",
   "source_commit": "octopus-0.5.45"
 }

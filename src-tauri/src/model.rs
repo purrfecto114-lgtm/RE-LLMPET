@@ -1542,7 +1542,7 @@ fn permission_choice(permission: &PendingPermission, project: &str) -> Value {
     })
 }
 
-fn todo_input<'a>(body: &'a Value) -> &'a Value {
+fn todo_input(body: &Value) -> &Value {
     body.get("tool_input")
         .or_else(|| body.get("toolInput"))
         .unwrap_or(body)
@@ -1550,7 +1550,7 @@ fn todo_input<'a>(body: &'a Value) -> &'a Value {
 
 static EMPTY_TODO_RESPONSE: Value = Value::Null;
 
-fn todo_response<'a>(body: &'a Value) -> &'a Value {
+fn todo_response(body: &Value) -> &Value {
     body.get("tool_response")
         .or_else(|| body.get("toolResponse"))
         .unwrap_or(&EMPTY_TODO_RESPONSE)
@@ -1698,9 +1698,7 @@ fn extract_todo_patch(body: &Value, tool_name: Option<&str>, event: &str) -> Opt
             if let Some(response_patch) = response.get("task").and_then(todo_patch_from_value) {
                 merge_todo_patch(&mut patch, response_patch);
             }
-            if patch.content.is_none() {
-                return None;
-            }
+            patch.content.as_ref()?;
             patch.status.get_or_insert_with(|| "pending".into());
             Some(patch)
         }
