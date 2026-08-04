@@ -2992,7 +2992,7 @@ fn launch_terminal(spec: AgentSpec, executable: &Path, cwd: &Path) -> Result<(),
             format!("'{}'", value.replace('\'', "'\"'\"'"))
         }
         let mut command = vec![shell_quote(&executable.to_string_lossy())];
-        command.extend(agent_launch_args(spec).iter().map(|arg| shell_quote(*arg)));
+        command.extend(agent_launch_args(spec).iter().map(|arg| shell_quote(arg)));
         let shell = format!(
             "cd {} && exec {}",
             shell_quote(&cwd.to_string_lossy()),
