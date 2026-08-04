@@ -6,6 +6,7 @@ use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
+#[allow(dead_code)]
 const DEFAULT_RIVALS: &[&str] = &[
     "desktop goose",
     "desktopgoose",
@@ -17,6 +18,7 @@ const DEFAULT_RIVALS: &[&str] = &[
     "桌宠",
 ];
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct WorkArea {
     left: i32,
@@ -25,6 +27,7 @@ struct WorkArea {
     bottom: i32,
 }
 
+#[allow(dead_code)]
 impl WorkArea {
     fn width(self) -> i64 {
         i64::from(self.right.saturating_sub(self.left).max(1))
@@ -35,6 +38,7 @@ impl WorkArea {
     }
 }
 
+#[allow(dead_code)]
 fn choose_work_area(
     areas: &[WorkArea],
     x: i32,
@@ -74,6 +78,7 @@ fn choose_work_area(
     })
 }
 
+#[allow(dead_code)]
 fn is_rival_process(process_lower: &str, custom_rivals: &[String]) -> bool {
     DEFAULT_RIVALS
         .iter()
@@ -81,6 +86,7 @@ fn is_rival_process(process_lower: &str, custom_rivals: &[String]) -> bool {
         || custom_rivals.iter().any(|rival| rival == process_lower)
 }
 
+#[allow(dead_code)]
 fn edge_target(area: WorkArea, x: i32, y: i32, width: i32, height: i32) -> (i32, i32) {
     let width = width.max(1);
     let height = height.max(1);

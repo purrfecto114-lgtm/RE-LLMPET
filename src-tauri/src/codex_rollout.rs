@@ -281,7 +281,7 @@ fn collect_jsonl(dir: &Path, depth: usize, output: &mut Vec<PathBuf>) {
     // Codex stores sessions under YYYY/MM/DD and timestamped rollout names.
     // Descending traversal means the hard cap retains recent sessions instead
     // of an arbitrary filesystem-order subset.
-    entries.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
+    entries.sort_by_key(|right| std::cmp::Reverse(right.file_name()));
     for entry in entries {
         if output.len() >= MAX_ROLLOUT_FILES.saturating_mul(2) {
             break;

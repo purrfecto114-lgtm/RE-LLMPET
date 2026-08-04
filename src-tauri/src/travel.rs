@@ -799,11 +799,7 @@ fn clean_text(value: &str, max: usize) -> String {
 }
 
 fn executable_names(provider: &str) -> Vec<String> {
-    let base = match provider {
-        "claude" => "claude",
-        "codex" => "codex",
-        _ => provider,
-    };
+    let base = provider;
     #[cfg(windows)]
     {
         vec![
