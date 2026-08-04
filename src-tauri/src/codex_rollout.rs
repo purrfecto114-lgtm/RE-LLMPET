@@ -22,7 +22,6 @@
 //!
 //! Reference: codex-rs/protocol/src/protocol.rs (TokenCountEvent, RateLimitSnapshot)
 
-use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
