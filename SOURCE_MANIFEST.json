@@ -249,7 +249,7 @@
     "src-tauri/src/migration.rs": "387048764730e6f3c81c093555fdcbf4e7fdad3e623e7ed602cab267f593f794",
     "src-tauri/src/model.rs": "225ffdb743a7b3f6056d32d98e1ddeb009693e16a4bf9597cb1473ad3ad0d704",
     "src-tauri/src/platform.rs": "37483aa58782c9699f8829043b69726cf3232b38a5ff47384103c44bebccfa81",
-    "src-tauri/src/pricing_sync.rs": "673b3f6afaa0a351b58bf3116a898020dc7148a5b4c8b5e56813e4e3751b91f3",
+    "src-tauri/src/pricing_sync.rs": "4a3928068091ffd2d31b29f7bd07cc5bdff18e64f1f8f36ffed86a3b8a43554c",
     "src-tauri/src/secure_file.rs": "b1f926abc2b59d0f9d1f91a997828c72703f8dcc68c14eceea664d88c47b4ba2",
     "src-tauri/src/territory.rs": "7ea73f8aa21e9d5ac500475f7d1e87460e7c15a07dc2a515fae3552d0f5d2fb3",
     "src-tauri/src/transcript.rs": "28c2eb4b19ea3dbed6c8114c0f32f4b1c656209a5fea2fc14c69fe8b76fbeeec",
@@ -330,6 +330,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "6b0f46ef478a1afac514bd4cf29a9059c91486c994e8f5fc9da93fb0c8722fbe"
   },
-  "sha256_of_manifest": "1a8b42ed30e859f76fac157230074a0a69fd6da33c054401668c5f42f1f22255",
+  "sha256_of_manifest": "69d2888a29cc66825d7bb94e561145e5571f18970846143d4e961d14d9f5780b",
   "source_commit": "octopus-0.5.46"
 }
