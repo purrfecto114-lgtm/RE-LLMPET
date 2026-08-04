@@ -70,6 +70,12 @@ pub fn run() {
                     .into());
                 }
             };
+            // R44 0.5.42: setup_tray takes &mut App, but `state` holds an
+            // immutable borrow. Clone the runtime Arc before calling setup_tray
+            // so the immutable borrow ends, allowing the mutable borrow.
+            let runtime = state.runtime.clone();
+            let pet_position = runtime.config().pet_position;
+            drop(state);
             setup_tray(app)?;
             // R28 (2026-07-30): Disable Windows 11 DWM automatic corner
             // rounding for ALL windows. Windows 11 rounds ALL window corners
@@ -86,7 +92,7 @@ pub fn run() {
                     }
                 }
             }
-            if let Some(position) = state.runtime.config().pet_position {
+            if let Some(position) = pet_position {
                 if let Some(window) = app.get_webview_window("pet") {
                     // R24 (2026-07-30): pet_position is stored as LOGICAL
                     // coordinates (per R22 commit_win_pos fix). Convert to

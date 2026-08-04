@@ -236,7 +236,7 @@
     "src-tauri/src/http_server.rs": "c15dc223b5486ccec83a7a5361ec0ecd977fa1126364b8924c0010ea4f1f8892",
     "src-tauri/src/i18n.rs": "044318b3c9524cae22cd6af0af7a03ddde99e0666f0d6122477399bb2a08be93",
     "src-tauri/src/instance_probe.rs": "91ff774527c7d7f5567158c9c2492a97c25e086a2c37bed0367923c61c870ac8",
-    "src-tauri/src/lib.rs": "c1dd6e1b789c8c4569af5f66b2f4d50dbaf368589b462174e4c53d4d6c278e86",
+    "src-tauri/src/lib.rs": "41c1b77874166a8c94cfb712091c91a3cee54654e08d9225a3fa8582c5bc86e3",
     "src-tauri/src/main.rs": "85cddcc5c686d710971144ddb7d04ed57c8875f6ef6a1bef8236a114c25bfebc",
     "src-tauri/src/metering.rs": "21c20767b5fc647fe8f46ce0c1b2aafb45504a9dc00ff11c34ac61a9c4e4ddab",
     "src-tauri/src/model.rs": "07931c1e12d901fdb862238ab6e0ed43e191d978fa1fc156020d213fb57b7c31",
@@ -313,6 +313,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "6b0f46ef478a1afac514bd4cf29a9059c91486c994e8f5fc9da93fb0c8722fbe"
   },
-  "sha256_of_manifest": "3375e036a1d63899521c4a77799ce484270cf855bfd37d4bdc222b25dd116a71",
+  "sha256_of_manifest": "28a327a1657c879a7e974169c12f7f6f8a3c73c6328e709a5746d21d31ce24da",
   "source_commit": "octopus-0.5.42"
 }
