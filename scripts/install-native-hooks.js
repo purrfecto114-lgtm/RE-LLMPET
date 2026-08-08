@@ -140,7 +140,7 @@ function install() {
 function uninstall() {
   const settings = readJson(SETTINGS, {});
   if (!settings.hooks) return { removed: 0 };
-  const backup = `${SETTINGS}.re-llmpet-native-backup-${Date.now()}.bak`;
+  const backup = `${SETTINGS}.octopus-native-backup-${Date.now()}.bak`;
   if (fs.existsSync(SETTINGS)) fs.copyFileSync(SETTINGS, backup);
   const removed = remove(settings.hooks);
   if (removed) writeAtomic(SETTINGS, settings);

@@ -1037,7 +1037,7 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
 /// Behavior:
 ///   - If `path` does not exist (first install), returns Ok(None). No backup
 ///     is created — there is nothing to protect.
-///   - If `path` exists, copies it to `<parent>/.<stem>.re-llmpet-bak-<unix_ms>.<ext>`
+///   - If `path` exists, copies it to `<parent>/.<stem>.octopus-bak-<unix_ms>.<ext>`
 ///     alongside the original. The leading dot keeps it out of the way of
 ///     most tooling that glob-lists the directory.
 ///   - Prunes backups of the SAME stem + extension to the newest
@@ -1069,9 +1069,9 @@ fn backup_config_file(path: &Path, runtime: &Runtime) -> Result<Option<PathBuf>,
     //   - embeds the extension so a TOML backup isn't accidentally picked
     //     up by a JSON tool that globs `*.json`
     let backup_name = if ext.is_empty() {
-        format!(".{stem}.re-llmpet-bak-{ts}")
+        format!(".{stem}.octopus-bak-{ts}")
     } else {
-        format!(".{stem}.re-llmpet-bak-{ts}.{ext}")
+        format!(".{stem}.octopus-bak-{ts}.{ext}")
     };
     let backup_path = parent.join(backup_name);
     fs::copy(path, &backup_path).map_err(|e| {
@@ -1096,12 +1096,14 @@ fn backup_config_file(path: &Path, runtime: &Runtime) -> Result<Option<PathBuf>,
     Ok(Some(backup_path))
 }
 
-/// R44 Phase 0C: prune `.<stem>.re-llmpet-bak-<ts>[.<ext>]` files in
+/// R44 Phase 0C: prune `.<stem>.octopus-bak-<ts>[.<ext>]` files in
 /// `parent` to the newest `BACKUP_RETENTION`. Files matching the stem
 /// but a DIFFERENT extension are left alone (they belong to a different
 /// provider's config in the same directory).
 fn prune_backups(parent: &Path, stem: &str, ext: &str) -> Result<(), String> {
-    let prefix = format!(".{stem}.re-llmpet-bak-");
+    let prefix = format!(".{stem}.octopus-bak-");
+    // Also sweep legacy-named backups (re-llmpet-bak-) for backward compat.
+    let legacy_prefix = format!(".{stem}.re-llmpet-bak-");
     let suffix = if ext.is_empty() {
         String::new()
     } else {
@@ -1114,11 +1116,19 @@ fn prune_backups(parent: &Path, stem: &str, ext: &str) -> Result<(), String> {
             Some(s) => s.to_string(),
             None => continue,
         };
-        if !name.starts_with(&prefix) || !name.ends_with(&suffix) {
+        // Match either current (octopus-bak) or legacy (re-llmpet-bak) prefix.
+        let active_prefix = if name.starts_with(&prefix) {
+            &prefix
+        } else if name.starts_with(&legacy_prefix) {
+            &legacy_prefix
+        } else {
+            continue;
+        };
+        if !name.ends_with(&suffix) {
             continue;
         }
         // Extract the timestamp between prefix and suffix.
-        let mid = &name[prefix.len()..name.len() - suffix.len()];
+        let mid = &name[active_prefix.len()..name.len() - suffix.len()];
         if let Ok(ts) = mid.parse::<u64>() {
             backups.push((ts, entry.path()));
         }
@@ -1140,7 +1150,7 @@ fn prune_backups(parent: &Path, stem: &str, ext: &str) -> Result<(), String> {
 /// The legacy CodeWhale-specific naming (`.<stem>-re-llmpet-backup-<ts>.toml`)
 /// is preserved for backward compat: the old pruner scanned for
 /// `-re-llmpet-backup-` and removed files matching that pattern; the new
-/// pruner scans for `.re-llmpet-bak-`. Both patterns coexist so old
+/// pruner scans for `.octopus-bak-`. Both patterns coexist so old
 /// pre-0.5.38 backups are eventually cleaned up by the new pruner when
 /// the user runs another install, while new backups use the shorter name.
 ///
@@ -1879,7 +1889,7 @@ fn write_text_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
 //     "version": "0.5.38",
 //     "installed_at": 1722700000000,
 //     "path": "/home/user/.claude/settings.json",
-//     "backup_path": "/home/user/.claude/.settings.re-llmpet-bak-1722700000000.json",
+//     "backup_path": "/home/user/.claude/.settings.octopus-bak-1722700000000.json",
 //     "events": ["SessionStart", "SessionEnd", ...],
 //     "drift_signature": "9e8a3f1c2b7d4a55... (64-char SHA-256 hex)"
 //   }
@@ -2034,7 +2044,7 @@ fn prune_receipts(dir: &Path, provider: &str) -> Result<(), String> {
 /// this version's receipt system").
 ///
 /// Phase 0D will use this to show the user "you installed Claude on
-/// 2026-08-03 14:23; backup at /home/.../.settings.re-llmpet-bak-...json"
+/// 2026-08-03 14:23; backup at /home/.../.settings.octopus-bak-...json"
 /// before confirming a destructive uninstall.
 pub fn read_install_receipts() -> Map<String, Value> {
     let dir = receipts_dir();

@@ -475,17 +475,17 @@ fn download_with_curl(
                         break;
                     }
                     if attempt + 1 < CURL_ATTEMPTS_PER_SOURCE {
-                        let delay = CURL_RETRY_BACKOFF_MS.get(attempt).copied().unwrap_or(2_000);
+                        let delay = CURL_RETRY_BACKOFF_MS
+                            .get(attempt)
+                            .copied()
+                            .unwrap_or(2_000);
                         thread::sleep(Duration::from_millis(delay));
                     }
                 }
             }
         }
     }
-    Err(format!(
-        "all pricing sources failed: {}",
-        errors.join(" | ")
-    ))
+    Err(format!("all pricing sources failed: {}", errors.join(" | ")))
 }
 
 fn download_single_with_curl(
@@ -558,10 +558,7 @@ fn download_single_with_curl(
         let summary = if stderr.is_empty() {
             format!("curl exited with {}", result.status)
         } else {
-            format!(
-                "curl exit {}: {stderr}",
-                exit_code.map_or_else(|| "signal".into(), |code| code.to_string())
-            )
+            format!("curl exit {}: {stderr}", exit_code.map_or_else(|| "signal".into(), |code| code.to_string()))
         };
         return Err(CurlAttemptError {
             message: summary,

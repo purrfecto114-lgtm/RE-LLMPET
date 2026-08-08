@@ -114,12 +114,15 @@ assert.ok(opencodeSection.includes('backup_config_file(&path, runtime)?'),
 
 assert.ok(hookInstall.includes('const BACKUP_RETENTION: usize = 5;'),
   'P0C-2: BACKUP_RETENTION must be 5 (count-based cap)');
-// New naming pattern
-assert.ok(hookInstall.includes('.re-llmpet-bak-'),
-  'P0C-2: backup filename must use .re-llmpet-bak-<ts> pattern');
+// New naming pattern (octopus-bak, with legacy re-llmpet-bak sweep)
+assert.ok(hookInstall.includes('.octopus-bak-'),
+  'P0C-2: backup filename must use .octopus-bak-<ts> pattern');
 // The leading dot keeps backups hidden on Unix
-assert.ok(hookInstall.includes('format!(".{stem}.re-llmpet-bak-{ts}'),
+assert.ok(hookInstall.includes('format!(".{stem}.octopus-bak-{ts}'),
   'P0C-2: backup filename must start with . (hidden on Unix)');
+// Legacy re-llmpet-bak sweep must still exist for backward compat
+assert.ok(hookInstall.includes('re-llmpet-bak'),
+  'P0C-2: legacy re-llmpet-bak sweep must exist for backward compat');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0C-3: Fail-closed contract — returns Result<Option<PathBuf>, String>

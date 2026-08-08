@@ -165,7 +165,7 @@
     "scripts/generate-release-config.js": "db919271479f0154e0a412567a0c5c70ef9f3102cffaeba7a43798d1734b6d79",
     "scripts/generate-sbom.js": "f4be1749f16a4430c451c2c42f7ec7920c04fce6c9fae446cc061986355e6a0f",
     "scripts/generate-source-manifest.js": "2ca0455384ccd9a41240106218ee26e073c3a309a91b5ffa5ca689bba8857f04",
-    "scripts/install-native-hooks.js": "c404f9d260a530440e87eeea277ac3ced2b4c1bca6b4de4003c13ddca2accd3c",
+    "scripts/install-native-hooks.js": "5854ce9e40051751ceb20b7ab2ff3950e507c54d1f4a03818e9d63a74bb5dc8e",
     "scripts/phase-0e-destructive-test.sh": "b27dce273a1e9588b6adc1bab2f9e62e275b38c27dc91ee9aca824925f565b8d",
     "scripts/real-desktop-gate.js": "af9025f6df99f8f3d9113f4d25aedacc0b2b2656e9239c52c176f57011843e07",
     "scripts/real-provider-smoke.js": "d230062856c8649068abb2939f7bf3271626092cbd67a1297a41903cd1a55880",
@@ -239,7 +239,7 @@
     "src-tauri/src/diagnostic_io.rs": "0e6a4d42d3a9bd2bffc3506551131d68770af22ccbc5331154fb63888339f33f",
     "src-tauri/src/emotion.rs": "ffab61788372ed4bd81b3c68338efee1318a237e02274b5f7413c395dddf901c",
     "src-tauri/src/hook_client.rs": "370455781a7eb7d72fa18bc3820fc86b1178c5881e65d8008f192438997aa6f2",
-    "src-tauri/src/hook_install.rs": "b76ba8163924e8dfe4d091573d4bd1fc7fa16fdbb74d98e9a4d04135c961f112",
+    "src-tauri/src/hook_install.rs": "3ad72a7f7b4c6a9e6ee0a9a07d16d0420a77ad417ec64d7e389a725a71825dea",
     "src-tauri/src/http_server.rs": "3f7847808028c5230742e80e7a0ec3ad16fdaabfb2c22e2ae279dfa7a165a820",
     "src-tauri/src/i18n.rs": "044318b3c9524cae22cd6af0af7a03ddde99e0666f0d6122477399bb2a08be93",
     "src-tauri/src/instance_probe.rs": "38fee6c5356d7d6e1662ca085bff609fdfcfbaaf585a3f7a1cb2b4fd346e0345",
@@ -249,7 +249,7 @@
     "src-tauri/src/migration.rs": "387048764730e6f3c81c093555fdcbf4e7fdad3e623e7ed602cab267f593f794",
     "src-tauri/src/model.rs": "225ffdb743a7b3f6056d32d98e1ddeb009693e16a4bf9597cb1473ad3ad0d704",
     "src-tauri/src/platform.rs": "37483aa58782c9699f8829043b69726cf3232b38a5ff47384103c44bebccfa81",
-    "src-tauri/src/pricing_sync.rs": "4a3928068091ffd2d31b29f7bd07cc5bdff18e64f1f8f36ffed86a3b8a43554c",
+    "src-tauri/src/pricing_sync.rs": "673b3f6afaa0a351b58bf3116a898020dc7148a5b4c8b5e56813e4e3751b91f3",
     "src-tauri/src/secure_file.rs": "b1f926abc2b59d0f9d1f91a997828c72703f8dcc68c14eceea664d88c47b4ba2",
     "src-tauri/src/territory.rs": "7ea73f8aa21e9d5ac500475f7d1e87460e7c15a07dc2a515fae3552d0f5d2fb3",
     "src-tauri/src/transcript.rs": "28c2eb4b19ea3dbed6c8114c0f32f4b1c656209a5fea2fc14c69fe8b76fbeeec",
@@ -316,7 +316,7 @@
     "test/tauri-r44-0-5-40-product-closure-smoke.js": "c1f9f1da5a4530d93e294b3e468117b7249106f04da5003bb46016aa6a1f9996",
     "test/tauri-r44-0-5-41-config-durability-smoke.js": "e536ac752203d0a0cdfc331b88040ade9983af3a6a8954bd0af74ff213bc790c",
     "test/tauri-r44-0-5-43-codex-rollout-smoke.js": "e18d67c4d0054041ae17b272241cf34fb0613411fa60dd084029ce1c60fc7726",
-    "test/tauri-r44c-backup-receipt-smoke.js": "7c552257840abd87c6142ea6f5f2fc4f25879491ecdb5cd629fc5cb2c82253ce",
+    "test/tauri-r44c-backup-receipt-smoke.js": "2eb83f704d28555b77f160626c6a4d2a9a323e2fd4fab00f2c059c4732fc36f5",
     "test/tauri-r44d-uninstall-provenance-smoke.js": "37b31892e403a608086da79a3bde0195265710e748023f19e41dd195b84952bb",
     "test/tauri-r45-release-lifecycle-smoke.js": "589e2da8dab3b57f935b5c9080b713ef6caf1d038097d3091306a6e3741590a2",
     "test/tauri-single-instance-smoke.js": "61d073c7e5537f2c4aedc90cc0801b933cb0b2fcbdf499daffb8269f70246e02",
@@ -330,6 +330,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "6b0f46ef478a1afac514bd4cf29a9059c91486c994e8f5fc9da93fb0c8722fbe"
   },
-  "sha256_of_manifest": "69d2888a29cc66825d7bb94e561145e5571f18970846143d4e961d14d9f5780b",
+  "sha256_of_manifest": "0c1fb27faba2214f56951ebd964567fc99cd1f283e71f63dba86079764d40188",
   "source_commit": "octopus-0.5.46"
 }
