@@ -188,13 +188,13 @@ ${card.summary || ''}` : '';
     $('active-sub').textContent = t('panel.waiting');
   }
   // 大数
-  // AUDIT-FIX (2026-07-30): was hardcoded ' 轮' / ' 重置'; now uses the
-  // existing panel.rounds / panel.reset i18n keys (already in zh/en/ja).
-  $('today-cost').textContent = aggregateCostText(s.today);
-  $('today-tokens').textContent = fmt(s.today.tokens) + ' tokens · ' + s.today.messages + t('panel.rounds');
-  $('win-cost').textContent = aggregateCostText(s.window5h);
-  if (s.window5h.tokens > 0 && s.window5h.resetTs) {
-    $('win-reset').textContent = fmt(s.window5h.tokens) + ' tok · ' + timeStr(s.window5h.resetTs) + t('panel.reset');
+  // R1-A#2: defensive reads — missing today/window5h must not crash render()
+  const today = s.today || {}, w5h = s.window5h || {};
+  $('today-cost').textContent = aggregateCostText(today);
+  $('today-tokens').textContent = fmt(today.tokens) + ' tokens · ' + today.messages + t('panel.rounds');
+  $('win-cost').textContent = aggregateCostText(w5h);
+  if (w5h.tokens > 0 && w5h.resetTs) {
+    $('win-reset').textContent = fmt(w5h.tokens) + ' tok · ' + timeStr(w5h.resetTs) + t('panel.reset');
   } else {
     $('win-reset').textContent = t('panel.windowIdle');
   }
@@ -202,8 +202,8 @@ ${card.summary || ''}` : '';
   // 预算条
   if (config.budget5h > 0) {
     $('budget-wrap').classList.remove('hidden');
-    const pct = Math.min(100, (s.window5h.cost / config.budget5h) * 100);
-    $('budget-pct').textContent = (s.window5h.unknownPrice > 0 ? '≥' : '') + pct.toFixed(0) + '%';
+    const pct = Math.min(100, ((w5h.cost || 0) / config.budget5h) * 100);
+    $('budget-pct').textContent = (w5h.unknownPrice > 0 ? '≥' : '') + pct.toFixed(0) + '%';
     const fill = $('budget-fill');
     fill.style.width = pct + '%';
     fill.classList.toggle('warn', pct >= 80);

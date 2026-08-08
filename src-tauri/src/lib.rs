@@ -259,7 +259,12 @@ pub fn run() {
             }
             let _ = app_handle.remove_tray_by_id("main-tray");
             let state = app_handle.state::<AppState>();
-            state.runtime.write_log("shutdown", "tray icon removed");
+            // P5-1 fix: kill any in-flight travel/wander child process so it
+            // doesn't survive as an orphan consuming CPU + writing to the
+            // .travel-*.out/.err files indefinitely. Must run BEFORE the
+            // process exits; with `panic = "abort"` there is no Drop guarantee.
+            state.runtime.travel.shutdown();
+            state.runtime.write_log("shutdown", "tray icon removed; travel child released");
         }
         RunEvent::Resumed => {
             let state = app_handle.state::<AppState>();

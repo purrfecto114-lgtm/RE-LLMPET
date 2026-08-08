@@ -11,13 +11,16 @@
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_ROLLOUT_FILES: usize = 4_000;
-const MAX_ROLLOUT_BYTES: u64 = 32 * 1024 * 1024;
+// P6-1/P6-3 fix (R2): raised from 32 MB to 256 MB now that we stream
+// line-by-line instead of loading the whole file into memory. The old 32 MB
+// cap silently dropped long sessions' token data.
+const MAX_ROLLOUT_BYTES: u64 = 256 * 1024 * 1024;
 const SNAPSHOT_CACHE_MS: u64 = 3_000;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -305,16 +308,44 @@ fn collect_jsonl(dir: &Path, depth: usize, output: &mut Vec<PathBuf>) {
 }
 
 fn parse_rollout_file(path: &Path) -> Result<FileSummary, String> {
-    let bytes = read_regular_file_bounded(path, MAX_ROLLOUT_BYTES)?;
-    let raw = String::from_utf8(bytes).map_err(|error| error.to_string())?;
+    // P6-1/P6-2/P6-3 fix (R2): stream line-by-line via BufReader
+    // instead of loading the whole file with read_to_end + String::from_utf8.
+    // This bounds memory at ~one JSONL line (vs 32+ MB) and only skips
+    // the individual malformed line instead of the entire file on a single
+    // bad UTF-8 byte. serde_json::from_slice accepts &[u8] directly,
+    // so we never need to validate UTF-8 at the file level.
+    let file = File::open(path).map_err(|error| format!("open: {error}"))?;
+    let opened = file.metadata().map_err(|error| format!("metadata: {error}"))?;
+    if !opened.is_file() || opened.len() > MAX_ROLLOUT_BYTES {
+        return Err(if opened.len() > MAX_ROLLOUT_BYTES {
+            "file exceeds size limit".into()
+        } else {
+            "not a regular file".into()
+        });
+    }
+    let reader = BufReader::with_capacity(64 * 1024, file);
     let mut summary = FileSummary::default();
     let mut previous_cumulative = UsageTotals::default();
-    for line in raw.lines() {
-        let line = line.trim();
-        if line.is_empty() {
+    let mut buf = Vec::new();
+    for line_result in reader.lines() {
+        buf.clear();
+        let line = match line_result {
+            Ok(line) => line,
+            Err(error) => {
+                summary.malformed_lines = summary.malformed_lines.saturating_add(1);
+                // Log the I/O error but continue parsing other lines
+                // (don't fail the whole file for a single read error).
+                continue;
+            }
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
             continue;
         }
-        let parsed: Value = match serde_json::from_str(line) {
+        // P6-2 fix (R2): use from_slice on the raw bytes directly.
+        // serde_json accepts &[u8] and validates UTF-8 per-value, so a
+        // single non-UTF-8 byte only skips that line, not the whole file.
+        let parsed: Value = match serde_json::from_slice(trimmed.as_bytes()) {
             Ok(value) => value,
             Err(_) => {
                 summary.malformed_lines = summary.malformed_lines.saturating_add(1);

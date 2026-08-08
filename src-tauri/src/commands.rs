@@ -93,15 +93,32 @@ pub fn get_config_state(state: State<'_, AppState>) -> Value {
 /// state, and writes defaults. Returns the backup path so the UI can tell
 /// the user where their old config was preserved.
 #[tauri::command]
-pub fn backup_and_reset_config(state: State<'_, AppState>) -> Result<Value, String> {
+pub fn backup_and_reset_config(app: AppHandle, state: State<'_, AppState>) -> Result<Value, String> {
     let result = state.runtime.backup_and_reset_config()?;
+    // R1-B#7 fix: log only the backup file NAME (not absolute path) to avoid
+    // leaking the local username into re-llmpet.log. The full path is already
+    // returned to the UI via backupPath below.
+    let backup_name = result
+        .backup_path
+        .as_ref()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "<none>".to_string());
     state.runtime.write_log(
         "config",
         &format!(
-            "backup_and_reset_config: reset={}, backup_created={}, backup_path={:?}",
-            result.reset, result.backup_created, result.backup_path
+            "backup_and_reset_config: reset={}, backup_created={}, backup_name={}",
+            result.reset, result.backup_created, backup_name
         ),
     );
+    // P3-3: emit config+stats so renderer refreshes (in-memory Mutex already
+    // updated to defaults by backup_and_reset_config — P3-1 fix).
+    let config = state.runtime.config_view();
+    let _ = app.emit("pet:config", config.clone());
+    let _ = app.emit("panel:config", config);
+    let stats = state.runtime.stats();
+    let _ = app.emit("pet:stats", stats.clone());
+    let _ = app.emit("panel:stats", stats);
     Ok(json!({
         "reset": result.reset,
         "backupCreated": result.backup_created,
@@ -755,7 +772,7 @@ pub fn territory_toggle_auto(
     if platform_state.is_ui_busy() {
         return Ok(json!({"enabled":true,"deferred":true}));
     }
-    let mut result = crate::territory::run_now(&app, &state.runtime)?;
+    let mut result = crate::territory::run_now(&app, &state.runtime, &platform_state)?;
     if let Some(object) = result.as_object_mut() {
         object.insert("enabled".into(), json!(true));
     }
@@ -771,7 +788,7 @@ pub fn territory_run_now(
     if platform_state.is_ui_busy() {
         return Ok(json!({"deferred":true,"message":"UI is busy"}));
     }
-    crate::territory::run_now(&app, &state.runtime)
+    crate::territory::run_now(&app, &state.runtime, &platform_state)
 }
 
 const PANEL_DEFAULT_WIDTH: f64 = 560.0;
@@ -1380,15 +1397,13 @@ fn resolve_agent(spec: AgentSpec) -> Result<PathBuf, String> {
 
 fn redact_sensitive_line(line: &str) -> String {
     let lower = line.to_ascii_lowercase();
+    // R1-B#4: broadened key allowlist — original missed auth_token/jwt/email/etc.
     let sensitive_keys = [
-        "api_key",
-        "api-key",
-        "apikey",
-        "authorization",
-        "access_token",
-        "refresh_token",
-        "client_secret",
-        "password",
+        "api_key", "api-key", "apikey", "authorization", "access_token",
+        "refresh_token", "client_secret", "password", "auth_token",
+        "bearer_token", "oauth_token", "session_token", "id_token", "jwt",
+        "api_token", "private_key", "signing_key", "email", "account",
+        "username", "user_id",
     ];
     if sensitive_keys.iter().any(|key| lower.contains(key)) {
         if let Some(index) = line.find(':').or_else(|| line.find('=')) {
@@ -1398,19 +1413,22 @@ fn redact_sensitive_line(line: &str) -> String {
     }
 
     let mut output = Vec::new();
+    let mut prev_was_bearer = false;
     for token in line.split_whitespace() {
         let normalized = token.trim_matches(|ch: char| {
-            matches!(
-                ch,
-                '\"' | '\'' | ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}'
-            )
+            matches!(ch, '\"' | '\'' | ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}')
         });
-        let lower_token = normalized.to_ascii_lowercase();
-        let looks_secret = lower_token.starts_with("sk-")
-            || lower_token.starts_with("sk_")
-            || lower_token.starts_with("ds-")
-            || lower_token.starts_with("bearer-")
-            || (lower_token.starts_with("bearer") && normalized.len() > 12);
+        let lt = normalized.to_ascii_lowercase();
+        // R1-B#3: extended prefixes — JWT(eyJ), GitHub(gh[ousrp]_), GitLab(glpat-),
+        // Slack(xox), plus redact token after bare "bearer".
+        let looks_secret = lt.starts_with("sk-") || lt.starts_with("sk_")
+            || lt.starts_with("ds-") || lt.starts_with("bearer-")
+            || lt.starts_with("eyJ") || lt.starts_with("gho_")
+            || lt.starts_with("ghu_") || lt.starts_with("ghs_")
+            || lt.starts_with("ghp_") || lt.starts_with("ghr_")
+            || lt.starts_with("glpat-") || lt.starts_with("xox")
+            || prev_was_bearer;
+        prev_was_bearer = lt == "bearer";
         output.push(if looks_secret { "***" } else { token });
     }
     output.join(" ")

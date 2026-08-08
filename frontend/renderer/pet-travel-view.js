@@ -11,6 +11,15 @@ window.OctoPetTravelView = (() => {
       const snapshot = state || {};
       const active = snapshot.active;
       const growth = snapshot.growth || {};
+      // P5-3 fix (R2): if a terminal event (completed/failed/cancelled)
+      // arrives for a trip whose id doesn't match the currently-active
+      // trip, ignore it. This prevents stale cancel events from a
+      // fast cancel→new-start race from showing a cancel bubble over an
+      // active trip. The `tripId` field was added in R2 to the Rust
+      // pet:travel emit alongside the existing `trip` object.
+      const eventTripId = snapshot.tripId;
+      const activeId = active && active.id;
+      if (eventTripId && activeId && eventTripId !== activeId) return;
       if (wander) wander.textContent = active ? '⏹ 取消旅行' : '🐾 闲逛';
       if (!status) return;
       const badges = `${'🌿'.repeat(Number(growth.leaves) || 0)}${'⭐'.repeat(Number(growth.stars) || 0)}${'🌙'.repeat(Number(growth.moons) || 0)}${Number(growth.days) ? `☀️×${growth.days}` : ''}`;

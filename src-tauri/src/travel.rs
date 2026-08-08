@@ -8,6 +8,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -18,6 +19,29 @@ use uuid::Uuid;
 const MAX_TRAVEL_MS: u64 = 30 * 60 * 1000;
 const MAX_OUTPUT_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TRAVEL_STATE_BYTES: u64 = 4 * 1024 * 1024;
+
+/// P5-5 fix (R2): wait for a child process with a bounded timeout.
+/// `child.wait()` can block forever if the child is unkillable (EPERM).
+/// This polls `try_wait()` at 50ms intervals for up to `timeout`, then
+/// gives up. Returns `Ok(status)` if the child exited, `Err(())` if
+/// the timeout expired.
+fn wait_bounded(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> Result<std::process::ExitStatus, ()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => {}
+            Err(_) => return Err(()),
+        }
+        if Instant::now() >= deadline {
+            return Err(());
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -234,7 +258,59 @@ impl TravelManager {
 
         let manager = self.clone();
         thread::spawn(move || {
-            manager.run_trip(app, runtime, trip, executable, cwd);
+            // P5-4 fix (R2): wrap run_trip in catch_unwind so a panic
+            // doesn't leave the trip permanently stuck in "traveling" state.
+            // On panic, set active=None / child_pid=None, persist a failed
+            // postcard, and emit pet:travel failed.
+            let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                manager.run_trip(app.clone(), runtime.clone(), trip.clone(), executable, cwd);
+            }));
+            if let Err(panic_payload) = result {
+                let msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "unknown panic in travel worker".into()
+                };
+                eprintln!("[octopus] travel worker panic: {msg}");
+                *manager.child_pid.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                let _ = fs::remove_file(
+                    &runtime.app_dir.join(format!(".travel-{}.out", trip.id)),
+                );
+                let _ = fs::remove_file(
+                    &runtime.app_dir.join(format!(".travel-{}.err", trip.id)),
+                );
+                *manager.active.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                let mut persisted = manager.persisted.lock().unwrap_or_else(|e| e.into_inner());
+                persisted.failed = persisted.failed.saturating_add(1);
+                persisted.postcards.push(Postcard {
+                    id: trip.id.clone(),
+                    mode: trip.mode.clone(),
+                    provider: trip.provider.clone(),
+                    project: trip.project.clone(),
+                    mission: trip.mission.clone(),
+                    summary: format!("internal error: {msg}"),
+                    tokens: 0,
+                    started_at: trip.started_at,
+                    completed_at: now_ms(),
+                    status: "failed".into(),
+                });
+                if persisted.postcards.len() > 100 {
+                    let extra = persisted.postcards.len() - 100;
+                    persisted.postcards.drain(0..extra);
+                }
+                drop(persisted);
+                let _ = manager.persist();
+                let _ = app.emit(
+                    "pet:travel",
+                    json!({"phase":"failed","trip":trip,"summary":format!("internal error: {msg}"),"tokens":0,"state":manager.snapshot()}),
+                );
+                let _ = app.emit(
+                    "pet:event",
+                    json!({"kind":"travel","phase":"failed","provider":trip.provider,"sessionId":trip.session_id,"text":"旅行线程内部错误"}),
+                );
+            }
         });
         Ok(self.snapshot())
     }
@@ -277,7 +353,7 @@ impl TravelManager {
                 });
             if let Err(error) = stdin_result {
                 let _ = crate::commands::kill_process_tree(pid);
-                let _ = child.wait();
+                let _ = wait_bounded(&mut child, Duration::from_secs(2));
                 return Err(error);
             }
 
@@ -287,15 +363,13 @@ impl TravelManager {
                     Ok(Some(status)) => break status,
                     Ok(None) => {}
                     Err(error) => {
-                        let kill_error = crate::commands::kill_process_tree(pid).err();
+                        // P5-5 fix (R2): kill best-effort, then bounded wait.
+                        // On EPERM the child may be immortal (setuid, sandbox);
+                        // we give it 2 seconds then proceed with cleanup.
+                        let _ = crate::commands::kill_process_tree(pid);
                         let _ = child.kill();
-                        let _ = child.wait();
-                        return Err(match kill_error {
-                            Some(kill_error) => format!(
-                                "poll travel process: {error}; terminate process tree: {kill_error}"
-                            ),
-                            None => format!("poll travel process: {error}"),
-                        });
+                        let _ = wait_bounded(&mut child, Duration::from_secs(2));
+                        return Err(format!("poll travel process: {error}"));
                     }
                 }
                 let stop_reason = if self.cancel.load(Ordering::Acquire) {
@@ -310,10 +384,12 @@ impl TravelManager {
                 if let Some(reason) = stop_reason {
                     if let Err(error) = crate::commands::kill_process_tree(pid) {
                         let _ = child.kill();
-                        let _ = child.wait();
+                        // P5-5 fix (R2): bounded wait (2 s) to avoid blocking forever
+                        // on EPERM (e.g. child dropped privileges / sandbox)
+                        let _ = wait_bounded(&mut child, Duration::from_secs(2));
                         return Err(format!("{reason}; terminate process tree: {error}"));
                     }
-                    let _ = child.wait();
+                    let _ = wait_bounded(&mut child, Duration::from_secs(2));
                     return Err(reason);
                 }
                 thread::sleep(Duration::from_millis(50));
@@ -373,10 +449,16 @@ impl TravelManager {
             );
         }
         let snapshot = self.snapshot();
+        // P5-3 fix (R2): stamp trip.id on every pet:travel emit so the
+        // renderer can ignore terminal events from stale trips. Without this,
+        // a fast cancel→new-start race could deliver "cancelled" for an old
+        // trip after "started" for the new one, showing a cancel bubble over
+        // an active trip.
         let _ = app.emit(
             "pet:travel",
             json!({
                 "phase": status,
+                "tripId": trip.id,
                 "trip": trip.clone(),
                 "summary": summary.clone(),
                 "tokens": tokens,
@@ -390,6 +472,7 @@ impl TravelManager {
                 "phase":status,
                 "provider":trip.provider,
                 "sessionId":trip.session_id,
+                "tripId":trip.id,
                 "text":summary
             }),
         );
@@ -406,7 +489,38 @@ impl TravelManager {
             return Err("no active trip".into());
         }
         self.cancel.store(true, Ordering::Release);
+        // P5-2 fix: also kill the child directly so we don't depend solely on
+        // the 50 ms worker poll. This closes the 50 ms window where cancel
+        // could be requested but the child keeps running until the next poll
+        // tick (or forever if the app exits within that window).
+        self.kill_child_now();
         Ok(self.snapshot())
+    }
+
+    /// P5-1 fix: kill the in-flight child process and signal cancel so the
+    /// worker thread winds down. Called from `RunEvent::ExitRequested` so the
+    /// CLI child (and its process-group descendants) die with the app instead
+    /// of being orphaned. Best-effort: errors are swallowed because the app
+    /// is shutting down anyway and we must not block exit.
+    pub fn shutdown(&self) {
+        self.cancel.store(true, Ordering::Release);
+        self.kill_child_now();
+    }
+
+    /// Kill the tracked child process tree if one is registered. Idempotent:
+    /// safe to call when `child_pid` is `None` (no-op) and safe to call twice
+    /// (the second `kill_process_tree` gets ESRCH and is treated as success).
+    fn kill_child_now(&self) {
+        let pid = *self.child_pid.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(pid) = pid {
+            // Delegates to platform-specific kill (taskkill /T on Windows,
+            // kill(-pgid, SIGTERM then SIGKILL) on Unix). Errors are logged
+            // via eprintln! (write_log may not be available in all contexts
+            // and the app is typically exiting).
+            if let Err(error) = crate::commands::kill_process_tree(pid) {
+                eprintln!("[octopus] travel child kill failed for pid {pid}: {error}");
+            }
+        }
     }
 
     fn persist(&self) -> Result<(), String> {

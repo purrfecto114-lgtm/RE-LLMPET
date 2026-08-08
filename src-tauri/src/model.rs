@@ -1563,6 +1563,23 @@ impl Runtime {
             .append(true)
             .open(&self.log_path)
             .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
+        // R1-B#1 fix: enforce 0600 perms on the log file. Every other persisted
+        // state file in the app (write_private_json_atomic, write_text_atomic,
+        // write_private_atomic, metering secure_file, travel, pricing, runtime)
+        // explicitly sets 0600; the log file was the lone outlier, defaulting
+        // to the process umask (often 0644 = world-readable on Linux). We set
+        // it on every write so the perms are correct even after rotation
+        // (fs::rename preserves the source inode's mode, so rotated files
+        // inherit 0600 once the current file has it). Best-effort: a chmod
+        // failure does not block logging.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(
+                &self.log_path,
+                fs::Permissions::from_mode(0o600),
+            );
+        }
     }
 }
 
@@ -2368,6 +2385,16 @@ impl Runtime {
     /// Returns a structured result so the UI can distinguish "backup
     /// created" from "no backup needed (file didn't exist)".
     pub fn backup_and_reset_config(&self) -> Result<ResetResult, String> {
+        // P3-2 fix (R1): acquire config_write_lock for the entire backup +
+        // default-write + state-commit sequence, mirroring `update_config`.
+        // Without this, a concurrent `update_config` (e.g. `commit_win_pos`
+        // fired by a pet drag) could land its rename AFTER the reset rename,
+        // leaving disk = mutated old config while config_state = Healthy and
+        // the user is told "reset succeeded".
+        let _write_guard = self
+            .config_write_lock
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // Step 1: snapshot old state for rollback.
         let old_state = self.config_state();
         // Step 2: create backup if source exists.
@@ -2380,6 +2407,9 @@ impl Runtime {
                 .join(format!(".config.re-llmpet-bak-{ts}.json"));
             fs::copy(&self.config_path, &bp).map_err(|e| {
                 // Rollback: restore old state (don't leave it in a half-reset limbo).
+                // P3-10 fix (R1): also remove the partial backup file so it
+                // doesn't accumulate when fs::copy fails mid-write.
+                let _ = fs::remove_file(&bp);
                 *self.config_state.lock().unwrap_or_else(|e| e.into_inner()) = old_state.clone();
                 format!(
                     "backup failed: {e}; state restored to {}",
@@ -2398,8 +2428,16 @@ impl Runtime {
                 old_state.label()
             ));
         }
-        // Step 4: commit Healthy state.
+        // Step 4: commit Healthy state AND update the in-memory config Mutex.
+        // P3-1 fix (R1): previously the in-memory `config` Mutex still held
+        // the OLD AppConfig after reset. Any subsequent `update_config` (e.g.
+        // `commit_win_pos` from a pet drag, `set_language`, etc.) would
+        // snapshot the stale memory, mutate it, and `save_config` would
+        // succeed (state is now Healthy) — overwriting the just-written
+        // defaults with `old_config + mutation`. Setting the in-memory
+        // config to the fresh defaults closes that split-brain window.
         *self.config_state.lock().unwrap_or_else(|e| e.into_inner()) = ConfigState::Healthy;
+        *self.config.lock().unwrap_or_else(|e| e.into_inner()) = AppConfig::default();
         Ok(ResetResult {
             reset: true,
             backup_created: backup_path.is_some(),

@@ -1502,21 +1502,21 @@ fn add_group(hooks: &mut Map<String, Value>, event: &str, desired: Value) {
 }
 
 fn command_is_ours(command: &str) -> bool {
+    // P2-1 fix (R1): ownership is decided ONLY by the strong branded signals
+    // — the `--owner re-llmpet` / `--owner octopus` argument, and the
+    // `# re-llmpet-hook` / `# octopus-hook` marker comment. The previous
+    // implementation also matched bare filename substrings like
+    // `pretool-hook.js` and `llmpet-hook.js`, which are generic names with
+    // no Octopus branding — a user's own `pretool-hook.js` script would be
+    // misclassified as ours and silently deleted on uninstall. This was the
+    // same class of bug as the 0.5.39 `isOurHttp` fix. The branded owner
+    // tag / marker are always present on hooks we install (see the install_*
+    // functions), so removing the filename list does not weaken detection of
+    // our own hooks — it only stops falsely claiming foreign hooks.
     command.contains(HOOK_OWNER)
         || command.contains(LEGACY_HOOK_OWNER)
         || command.contains(MARKER)
         || command.contains(LEGACY_MARKER)
-        || [
-            "re-llmpet-hook.js",
-            "re-llmpet-pretool-hook.js",
-            "re-llmpet-llmpet-hook.js",
-            "octopus-hook.js",
-            "pretool-hook.js",
-            "llmpet-hook.js",
-            "llmpet-octopus.js",
-        ]
-        .iter()
-        .any(|marker| command.contains(marker))
 }
 
 fn hooks_contain_ours(hooks: &Map<String, Value>) -> bool {

@@ -108,7 +108,22 @@ function currentPetAgent() {
     let registration;
     try {
       registration = listen(channel, (event) => {
-        if (active && !bridgeDisposed) cb(event ? event.payload : undefined);
+        // R1-A#7 fix: wrap cb() in try/catch so a single throwing listener
+        // (e.g. applyStats on a malformed payload) does not propagate out of
+        // Tauri's event dispatch and silently degrade every subsequent event.
+        // The error is surfaced via console + the bridge-error CustomEvent
+        // so a toast can be shown without freezing the UI.
+        if (!active || bridgeDisposed) return;
+        try {
+          cb(event ? event.payload : undefined);
+        } catch (err) {
+          try { console.error(`[octopus] listener ${channel} threw:`, err); } catch (_) {}
+          try {
+            global.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
+              detail: { command: 'listener:' + channel, message: String(err && (err.message || err) || 'unknown') }
+            }));
+          } catch (_) {}
+        }
       });
     } catch (err) {
       dispose();

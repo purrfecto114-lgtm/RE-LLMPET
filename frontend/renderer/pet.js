@@ -1432,6 +1432,7 @@ const curSkinEl = () => (skin === 'pixel' ? pixel : skin === 'cat' ? cat : masco
 
 // ---------- 事件 ----------
 window.pet.onEvent((ev) => {
+  if (!ev || typeof ev !== 'object') return; // R1-A#3: reject malformed payloads
   if (!eventBelongsToThisPet(ev)) return;
   // 你正在答面板/打字时：新的待答任务只悄悄进队列(不抢面板)，其余动画/彩带/气泡/状态变化一律不打断
   if (isInteracting()) {
@@ -1662,8 +1663,9 @@ function applyStats(s) {
   // R40.1: reject stale-revision snapshots to prevent UI regression.
   if (!acceptStatsRevision(s)) return;
   lastStats = s;
-  chipCost.textContent = fmtCost(s.today.cost || 0);
-  chipWindow.textContent = '5h ' + fmtCost(s.window5h.cost || 0);
+  const today = s.today || {}, w5h = s.window5h || {}; // R1-A#1: defensive reads
+  chipCost.textContent = fmtCost(today.cost || 0);
+  chipWindow.textContent = '5h ' + fmtCost(w5h.cost || 0);
   // 从 stats 推送同步权威窗口位置，校正拖动缓存
   if (s.winPos && s.winPos.length === 2) {
     const [wx, wy] = s.winPos;
@@ -2419,21 +2421,18 @@ if (window.pet && typeof window.pet.onWindowBlur === 'function') {
 }
 
 // ---------- 初始化 ----------
-(async () => {
-  const cfg = await window.pet.getConfig();
-  // R40.5 (audit P0-2): use unified applyConfigSnapshot so providers.active
-  // and updateProviderUI() are applied on cold start. The old code only
-  // applied muted/lang/territory/skin/currency/fxRate here, missing
-  // providers — so if pet:config event arrived before onConfig listener
-  // was registered, provider buttons would be permanently hidden.
-  if (cfg) applyConfigSnapshot(cfg);
-  const s = await window.pet.getStats();
-  // 有快照就按真实聚合态亮相；之前无条件 setState('idle') 会把刚算出的
-  // working/waiting 盖掉，启动瞬间总是先闪一下空闲。getStats 落空但推送
-  // 已先到时（lastStats 已有值）同样不能清。
-  if (s) applyStats(s);
-  else if (!lastStats) setState('idle');
-  showBubble(t('bub.online'), 3000);
+(async () => { // R1-A#5: try/catch so getConfig/getStats rejection doesn't leave pet blank
+  try {
+    const cfg = await window.pet.getConfig();
+    if (cfg) applyConfigSnapshot(cfg); // R40.5: unified snapshot applies providers too
+    const s = await window.pet.getStats();
+    if (s) applyStats(s); else if (!lastStats) setState('idle'); // 有快照按真实态亮相
+    showBubble(t('bub.online'), 3000);
+  } catch (err) {
+    console.error('[octopus] pet boot failed:', err);
+    rlog('init', 'boot failed: ' + String(err && (err.message || err) || 'unknown'));
+    setState('idle'); showBubble('⚠️ 初始化失败，请重启', 5000);
+  }
 })();
 
 // ---------- 透明区域点击穿透（命中测试）----------

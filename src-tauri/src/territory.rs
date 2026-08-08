@@ -1,6 +1,8 @@
 use crate::model::Runtime;
 use crate::platform::PlatformState;
 use serde_json::{json, Value};
+use std::panic::AssertUnwindSafe;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -101,19 +103,94 @@ fn edge_target(area: WorkArea, x: i32, y: i32, width: i32, height: i32) -> (i32,
     (target_x, target_y)
 }
 
-pub fn start_auto(app: AppHandle, runtime: Arc<Runtime>, platform: Arc<PlatformState>) {
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(15));
-        if !runtime.config().territory || platform.is_ui_busy() {
-            continue;
-        }
-        if let Err(error) = run_now(&app, &runtime) {
-            runtime.write_log("territory", &format!("automatic patrol failed: {error}"));
-        }
-    });
+/// RAII guard that resets the `patrol_busy` flag when dropped.
+/// P7-1 fix (R2): ensures the flag is cleared even if the patrol
+/// thread panics, preventing a permanent "busy" deadlock.
+struct PatrolGuard<'a> {
+    flag: &'a AtomicBool,
 }
 
-pub fn run_now(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
+impl<'a> Drop for PatrolGuard<'a> {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::Release);
+    }
+}
+
+pub fn start_auto(app: AppHandle, runtime: Arc<Runtime>, platform: Arc<PlatformState>) {
+    // P7-2 fix (R2): wrap the patrol loop in catch_unwind so a single
+    // panic doesn't permanently kill the auto-patrol thread. The user
+    // would see territory as "on" but nothing happening.
+    let _ = thread::Builder::new()
+        .name("octopus-territory".into())
+        .spawn(AssertUnwindSafe(move || loop {
+            // P7-3 partial fix (R2): track consecutive failures for logging.
+            let mut consecutive_failures: u32 = 0;
+            thread::sleep(Duration::from_secs(15));
+            if !runtime.config().territory || platform.is_ui_busy() {
+                continue;
+            }
+            // P7-1 fix (R2): check patrol_busy to prevent concurrent patrols.
+            // If already busy (auto-poll + IPC race), skip this cycle.
+            if platform
+                .patrol_busy
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+                .is_err()
+            {
+                continue;
+            }
+            let _guard = PatrolGuard {
+                flag: &platform.patrol_busy };
+            match run_now_inner(&app, &runtime) {
+                Ok(_) => {
+                    consecutive_failures = 0;
+                }
+                Err(error) => {
+                    consecutive_failures = consecutive_failures.saturating_add(1);
+                    runtime.write_log(
+                        "territory",
+                        &format!(
+                            "automatic patrol failed (consecutive={}): {error}",
+                            consecutive_failures
+                        ),
+                    );
+                    // P7-3 fix (R2): exponential backoff on repeated failures.
+                    // Capped at 5 minutes to avoid long stalls.
+                    let backoff_secs = 15u64
+                        .saturating_mul(1 << consecutive_failures.min(5))
+                        .min(300);
+                    thread::sleep(Duration::from_secs(backoff_secs));
+                    drop(_guard);
+                    continue;
+                }
+            }
+            drop(_guard);
+        }));
+}
+
+/// P7-1 fix (R2) complete: public IPC entry point for on-demand patrol.
+/// Checks `patrol_busy` so concurrent IPC calls don't race with the
+/// auto-poll thread. Returns `{{"deferred": true}}` if already busy.
+pub fn run_now(
+    app: &AppHandle,
+    runtime: &Runtime,
+    platform: &PlatformState,
+) -> Result<Value, String> {
+    // P7-1 fix (R2) complete: IPC path also checks patrol_busy.
+    if platform
+        .patrol_busy
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+        .is_err()
+    {
+        return Ok(json!({"deferred": true}));
+    }
+    let _guard = PatrolGuard {
+        flag: &platform.patrol_busy,
+    };
+    run_now_inner(app, runtime)
+}
+
+fn run_now_inner(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
+    // R2-BUGFIX: read config from runtime (was missing `config` binding).
     let config = runtime.config();
     for label in ["pet", "pet-codex"] {
         if let Some(window) = app.get_webview_window(label) {

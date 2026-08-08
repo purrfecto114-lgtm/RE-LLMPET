@@ -65,6 +65,11 @@ pub struct PlatformState {
     cursor_hit_test_started: AtomicBool,
     display_signature: Mutex<String>,
     ui_busy: AtomicBool,
+    // P7-1 fix (R2): prevents concurrent patrol runs when both the
+    // auto-poll thread and an IPC call (territory_run_now / territory_toggle_auto)
+    // invoke run_now at the same time. compare_exchange(false→true) at
+    // entry; a Drop guard resets to false on exit (panic-safe).
+    patrol_busy: AtomicBool,
     mouse_ignore_requested: Mutex<HashMap<String, bool>>,
     mouse_ignore_applied: Mutex<HashMap<String, bool>>,
     visual_bounds: Mutex<HashMap<String, VisualBounds>>,
