@@ -136,6 +136,10 @@
             <option value="48">每 48 小时</option>
             <option value="72">每 72 小时</option>
           </select>
+          <span class="export-controls" aria-label="导出用量数据">
+            <button id="export-csv" type="button" title="导出 CSV（可导入 Excel/Numbers）">📊 CSV</button>
+            <button id="export-json" type="button" title="导出 JSON（完整结构化数据）">📄 JSON</button>
+          </span>
         </div>
       </section>
 
@@ -231,5 +235,6 @@
   <script src="../shared/session-pref-client.js"></script>
     <script src="../shared/panel-fit-controller.js"></script>
     <script src="panel.js"></script>
+    <script src="panel-export.js"></script>
   </body>
 </html>

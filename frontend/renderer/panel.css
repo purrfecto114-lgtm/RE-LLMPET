@@ -349,6 +349,9 @@ body.window-fullscreen #card {
 .price-controls button:disabled { cursor: default; opacity: 0.55; }
 .price-auto { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: #b88d79; }
 .price-auto input { accent-color: #d97757; }
+.export-controls { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
+.export-controls button { border: 1px solid rgba(217,119,87,0.30) !important; background: rgba(217,119,87,0.10) !important; color: #ffd8bf !important; }
+.export-controls button:hover { background: rgba(217,119,87,0.25) !important; }
 .price-src.price-error { color: #e48a7a; }
 .price-src.price-live { color: #b99886; }
 
