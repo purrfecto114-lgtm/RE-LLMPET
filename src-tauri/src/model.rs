@@ -1572,17 +1572,8 @@ impl Runtime {
                 "claudeUnknownPrice": claude_today_unknown,
             });
             target.insert("combinedUsage".into(), combined);
-            if let Some(cu) = codex_usage {
-                target.insert("codexUsage".into(), cu);
-            }
-            // R11 backport: machineGrowth — whole-machine rank combining
-            // Claude + Codex lifetime tokens. Mirrors upstream
-            // `backend/growth.js#machineGrowth` (10M tokens per rank unit,
-            // QQ-style 4-to-1 leaf→star→moon→sun→crown). Claude lifetime is
-            // derived from the metering ledger's `daily` map (the Rust ledger
-            // keeps raw events within the 95-day retention window; summing
-            // daily token counts gives lifetime within that window). Codex
-            // lifetime comes directly from codex_rollout's snapshot.
+            // R11 backport: machineGrowth — extract lifetime tokens BEFORE
+            // moving codex_usage into target (can't borrow after move).
             let claude_lifetime_tokens = usage
                 .get("daily")
                 .and_then(Value::as_object)
@@ -1599,6 +1590,9 @@ impl Runtime {
                 .and_then(|l| l.get("tokens"))
                 .and_then(Value::as_u64)
                 .unwrap_or(0);
+            if let Some(cu) = codex_usage {
+                target.insert("codexUsage".into(), cu);
+            }
             let machine_total_tokens = claude_lifetime_tokens.saturating_add(codex_lifetime_tokens);
             target.insert(
                 "machineGrowth".into(),

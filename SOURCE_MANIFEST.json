@@ -252,9 +252,9 @@
     "src-tauri/src/instance_probe.rs": "38fee6c5356d7d6e1662ca085bff609fdfcfbaaf585a3f7a1cb2b4fd346e0345",
     "src-tauri/src/lib.rs": "aaeeda73589ad4ea2df38a1bbc465c56883f976fcf2979128e8e021de16a9cf5",
     "src-tauri/src/main.rs": "85cddcc5c686d710971144ddb7d04ed57c8875f6ef6a1bef8236a114c25bfebc",
-    "src-tauri/src/metering.rs": "8c10bf8f60fd039e294f041c19056de23e7e38edbc4ae67ede32f29943ed50ed",
+    "src-tauri/src/metering.rs": "77aacccddb53ee6637dfc3cffabff47ecbd8084549166055f8a505677f2bd01f",
     "src-tauri/src/migration.rs": "387048764730e6f3c81c093555fdcbf4e7fdad3e623e7ed602cab267f593f794",
-    "src-tauri/src/model.rs": "f92dbbd0ed116ee0f8e82ecfcfc3ea3ff6f7e3699ba86ea6f78a7baebfed0b99",
+    "src-tauri/src/model.rs": "ae5dfac93c347fc0876fba1681303178e49c25a7b0a42ffef1d7ac06e5148cc7",
     "src-tauri/src/platform.rs": "b7c8b3918c85c473ad2883fcd9cf2ab6f795a19c9c5d04d2470bf56422ff08d0",
     "src-tauri/src/pricing_sync.rs": "d2a01af5f848996803154d5ce689f8b2d5ab85b96ab43f10bf22ab6bb4901460",
     "src-tauri/src/secure_file.rs": "b1f926abc2b59d0f9d1f91a997828c72703f8dcc68c14eceea664d88c47b4ba2",
@@ -344,6 +344,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "fd5fd88c8e7c3008659afac2a4dec552e06f8f9bd41fb4f843de8b007d7d382b"
   },
-  "sha256_of_manifest": "f0d9cd524b5a2c3d7cf1b327722a47add40afed035f9dd22ec791267c9531eb0",
+  "sha256_of_manifest": "7ba81e9b321b5d6cad62a8ceaa5b5a989c96817738f68f531cbf2a01f9609fac",
   "source_commit": "octopus-0.5.47"
 }

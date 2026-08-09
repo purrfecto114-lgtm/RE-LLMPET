@@ -367,24 +367,43 @@ impl UsageLedger {
     pub fn rebuild_costs(&mut self) -> (f64, f64, usize) {
         let before_total: f64 = self.events.iter().filter_map(|e| e.cost_usd).sum();
         let count = self.events.len();
-        for event in &mut self.events {
-            let quote = self.cost_for(
-                &event.model,
-                event.billing_provider.as_deref(),
-                event.input,
-                event.output,
-                event.cache_read,
-                event.cache_create,
-                event.input_includes_cache,
-            );
-            if let Some(q) = quote {
-                event.cost_usd = Some(q.cost_usd);
-                event.price_source = Some(q.source);
-                event.price_updated_at = q.updated_at;
+        // Collect event indices + params first to avoid borrowing self.events
+        // mutably while also calling self.cost_for (which borrows self immutably).
+        let params: Vec<(String, Option<String>, u64, u64, u64, u64, bool)> = self
+            .events
+            .iter()
+            .map(|e| {
+                (
+                    e.model.clone(),
+                    e.billing_provider.clone(),
+                    e.input,
+                    e.output,
+                    e.cache_read,
+                    e.cache_create,
+                    e.input_includes_cache,
+                )
+            })
+            .collect();
+        for (i, (model, billing, input, output, cache_read, cache_create, incl)) in
+            params.into_iter().enumerate()
+        {
+            if let Some(q) = self.cost_for(
+                &model,
+                billing.as_deref(),
+                input,
+                output,
+                cache_read,
+                cache_create,
+                incl,
+            ) {
+                if let Some(event) = self.events.get_mut(i) {
+                    event.cost_usd = Some(q.cost_usd);
+                    event.price_source = Some(q.source);
+                    event.price_updated_at = q.updated_at;
+                }
             }
         }
         let after_total: f64 = self.events.iter().filter_map(|e| e.cost_usd).sum();
-        // Rewrite the ledger file atomically with re-priced events
         let _ = self.rewrite_ledger();
         (before_total, after_total, count)
     }
