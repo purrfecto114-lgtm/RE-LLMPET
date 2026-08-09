@@ -42,7 +42,7 @@ const checks = [
   ['Rust returns companion surface on success', commands.includes('surface: Some("companion")')],
   ['Rust falls back to dispatcher surface when companion is unknown command', commands.includes('surface: Some("dispatcher")')],
   ['Rust keeps the unknown-command detector used by the fallback decision', commands.includes('probe_indicates_unknown_command')],
-  ['Rust keeps MISSING_COMPANION_BINARY hard error for incomplete installs', commands.includes('MISSING_COMPANION_BINARY')],
+  ['Rust keeps MISSING_COMPANION_BINARY as a warning (not hard error) for v0.9.5+ forward-compat', commands.includes('MISSING_COMPANION_BINARY')],
 
   // ── PowerShell mirror ────────────────────────────────────────────────────
   ['PowerShell probes codewhale-tui before codewhale (companion block first)',

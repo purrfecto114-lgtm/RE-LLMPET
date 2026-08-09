@@ -1388,11 +1388,10 @@ fn resolve_agent(spec: AgentSpec) -> Result<PathBuf, String> {
             spec.title
         )
     })?;
+    // R8 forward-compat: v0.9.5+ consolidates codewhale-tui into codewhale (single runtime).
+    // Don't hard-fail on MISSING_COMPANION_BINARY; doctor probe falls back to dispatcher.
     if spec.id == "codewhale" && companion_for(spec, &executable).is_none() {
-        return Err(
-            "CodeWhale installation is incomplete (MISSING_COMPANION_BINARY): codewhale-tui is missing or is a different installation. Reinstall the matched CodeWhale bundle, then restart Octopus."
-                .into(),
-        );
+        eprintln!("[octopus] codewhale-tui companion not found (v0.9.5+ single-runtime?); using dispatcher fallback");
     }
     Ok(executable)
 }
@@ -2487,10 +2486,9 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
         issues.push(format!("{} CLI was not found in Octopus PATH", spec.title));
     }
     if spec.id == "codewhale" && executable.is_some() && companion.is_none() {
-        issues.push(
-            "MISSING_COMPANION_BINARY: codewhale-tui was not found beside codewhale or on PATH"
-                .into(),
-        );
+        // R8 forward-compat: v0.9.5+ single-runtime has no separate codewhale-tui.
+        // Warn (not block) — doctor probe falls back to dispatcher.
+        warnings.push("MISSING_COMPANION_BINARY: codewhale-tui not found (v0.9.5+ uses dispatcher); diagnostics will use dispatcher fallback".into());
     }
     let version = executable
         .as_deref()

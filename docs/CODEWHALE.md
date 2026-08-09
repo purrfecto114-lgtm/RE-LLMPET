@@ -26,3 +26,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 A successful Terminal process creation is not proof that the provider session is healthy. Treat missing companion, version mismatch, doctor failure, authentication/provider errors and cwd errors separately. Do not paste API keys into public issue reports.
+
+## v0.9.5+ forward compatibility
+
+CodeWhale v0.9.5 (source candidate as of 2026-08-08, not yet published) consolidates the terminal runtime into `codewhale-cli` directly. The `codewhale-tui` binary becomes a deprecated byte-identical compatibility copy, and future versions may remove it entirely.
+
+Octopus handles this transition gracefully:
+- **`resolve_agent`**: Missing `codewhale-tui` is a **warning** (not a hard error). The diagnostic probe falls back to the dispatcher (`codewhale doctor --json`).
+- **`diagnose_agent_sync`**: `MISSING_COMPANION_BINARY` is pushed to `warnings` (not `issues`), so the UI shows it as advisory rather than blocking.
+- **`codewhale_doctor_probe`**: The companion-first → dispatcher-fallback chain (R10) already handles `None` companion via `should_try_dispatcher`. No change needed.
+
+If CodeWhale fully removes `codewhale-tui` in a future release, Octopus diagnostics continue to work via the dispatcher. The `MISSING_COMPANION_BINARY` string is preserved in source for audit trail continuity.

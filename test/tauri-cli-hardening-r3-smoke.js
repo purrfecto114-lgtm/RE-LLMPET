@@ -16,7 +16,7 @@ function check(name, condition) {
 check('five provider ids remain allowlisted', ['claude','codewhale','codex','opencode','aider'].every(id => commands.includes(`"${id}" => Ok(AgentSpec`)));
 check('unknown provider is rejected', commands.includes('unsupported agent provider'));
 check('unknown provider no longer silently falls back to claude', !commands.includes('_ => "claude"'));
-check('CodeWhale companion is required', commands.includes('MISSING_COMPANION_BINARY') && commands.includes('codewhale-tui'));
+check('CodeWhale companion is warned (not hard-failed) for v0.9.5+ forward-compat', commands.includes('MISSING_COMPANION_BINARY') && commands.includes('codewhale-tui'));
 check('CodeWhale doctor JSON is probed', commands.includes('&["doctor", "--json"]'));
 check('CodeWhale dispatcher and companion versions are compared', commands.includes('companionVersionProbe') && commands.includes('dispatcher/runtime version mismatch'));
 check('failed probes make diagnostics unready', commands.includes('probe_succeeded') && commands.includes('--version failed'));
