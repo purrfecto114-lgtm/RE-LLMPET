@@ -736,3 +736,27 @@ re-llmpet.log 显示：
 - tag v0.5.48: ✅ 指向最新 commit
 - CI: 全绿
 
+
+---
+
+## v0.5.49: 诊断进度反馈（2026-08-09 23:51 trigger → 00:30）
+
+### HIGH: 诊断工具进度反馈
+**问题**: 用户点击诊断后永远看到"检查中"，不知道进展
+**修复**:
+- `commands.rs`: `diagnose_agent` 添加 `app: AppHandle` 参数，启动时 emit `panel:diagnostic-progress` 事件
+- `tauri-bridge.js`: 新增 `onDiagnosticProgress` 订阅
+- `panel.js`: 监听进度事件，实时更新 loading 文本（启动中/检查版本/运行诊断/检查认证）
+- 3 个测试更新 `diagnose_agent` 签名匹配
+
+**效果**: 用户不再看到永远卡在"检查中"，而是看到当前进度阶段
+
+### 版本号自动迭代
+- v0.5.48 → v0.5.49（HIGH: 用户可见的 UX 改进）
+- 所有版本引用更新 + CHANGELOG + tag
+
+### 验证
+- clippy -D warnings: ✅ EXIT=0
+- 22/22 static + npm test EXIT=0（346 manifest）
+- GitHub main: `8a59ad6`, tag v0.5.49 ✅
+
