@@ -635,3 +635,38 @@ re-llmpet.log 显示：
 - cargo fmt --check: ✅
 - GitHub main: `7118a5c` 已推送
 
+
+---
+
+## 补充：桌宠动画不变问题修复 + cron 更新（2026-08-09 22:30）
+
+### 问题 5: 桌宠动画不变（用户补充报告）
+- **根因**: `emit_hook_event` 对不匹配的事件类型（如 OpenCode 的 `SessionStatus`）发送 `{kind:'state', state:...}`，但 `pet.js` 事件处理器没有 `case 'state'`，导致这些事件被静默忽略
+- **修复**: `pet.js` 事件处理器添加 `case 'state'`：
+  ```javascript
+  case 'state': {
+    if (ev.state && STATE_WORDS.includes(ev.state)) {
+      const hold = state === 'waiting' || state === 'needsinput' || state === 'error';
+      if (!hold && perfNow() >= transientUntil) {
+        setState(ev.state);
+      }
+    }
+    break;
+  }
+  ```
+- **效果**: provider 状态事件现在可以直接驱动桌宠动画切换，不再等待下一个 stats 快照
+
+### 完整修复链
+1. **R13 config.json 注册**: OpenCode 插件现在被 opencode 加载 → 事件发送到 /state
+2. **R13 case 'state'**: pet.js 现在处理 {kind:'state'} 事件 → 动画立即切换
+3. 两个修复配合：OpenCode 运行 → 插件发送事件 → Rust 创建 session → emit_hook_event 发送 {kind:'state'} → pet.js 切换动画
+
+### Cron 更新
+- 删除旧 Job 315063
+- 创建新 Job 315118（1h 循环，priority=10 HIGH）
+- 提示词包含 5 个已修复问题的验证状态 + 7 个自选优化方向
+
+### 验证
+- 22/22 static + npm test EXIT=0（346 manifest）
+- GitHub main: `558de34` 已推送
+
