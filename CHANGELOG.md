@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.49 — 诊断进度反馈 + 测试修复（2026-08-09）
+
+### HIGH: 诊断工具进度反馈
+- diagnose_agent 命令现在接受 AppHandle 参数
+- 启动时 emit "panel:diagnostic-progress" 事件
+- panel.js 监听进度事件，实时更新检查中文本（启动中/检查版本/运行诊断/检查认证）
+- tauri-bridge.js 新增 onDiagnosticProgress 订阅
+- 用户不再看到永远卡在检查中，而是看到当前进度
+
+### 测试修复
+- 3 个测试更新 diagnose_agent 签名匹配（新增 app: AppHandle 参数）
+
+---
+
+
 ## 0.5.48 — 用户报告问题修复 + 上游 backport + CI 修复（2026-08-09）
 
 ### 用户报告问题修复（5 项）

@@ -115,6 +115,7 @@ assert(panelJs.includes('window.pet.onPanelShown'),
 // for the cancel_diagnostic PID registry. Accept all forms (single-line
 // and multi-line).
 assert(commands.includes('pub async fn diagnose_agent(provider: String)')
+     || commands.includes('pub async fn diagnose_agent(\n    app: AppHandle,\n    provider: String,')
      || commands.includes('pub async fn diagnose_agent(\n    provider: String,\n    state: State')
      || commands.includes('pub async fn diagnose_agent(provider: String, state: State'),
   'R35.1: diagnose_agent must be `pub async fn` (was sync, froze IPC)');

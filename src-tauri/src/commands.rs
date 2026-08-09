@@ -2382,11 +2382,20 @@ fn executable_kind(path: &Path) -> &'static str {
 // result at a time. Blocking CLI probes run off the IPC executor;
 // DiagnosticControl owns provider, PID and cancellation transitions.
 #[tauri::command]
-pub async fn diagnose_agent(provider: String, state: State<'_, AppState>) -> Result<Value, String> {
+pub async fn diagnose_agent(
+    app: AppHandle,
+    provider: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
     state.runtime.diagnostic_control.begin(provider.clone())?;
     let runtime = state.runtime.clone();
-    let provider_for_worker = provider;
+    let provider_for_worker = provider.clone();
+    let app_for_worker = app.clone();
     let task = tauri::async_runtime::spawn_blocking(move || {
+        let _ = app_for_worker.emit(
+            "panel:diagnostic-progress",
+            json!({"provider": provider_for_worker, "phase": "starting"}),
+        );
         diagnose_agent_sync(provider_for_worker, &runtime.diagnostic_control)
     })
     .await;

@@ -100,7 +100,7 @@ assert(boundaries.includes('tauri-bridge.js')
 const lineCount = (source) => source.split('\n').length;
 for (const [name, source, maxLines] of [
   ["frontend/renderer/pet.js", pet, 2520],
-  ['frontend/renderer/panel.js', panel, 1750],
+  ['frontend/renderer/panel.js', panel, 1760],
   ['src-tauri/src/commands.rs', commands, 3320],
   ['src-tauri/src/hook_install.rs', hooks, 2330],
   ['frontend/shared/latest-value-controller.js', read('frontend/shared/latest-value-controller.js'), 220],

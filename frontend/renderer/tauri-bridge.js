@@ -154,6 +154,7 @@ function currentPetAgent() {
       return () => { offPet(); offPanel(); };
     },
     onPrice: (cb) => subscribe('panel:price', cb),
+    onDiagnosticProgress: (cb) => subscribe('panel:diagnostic-progress', cb),
     onTravel: (cb) => subscribe('pet:travel', cb),
     onWindowBlur: (cb) => subscribe('pet:window-blur', cb),
     onPanelShown: (cb) => subscribe('panel:shown', cb),

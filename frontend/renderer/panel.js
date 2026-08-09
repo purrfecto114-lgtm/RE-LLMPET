@@ -1432,6 +1432,24 @@ window.pet.onPanelStats((s) => {
   }
 });
 window.pet.onPrice(renderPriceInfo);
+// R15: diagnostic progress feedback — update the loading UI with current phase
+if (window.pet.onDiagnosticProgress) {
+  window.pet.onDiagnosticProgress((ev) => {
+    if (!ev || !providerDiagnosticBusy) return;
+    const el = $('provider-diagnostic');
+    if (el) {
+      const loading = el.querySelector('.diag-loading');
+      if (loading) {
+        const phaseText = ev.phase === 'starting' ? (currentLang === 'en' ? 'Starting...' : currentLang === 'ja' ? '開始中...' : '启动中...')
+          : ev.phase === 'version' ? (currentLang === 'en' ? 'Checking version...' : currentLang === 'ja' ? 'バージョン確認中...' : '检查版本中...')
+          : ev.phase === 'doctor' ? (currentLang === 'en' ? 'Running doctor...' : currentLang === 'ja' ? 'doctor実行中...' : '运行诊断中...')
+          : ev.phase === 'auth' ? (currentLang === 'en' ? 'Checking auth...' : currentLang === 'ja' ? '認証確認中...' : '检查认证中...')
+          : (currentLang === 'en' ? 'Checking...' : currentLang === 'ja' ? '確認中...' : '检查中...');
+        loading.textContent = phaseText;
+      }
+    }
+  });
+}
 // R30 (2026-07-31): listen for bridge errors and show a toast.
 // R32 (2026-07-31): the visible toast is now handled by ../shared/toast.js
 // (auto-installed on script load). This listener stays as a debug log so

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "LLMPET / Octopus Tauri migration",
-  "release": "0.5.48",
+  "release": "0.5.49",
   "updatedAt": "2026-08-04",
   "statusDefinitions": {
     "done": "Acceptance evidence exists and the stated verification gate passed.",
