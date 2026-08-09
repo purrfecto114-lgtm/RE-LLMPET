@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.5.48 — 用户报告问题修复 + 上游 backport + CI 修复（2026-08-09）
+
+### 用户报告问题修复（5 项）
+- focus_pet ACL 错误：pet.json 添加 allow-focus-pet 权限
+- OpenCode 状态不捕获：ESM 插件目录扫描自动加载 + export default + 移除无效 config.json plugins key
+- 诊断工具卡住：doctor 探针超时 15s → 8s
+- 闲逛功能不完善：扩展 wander 支持 CodeWhale
+- 桌宠动画不变：pet.js 添加 case 'state' 处理 provider state 事件
+
+### 上游 backport（5 项）
+- CRITICAL: codex-pricing.rs（Codex 成本计算 + OpenAI Pro cache rate 修复）
+- CRITICAL: combineUsage（Claude+Codex 合并成本头条）
+- HIGH: settings.json watcher（hooks 被覆盖后自动重注册）
+- HIGH: machineGrowth（全机 token 排名）
+- HIGH: meter-rebuild CLI（rebuild_usage_costs 命令）
+- MEDIUM: _extractOpenAIModels（codex_pricing 从 models.dev 加载价格）
+
+### CI 修复
+- 6 个 clippy 错误从根源修复（dead_code + if_same_then_else + explicit_counter_loop + type_complexity + drop_non_drop）
+- 3 个 cargo check 编译错误修复（borrow checker + 类型不匹配）
+- 恢复 -D warnings（不抑制错误）
+
+### GUI 改进
+- 托盘设置子菜单（刷新价格 + 自动更新切换 + 诊断 + 数据目录）
+- 统计卡片渐变 + hover 动画
+- 预算条渐变色 + transition
+- 滚动阴影 + 会话列表 hover 强调
+- 宠物入场动画
+
+### 验证
+- clippy -D warnings: EXIT=0
+- npm test: all pass
+- CI: 全绿
+
+---
+
+
 ## 0.5.47 — CodeWhale v0.9.5 forward-compat + config path dedup（2026-08-09）
 
 ### CodeWhale v0.9.5 前向兼容

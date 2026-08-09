@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// R44 Phase 0D (2026-08-03) — 0.5.47 uninstall provenance + drift detection.
+// R44 Phase 0D (2026-08-03) — 0.5.48 uninstall provenance + drift detection.
 //
 // Locks the Phase 0D deliverables:
 //
@@ -27,7 +27,7 @@
 //          per-provider status).
 //
 //   P0D-6  Backward compat: if no receipt exists (installed before
-//          0.5.47), uninstall still succeeds; priorReceipt is null
+//          0.5.48), uninstall still succeeds; priorReceipt is null
 //          and driftDetected is false (no signature to compare).
 //
 // Phase 0D is the bridge between Phase 0C (receipt creation) and
@@ -47,11 +47,11 @@ const changelog = read('CHANGELOG.md');
 const packageJson = JSON.parse(read('package.json'));
 
 // ──────────────────────────────────────────────────────────────────────────
-// Version (still 0.5.47 — Phase 0D ships in the same release as 0C)
+// Version (still 0.5.48 — Phase 0D ships in the same release as 0C)
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.47',
-  'P0D: package.json version must remain 0.5.47 (Phase 0C+0D ship together)');
+assert.strictEqual(packageJson.version, '0.5.48',
+  'P0D: package.json version must remain 0.5.48 (Phase 0C+0D ship together)');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0D-1: get_install_receipts IPC command registered
@@ -71,7 +71,7 @@ assert.ok(commands.includes('crate::hook_install::read_install_receipts()'),
 // P0D-2: uninstall_hooks response carries receipt fields
 // ──────────────────────────────────────────────────────────────────────────
 
-// R44 0.5.47: the single-provider and bulk paths now share a `run_one`
+// R44 0.5.48: the single-provider and bulk paths now share a `run_one`
 // helper. The receipt snapshot + drift computation must happen BEFORE
 // the cleanup call inside that helper.
 const runOneSection = commands.slice(
@@ -121,21 +121,21 @@ assert.ok(
 );
 
 // ──────────────────────────────────────────────────────────────────────────
-// P0D-5: "all" uninstall path reuses single-provider pipeline (0.5.47 §4)
+// P0D-5: "all" uninstall path reuses single-provider pipeline (0.5.48 §4)
 // ──────────────────────────────────────────────────────────────────────────
 
-// R44 0.5.47 (roadmap v5 §4): "all" must call the same run_one pipeline
+// R44 0.5.48 (roadmap v5 §4): "all" must call the same run_one pipeline
 // as single-provider. The bulk response includes results[] with each
 // provider's CleanupResult, plus allHooksVerifiedAbsent (renamed from
 // allHooksRemoved but aliased for backward compat).
 assert.ok(commands.includes('"allHooksVerifiedAbsent": all_clean'),
-  'P0D-5: "all" uninstall must return allHooksVerifiedAbsent (0.5.47 §4)');
+  'P0D-5: "all" uninstall must return allHooksVerifiedAbsent (0.5.48 §4)');
 assert.ok(commands.includes('"allHooksRemoved": all_clean'),
   'P0D-5: "all" uninstall must keep allHooksRemoved alias for backward compat');
 assert.ok(commands.includes('"results": results'),
   'P0D-5: "all" uninstall must return per-provider results array');
 assert.ok(commands.includes('all_providers.to_vec()'),
-  'P0D-5: "all" must iterate all_providers via the same run_one pipeline (0.5.47 §4)');
+  'P0D-5: "all" must iterate all_providers via the same run_one pipeline (0.5.48 §4)');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0D-6: Backward compat — absent receipt doesn't break uninstall
@@ -162,4 +162,4 @@ assert.ok(commands.includes('R44 Phase 0D'),
 assert.ok(changelog.includes('Phase 0D') || changelog.includes('0D'),
   'P0D-8: CHANGELOG must mention Phase 0D');
 
-console.log('✓ R44 Phase 0D (0.5.47) uninstall provenance smoke: all assertions passed');
+console.log('✓ R44 Phase 0D (0.5.48) uninstall provenance smoke: all assertions passed');

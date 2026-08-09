@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// R40.1 (2026-08-01) — 0.5.47 carpet audit closure smoke.
+// R40.1 (2026-08-01) — 0.5.48 carpet audit closure smoke.
 //
 // Locks the 7 fixes from the 0.5.19 carpet audit
 // (RE-LLMPET-0.5.19-carpet-audit-upstream-drift-roadmap.md):
@@ -34,7 +34,7 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.47',
+assert.strictEqual(packageJson.version, '0.5.48',
   'R40.1: package.json version must be 0.5.21');
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -130,9 +130,9 @@ assert(fs.existsSync(path.join(root, 'SOURCE_MANIFEST.json')),
 assert(fs.existsSync(path.join(root, 'BUILD_REPRODUCIBILITY.md')),
   'P0-5: BUILD_REPRODUCIBILITY.md file must exist');
 
-assert(changelog.includes('0.5.47'),
-  'P0-5: CHANGELOG must have 0.5.47 entry');
-assert(changelog.includes('0.5.47'),
+assert(changelog.includes('0.5.48'),
+  'P0-5: CHANGELOG must have 0.5.48 entry');
+assert(changelog.includes('0.5.48'),
   'P0-5: CHANGELOG must have 0.5.21 entry');
 assert(changelog.includes('0.5.19'),
   'P0-5: CHANGELOG must have 0.5.19 entry');
@@ -144,7 +144,7 @@ assert(changelog.includes('0.5.18'),
 // its own SHA) is a paradox — writing the SHA changes the tree, producing
 // a different SHA. The handoff audit correctly identified this as an
 // impossible constraint. Now SOURCE_REVISION is either:
-//   - a human-readable identifier like 'octopus-0.5.47' (for local dev)
+//   - a human-readable identifier like 'octopus-0.5.48' (for local dev)
 //   - or the GITHUB_SHA env var set by CI (for release builds)
 // The real provenance chain is: tag → workflow run → artifact digest →
 // attestation, NOT commit-self-reference.
@@ -162,8 +162,8 @@ assert(Number.isFinite(dateEpoch) && dateEpoch > 1_000_000_000,
 
 // Manifest must be valid JSON with the right structure
 const manifest = JSON.parse(read('SOURCE_MANIFEST.json'));
-assert.strictEqual(manifest.version, '0.5.47',
-  'P0-5: manifest version must be 0.5.47');
+assert.strictEqual(manifest.version, '0.5.48',
+  'P0-5: manifest version must be 0.5.48');
 // R40.5: manifest.source_commit is optional (CI sets it to GITHUB_SHA;
 // local dev may set an octopus-* label; legacy re-llmpet-* remains accepted.
 if (manifest.source_commit) {
@@ -176,8 +176,8 @@ assert(manifest.file_count > 200,
   `P0-5: manifest must list >200 files (got ${manifest.file_count})`);
 assert(manifest.sha256_of_manifest,
   'P0-5: manifest must have sha256_of_manifest field');
-assert.strictEqual(manifest.root, `Octopus-0.5.47`,
-  `P0-5: manifest.root must be Octopus-0.5.47 (got ${manifest.root})`);
+assert.strictEqual(manifest.root, `Octopus-0.5.48`,
+  `P0-5: manifest.root must be Octopus-0.5.48 (got ${manifest.root})`);
 
 // R40.4: run manifest verifier (exact file set + hash check)
 const { execSync } = require('child_process');
