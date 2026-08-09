@@ -118,7 +118,7 @@
     "frontend/renderer/pet-travel-view.js": "2ab86cd02f64c1da81afe237b6cdc529a210654dad5ad247fdaf75537bcc8fe8",
     "frontend/renderer/pet.css": "e271c21b5bd4446f6515fa0484b4dd817363f71109a5af78191c2c6b1f17a1b3",
     "frontend/renderer/pet.html": "ffcde354c25bd4307df737d874c8c6f6ab4fc9c9cd996220b4ae054761d10c64",
-    "frontend/renderer/pet.js": "bea1bf8fd5924a9198807a2ab7eff63ab1c391597602b8c5e631eed34e88a07a",
+    "frontend/renderer/pet.js": "e47bfcd5bb9d37aeeeed391262229b9c2d1b844ea2252bcd5fe1b8c55725adfe",
     "frontend/renderer/tauri-bridge.js": "a0f9983f5b356e584a57a7d812dd287ec45f3d5324ea1df7eb37524e30523a28",
     "frontend/shared/config-write-controller.js": "5c7847a78f652f9ac6155364c9078fd61f0d1a83b63b01898aea38457e91f0f4",
     "frontend/shared/i18n.js": "d4a1f375fd259d8f72324b835853712e15dbbcb06b870d8d5449c5a573e78db7",
@@ -279,7 +279,7 @@
     "test/fixtures/codewhale-turn-end.json": "d15b9488c022fe62497034b59817ed6a8b40f88c62fe04e0822973f0fe83d538",
     "test/fixtures/models-dev-api-sample.json": "dcd80f0e1c22221738abe4c2ad0cd6ad0bd621264773213a030e983101b82e38",
     "test/latest-value-controller.test.js": "83dd646d346303f666d6a3ea4e968c7ec90bac1bfd928f48fd57c9c7a5dc18f9",
-    "test/maintainability-boundary-smoke.js": "5c17a2704661d95758d0e668bb8cf7e3427e8158145c8067b2ed3d98279b8010",
+    "test/maintainability-boundary-smoke.js": "0086a099015a7fc090725da74e3cef88ede9148c276d02888a17742a75b2c484",
     "test/native-hook-installer-smoke.js": "6a860ab110b029d5e7308e319adea1e5ead0de3c6cf045ae5e34ea6d85311820",
     "test/octopus-fix-regression-smoke.js": "b27d9f3320816413016ea9be6b56c78f94fe77412dfe53101486fd7fe777fa86",
     "test/panel-fit-controller.test.js": "a6f9a49563f25b971ddbfea72459d507ede2633798284967f055bdfc60ab703c",
@@ -349,8 +349,8 @@
     "test/tauri-tray-submenu-r12-smoke.js": "d0f7ebb3a69cdcc7c9b416613444aebd088e5f1402c75ca572c2c40d997e606d",
     "test/tauri-windows-static-smoke.js": "0d1a7b30b23b63438ebdac7d2cdf53c6e3a7d21d983de7dbab1cb0597e30e82d",
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
-    "worklog.md": "b3590e4220e29ad32bc6d0cf4011705925283e21df0394722f63c6df4f11a6ba"
+    "worklog.md": "74888be9c19b25b4437bb129fb991e7bd9005df76507752df898476716dfb344"
   },
-  "sha256_of_manifest": "a501d56f1ca0891962b43a07110daf7040a7d416f73b0b4b5227d66f4f4735de",
+  "sha256_of_manifest": "e1f12238e0d81b14ecad910f2cf2a35044be48d66df132ecc98658c81f3b057f",
   "source_commit": "octopus-0.5.47"
 }

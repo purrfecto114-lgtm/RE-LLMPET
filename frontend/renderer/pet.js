@@ -1619,6 +1619,17 @@ window.pet.onEvent((ev) => {
       }
       break;
     }
+    // R13: handle 'state' kind events (from OpenCode session.status, CodeWhale mode_change, etc.)
+    // These provide immediate state transitions without waiting for the next stats snapshot.
+    case 'state': {
+      if (ev.state && STATE_WORDS.includes(ev.state)) {
+        const hold = state === 'waiting' || state === 'needsinput' || state === 'error';
+        if (!hold && perfNow() >= transientUntil) {
+          setState(ev.state);
+        }
+      }
+      break;
+    }
   }
 });
 
