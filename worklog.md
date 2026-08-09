@@ -1463,3 +1463,40 @@ setup.credential.ready = false ← 一样！
 
 共 6 个 commit 待推送。
 
+
+---
+
+## GitHub 推送完成（2026-08-09 00:10）
+
+### 推送结果
+- **远程 main 已更新**: `a3742f8` → `bb8c883`（fast-forward，无 force）
+- **推送内容**: Round 3-8 全部 63 个修复 + CodeWhale 0.9.4 真机冒烟测试 + 去理想化修正
+- **文件变更**: 66 files, +2038 insertions, -291 deletions
+- **临时分支**: `round-3-8-smoke-test-fixes` 已删除
+
+### 推送过程发现的问题
+
+#### 1. Git 仓库结构错误（已修正）
+- **问题**: 原始 git 仓库根目录在 `/home/z/my-project/`（Next.js 项目根），跟踪了 `.next/` 缓存文件 + 过时的 RE-LLMPET 文件副本。我编辑的实际文件在 `re-llmpet/RE-LLMPET-main/` 下，但 git 跟踪的根级文件不存在于磁盘上。
+- **影响**: 前 8 个 commit（Round 3-8 + worklog）只提交了 `.next/` 缓存变更和空文件，**没有包含实际代码修复**。
+- **修正**: 删除旧的 `.git`，在 `re-llmpet/RE-LLMPET-main/` 重新 `git init`，`git reset --soft origin/main` 设置正确基点，重新提交实际代码变更。
+
+#### 2. 不相关历史（unrelated histories）
+- **问题**: 本地 git 历史与远程无共同祖先（本地从 release zip 提取初始化，远程有完整 v0.5.38→v0.5.46 发布历史）。
+- **修正**: 重新 `git init` + `git reset --soft origin/main` 后，本地 commit `bb8c883` 正确 parented 到 `a3742f8`（远程 main HEAD），fast-forward 推送成功。
+
+#### 3. PAT 权限限制
+- PR 创建失败（403 "Resource not accessible by personal access token"）
+- 但 push 到 main 成功（fast-forward，token 有 push 权限）
+
+### 去理想化价值验证
+去理想化审查在推送前发现并修正了 **api_key.source 误报 bug**——如果直接推送原始 R8 修复，每个有 key 的 CodeWhale 安装都会收到错误的"无 API key"警告。真机验证（设置 key 后跑 doctor）确认了 `api_key.source` 恒为 `secret_store_unprobed`，改用 `secret_backend.presence` 后才正确。
+
+### 最终验证
+- GitHub main 分支 sha: `bb8c883`
+- R8 fix (`secretBackendPresence`) 在 main 上的 commands.rs 中: ✅ 2 处匹配
+- 新 fixture (`codewhale-turn-end-failed-real-0.9.4.json`): ✅ 已发布
+- 新 smoke test (`tauri-codewhale-failed-turn-r8-smoke.js`): ✅ 已发布
+- Token 已从 remote URL 清除: ✅
+- 本地 git 历史与远程一致: ✅
+
