@@ -1,3 +1,4 @@
+mod codex_pricing;
 mod codex_rollout;
 mod commands;
 mod diagnostic_control;

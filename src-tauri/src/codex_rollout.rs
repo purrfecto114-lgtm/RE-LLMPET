@@ -236,8 +236,26 @@ pub fn snapshot(app_dir: &Path) -> (Option<Value>, Option<Value>) {
     }
 
     let limits = latest_limits.map(|(_, limits)| normalize_limits(&limits));
+    // R10 backport: compute Codex cost using codex_pricing module.
+    // Uses the default Codex model (gpt-5.3-codex tier) for aggregate cost.
+    // Per-model cost would require tracking usage by model id in FileSummary.
+    let (today_price, today_exact) = crate::codex_pricing::price_for_codex("gpt-5.3-codex");
+    let today_cost = crate::codex_pricing::codex_usage_cost(
+        today.input,
+        today.cached,
+        today.output,
+        &today_price,
+    );
+    let lifetime_cost = crate::codex_pricing::codex_usage_cost(
+        lifetime.input,
+        lifetime.cached,
+        lifetime.output,
+        &today_price,
+    );
     let usage = Some(json!({
         "today": today.as_json(),
+        "todayCost": today_cost,
+        "todayCostExact": today_exact,
         "lifetime": {
             "tokens": lifetime.tokens,
             "input": lifetime.input,
@@ -246,6 +264,8 @@ pub fn snapshot(app_dir: &Path) -> (Option<Value>, Option<Value>) {
             "reasoning": lifetime.reasoning,
             "sessions": sessions.len(),
             "events": token_events,
+            "cost": lifetime_cost,
+            "costExact": today_exact,
         },
         "diagnostics": {
             "source": "rollout-incremental",
@@ -254,6 +274,8 @@ pub fn snapshot(app_dir: &Path) -> (Option<Value>, Option<Value>) {
             "skippedLargeFiles": skipped_large,
             "unreadableFiles": unreadable,
             "maxFiles": MAX_ROLLOUT_FILES,
+            "pricingModel": "gpt-5.3-codex",
+            "pricingExact": today_exact,
         }
     }));
     let result = (limits, usage);
