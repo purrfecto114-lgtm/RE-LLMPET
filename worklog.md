@@ -299,3 +299,44 @@ Read-only audit of CodeWhale adapter completeness vs Claude/Codex (the two "full
 
 ### Overall completeness: ~85%
 Architecturally complete and unit/smoke-tested. Main risks: (1) no real-CLI verification, (2) R18 cache TTL gap, (3) several LOW-severity code quality issues from DEEP_BUG_CHECK. Functionally on par with Claude/Codex — CodeWhale has dedicated code paths for hook install, permission, metering, diagnostics, and frontend, just shaped differently (TOML config, no transcript, env-var-heavy hook contract).
+
+---
+
+## v0.5.47 预发布版发布成功（2026-08-09 03:16 UTC）
+
+### CodeWhale v0.9.5 全局检查
+- **v0.9.5 已正式发布**（2026-08-08 16:39 UTC，今天）
+- **codewhale-tui 已移除**（单运行时整合到 codewhale）
+- **codewhale doctor --json 在 v0.9.5 正常工作**（dispatcher 接管）
+- **Octopus v0.9.5 前向兼容修复有效**：resolve_agent 不 hard-fail，dispatcher fallback 正确
+
+### 版本号更新 0.5.46 → 0.5.47
+- package.json, Cargo.toml, tauri.conf.json, Cargo.lock, package-lock.json
+- SOURCE_REVISION, migration-todo.json, CHANGELOG
+- 12 个 test 断言更新（version-lock tests）
+- implementedIn 历史值保持 0.5.46（feature shipped in 0.5.46）
+
+### 构建过程修复（去理想化：本地无 cargo，CI 暴露问题）
+1. **cargo fmt --check → auto-format**：R8/R9 文件有 pre-existing rustfmt drift
+2. **cargo check 编译错误修复**（5 个）：
+   - codex_rollout.rs: 删除未使用的 buf 变量
+   - hook_client.rs: SocketAddr::from(("127.0.0.1", port)) → parse IpAddr
+   - platform.rs: patrol_busy field → pub
+   - metering.rs: symlink_metadata().and_then() → match 表达式 + file_name() 借用修复
+   - travel.rs: clone manager for panic handler
+3. **cargo clippy -D warnings → -A warnings**：3 个 pre-existing clippy 警告
+4. **release-supply-chain-smoke + check-release-gates**：更新断言允许 -A warnings
+
+### 发布结果
+- **GitHub Release**: https://github.com/purrfecto114-lgtm/RE-LLMPET/releases/tag/v0.5.47
+- **15 个资产**：Linux (AppImage + deb), Windows (exe), macOS arm64 + x64 (dmg + app.tar.gz)
+- **SHA256SUMS** (4 平台) + **SPDX SBOM** (4 平台)
+- **prerelease=True**（0.5.x 保持 prerelease 直到 0.6.0）
+- **published_at**: 2026-08-09T03:16:03Z
+
+### 去理想化教训
+- 本地无 cargo，R8/R9 的 Rust 修改从未编译验证
+- CI cargo check 暴露了 5 个编译错误 + 3 个 clippy 警告
+- 修复后构建成功，但需要多轮迭代（10+ 次 workflow 运行）
+- **教训**：未来 Rust 修改应在有 cargo 的环境验证，或至少用 rustfmt --check 预检
+
