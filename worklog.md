@@ -701,3 +701,38 @@ re-llmpet.log 显示：
 - 22/22 static + npm test EXIT=0（346 manifest）
 - GitHub main: `49eecb6` 已推送
 
+
+---
+
+## v0.5.48 发布 + Cron 更新（2026-08-09 23:51）
+
+### Tag 检查
+- v0.5.47 tag 指向 `2840684`（旧 commit），main HEAD 在 `f6ee001`
+- 24 个 commit 未打 tag，包含 HIGH+ 改动
+- 已打 tag v0.5.48 指向 `15b684a`（最新 commit）
+
+### 版本号迭代 0.5.47 → 0.5.48
+触发条件：HIGH+ 级别的漏洞修复和功能完善（7+ 项）
+- CRITICAL: codex-pricing + combineUsage backport
+- HIGH: focus_pet ACL + OpenCode plugin + pet animation + settings.json watcher + machineGrowth + meter-rebuild CLI + diagnostics timeout
+- 更新所有版本引用 + CHANGELOG + tag
+
+### Cron 更新
+- 删除旧 Job 315118
+- 创建新 Job 315222（1h 循环，priority=10 HIGH）
+- 新增**版本号自动迭代规则**：
+  - HIGH+ 改动触发 patch + 1（如 0.5.48 → 0.5.49）
+  - 自动更新所有版本引用 + CHANGELOG + tag
+  - MEDIUM/LOW 不触发版本迭代
+- 新增**路线图**（5 个优先级层次）：
+  1. 真机验证（用户确认 5 个修复）
+  2. 上游 backport 剩余（usage-archive, pidwalk, territory episodes）
+  3. 功能增强（per-model cost, TTL split, 诊断进度, wander 改进, JSON 导出）
+  4. 代码质量（dead code, 文档）
+  5. GUI 美化
+
+### GitHub 状态
+- main: `15b684a` (v0.5.48 release)
+- tag v0.5.48: ✅ 指向最新 commit
+- CI: 全绿
+
