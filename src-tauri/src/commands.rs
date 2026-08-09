@@ -2004,7 +2004,7 @@ fn codewhale_doctor_probe(
             path,
             &["doctor", "--json"],
             cwd,
-            Duration::from_secs(15),
+            Duration::from_secs(8),
             control,
         );
         attempts.push(json!({
@@ -2042,7 +2042,7 @@ fn codewhale_doctor_probe(
                     path,
                     &["doctor", "--json"],
                     cwd,
-                    Duration::from_secs(15),
+                    Duration::from_secs(8),
                     control,
                 );
                 attempts.push(json!({
@@ -2591,7 +2591,7 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
                         path,
                         &["doctor"],
                         &working_directory,
-                        Duration::from_secs(15),
+                        Duration::from_secs(8),
                         control,
                     )
                 })

@@ -186,13 +186,15 @@ impl TravelManager {
             .filter(|value| !value.is_empty())
             .map(str::to_ascii_lowercase);
         let provider = match requested {
-            Some(value) if matches!(value.as_str(), "claude" | "codex") => value,
-            Some(_) => return Err("wander currently supports Claude and Codex only".into()),
+            Some(value) if matches!(value.as_str(), "claude" | "codex" | "codewhale") => value,
+            Some(_) => {
+                return Err("wander currently supports Claude, Codex, and CodeWhale only".into())
+            }
             None => runtime
                 .config()
                 .providers
                 .into_iter()
-                .find(|value| matches!(value.as_str(), "claude" | "codex"))
+                .find(|value| matches!(value.as_str(), "claude" | "codex" | "codewhale"))
                 .unwrap_or_else(|| "claude".into()),
         };
         self.start(

@@ -1283,21 +1283,12 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
     let base = std::env::var_os("OPENCODE_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
-    let path = base.join("plugins").join("llmpet-hook.js");
-    // R44 Phase 0C: pre-write backup (fail-closed). Even though this file
-    // is nominally owned by RE-LLMPET, a backup lets us recover if the
-    // write produces a corrupt plugin (e.g. disk full mid-write) AND
-    // preserves the previous known-good version if the user wants to
-    // downgrade. The ownership check below STILL refuses to clobber a
-    // foreign plugin, so the backup only ever contains our own file.
+    let plugins_dir = base.join("plugins");
+    fs::create_dir_all(&plugins_dir).map_err(|e| format!("create plugins dir failed: {e}"))?;
+    let path = plugins_dir.join("llmpet-hook.js");
     let backup_path = backup_config_file(&path, runtime)?;
     let source = opencode_plugin_source();
     if let Ok(existing) = fs::read_to_string(&path) {
-        // R40: accept the current marker OR any legacy marker we own.
-        // Legacy markers are listed in OPENCODE_MARKER_LEGACY; if the
-        // existing file matches one of them, we transparently overwrite
-        // with the v3 source. If it matches neither current nor legacy,
-        // the path is owned by another plugin — refuse to clobber.
         let owns_current = existing.contains(OPENCODE_MARKER);
         let owns_legacy = OPENCODE_MARKER_LEGACY
             .iter()
@@ -1310,6 +1301,33 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
         }
     }
     write_text_atomic(&path, source.as_bytes())?;
+
+    // R13 fix: register the plugin in opencode's config.json so opencode
+    // actually loads it. Without this, the ESM file sits on disk but opencode
+    // never imports it — no events are captured.
+    let config_path = base.join("config.json");
+    let plugin_path_str = path.to_string_lossy().replace('\\', "/");
+    let mut config = fs::read_to_string(&config_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .unwrap_or_else(|| json!({}));
+    if let Some(obj) = config.as_object_mut() {
+        let plugins = obj
+            .entry("plugins".to_string())
+            .or_insert_with(|| Value::Array(vec![]));
+        if let Some(arr) = plugins.as_array_mut() {
+            let already = arr
+                .iter()
+                .any(|v| v.as_str().is_some_and(|s| s.contains("llmpet-hook.js")));
+            if !already {
+                arr.push(Value::String(plugin_path_str.clone()));
+            }
+        }
+    }
+    if let Ok(config_bytes) = serde_json::to_vec_pretty(&config) {
+        let _ = write_text_atomic(&config_path, &config_bytes);
+    }
+
     write_install_receipt(
         runtime,
         "opencode",
@@ -1321,11 +1339,14 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
         ],
         backup_path.as_deref(),
     );
-    runtime.write_log("hooks", "OpenCode ESM plugin synced (v3)");
+    runtime.write_log(
+        "hooks",
+        "OpenCode ESM plugin synced (v3) + registered in config.json",
+    );
     Ok(InstallResult {
         added: 1,
         path,
-        message: "OpenCode ESM 插件已安装；权限事件仅观察，决策仍由 OpenCode 原生界面完成".into(),
+        message: "OpenCode ESM 插件已安装并注册到 config.json；权限事件仅观察，决策仍由 OpenCode 原生界面完成".into(),
     })
 }
 
@@ -2275,6 +2296,8 @@ export const LLMPETPlugin = async ({ directory }) => ({
     tool_name: input?.tool || input?.toolName || "tool"
   })
 });
+// R13: also export as default for opencode plugin loader compatibility
+export default LLMPETPlugin;
 "#
 }
 

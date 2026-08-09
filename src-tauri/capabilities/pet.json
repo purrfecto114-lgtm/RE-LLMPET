@@ -24,6 +24,7 @@
     "allow-territory-run-now",
     "allow-open-panel",
     "allow-blur-pet",
+    "allow-focus-pet",
     "allow-decide-permission",
     "allow-decide-permission-batch",
     "allow-diagnose-agent",

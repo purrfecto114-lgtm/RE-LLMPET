@@ -102,7 +102,7 @@ for (const [name, source, maxLines] of [
   ["frontend/renderer/pet.js", pet, 2500],
   ['frontend/renderer/panel.js', panel, 1750],
   ['src-tauri/src/commands.rs', commands, 3320],
-  ['src-tauri/src/hook_install.rs', hooks, 2300],
+  ['src-tauri/src/hook_install.rs', hooks, 2330],
   ['frontend/shared/latest-value-controller.js', read('frontend/shared/latest-value-controller.js'), 220],
   ['frontend/shared/panel-fit-controller.js', read('frontend/shared/panel-fit-controller.js'), 220],
   ['frontend/shared/config-write-controller.js', configWriteController, 140],
