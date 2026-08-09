@@ -486,3 +486,46 @@ Architecturally complete and unit/smoke-tested. Main risks: (1) no real-CLI veri
 
 **5/9 落后项已完成**，剩余 4 MEDIUM。
 
+
+---
+
+## Round 12: _extractOpenAIModels backport（2026-08-09 16:18 trigger）
+
+### 搜索资料
+- 上游 myunwang/LLMPET 最新 commit: 769f3c0（无新变更）
+- CodeWhale v0.9.5 已发布（R8 前向兼容已处理）
+- 上游 `_extractOpenAIModels`: 从 LiteLLM sync cache 提取 openai 模型价格
+- 本地 models.dev cache 已包含 openai 模型（gpt-5.x 系列），但 codex_pricing 未读取
+
+### 修复：_extractOpenAIModels backport (MEDIUM #9 ✅)
+
+**codex_pricing.rs: price_for_codex() 现在读取 models.dev cache**
+
+之前 codex_pricing 只用内置默认价格表（13 个 gpt-5.x 模型）。现在：
+1. 读取 `~/.re-llmpet/pricing-cache.models-dev.json`
+2. 遍历 entries，提取所有模型价格
+3. `cache_read` 字段映射到 `cached_input` 费率
+4. Pro 模型：`cached_input = input`（无 10% 折扣）当 cache_read 缺失
+5. 标准模型：`cached_input = input * 0.1` 当 cache_read 缺失
+6. 模型名通过 `norm_codex_model_name` 归一化
+
+**效果**：Codex 定价现在随 models.dev sync 自动更新，不再依赖硬编码的内置价格表。新模型出现时无需改代码。
+
+### 验证
+- 22/22 static + npm test EXIT=0（339 manifest）
+- cargo fmt --check EXIT=0
+- GitHub main: `a335223` 已推送
+
+### 落后上游清单更新
+- ~~CRITICAL #1 codex-pricing~~ ✅
+- ~~CRITICAL #2 combineUsage~~ ✅
+- ~~HIGH #3 settings.json watcher~~ ✅
+- ~~HIGH #4 machineGrowth~~ ✅
+- ~~HIGH #5 meter-rebuild CLI~~ ✅
+- ~~MEDIUM #9 _extractOpenAIModels~~ ✅
+- MEDIUM #6: usage-archive carry — 待做
+- MEDIUM #7: pidwalk — 已有简化版（process_chain + parent_pid）
+- MEDIUM #8: territory episodes — 待做（HIGH 难度）
+
+**6/9 落后项已完成**，剩余 2 MEDIUM + 1 HIGH-difficulty。
+
