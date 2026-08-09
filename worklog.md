@@ -402,3 +402,39 @@ Architecturally complete and unit/smoke-tested. Main risks: (1) no real-CLI veri
 - HIGH #5 meter-rebuild CLI
 - MEDIUM #6-9: usage-archive carry, pidwalk, territory episodes, _extractOpenAIModels
 
+
+---
+
+## Round 10 续：combineUsage backport + cron 更新（2026-08-09）
+
+### combineUsage backport（CRITICAL #2 完成）
+**model.rs:stats()** 现在输出 `combinedUsage` 字段：
+- `todayCost` = claudeTodayCost + codexTodayCost
+- `claudeTodayCost` / `codexTodayCost`（分项）
+- `codexTodayExact`（控制 ≈ 前缀）
+- `claudeUnknownPrice`（控制 ≥ 前缀）
+
+**panel.html**: 新增 `#today-split` 元素（今日花费下方）
+**panel.js**: render() 填充分项成本 "Claude $X · Codex $Y"
+**panel.css**: `.stat-split` 样式（9.5px, tabular-nums）
+**预算**: panel.js 1650→1700（combineUsage +19 行）
+
+### Cron 更新
+- 删除旧 Job 314354（持续优化循环）
+- 创建新 Job 314511（自主优化轮次，30min fixed_rate）
+- 提示词更新为 5 阶段循环：2轮搜索 + 2轮修复 + 1轮验证
+- 包含 Rust 激活命令、GitHub PAT、6 个自选优化角度
+
+### 落后上游清单更新
+- ~~CRITICAL #1 codex-pricing~~ ✅ 已 backport
+- ~~CRITICAL #2 combineUsage~~ ✅ 已 backport
+- HIGH #3 settings.json watcher
+- HIGH #4 machineGrowth
+- HIGH #5 meter-rebuild CLI
+- MEDIUM #6-9: usage-archive carry, pidwalk, territory episodes, _extractOpenAIModels
+
+### 验证
+- 22/22 static + npm test EXIT=0（336 manifest）
+- cargo fmt --check EXIT=0
+- GitHub main: `2c0af35` 已推送
+
