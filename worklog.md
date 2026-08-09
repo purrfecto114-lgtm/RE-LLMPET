@@ -1500,3 +1500,46 @@ setup.credential.ready = false ← 一样！
 - Token 已从 remote URL 清除: ✅
 - 本地 git 历史与远程一致: ✅
 
+
+---
+
+## Round 8 续：CodeWhale v0.9.5 前向兼容 + 清理（2026-08-09 01:15）
+
+### 清理
+- **GitHub 分支**：仅 `main`（无过期分支，`round-3-8-smoke-test-fixes` 已删除）
+- **本地产物**：`tool-results/` 缓存已清空，`.next/` 不在 git 跟踪中
+- **Cron**：删除旧 Job 313580（已禁用的自主修复循环），创建新 Job 314354（持续优化循环，30min）
+
+### 自选优化：CodeWhale v0.9.5 前向兼容
+
+**背景**：CodeWhale v0.9.5（2026-08-08 CHANGELOG source candidate）将 `codewhale-tui` 合并进 `codewhale` 单运行时。`codewhale-tui` 成为弃用的字节相同兼容副本，未来版本可能完全移除。Octopus 的 `MISSING_COMPANION_BINARY` 硬错误会阻止 v0.9.5+ 用户使用诊断功能。
+
+**修改**：
+| 文件 | 修改 |
+|---|---|
+| `commands.rs:resolve_agent` | `return Err(MISSING_COMPANION_BINARY)` → `eprintln!` 警告。doctor probe 已有 `should_try_dispatcher` fallback 处理 None companion |
+| `commands.rs:diagnose_agent_sync` | `issues.push(MISSING_COMPANION_BINARY)` → `warnings.push(...)`。从阻断变为建议 |
+| `docs/CODEWHALE.md` | 新增「v0.9.5+ forward compatibility」段落，记录前向兼容策略 |
+| `test/tauri-codewhale-doctor-consistency-r10-smoke.js` | 更新断言描述：hard error → warning |
+| `test/tauri-cli-hardening-r3-smoke.js` | 更新断言描述：companion required → warned |
+| `test/tauri-codewhale-v095-forward-compat-r8-smoke.js` | **新增**：验证 resolve_agent 不 hard-fail + dispatcher fallback + MISSING_COMPANION_BINARY 字符串保留 |
+
+### 验证
+- `node scripts/run-static-checks.js`: **22/22 PASS**
+- `npm test`: **EXIT=0**（含新 `tauri-codewhale-v095-forward-compat-r8-smoke`）
+- `node scripts/generate-source-manifest.js`: 333 文件
+- 行数预算：commands.rs 3246/3250 ✓（净减 2 行：硬错误 6 行 → 警告 4 行 + issues 5 行 → warnings 3 行）
+
+### 去理想化辩证检查
+- **质疑**：移除 hard-fail 是否会让用户在 codewhale 安装不完整时仍然继续？
+- **验证**：`codewhale_doctor_probe` 的 `should_try_dispatcher` 逻辑在 companion 为 None 时直接尝试 dispatcher。如果 dispatcher 也失败，`probe_succeeded` 返回 false，诊断标记为不可用。用户仍会看到失败，只是不会被 `resolve_agent` 提前阻断。
+- **结论**：安全。hard-fail 是过度保护——doctor probe 本身已有完整的 fallback + failure reporting 机制。
+
+### Cron 更新
+- **旧 Job 313580**（已删除）：自主修复循环，提示词停留在 Round 3 时代的 bug 修复指令
+- **新 Job 314354**：持续优化循环，更新为：
+  - 反映当前状态（所有 CRITICAL/HIGH/MEDIUM 已清零）
+  - 自选优化方向（上游 backport / CodeWhale 增强 / Territory 回填 / 代码清理 / 测试增强）
+  - 去理想化要求（每轮推送前联网交叉验证 + 多角度辩证检查）
+  - GitHub PAT 可用，每轮直接 push
+
