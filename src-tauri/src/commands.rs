@@ -224,6 +224,36 @@ pub fn set_price_auto_update(
     Ok(())
 }
 
+/// R11 backport: rebuild usage costs — recompute all historical event costs
+/// with the current price catalog. Fixes past events that were priced wrong
+/// (e.g. new model billed at default before pricing sync caught up).
+#[tauri::command]
+pub fn rebuild_usage_costs(app: AppHandle, state: State<'_, AppState>) -> Result<Value, String> {
+    let now = crate::model::now_ms();
+    let mut usage = state
+        .runtime
+        .usage
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    // Reload catalog to pick up the latest prices before re-pricing
+    usage.reload_catalog(&state.runtime.app_dir);
+    let (before, after, count) = usage.rebuild_costs();
+    drop(usage);
+    state.runtime.write_log(
+        "metering",
+        &format!("rebuild_costs: {count} events, ${before:.4} → ${after:.4}"),
+    );
+    // Emit fresh stats so the panel updates immediately
+    let _ = app.emit("pet:stats", state.runtime.stats());
+    let _ = app.emit("panel:stats", state.runtime.stats());
+    Ok(json!({
+        "beforeCost": before,
+        "afterCost": after,
+        "eventCount": count,
+        "delta": after - before,
+    }))
+}
+
 #[tauri::command]
 pub fn set_language(
     app: AppHandle,

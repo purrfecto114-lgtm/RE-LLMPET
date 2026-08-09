@@ -211,6 +211,7 @@ pub fn run() {
             get_price_info,
             refresh_model_prices,
             set_price_auto_update,
+            rebuild_usage_costs,
             set_language,
             set_mode,
             uninstall_hooks,

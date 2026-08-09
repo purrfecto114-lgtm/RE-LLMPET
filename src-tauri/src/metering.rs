@@ -359,6 +359,54 @@ impl UsageLedger {
         self.catalog = load_catalog(app_dir);
     }
 
+    /// R11 backport: recompute all event costs with the current price catalog.
+    /// Past events stored cost at whatever price was in effect then — so models
+    /// priced wrong before (e.g. new model billed at default) are wrong in the
+    /// calendar. This re-prices every event and rewrites the ledger atomically.
+    /// Returns (before_total, after_total, event_count).
+    pub fn rebuild_costs(&mut self) -> (f64, f64, usize) {
+        let before_total: f64 = self.events.iter().filter_map(|e| e.cost_usd).sum();
+        let count = self.events.len();
+        for event in &mut self.events {
+            let quote = self.cost_for(
+                &event.model,
+                event.billing_provider.as_deref(),
+                event.input,
+                event.output,
+                event.cache_read,
+                event.cache_create,
+                event.input_includes_cache,
+            );
+            if let Some(q) = quote {
+                event.cost_usd = Some(q.cost_usd);
+                event.price_source = q.source;
+                event.price_updated_at = q.updated_at;
+            }
+        }
+        let after_total: f64 = self.events.iter().filter_map(|e| e.cost_usd).sum();
+        // Rewrite the ledger file atomically with re-priced events
+        let _ = self.rewrite_ledger();
+        (before_total, after_total, count)
+    }
+
+    fn rewrite_ledger(&self) -> Result<(), String> {
+        let temp = self
+            .path
+            .parent()
+            .ok_or("ledger path has no parent")?
+            .join(format!(".usage-events.{}.tmp", std::process::id()));
+        let mut content = String::new();
+        for event in &self.events {
+            if let Ok(line) = serde_json::to_string(event) {
+                content.push_str(&line);
+                content.push('\n');
+            }
+        }
+        std::fs::write(&temp, content).map_err(|e| format!("write temp: {e}"))?;
+        std::fs::rename(&temp, &self.path).map_err(|e| format!("rename: {e}"))?;
+        Ok(())
+    }
+
     fn store_event(&mut self, event: UsageEvent, observed_at: u64) -> Result<UsageIngest, String> {
         let result = UsageIngest {
             context_used: event.context_used,

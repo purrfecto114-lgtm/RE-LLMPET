@@ -1293,6 +1293,23 @@ document.addEventListener('DOMContentLoaded', () => {
       renderPriceInfo({ ...(latestPriceInfo || {}), state: 'error', inProgress: false, lastError: String(error || '刷新失败') });
     });
   });
+  // R11 backport: rebuild usage costs with current price catalog
+  const priceRebuild = $('price-rebuild');
+  if (priceRebuild) priceRebuild.addEventListener('click', () => {
+    priceRebuild.disabled = true;
+    priceRebuild.textContent = '重算中…';
+    window.pet.rebuildUsageCosts().then((result) => {
+      priceRebuild.disabled = false;
+      priceRebuild.textContent = '重算花费';
+      const delta = Number(result.delta) || 0;
+      const sign = delta >= 0 ? '+' : '';
+      priceRebuild.title = `重算完成：${result.eventCount} 个事件，${sign}$${delta.toFixed(4)}`;
+    }).catch((error) => {
+      priceRebuild.disabled = false;
+      priceRebuild.textContent = '重算花费';
+      priceRebuild.title = '重算失败：' + String(error || '未知错误');
+    });
+  });
   const savePriceAuto = () => {
     const enabled = Boolean(priceAuto && priceAuto.checked);
     const refreshHours = Math.max(1, Math.min(168, Number(priceInterval && priceInterval.value) || 24));

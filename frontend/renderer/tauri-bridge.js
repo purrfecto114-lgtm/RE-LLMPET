@@ -164,6 +164,7 @@ function currentPetAgent() {
     getPriceInfo: () => call('get_price_info'),
     refreshModelPrices: () => call('refresh_model_prices'),
     setPriceAutoUpdate: (enabled, refreshHours) => call('set_price_auto_update', { enabled, refreshHours }),
+    rebuildUsageCosts: () => call('rebuild_usage_costs'),
     setLanguage: (lang) => call('set_language', { lang }),
     openPanel: () => send('open_panel'),
     // R38.1: upgraded to call() — the 0.5.16 full audit (P0-4) flagged

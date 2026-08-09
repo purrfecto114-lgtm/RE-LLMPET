@@ -15,6 +15,7 @@
     "allow-get-price-info",
     "allow-refresh-model-prices",
     "allow-set-price-auto-update",
+    "allow-rebuild-usage-costs",
     "allow-set-mode",
     "allow-set-skin",
     "allow-set-budget",
