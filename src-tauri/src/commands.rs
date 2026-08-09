@@ -3093,7 +3093,7 @@ pub fn open_log(state: State<'_, AppState>) -> Result<(), String> {
     if !state.runtime.log_path.exists() {
         std::fs::write(&state.runtime.log_path, b"").map_err(|e| e.to_string())?;
     }
-    open_path(&state.runtime.log_path)
+    open_path(&state.runtime.log_path.to_string_lossy())
 }
 
 #[tauri::command]

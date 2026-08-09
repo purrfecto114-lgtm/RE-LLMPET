@@ -240,7 +240,7 @@
     "src-tauri/src/bin/re-llmpet-hook.rs": "02b6304e3c1bb9e2b59437e4890ecf8ad45a7a29259cbfc14a571fbb3a339036",
     "src-tauri/src/codex_pricing.rs": "557080ba38115192c957588c8009ae68d782115225987f47e9c88a56ffc9b491",
     "src-tauri/src/codex_rollout.rs": "650967300d235f0d67d1211d0cee03eb52c6c4291d20a05acaa5d5260803f57b",
-    "src-tauri/src/commands.rs": "39afd4aa14849dce01310ca4df715beafb15c54987ee99780e29767e352ad318",
+    "src-tauri/src/commands.rs": "703f2fc7ea6ff4e8a40fcdc7cb2c79c774f64cb4a4e3b41ae4dfac0f7223a314",
     "src-tauri/src/diagnostic_control.rs": "c4dc92e39996c2b29c6a972c1fd2f79220a1e6d49f94001566411d9102c1d20a",
     "src-tauri/src/diagnostic_io.rs": "0e6a4d42d3a9bd2bffc3506551131d68770af22ccbc5331154fb63888339f33f",
     "src-tauri/src/emotion.rs": "ff091a1e00621620fd0008df2b355465c150ef5a1143dc16e93641d587c37cd0",
@@ -252,9 +252,9 @@
     "src-tauri/src/instance_probe.rs": "38fee6c5356d7d6e1662ca085bff609fdfcfbaaf585a3f7a1cb2b4fd346e0345",
     "src-tauri/src/lib.rs": "aaeeda73589ad4ea2df38a1bbc465c56883f976fcf2979128e8e021de16a9cf5",
     "src-tauri/src/main.rs": "85cddcc5c686d710971144ddb7d04ed57c8875f6ef6a1bef8236a114c25bfebc",
-    "src-tauri/src/metering.rs": "95de38c1d16e537fbf9a2353ed5637d384ca6c90cf63d9ed3608251e6b354a11",
+    "src-tauri/src/metering.rs": "8c10bf8f60fd039e294f041c19056de23e7e38edbc4ae67ede32f29943ed50ed",
     "src-tauri/src/migration.rs": "387048764730e6f3c81c093555fdcbf4e7fdad3e623e7ed602cab267f593f794",
-    "src-tauri/src/model.rs": "8ab089f8e9b23d59257533eb04d0f8a1f9487f92eb5bbed5b2b726d0a847f472",
+    "src-tauri/src/model.rs": "f92dbbd0ed116ee0f8e82ecfcfc3ea3ff6f7e3699ba86ea6f78a7baebfed0b99",
     "src-tauri/src/platform.rs": "b7c8b3918c85c473ad2883fcd9cf2ab6f795a19c9c5d04d2470bf56422ff08d0",
     "src-tauri/src/pricing_sync.rs": "d2a01af5f848996803154d5ce689f8b2d5ab85b96ab43f10bf22ab6bb4901460",
     "src-tauri/src/secure_file.rs": "b1f926abc2b59d0f9d1f91a997828c72703f8dcc68c14eceea664d88c47b4ba2",
@@ -342,8 +342,8 @@
     "test/tauri-tray-submenu-r12-smoke.js": "d0f7ebb3a69cdcc7c9b416613444aebd088e5f1402c75ca572c2c40d997e606d",
     "test/tauri-windows-static-smoke.js": "0d1a7b30b23b63438ebdac7d2cdf53c6e3a7d21d983de7dbab1cb0597e30e82d",
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
-    "worklog.md": "c89c2a28cbca3c68db2ca5ad21056ade001e59ef53c70b4a5059df7b156107b4"
+    "worklog.md": "fd5fd88c8e7c3008659afac2a4dec552e06f8f9bd41fb4f843de8b007d7d382b"
   },
-  "sha256_of_manifest": "c46e465562f5733a8572ec1b56643cd8a3af78ce74e9c29cf1634dcfd6c8c3ec",
+  "sha256_of_manifest": "f0d9cd524b5a2c3d7cf1b327722a47add40afed035f9dd22ec791267c9531eb0",
   "source_commit": "octopus-0.5.47"
 }

@@ -379,7 +379,7 @@ impl UsageLedger {
             );
             if let Some(q) = quote {
                 event.cost_usd = Some(q.cost_usd);
-                event.price_source = q.source;
+                event.price_source = Some(q.source);
                 event.price_updated_at = q.updated_at;
             }
         }

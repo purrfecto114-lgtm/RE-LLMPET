@@ -1556,8 +1556,8 @@ impl Runtime {
                 .and_then(|cu| cu.get("todayCost"))
                 .and_then(Value::as_f64)
                 .map(|c| {
-                    let exact = cu
-                        .as_object()
+                    let exact = codex_usage
+                        .as_ref()
                         .and_then(|o| o.get("todayCostExact"))
                         .and_then(Value::as_bool)
                         .unwrap_or(false);
