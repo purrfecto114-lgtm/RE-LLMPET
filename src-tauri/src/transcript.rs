@@ -84,7 +84,7 @@ impl TranscriptScanner {
             reply_limit,
         ) {
             Ok(result) => result,
-            Err(error) => {
+            Err(_) => {
                 self.scan_errors = self.scan_errors.saturating_add(1);
                 TranscriptScanResult::default()
             }

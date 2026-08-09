@@ -14,7 +14,6 @@
 //!
 //! R10 backport: ported from upstream `backend/codex-pricing.js` (162 lines).
 
-use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 

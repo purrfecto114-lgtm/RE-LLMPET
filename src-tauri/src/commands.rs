@@ -229,7 +229,6 @@ pub fn set_price_auto_update(
 /// (e.g. new model billed at default before pricing sync caught up).
 #[tauri::command]
 pub fn rebuild_usage_costs(app: AppHandle, state: State<'_, AppState>) -> Result<Value, String> {
-    let now = crate::model::now_ms();
     let mut usage = state
         .runtime
         .usage

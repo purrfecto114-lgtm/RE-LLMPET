@@ -279,8 +279,8 @@ impl TravelManager {
                     .child_pid
                     .lock()
                     .unwrap_or_else(|e| e.into_inner()) = None;
-                let _ = fs::remove_file(&runtime.app_dir.join(format!(".travel-{}.out", trip.id)));
-                let _ = fs::remove_file(&runtime.app_dir.join(format!(".travel-{}.err", trip.id)));
+                let _ = fs::remove_file(runtime.app_dir.join(format!(".travel-{}.out", trip.id)));
+                let _ = fs::remove_file(runtime.app_dir.join(format!(".travel-{}.err", trip.id)));
                 *manager_for_panic
                     .active
                     .lock()
