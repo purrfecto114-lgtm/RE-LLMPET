@@ -277,7 +277,7 @@
     "test/pet-runtime-startup-smoke.js": "d52b553212bbbfda1cd2fa78530c059c900a4bb3714438ffa64f695c794fd632",
     "test/reference-contract-smoke.js": "53f049d0edd37dcc646c3b4c6b815654a5eb80ae5b8b2f403d2447094ef350b3",
     "test/release-asset-verifier.test.js": "8dbb4c34e6bd0e12ae1e1f90538c7ba2507c9b7f4ede06e7cb56c1ada5ff9bc5",
-    "test/release-supply-chain-smoke.js": "3bee0a0af16ce8f4db65b71b07fb36079b1e21839982928a4828a2016336da8e",
+    "test/release-supply-chain-smoke.js": "51fb73f539083f3ab4f5c468d556de2987f6cd6ffc4d498a04e9a80117879926",
     "test/root-regression.test.js": "45fb4e199f2375a924382c5788bfc61070683dd1e8303a978368deb7a8096b3b",
     "test/session-pref-client.test.js": "d6c3c3b658a4ff7538a8bf666d30f47d89c5e3a4f074a44d3027e560c535e45a",
     "test/tauri-bridge-smoke.js": "8bb3bf2396d70e6eb4f2cdd03d01404bdfb21d22a79ab44f3cd34847a3b5e219",
@@ -339,6 +339,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "b0b1a20d0022096e930258c4d003a35f0579f582b2952284899239fb730ac398"
   },
-  "sha256_of_manifest": "3cb73e88a9000031f4ad321f7c5cdb0e42cef51a9b0eee559e2cf556a4fb44c4",
+  "sha256_of_manifest": "0494d928886016356a5334df00c9497952489615823eb5bd3e904dbe9474693a",
   "source_commit": "octopus-0.5.47"
 }
