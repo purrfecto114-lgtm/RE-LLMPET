@@ -326,9 +326,7 @@ fn parse_rollout_file(path: &Path) -> Result<FileSummary, String> {
     let reader = BufReader::with_capacity(64 * 1024, file);
     let mut summary = FileSummary::default();
     let mut previous_cumulative = UsageTotals::default();
-    let mut buf = Vec::new();
     for line_result in reader.lines() {
-        buf.clear();
         let line = match line_result {
             Ok(line) => line,
             Err(error) => {

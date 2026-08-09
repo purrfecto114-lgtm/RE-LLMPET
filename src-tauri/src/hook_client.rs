@@ -680,7 +680,10 @@ fn post_json(
 ) -> Result<Vec<u8>, String> {
     let payload = serde_json::to_vec(body).map_err(|e| e.to_string())?;
     // R4-E2 fix: connect_timeout prevents 75s OS-default hang when main process not running
-    let addr = std::net::SocketAddr::from(("127.0.0.1", runtime.port));
+    let addr = std::net::SocketAddr::from((
+        "127.0.0.1".parse::<std::net::IpAddr>().unwrap(),
+        runtime.port,
+    ));
     let mut stream =
         TcpStream::connect_timeout(&addr, Duration::from_millis(500)).map_err(|e| e.to_string())?;
     let timeout = if blocking {

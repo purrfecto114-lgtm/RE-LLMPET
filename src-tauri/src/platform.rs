@@ -69,7 +69,7 @@ pub struct PlatformState {
     // auto-poll thread and an IPC call (territory_run_now / territory_toggle_auto)
     // invoke run_now at the same time. compare_exchange(false→true) at
     // entry; a Drop guard resets to false on exit (panic-safe).
-    patrol_busy: AtomicBool,
+    pub patrol_busy: AtomicBool,
     mouse_ignore_requested: Mutex<HashMap<String, bool>>,
     mouse_ignore_applied: Mutex<HashMap<String, bool>>,
     visual_bounds: Mutex<HashMap<String, VisualBounds>>,

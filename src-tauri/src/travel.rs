@@ -257,6 +257,7 @@ impl TravelManager {
         );
 
         let manager = self.clone();
+        let manager_for_panic = self.clone();
         thread::spawn(move || {
             // P5-4 fix (R2): wrap run_trip in catch_unwind so a panic
             // doesn't leave the trip permanently stuck in "traveling" state.
@@ -274,15 +275,15 @@ impl TravelManager {
                     "unknown panic in travel worker".into()
                 };
                 eprintln!("[octopus] travel worker panic: {msg}");
-                *manager.child_pid.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                *manager_for_panic.child_pid.lock().unwrap_or_else(|e| e.into_inner()) = None;
                 let _ = fs::remove_file(
                     &runtime.app_dir.join(format!(".travel-{}.out", trip.id)),
                 );
                 let _ = fs::remove_file(
                     &runtime.app_dir.join(format!(".travel-{}.err", trip.id)),
                 );
-                *manager.active.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                let mut persisted = manager.persisted.lock().unwrap_or_else(|e| e.into_inner());
+                *manager_for_panic.active.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                let mut persisted = manager_for_panic.persisted.lock().unwrap_or_else(|e| e.into_inner());
                 persisted.failed = persisted.failed.saturating_add(1);
                 persisted.postcards.push(Postcard {
                     id: trip.id.clone(),
@@ -301,10 +302,10 @@ impl TravelManager {
                     persisted.postcards.drain(0..extra);
                 }
                 drop(persisted);
-                let _ = manager.persist();
+                let _ = manager_for_panic.persist();
                 let _ = app.emit(
                     "pet:travel",
-                    json!({"phase":"failed","trip":trip,"summary":format!("internal error: {msg}"),"tokens":0,"state":manager.snapshot()}),
+                    json!({"phase":"failed","trip":trip,"summary":format!("internal error: {msg}"),"tokens":0,"state":manager_for_panic.snapshot()}),
                 );
                 let _ = app.emit(
                     "pet:event",

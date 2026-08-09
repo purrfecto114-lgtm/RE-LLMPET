@@ -994,10 +994,10 @@ fn recover_compact_tmp(path: &Path) {
     let Ok(entries) = fs::read_dir(parent) else {
         return;
     };
-    let main_mtime = path
-        .symlink_metadata()
-        .and_then(|m| m.modified())
-        .ok();
+    let main_mtime = match path.symlink_metadata() {
+        Ok(metadata) => metadata.modified().ok(),
+        Err(_) => None,
+    };
     for entry in entries.flatten() {
         let Some(name) = entry.file_name().to_str() else {
             continue;
