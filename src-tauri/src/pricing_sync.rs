@@ -8,7 +8,7 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -633,6 +633,14 @@ fn safe_header_value(value: Option<&str>) -> Option<String> {
 }
 
 fn trusted_curl_path() -> Option<PathBuf> {
+    // R6-K1 fix (R7): cache resolved curl path to eliminate TOCTOU between
+    // is_file check and Command::new execution. OnceLock resolves once per process.
+    static CACHED: OnceLock<Option<PathBuf>> = OnceLock::new();
+    CACHED.get_or_init(resolve_curl_path).clone()
+}
+
+/// Actual curl path resolution — called at most once thanks to OnceLock.
+fn resolve_curl_path() -> Option<PathBuf> {
     #[cfg(windows)]
     {
         let root = std::env::var_os("SystemRoot").or_else(|| std::env::var_os("WINDIR"))?;
@@ -946,6 +954,14 @@ fn iso_time(value: Option<u64>) -> Option<String> {
 
 #[cfg_attr(not(unix), allow(unused_variables))]
 fn secure_dir(path: &Path) -> Result<(), String> {
+    // R6-K2 fix (R7): reject symlinks on app_dir — prevent chmod from
+    // following a symlink to an unintended target outside ~/.re-llmpet.
+    #[cfg(unix)]
+    {
+        if path.symlink_metadata().map_err(|e| e.to_string())?.file_type().is_symlink() {
+            return Err(format!("refusing to secure_dir on symlink: {}", path.display()));
+        }
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

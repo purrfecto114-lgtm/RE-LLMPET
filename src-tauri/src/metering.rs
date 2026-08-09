@@ -171,6 +171,13 @@ impl Aggregate {
 impl UsageLedger {
     pub fn open(app_dir: &Path, now_ms: u64) -> Self {
         let path = app_dir.join(LEDGER_FILE_NAME);
+        // R2-D1 fix (R3): recover from a crashed `compact()`. If the
+        // process died mid-compact, a `.usage-events.<pid>.tmp` file is
+        // left in the app dir. If it is valid (every line parses as a
+        // JSON event) AND the main ledger is missing or older, we promote
+        // it; otherwise we discard it so the next compact can run cleanly
+        // instead of accumulating orphan tmps. See `recover_compact_tmp`.
+        recover_compact_tmp(&path);
         let catalog = load_catalog(app_dir);
         let mut ledger = Self {
             path,
@@ -478,6 +485,15 @@ impl UsageLedger {
     }
 
     pub fn price_info(&self) -> Value {
+        // R2-D18 fix (R3): only expose the ledger file NAME, not its
+        // absolute path. The full path leaks the user's home directory
+        // layout to the frontend (and any injected script in the
+        // webview). The filename is sufficient for debug display.
+        let ledger_name = self
+            .path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
         json!({
             "source": self.catalog.source.clone(),
             "updatedAt": self.catalog.updated_at.clone(),
@@ -487,7 +503,7 @@ impl UsageLedger {
             "models": self.catalog.entries.len(),
             "count": self.catalog.entries.len(),
             "loadMessage": self.catalog.load_message.clone(),
-            "ledger": self.path.to_string_lossy(),
+            "ledger": ledger_name,
             "unknownPricesAreEstimated": false
         })
     }
@@ -893,7 +909,9 @@ impl UsageLedger {
         secure_file(&self.path)?;
         serde_json::to_writer(&mut file, event).map_err(|error| error.to_string())?;
         file.write_all(b"\n").map_err(|error| error.to_string())?;
-        file.flush().map_err(|error| error.to_string())
+        file.flush().map_err(|error| error.to_string())?;
+        // R4-D14 fix: sync metadata to detect disk-full errors early
+        file.sync_all().map_err(|error| error.to_string())
     }
 
     fn prune(&mut self, now_ms: u64) {
@@ -944,6 +962,97 @@ impl UsageLedger {
         // R25: use windows_safe_rename to avoid remove-then-rename data loss
         crate::model::windows_safe_rename(&temp, &self.path)?;
         secure_file(&self.path)
+    }
+}
+
+/// R2-D1 fix (R3): recover from a crashed `compact()`.
+///
+/// `compact()` writes the deduplicated/pruned event stream to
+/// `.usage-events.<pid>.tmp`, then atomically renames it over the main
+/// ledger. If the process dies after creating the tmp but before the
+/// rename, the tmp is orphaned. On the next `open()` we:
+///
+/// 1. Scan the ledger's directory for `.usage-events.*.tmp` files.
+/// 2. For each, validate that every line parses as a JSON value (so we
+///    don't promote a half-written tmp that would corrupt the ledger).
+/// 3. If valid AND the main ledger is missing or older than the tmp,
+///    promote the tmp via `windows_safe_rename` (atomic on Unix, safe
+///    backup-then-rename on Windows).
+/// 4. Otherwise discard the tmp so subsequent compacts aren't blocked by
+///    stale orphan files accumulating.
+///
+/// This recovers the most recent compacted state when the crash happened
+/// after `flush`+`sync_all` but before `rename`, which is the common case
+/// (rename is the last step). If the crash happened during the write, the
+/// validation step catches the partial line and we fall back to the
+/// existing main ledger.
+fn recover_compact_tmp(path: &Path) {
+    use std::io::BufRead;
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(parent) else {
+        return;
+    };
+    let main_mtime = path
+        .symlink_metadata()
+        .and_then(|m| m.modified())
+        .ok();
+    for entry in entries.flatten() {
+        let Some(name) = entry.file_name().to_str() else {
+            continue;
+        };
+        if !name.starts_with(".usage-events.") || !name.ends_with(".tmp") {
+            continue;
+        }
+        let tmp_path = entry.path();
+        let valid = {
+            let Ok(file) = File::open(&tmp_path) else {
+                continue;
+            };
+            let reader = std::io::BufReader::new(file);
+            let mut all_ok = true;
+            for line in reader.lines() {
+                match line {
+                    Ok(line) if line.is_empty() => continue,
+                    Ok(line) => {
+                        if serde_json::from_str::<Value>(&line).is_err() {
+                            all_ok = false;
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        all_ok = false;
+                        break;
+                    }
+                }
+            }
+            all_ok
+        };
+        let tmp_mtime = tmp_path
+            .symlink_metadata()
+            .and_then(|m| m.modified())
+            .ok();
+        let tmp_is_newer = matches!((main_mtime, tmp_mtime), (Some(m), Some(t)) if t > m);
+        let main_missing = main_mtime.is_none();
+        if valid && (main_missing || tmp_is_newer) {
+            match crate::model::windows_safe_rename(&tmp_path, path) {
+                Ok(()) => {
+                    eprintln!("[octopus] recovered usage ledger from compact tmp");
+                    let _ = secure_file(path);
+                }
+                Err(error) => {
+                    eprintln!("[octopus] failed to promote compact tmp: {error}");
+                }
+            }
+        } else {
+            match fs::remove_file(&tmp_path) {
+                Ok(()) => eprintln!(
+                    "[octopus] discarded compact tmp (valid={valid}, main_missing={main_missing})"
+                ),
+                Err(error) => eprintln!("[octopus] failed to clean compact tmp: {error}"),
+            }
+        }
     }
 }
 
@@ -1069,22 +1178,30 @@ fn merge_catalog_document(
 }
 
 fn read_json_bounded(path: &Path, max_bytes: u64) -> Result<Option<Value>, String> {
+    // R2-D20 fix (R3): error messages must not contain the absolute path.
+    // These errors flow into `load_message` (via append_load_message) and
+    // reach the frontend through `price_info()`, which would leak the
+    // user's home directory layout. We surface only the file name.
+    let label = path
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "<unknown>".to_string());
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.to_string()),
     };
     if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
-        return Err(format!("{} is not a regular file", path.display()));
+        return Err(format!("{label} is not a regular file"));
     }
     if metadata.len() > max_bytes {
-        return Err(format!("{} exceeds {} bytes", path.display(), max_bytes));
+        return Err(format!("{label} exceeds {} bytes", max_bytes));
     }
     let file = File::open(path).map_err(|error| error.to_string())?;
     let opened = file.metadata().map_err(|error| error.to_string())?;
     if !opened.is_file() || opened.len() != metadata.len() || !same_opened_file(&metadata, &opened)
     {
-        return Err(format!("{} changed while opening", path.display()));
+        return Err(format!("{label} changed while opening"));
     }
     serde_json::from_reader(file.take(max_bytes.saturating_add(1)))
         .map(Some)

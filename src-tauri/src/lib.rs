@@ -247,7 +247,22 @@ pub fn run() {
             quit_app
         ])
         .build(tauri::generate_context!())
-        .expect("error while building Octopus");
+        // P1-1 fix (R3): replace .expect() with a graceful error path.
+        // With `panic = "abort"` (Cargo.toml), an .expect() panic on the
+        // Tauri builder causes a hard abort with no cleanup — no tray
+        // removal, no child process kill, no log flush, and no useful
+        // message for the user. Instead we match on the Result: on
+        // success we proceed normally; on failure we print a clear
+        // diagnostic to stderr and exit with code 1. std::process::exit
+        // is a controlled exit (not an abort), and since build() failed
+        // the setup() hook never completed, so there is no AppHandle /
+        // AppState / travel child to clean up anyway. The previous
+        // attempt used a non-existent `build_either` API and left the
+        // trailing .expect() in place — this is the corrected version.
+        .unwrap_or_else(|err| {
+            eprintln!("[octopus] FATAL: error while building Octopus: {err:?}");
+            std::process::exit(1);
+        });
 
     app.run(move |app_handle, event| match event {
         RunEvent::ExitRequested { .. } => {

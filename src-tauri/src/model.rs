@@ -785,7 +785,10 @@ impl Runtime {
         let event_rank = event_rank(&event, &state);
         let event_key = incoming_event_key(body, &event);
         let usage_result = {
-            let mut usage = self.usage.lock().unwrap_or_else(|error| error.into_inner());
+            let mut usage = self.usage.lock().unwrap_or_else(|error| {
+                eprintln!("[octopus] usage mutex poisoned, recovering: {error}");
+                error.into_inner()
+            });
             let mut combined = match usage.record_hook(body, now) {
                 Ok(result) => result,
                 Err(error) => {
@@ -797,7 +800,10 @@ impl Runtime {
                 let scan = self
                     .transcripts
                     .lock()
-                    .unwrap_or_else(|error| error.into_inner())
+                    .unwrap_or_else(|error| {
+                        eprintln!("[octopus] transcripts mutex poisoned, recovering: {error}");
+                        error.into_inner()
+                    })
                     .scan_from_hook(
                         body,
                         &id,
@@ -1467,7 +1473,10 @@ impl Runtime {
         let usage = self
             .usage
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(|error| {
+                eprintln!("[octopus] usage mutex poisoned in stats(), recovering: {error}");
+                error.into_inner()
+            })
             .snapshot(now);
         let last_ops = self
             .recent_ops
@@ -2333,7 +2342,25 @@ fn same_opened_config_file(before: &fs::Metadata, after: &fs::Metadata) -> bool 
 impl Runtime {
     pub fn save_config(&self, config: &AppConfig) -> Result<(), String> {
         let state = self.config_state.lock().unwrap_or_else(|e| e.into_inner());
-        if !state.writes_allowed() {
+        // P3-5 fix (R3): SchemaTooNew no longer hard-blocks ALL writes.
+        // Previously, a config file carrying a newer schema version than
+        // this build understands quarantined every save — including safe,
+        // non-schema-affecting operations like `commit_win_pos` (pet drag)
+        // and `set_language`. The result: after a downgrade the app was
+        // unusable (every window move failed) and the user had to manually
+        // edit/reset config.json. Now we ALLOW writes under SchemaTooNew,
+        // but first preserve the original newer-schema file as a one-time
+        // backup (`config.json.schema-backup`) so the user can recover the
+        // unknown fields after upgrading back. ParseError / Unreadable /
+        // TooLarge still hard-quarantine (those mean the file is broken,
+        // not merely newer). The in-memory config loaded under
+        // SchemaTooNew is already `AppConfig::default()` (see load_config),
+        // so the written file will carry schema_version = CURRENT, which
+        // means after a restart the state becomes Healthy — the quarantine
+        // is self-healing rather than permanent.
+        let is_schema_too_new =
+            matches!(*state, ConfigState::SchemaTooNew { .. });
+        if !state.writes_allowed() && !is_schema_too_new {
             return Err(format!(
                 "Config saves are quarantined because the config file is in state `{}`. Fix the config file and restart. (message: {:?})",
                 state.label(),
@@ -2341,12 +2368,34 @@ impl Runtime {
                     ConfigState::ParseError { message }
                     | ConfigState::Unreadable { message } => message.clone(),
                     ConfigState::TooLarge { size } => format!("file is {} bytes", size),
-                    ConfigState::SchemaTooNew { version } => {
-                        format!("schema version {} is newer than this build supports", version)
-                    }
                     _ => "n/a".into(),
                 }
             ));
+        }
+        if is_schema_too_new {
+            // One-time backup of the newer-schema file before we overwrite
+            // it with our (older-schema) serialization. Idempotent: if the
+            // backup already exists we leave it untouched so subsequent
+            // writes don't clobber the original snapshot.
+            let backup = self.config_path.with_extension("json.schema-backup");
+            if !backup.exists() && self.config_path.exists() {
+                match fs::read(&self.config_path).and_then(|bytes| fs::write(&backup, &bytes)) {
+                    Ok(()) => {
+                        let label = backup
+                            .file_name()
+                            .map(|s| s.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        eprintln!(
+                            "[octopus] backed up newer-schema config to {label} before allowing downgraded write"
+                        );
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "[octopus] WARNING: could not back up newer-schema config before write: {error}. Proceeding anyway."
+                        );
+                    }
+                }
+            }
         }
         save_config_unchecked(&self.config_path, config)
     }

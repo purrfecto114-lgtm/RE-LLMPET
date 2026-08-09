@@ -74,6 +74,25 @@ pub fn start(runtime: Arc<Runtime>, app: AppHandle) -> Result<ServerInfo, StartE
     let (listener, port) = bind_first_free(&runtime.runtime_path)?;
     let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
     write_runtime_file(&runtime, port, &token).map_err(StartError::Unavailable)?;
+    // R5-I1 fix (R6): verify our write wasn't clobbered by a racing instance.
+    // After bind+write, re-read runtime.json and confirm port+token match.
+    // If not, another process won the race — abort to avoid two live instances.
+    if let Ok(raw) = crate::secure_file::read_regular_bounded(
+        &runtime.runtime_path,
+        16 * 1024,
+        "runtime verification",
+    ) {
+        if let Ok(rf) = serde_json::from_slice::<serde_json::Value>(&raw) {
+            let file_port = rf.get("port").and_then(|v| v.as_u64());
+            let file_token = rf.get("token").and_then(|v| v.as_str());
+            if file_port != Some(port as u64) || file_token != Some(token.as_str()) {
+                runtime.write_log("server", "runtime.json clobbered by racing instance — aborting");
+                return Err(StartError::Unavailable(
+                    "runtime.json overwritten by another instance".into(),
+                ));
+            }
+        }
+    }
     runtime.write_log("server", &format!("listening on 127.0.0.1:{port}"));
 
     let thread_token = token.clone();

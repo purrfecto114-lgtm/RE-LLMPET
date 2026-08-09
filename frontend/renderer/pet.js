@@ -1521,11 +1521,12 @@ window.pet.onEvent((ev) => {
       SOUND.greet();
       break;
     case 'choose-provider': {
-      // R35.1 (2026-07-31): Rust primary_action emitted this when more
-      // than one provider is enabled and no session is active. Open the
-      // provider chooser modal so the user explicitly picks the target.
-      // (0.5.11 deep-recheck P0-5: no more silent first-item launch.)
-      openProviderChooser();
+      // R35.1: primary_action emits this when >1 provider enabled & no
+      // active session. Open chooser so user explicitly picks (P0-5 fix).
+      // P4-2 (R3): only show chooser on the pet matching ev.provider.
+      if (currentPetAgent() === (ev.provider || 'claude')) {
+        openProviderChooser();
+      }
       break;
     }
     case 'longcmd':

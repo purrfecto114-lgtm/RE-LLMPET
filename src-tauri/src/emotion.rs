@@ -78,26 +78,36 @@ const EMOTIONS: &[EmotionDef] = &[
 ];
 
 /// Check if the 8 chars before `idx` in `text` contain a negation particle.
+/// `idx` is a **char** index (not byte index).
+/// R4-H3 fix (R6): stack-allocated sliding buffer — avoids 3 heap allocations
+/// (Vec<char> + 2x String collect) from the old code.
 fn neighbor_negation(text: &str, idx: usize) -> bool {
-    // Take the last 8 chars before idx (char-level, not byte-level).
-    let before: Vec<char> = text.chars().take(idx).collect();
-    let window: String = before
-        .iter()
-        .rev()
-        .take(8)
-        .copied()
-        .collect::<Vec<_>>()
-        .iter()
-        .rev()
-        .collect();
+    let mut buf = [char::default(); 8];
+    let mut len = 0usize;
+    let mut char_count = 0usize;
+    for ch in text.chars() {
+        if char_count >= idx {
+            break;
+        }
+        char_count += 1;
+        // Sliding window: keep only the last 8 chars
+        if len == 8 {
+            buf.copy_within(1.., 0);
+            buf[7] = ch;
+        } else {
+            buf[len] = ch;
+            len += 1;
+        }
+    }
+    let window = &buf[..len];
     // Check CN negation chars
-    for ch in window.chars() {
+    for &ch in window.iter() {
         if NEGATION_RE_CN.contains(&ch) {
             return true;
         }
     }
-    // Check EN negation words (case-insensitive)
-    let lower = window.to_lowercase();
+    // Check EN negation words — one small heap alloc for lowercase (≤8 chars)
+    let lower: String = window.iter().flat_map(|c| c.to_lowercase()).collect();
     for word in NEGATION_WORDS_EN {
         if lower.contains(word) {
             return true;
@@ -121,11 +131,14 @@ fn find_one(text: &str, words: &[&str], is_cn: bool) -> bool {
         } else {
             // Case-insensitive word-boundary match
             // R30: use char-based lowercasing to avoid byte-index mismatch
+            // R4-H1 fix: do all EN matching on lower_text to avoid OOB when
+            // Unicode case expansion changes byte length (e.g. İ U+0130 → 3 bytes)
             let lower_text = text.to_lowercase();
             let lower_word = w.to_lowercase();
             if let Some(idx) = lower_text.find(&lower_word) {
-                let char_idx = text[..idx].chars().count();
-                if !neighbor_negation(text, char_idx) {
+                // Use lower_text for negation check too (safe: same string)
+                let char_idx = lower_text[..idx].chars().count();
+                if !neighbor_negation(&lower_text, char_idx) {
                     return true;
                 }
             }
@@ -142,7 +155,7 @@ fn role_allows(role: &str, emotion: Emotion) -> bool {
             emotion,
             Emotion::Sorry | Emotion::Puzzled | Emotion::Excited
         ),
-        _ => true, // Unknown role: allow all
+        _ => false, // R4-H6 fix (R5): default deny for unknown roles — new role types must be explicitly added
     }
 }
 
@@ -153,7 +166,9 @@ fn role_allows(role: &str, emotion: Emotion) -> bool {
 /// - `role`: "user" or "assistant"
 pub fn detect_emotion(text: &str, role: &str) -> Option<Emotion> {
     let t = text.trim();
-    if t.is_empty() || t.len() > 6000 {
+    // R4-H4 fix (R5): use char count consistently (not byte len) — CJK text
+    // is 3 bytes/char, so byte-based threshold would reject shorter CJK input
+    if t.is_empty() || t.chars().count() > 6000 {
         return None;
     }
     // Emotion lives in the recent sentiment, not the whole essay.
@@ -213,5 +228,7 @@ mod tests {
     fn test_empty_and_long() {
         assert_eq!(detect_emotion("", "user"), None);
         assert_eq!(detect_emotion(&"a".repeat(6001), "user"), None);
+        // R4-H4 fix (R5): 6000 chars of CJK (3 bytes each = 18000 bytes) should also be rejected
+        assert_eq!(detect_emotion(&"牛".repeat(6001), "user"), None);
     }
 }

@@ -4,6 +4,11 @@ use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+
+// P2-2 fix (R5): process-wide lock preventing concurrent install/uninstall
+// that could cause config lost-update races. Held for the duration of sync.
+static SYNC_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 // R44 Phase 0C (2026-08-03): unified backup + install receipt.
 //
@@ -298,6 +303,16 @@ pub fn sync_enabled(
     permission_enabled: bool,
     enabled: &[String],
 ) -> Vec<ProviderStatus> {
+    // P2-2 fix (R5): acquire process-wide lock to serialize install/uninstall
+    // operations. Prevents concurrent sync_enabled or uninstall_provider_hooks
+    // calls from racing on the same config files (lost-update).
+    let _guard = SYNC_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| {
+            eprintln!("[octopus:hook] sync lock poisoned, recovering: {e}");
+            e.into_inner()
+        });
     let selected: HashSet<&str> = enabled.iter().map(String::as_str).collect();
     let mut statuses = Vec::new();
     for id in ["claude", "codewhale", "codex", "opencode", "aider"] {
@@ -824,6 +839,14 @@ fn uninstall_opencode_at(path: &Path) -> CleanupResult {
 /// `Result<PathBuf, String>`. Callers can inspect the variant to
 /// distinguish "removed" / "notFound" / "unowned" / "unreadable" etc.
 pub fn uninstall_provider_hooks(id: &str) -> CleanupResult {
+    // P2-2 fix (R5): acquire sync lock (shared with sync_enabled)
+    let _guard = SYNC_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| {
+            eprintln!("[octopus:hook] sync lock poisoned, recovering: {e}");
+            e.into_inner()
+        });
     cleanup_provider(id)
 }
 
@@ -833,6 +856,14 @@ pub fn uninstall_provider_hooks(id: &str) -> CleanupResult {
 /// between install and uninstall. Used by the `uninstall_hooks` IPC
 /// command when a prior receipt is available.
 pub fn uninstall_provider_hooks_with_path(id: &str, receipt_path: &Path) -> CleanupResult {
+    // P2-2 fix (R5): acquire sync lock (shared with sync_enabled)
+    let _guard = SYNC_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| {
+            eprintln!("[octopus:hook] sync lock poisoned, recovering: {e}");
+            e.into_inner()
+        });
     cleanup_provider_with_path(id, Some(receipt_path))
 }
 
@@ -1867,6 +1898,10 @@ fn write_text_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
                 if had_original {
                     let _ = fs::rename(&backup, path);
                 }
+                // R4-P23 fix: log restore failure instead of silently swallowing
+                eprintln!(
+                    "[octopus:hook] write_text_atomic failed to replace config; original restored: {error}"
+                );
                 Err(format!(
                     "failed to replace config; original restored: {error}"
                 ))

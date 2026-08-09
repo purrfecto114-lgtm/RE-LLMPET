@@ -36,6 +36,7 @@ pub struct TranscriptScanner {
     oversized_lines: u64,
     rejected_paths: u64,
     truncated_files: u64,
+    scan_errors: u64,
     save_error: Option<String>,
 }
 
@@ -53,6 +54,7 @@ impl TranscriptScanner {
             oversized_lines: 0,
             rejected_paths: 0,
             truncated_files: 0,
+            scan_errors: 0,
             save_error,
         }
     }
@@ -74,14 +76,19 @@ impl TranscriptScanner {
         let Some(path) = path else {
             return TranscriptScanResult::default();
         };
-        self.scan_path(
+        match self.scan_path(
             Path::new(path),
             session_id,
             ledger,
             observed_at,
             reply_limit,
-        )
-        .unwrap_or_default()
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                self.scan_errors = self.scan_errors.saturating_add(1);
+                TranscriptScanResult::default()
+            }
+        }
     }
 
     pub fn diagnostics(&self) -> Value {
@@ -93,6 +100,7 @@ impl TranscriptScanner {
             "oversizedLines": self.oversized_lines,
             "rejectedPaths": self.rejected_paths,
             "truncatedFiles": self.truncated_files,
+            "scanErrors": self.scan_errors,
             "saveError": self.save_error.clone(),
         })
     }
@@ -152,7 +160,8 @@ impl TranscriptScanner {
 
             if buffer.len() > MAX_LINE_BYTES {
                 self.oversized_lines = self.oversized_lines.saturating_add(1);
-                let extra = discard_to_newline(&mut reader)?;
+                let remaining = MAX_SCAN_BYTES.saturating_sub(consumed).min(16 * 1024 * 1024);
+                let extra = discard_to_newline(&mut reader, remaining)?;
                 consumed = consumed.saturating_add(extra);
                 cursor = cursor.saturating_add(extra);
                 continue;
@@ -191,8 +200,13 @@ impl TranscriptScanner {
                     result.assistant_text = Some(text);
                 }
             }
-            let usage = ledger.record_claude_assistant(&line, session_id, observed_at)?;
-            merge_usage(&mut result.usage, usage);
+            // R4-F2 fix: don't let record_claude_assistant error block cursor
+            match ledger.record_claude_assistant(&line, session_id, observed_at) {
+                Ok(usage) => merge_usage(&mut result.usage, usage),
+                Err(_) => {
+                    self.malformed_lines = self.malformed_lines.saturating_add(1);
+                }
+            }
         }
 
         self.scanned_files = self.scanned_files.saturating_add(1);
@@ -306,7 +320,9 @@ fn sanitize_text(value: &str) -> Option<String> {
 }
 
 fn looks_sensitive(value: &str) -> bool {
-    let lower = value.to_ascii_lowercase();
+    // R3-F4 fix (R6): trim leading/trailing whitespace to prevent bypass
+    // via indentation (e.g. " api_key=..." in markdown code blocks).
+    let lower = value.trim().to_ascii_lowercase();
     [
         "-----begin private key",
         "-----begin rsa private key",
@@ -419,14 +435,22 @@ fn trim_line(bytes: &[u8]) -> &[u8] {
     &bytes[..end]
 }
 
-fn discard_to_newline(reader: &mut BufReader<File>) -> Result<u64, String> {
+// R4-F1 fix: added max_bytes to prevent unbounded read on giant single-line inputs
+fn discard_to_newline(
+    reader: &mut BufReader<File>,
+    max_bytes: u64,
+) -> Result<u64, String> {
     let mut total = 0_u64;
     let mut buffer = Vec::new();
     loop {
         buffer.clear();
+        let chunk_limit = (MAX_LINE_BYTES + 1).min(max_bytes.saturating_sub(total) as usize);
+        if chunk_limit == 0 {
+            return Ok(total);
+        }
         let read = reader
             .by_ref()
-            .take((MAX_LINE_BYTES + 1) as u64)
+            .take(chunk_limit as u64)
             .read_until(b'\n', &mut buffer)
             .map_err(|error| error.to_string())?;
         total = total.saturating_add(read as u64);

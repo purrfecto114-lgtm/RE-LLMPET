@@ -4,9 +4,16 @@ use serde_json::{Map, Value};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 const MAX_STDIN_BYTES: usize = 1024 * 1024;
+
+// R3-E3 fix (R5): cache PPID after first lookup to avoid spawning ps/powershell
+// on every hook invocation. OnceLock is thread-safe and zero-cost after init.
+// None means "lookup failed" (avoid re-spawning); Some(n) is the actual PPID.
+static CACHED_PPID: OnceLock<Option<u32>> = OnceLock::new();
 
 #[derive(Debug, Deserialize)]
 struct RuntimeFile {
@@ -61,11 +68,29 @@ fn run() -> Result<(), String> {
     let body: Value = if codewhale_env_only {
         Value::Object(Map::new())
     } else {
-        let mut raw = Vec::new();
-        std::io::stdin()
-            .take((MAX_STDIN_BYTES + 1) as u64)
-            .read_to_end(&mut raw)
-            .map_err(|e| e.to_string())?;
+        // R4-E1 fix: spawn stdin reader thread with timeout to prevent
+        // permanent hang when provider (claude/aider) doesn't close stdin
+        let (tx, rx) = mpsc::channel::<Vec<u8>>();
+        let reader_handle = std::thread::spawn(move || {
+            let mut raw = Vec::new();
+            let result = std::io::stdin()
+                .take((MAX_STDIN_BYTES + 1) as u64)
+                .read_to_end(&mut raw);
+            let _ = tx.send(raw);
+            result
+        });
+        let stdin_timeout = Duration::from_secs(10);
+        let raw = match rx.recv_timeout(stdin_timeout) {
+            Ok(raw) => raw,
+            Err(_) => {
+                return permission_fallback(
+                    &provider,
+                    requested_permission,
+                    "stdin read timed out (10s)",
+                );
+            }
+        };
+        let _ = reader_handle.join(); // reap the thread
         if raw.len() > MAX_STDIN_BYTES {
             return permission_fallback(&provider, requested_permission, "stdin payload too large");
         }
@@ -172,6 +197,18 @@ fn run() -> Result<(), String> {
 }
 
 fn parent_process_id() -> Option<u32> {
+    // R3-E3 fix (R5): return cached PPID if available, avoiding costly
+    // ps/powershell spawn on every hook call. First call does the real lookup.
+    CACHED_PPID.get().copied().unwrap_or_else(|| {
+        let ppid = resolve_ppid();
+        let _ = CACHED_PPID.set(ppid);
+        ppid
+    })
+}
+
+/// Actual PPID resolution via ps (Unix) or powershell (Windows).
+/// Called at most once thanks to CACHED_PPID.
+fn resolve_ppid() -> Option<u32> {
     #[cfg(unix)]
     {
         let output = std::process::Command::new("ps")
@@ -642,7 +679,10 @@ fn post_json(
     blocking: bool,
 ) -> Result<Vec<u8>, String> {
     let payload = serde_json::to_vec(body).map_err(|e| e.to_string())?;
-    let mut stream = TcpStream::connect(("127.0.0.1", runtime.port)).map_err(|e| e.to_string())?;
+    // R4-E2 fix: connect_timeout prevents 75s OS-default hang when main process not running
+    let addr = std::net::SocketAddr::from(("127.0.0.1", runtime.port));
+    let mut stream =
+        TcpStream::connect_timeout(&addr, Duration::from_millis(500)).map_err(|e| e.to_string())?;
     let timeout = if blocking {
         Duration::from_secs(9 * 60)
     } else {

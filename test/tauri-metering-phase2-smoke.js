@@ -25,6 +25,10 @@ assert.ok(fixture.turn_id, 'fixture must carry an idempotency key');
 assert.strictEqual(fixture.usage.input_tokens, 1200);
 assert.strictEqual(fixture.usage.prompt_cache_hit_tokens, 900);
 assert.strictEqual(fixture.usage.prompt_cache_miss_tokens, 300);
+// R8 fix: fixture now reflects real CodeWhale 0.9.4 output shape
+assert.strictEqual(fixture.billing_surface, 'first-party-payg', 'fixture billing_surface must match real 0.9.4 output');
+assert.strictEqual(fixture.billing_provider, 'deepseek', 'fixture billing_provider must be preserved');
+assert.ok(fixture.turn_id.includes('-'), 'fixture turn_id must be UUID format (real 0.9.4 shape)');
 
 const price = catalog.entries[fixture.model];
 assert.ok(price, 'fixture model must be priced by bundled catalog');

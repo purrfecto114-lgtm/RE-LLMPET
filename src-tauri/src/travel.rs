@@ -541,13 +541,32 @@ impl TravelManager {
 }
 
 fn load_persisted(path: &Path) -> (PersistedTravel, bool) {
+    // P5-6 fix (R3): fall back to the `.bak` copy when the main travel.json
+    // is missing or corrupt. On Windows, `write_private_atomic` (and the
+    // atomic rename in `save_cursors`-style writers) renames main → .bak
+    // then writes tmp → main. A crash in that window leaves main gone but
+    // .bak intact. Without this fallback the entire travel history (all
+    // postcards, growth totals) would be silently lost. The backup uses
+    // extension `json.bak` (matching the Windows write path at L758). On
+    // platforms that never create a .bak, `read_travel_value` simply
+    // returns Ok(None) and we fall through to the default — no harm.
+    let backup = path.with_extension("json.bak");
     let value = match read_travel_value(path) {
         Ok(Some(value)) => value,
-        Ok(None) => return (PersistedTravel::default(), false),
-        Err(error) => {
-            eprintln!("[octopus] ignored invalid travel state: {error}");
-            return (PersistedTravel::default(), false);
-        }
+        primary_result => match read_travel_value(&backup) {
+            Ok(Some(value)) => {
+                eprintln!(
+                    "[octopus] travel.json missing/corrupt; recovered history from .bak"
+                );
+                value
+            }
+            _ => {
+                if let Err(error) = primary_result {
+                    eprintln!("[octopus] ignored invalid travel state: {error}");
+                }
+                return (PersistedTravel::default(), false);
+            }
+        },
     };
     if value.get("postcards").is_some() || value.get("totalTokens").is_some() {
         return (serde_json::from_value(value).unwrap_or_default(), false);

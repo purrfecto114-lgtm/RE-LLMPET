@@ -533,6 +533,8 @@ pub fn set_pet_mode(
         .update_config(|config| config.pet_mode = pet_mode.clone())?;
     sync_pet_windows(&app, &config);
     emit_config(&app, &state);
+    // P4-3 (R3): re-emit stats so the new layout gets correct data immediately.
+    emit_stats_now(&app, &state);
     Ok(())
 }
 
@@ -2099,6 +2101,7 @@ fn codewhale_doctor_summary(value: Option<&Value>) -> Value {
         "configPresent": report.get("config_present").and_then(Value::as_bool),
         "workspace": report.get("workspace").and_then(Value::as_str),
         "apiKeySource": nested_string(report, &["api_key", "source"]),
+        "secretBackendPresence": nested_string(report, &["secret_backend", "presence"]),
         "provider": nested_string(report, &["capability", "resolved_provider"]),
         "model": nested_string(report, &["capability", "resolved_model"]),
         "requestPayloadMode": nested_string(report, &["capability", "request_payload_mode"]),
@@ -2682,11 +2685,11 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
                     .unwrap_or_default()
             ));
         }
-        if doctor_summary
-            .get("apiKeySource")
-            .and_then(Value::as_str)
-            .is_some_and(|source| source.eq_ignore_ascii_case("missing"))
-        {
+        // R8 (de-idealized): doctor never probes → api_key.source always "secret_store_unprobed".
+        // Reliable no-key signal: secret_backend.presence=="absent" (verified live).
+        let no_key = doctor_summary.get("apiKeySource").and_then(Value::as_str).is_some_and(|s| s.eq_ignore_ascii_case("missing"))
+            || doctor_summary.get("secretBackendPresence").and_then(Value::as_str).is_some_and(|p| p.eq_ignore_ascii_case("absent"));
+        if no_key {
             warnings.push("CodeWhale reports no stored or environment API key; local/keyless providers may still work, otherwise authenticate before launch".into());
         }
         if let Some(state) = doctor_summary
@@ -2892,9 +2895,10 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
         "issues": issues,
         "warnings": warnings,
         "executableKind": executable.as_deref().map(executable_kind),
-        "executable": executable.map(|path| path.to_string_lossy().into_owned()),
-        "companion": companion.map(|path| path.to_string_lossy().into_owned()),
-        "workingDirectory": working_directory.to_string_lossy(),
+        // R4-G1 fix: expose only filename, not absolute path
+        "executable": executable.map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+        "companion": companion.map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+        "workingDirectory": working_directory.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| working_directory.to_string_lossy().into_owned()),
         "config": config,
         "versionProbe": version,
         "companionVersionProbe": companion_version,
@@ -3012,17 +3016,14 @@ pub fn primary_action(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
         // instead of defaulting to 'claude'. The user explicitly chose to
         // have zero providers; launching claude would be surprising.
         let providers = state.runtime.config().providers;
-        // R35.1 (2026-07-31): if MORE THAN ONE provider is enabled, do NOT
-        // silently launch the first one. The 0.5.11 deep-recheck (P0-5)
-        // flagged this as a trust issue: the user enabled multiple
-        // providers and primaryAction picked array[0] without asking.
-        // We emit a pet:event so the frontend opens its #provider-chooser
-        // modal (the frontend has the UI context to render a picker;
-        // Rust doesn't). Single provider still launches directly.
+        // R35.1: if >1 provider enabled, don't silently launch array[0]
+        // (0.5.11 P0-5 trust issue). Emit pet:event so frontend opens its
+        // #provider-chooser modal (frontend has UI context; Rust doesn't).
+        // P4-2 (R3): stamp "provider" so duo frontend filters chooser to matching pet.
         if providers.len() > 1 {
             let _ = app.emit(
                 "pet:event",
-                json!({"kind":"choose-provider","providers":providers}),
+                json!({"kind":"choose-provider","providers":providers,"provider":"claude"}),
             );
             Ok(())
         } else {

@@ -1,0 +1,33 @@
+{
+  "event": "turn_end",
+  "session_id": "sess_f62aefad",
+  "workspace": "/home/z/cw-smoke/workspace",
+  "mode": "ACT",
+  "created_at": "2026-08-08T14:41:45.107767317+00:00",
+  "model_backed": true,
+  "provider": "deepseek",
+  "billing_surface": "first-party-payg",
+  "model": "deepseek-v4-pro",
+  "turn_id": "e8eec8aa-1460-46e8-9c02-d1090cc99441",
+  "status": "failed",
+  "error": "Authentication failed: Authentication Fails, Your api key: ****only is invalid\n\nThe rejected key came from DEEPSEEK_API_KEY; no saved config key is present.\nRun `codewhale auth status` to inspect credential sources, then `codewhale auth set --provider deepseek` to save a valid key in ~/.codewhale/config.toml, or remove the stale export and open a fresh shell.",
+  "duration_ms": 313,
+  "usage": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "prompt_cache_hit_tokens": null,
+    "prompt_cache_miss_tokens": null,
+    "prompt_cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "reasoning_replay_tokens": null
+  },
+  "totals": {
+    "session_tokens": 0,
+    "conversation_tokens": 0,
+    "input_tokens": 0,
+    "output_tokens": 0
+  },
+  "tool_count": 0,
+  "queued_message_count": 0,
+  "stop_hook_active": false
+}
