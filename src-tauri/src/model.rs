@@ -211,6 +211,27 @@ fn sanitize_session_ids(values: Vec<String>, excluded: &HashSet<String>) -> Vec<
         .collect()
 }
 
+/// R11 backport: whole-machine rank ladder shared by Claude + Codex lifetime
+/// tokens. Mirrors upstream `backend/growth.js#rankFor` with the
+/// `MACHINE_RANK_UNIT_TOKENS` (10M) unit. QQ-style 4-to-1 promotion:
+/// leaf → star → moon → sun → crown. The persisted field name `leaf` matches
+/// the upstream API contract; the UI may render it as a paw icon.
+fn machine_rank(total_tokens: u64) -> Value {
+    const UNIT: u64 = 10_000_000;
+    let units = total_tokens / UNIT;
+    json!({
+        "unitTokens": UNIT,
+        "units": units,
+        "crown": units / 256,
+        "sun": (units % 256) / 64,
+        "moon": (units % 64) / 16,
+        "star": (units % 16) / 4,
+        "leaf": units % 4,
+        "progressTokens": total_tokens % UNIT,
+        "nextTokens": UNIT,
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoItem {
@@ -1554,6 +1575,40 @@ impl Runtime {
             if let Some(cu) = codex_usage {
                 target.insert("codexUsage".into(), cu);
             }
+            // R11 backport: machineGrowth — whole-machine rank combining
+            // Claude + Codex lifetime tokens. Mirrors upstream
+            // `backend/growth.js#machineGrowth` (10M tokens per rank unit,
+            // QQ-style 4-to-1 leaf→star→moon→sun→crown). Claude lifetime is
+            // derived from the metering ledger's `daily` map (the Rust ledger
+            // keeps raw events within the 95-day retention window; summing
+            // daily token counts gives lifetime within that window). Codex
+            // lifetime comes directly from codex_rollout's snapshot.
+            let claude_lifetime_tokens = usage
+                .get("daily")
+                .and_then(Value::as_object)
+                .map(|daily| {
+                    daily
+                        .values()
+                        .filter_map(|v| v.get("tokens").and_then(Value::as_u64))
+                        .sum::<u64>()
+                })
+                .unwrap_or(0);
+            let codex_lifetime_tokens = codex_usage
+                .as_ref()
+                .and_then(|cu| cu.get("lifetime"))
+                .and_then(|l| l.get("tokens"))
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            let machine_total_tokens = claude_lifetime_tokens.saturating_add(codex_lifetime_tokens);
+            target.insert(
+                "machineGrowth".into(),
+                json!({
+                    "totalTokens": machine_total_tokens,
+                    "claudeTokens": claude_lifetime_tokens,
+                    "codexTokens": codex_lifetime_tokens,
+                    "rank": machine_rank(machine_total_tokens),
+                }),
+            );
         }
         if let (Some(target), Some(source)) = (stats.as_object_mut(), usage.as_object()) {
             for (key, value) in source {

@@ -578,6 +578,10 @@ fn is_current_hook_installed(id: &str) -> bool {
     hook_presence(id) == HookPresence::Current
 }
 
+pub fn claude_hooks_present() -> bool {
+    is_hook_installed("claude")
+}
+
 /// Helper: read a file and check if it contains a marker string.
 /// Returns false if the file doesn't exist or can't be read (not an error —
 /// the hook simply isn't installed).

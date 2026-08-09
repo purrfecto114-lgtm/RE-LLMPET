@@ -6,6 +6,7 @@ mod diagnostic_io;
 mod emotion;
 pub mod hook_client;
 mod hook_install;
+mod hook_watcher;
 mod http_server;
 mod i18n;
 mod instance_probe;
@@ -157,6 +158,10 @@ pub fn run() {
                         ),
                     );
                 }
+                // R11 backport: spawn the settings.json watcher so an external
+                // tool (CC-Switch, manual edits) overwriting ~/.claude/settings.json
+                // triggers a re-sync of our hooks. See src-tauri/src/hook_watcher.rs.
+                hook_watcher::start_settings_watcher(runtime.clone());
             }
             pricing_sync::start(runtime.clone(), app.handle().clone());
             let config = runtime.config_view();

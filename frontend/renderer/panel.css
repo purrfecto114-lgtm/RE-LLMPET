@@ -31,11 +31,36 @@ body.window-fullscreen #card {
 /* 子块不许被 flex 压缩：总高超出时 #card 整体滚动，下方区块（按模型/设置）不再被裁切 */
 #card > * { flex-shrink: 0; }
 /* R22 (2026-07-30): visible scrollbar so users can see there's more
-   content below the fold. Was width:0 which hid it entirely. */
+   content below the fold. Was width:0 which hid it entirely.
+   Task C (2026-08-09): thumb now has a hover transition for smoother
+   feel; macOS gets a thinner thumb via a WebKit-specific media query
+   (overlay scrollbar typical of macOS). */
 #card::-webkit-scrollbar { width: 6px; height: 6px; }
 #card::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); border-radius: 3px; }
-#card::-webkit-scrollbar-thumb { background: rgba(217,119,87,0.4); border-radius: 3px; }
-#card::-webkit-scrollbar-thumb:hover { background: rgba(217,119,87,0.6); }
+#card::-webkit-scrollbar-thumb {
+  background: rgba(217,119,87,0.4); border-radius: 3px;
+  transition: background 0.18s ease;
+}
+#card::-webkit-scrollbar-thumb:hover { background: rgba(217,119,87,0.7); }
+/* macOS thinner thumb: when the OS draws overlay scrollbars (typical of
+   macOS) the 6px thumb looks chunky. Drop to 4px for that environment. */
+@media not all and (prefers-reduced-motion: reduce) {
+  @supports (background: -webkit-named-image(apple-overlay-scrollbar)) {
+    #card::-webkit-scrollbar { width: 4px; height: 4px; }
+  }
+}
+/* Task C (2026-08-09): scroll shadow. The titlebar is sticky at top:0
+   so it stays visible while #card content scrolls. When #card has the
+   .scrolled-down class (set by panel.js scroll listener), a soft inner
+   shadow appears below the titlebar, signalling more content above. */
+#titlebar {
+  position: sticky; top: 0; z-index: 10;
+  background: linear-gradient(160deg, #2c1f1a 0%, #3a2620 100%);
+  transition: box-shadow 0.2s ease;
+}
+#card.scrolled-down #titlebar {
+  box-shadow: 0 6px 10px -6px rgba(0,0,0,0.55);
+}
 
 /* 双列区：CSS 多列自动平衡列高（masonry），块不被拆开，底部尽量对齐、少留空白 */
 .cols { columns: 2; column-gap: 14px; padding: 0 16px; }
@@ -47,8 +72,25 @@ body.window-fullscreen #card {
 @media (max-width: 699px) {
   .cols { columns: 1; }
 }
+/* Task C (2026-08-09): tighter breakpoint for very small panels.
+   Under 500px width (Tauri panel minWidth is 420), the 2-column hero
+   stat grid crowds; collapse to single column and shave ~1px off most
+   font sizes so content fits without horizontal clipping. */
+@media (max-width: 499px) {
+  .grid { grid-template-columns: 1fr; }
+  .stat-value { font-size: 21px; }
+  .stat-label, .block-title { font-size: 10.5px; }
+  .row { font-size: 12px; }
+  .brand-title { font-size: 14px; }
+  .brand-sub { font-size: 10px; max-width: 160px; }
+  #titlebar { padding: 12px 12px 8px; }
+  .grid { padding: 4px 12px 8px; }
+  .block { padding: 8px 12px; }
+  .cols { padding: 0 12px; }
+}
 
-/* 标题栏 */
+/* 标题栏 — base layout. position:sticky + scrolled shadow are declared
+   above (with #card) so the shadow layering wins over the gradient bg. */
 #titlebar {
   -webkit-app-region: drag;
   display: flex; align-items: center; justify-content: space-between;
@@ -80,7 +122,16 @@ body.window-fullscreen #card {
   box-shadow: 0 2px 12px rgba(217,119,87,0.08);
 }
 .stat-label { font-size: 11px; color: #c79b86; text-transform: uppercase; letter-spacing: 0.4px; }
-.stat-value { font-size: 23px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; color: #ffcdb0; }
+.stat-value { font-size: 23px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; color: #ffcdb0; transition: color 0.25s ease; border-radius: 4px; padding: 0 2px; margin-left: -2px; }
+/* Task C (2026-08-09): flash animation on stat-value when the underlying
+   number changes. panel.js compares old vs new textContent and toggles
+   .flash to restart the keyframe. Animation ends at the default color,
+   so leaving the class on has no visual effect until the next change. */
+.stat-value.flash { animation: statFlash 0.55s ease-out; }
+@keyframes statFlash {
+  0%   { color: #fff5e8; text-shadow: 0 0 6px rgba(255,205,176,0.75); }
+  100% { color: #ffcdb0; text-shadow: none; }
+}
 .stat-foot { font-size: 10.5px; color: #a9826f; margin-top: 3px; }
 .stat-split { font-size: 9.5px; color: #785f54; margin-top: 2px; font-variant-numeric: tabular-nums; }
 
@@ -89,7 +140,12 @@ body.window-fullscreen #card {
 .budget.hidden { display: none; }
 .budget-head { display: flex; justify-content: space-between; font-size: 11px; color: #c79b86; margin-bottom: 5px; }
 .bar { height: 8px; background: rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden; }
-.bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #e8a06d, #d97757); border-radius: 6px; transition: width 0.4s ease; }
+/* Task C (2026-08-09): budget fill — width eased to 0.3s for snappier
+   feedback, and the gradient is now tier-based: .low (yellow→light
+   orange, <50%), default .mid (orange, 50-80%), .warn (red, ≥80%).
+   panel.js toggles .low + .warn based on pct. */
+.bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #e8a06d, #d97757); border-radius: 6px; transition: width 0.3s ease, background 0.3s ease; }
+.bar-fill.low { background: linear-gradient(90deg, #f0d56d, #e8a06d); }
 .bar-fill.warn { background: linear-gradient(90deg, #e8896b, #c9472b); }
 /* R15 (2026-07-30): Codex quota bar uses a distinct cool tone so users can
    tell it apart from the 5h budget bar at a glance. */
@@ -191,7 +247,20 @@ body.window-fullscreen #card {
 .cal-legend i.lv4 { background: #f0a06d; }
 
 /* 进行中的任务 */
-.row.sess { align-items: center; gap: 8px; }
+/* Task C (2026-08-09): sidebar-style left accent on .row.sess hover.
+   transparent 2px border-left keeps layout stable; color shifts on
+   hover for a clear focus signal. padding-left reduced by 2px to
+   keep content position invariant. */
+.row.sess {
+  align-items: center; gap: 8px;
+  border-left: 2px solid transparent;
+  padding-left: 8px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.row.sess:hover {
+  border-left-color: #d97757;
+  background: rgba(217,119,87,0.08);
+}
 .sess-proj { color: #ffd8bf; font-size: 12px; flex-shrink: 0; }
 .sess-op { color: #a9826f; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: auto; }
 .badge { font-size: 10px; padding: 2px 7px; border-radius: 7px; color: #fff; flex-shrink: 0; }

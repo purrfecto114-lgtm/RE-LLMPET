@@ -79,7 +79,10 @@ assert.match(hook, /"StopFailure"/);
 assert.match(panel, /panel\.priceUnknown/);
 assert.match(panel, /v\.unknownPrice/);
 assert.match(panel, /function aggregateCostText/);
-assert.match(panel, /today-cost'\)\.textContent = aggregateCostText/);
+// Task C (2026-08-09): today-cost is now updated via flashStat() helper
+// (which compares old vs new and triggers the .flash animation). Accept
+// both the legacy direct-setter pattern and the new flashStat wrapper.
+assert.match(panel, /today-cost.{0,40}aggregateCostText/);
 assert.match(panel, /unknownPrice > 0 \? '≥'/);
 
 console.log('tauri-metering-phase2-smoke: ok (phase4 version, native ledger contract verified)');

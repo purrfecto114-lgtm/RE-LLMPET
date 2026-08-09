@@ -93,6 +93,14 @@
         <div id="travel-postcard" class="travel-postcard"></div>
       </section>
 
+      <!-- R11 backport: machineGrowth — whole-machine rank combining Claude +
+           Codex lifetime tokens (10M tokens per unit, QQ-style 4-to-1
+           promotion: paw → star → moon → sun → crown). Mirrors upstream
+           backend/growth.js#machineGrowth. -->
+      <section class="block" id="machine-growth-block">
+        <div class="block-title"><span>🤖 本机成长</span><span id="machine-growth"></span></div>
+      </section>
+
       <section class="block" id="todo-block">
         <div class="block-title">
           <span><span data-i18n="panel.todoBlock">📋 待办清单</span> <span id="todo-proj" class="todo-proj"></span></span>

@@ -6,6 +6,17 @@ const t = (key, vars) => i18n ? i18n.t(key, vars) : key;
 const LOCALES = { zh: 'zh-CN', en: 'en-US', ja: 'ja-JP' };
 let config = { lang: 'zh', mode: 'pet', petMode: 'single', skin: 'mascot', skinCodex: 'pixel', budget5h: 0, currency: 'USD', fxRate: 7.2 };
 
+// Task C (2026-08-09): flash a stat-value when its text changes. Restarts
+// the .flash CSS animation via class toggle + forced reflow. No-op on no-op.
+function flashStat(el, newText) {
+  if (!el) return;
+  if (el.textContent === newText) return;
+  el.textContent = newText;
+  el.classList.remove('flash');
+  void el.offsetWidth; // reflow so animation restarts
+  el.classList.add('flash');
+}
+
 
 function reportConfigWriteError(command, error) {
   window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
@@ -166,6 +177,15 @@ function render(s) {
     const icons = `${'🌿'.repeat(Number(growth.leaves) || 0)}${'⭐'.repeat(Number(growth.stars) || 0)}${'🌙'.repeat(Number(growth.moons) || 0)}${Number(growth.days) ? `☀️×${growth.days}` : ''}`;
     growthEl.textContent = `${icons || '尚未成长'} · ${fmt(growth.totalTokens || 0)} tok`;
   }
+  // R11 backport: machineGrowth — whole-machine rank combining Claude + Codex
+  // lifetime tokens (10M tokens per unit, QQ-style 4-to-1 promotion:
+  // paw → star → moon → sun → crown). Mirrors upstream growth.js#machineGrowth.
+  const mg = s.machineGrowth || {}, mgRank = mg.rank || {};
+  const mgEl = $('machine-growth');
+  if (mgEl) {
+    const icons = `${'👑'.repeat(Number(mgRank.crown) || 0)}${'☀️'.repeat(Number(mgRank.sun) || 0)}${'🌙'.repeat(Number(mgRank.moon) || 0)}${'⭐'.repeat(Number(mgRank.star) || 0)}${'🐾'.repeat(Number(mgRank.leaf) || 0)}`;
+    mgEl.textContent = `${icons || '尚未成长'} · ${fmt(mg.totalTokens || 0)} tok`;
+  }
   const activeTravel = $('travel-active');
   if (activeTravel) activeTravel.textContent = travel.active
     ? `${travel.active.mode === 'wander' ? '🐾 闲逛' : '🧳 项目旅行'} · ${travel.active.project || ''} · ${travel.active.mission || ''}`
@@ -190,7 +210,7 @@ ${card.summary || ''}` : '';
   // 大数
   // R1-A#2: defensive reads — missing today/window5h must not crash render()
   const today = s.today || {}, w5h = s.window5h || {};
-  $('today-cost').textContent = aggregateCostText(today);
+  flashStat($('today-cost'), aggregateCostText(today));
   $('today-tokens').textContent = fmt(today.tokens) + ' tokens · ' + today.messages + t('panel.rounds');
   // R10 backport: combinedUsage — show Claude + Codex cost split
   const combined = s.combinedUsage || {};
@@ -211,7 +231,7 @@ ${card.summary || ''}` : '';
       splitEl.style.display = 'none';
     }
   }
-  $('win-cost').textContent = aggregateCostText(w5h);
+  flashStat($('win-cost'), aggregateCostText(w5h));
   if (w5h.tokens > 0 && w5h.resetTs) {
     $('win-reset').textContent = fmt(w5h.tokens) + ' tok · ' + timeStr(w5h.resetTs) + t('panel.reset');
   } else {
@@ -225,6 +245,7 @@ ${card.summary || ''}` : '';
     $('budget-pct').textContent = (w5h.unknownPrice > 0 ? '≥' : '') + pct.toFixed(0) + '%';
     const fill = $('budget-fill');
     fill.style.width = pct + '%';
+    fill.classList.toggle('low', pct > 0 && pct < 50);
     fill.classList.toggle('warn', pct >= 80);
   } else {
     $('budget-wrap').classList.add('hidden');
@@ -1219,6 +1240,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // for the userSized flag that stops auto-fit after a manual drag.
   syncWindowMode();
   installWindowModeListeners();
+  // Task C (2026-08-09): scroll shadow on #card. CSS uses #card.scrolled-down
+  // #titlebar; passive listener never blocks scroll. 6px threshold avoids jitter.
+  const cardEl = document.getElementById('card');
+  if (cardEl) {
+    cardEl.addEventListener('scroll', () => {
+      cardEl.classList.toggle('scrolled-down', cardEl.scrollTop > 6);
+    }, { passive: true });
+  }
   const language = $('language');
   if (language) language.addEventListener('change', (event) => {
     const lang = String(event.target.value || 'zh');
