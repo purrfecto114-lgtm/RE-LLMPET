@@ -438,3 +438,51 @@ Architecturally complete and unit/smoke-tested. Main risks: (1) no real-CLI veri
 - cargo fmt --check EXIT=0
 - GitHub main: `2c0af35` 已推送
 
+
+---
+
+## Round 11: meter-rebuild CLI backport（2026-08-09 14:48 trigger）
+
+### 搜索资料
+- 上游 myunwang/LLMPET 最新 commit: 769f3c0 (fix pricing OpenAI Pro cache rates) — 已在 R10 backport
+- CodeWhale v0.9.5 已发布，codewhale-tui 已移除 — R8 前向兼容已处理
+- 上游 meter-rebuild.js: 87 行 CLI 工具，重算历史花费（清除聚合 + 重扫 transcript/rollout）
+
+### 修复：meter-rebuild CLI backport (HIGH #5)
+
+**metering.rs: rebuild_costs() 方法**（+46 行）
+- 用当前价目表重算所有历史事件的 cost_usd
+- 原子重写 usage-events.jsonl（temp + rename）
+- 返回 (before_total, after_total, event_count)
+- 修复过去定价错误的事件（如新模型在 sync 前用 default 价）
+
+**commands.rs: rebuild_usage_costs Tauri 命令**（+29 行）
+- 先 reload_catalog 拿最新价目
+- 调用 rebuild_costs
+- emit pet:stats + panel:stats 刷新面板
+- 返回 {beforeCost, afterCost, eventCount, delta}
+
+**全链路接线**：
+- lib.rs: generate_handler 注册
+- build.rs: COMMANDS 列表
+- capabilities/panel.json: allow-rebuild-usage-costs 权限
+- tauri-bridge.js: rebuildUsageCosts() 绑定
+- panel.html: "重算花费" 按钮
+- panel.js: 点击处理 + 加载状态 + 结果 tooltip
+- tauri-bridge-smoke.js: 预期 API 列表更新
+
+### 验证
+- 22/22 static + npm test EXIT=0（339 manifest）
+- cargo fmt --check EXIT=0
+- GitHub main: `d5942db` 已推送
+
+### 落后上游清单更新
+- ~~CRITICAL #1 codex-pricing~~ ✅
+- ~~CRITICAL #2 combineUsage~~ ✅
+- ~~HIGH #3 settings.json watcher~~ ✅
+- ~~HIGH #4 machineGrowth~~ ✅
+- ~~HIGH #5 meter-rebuild CLI~~ ✅
+- MEDIUM #6-9: usage-archive carry, pidwalk, territory episodes, _extractOpenAIModels — 待做
+
+**5/9 落后项已完成**，剩余 4 MEDIUM。
+
