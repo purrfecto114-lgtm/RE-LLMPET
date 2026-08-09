@@ -6,11 +6,11 @@
   "files": {
     ".claude-plugin/plugin.json": "5671723c4869dcae32e8050aa18437e0ff01bde37fc6d18b5120810045cf5a09",
     ".gitattributes": "c41b15dfba8e2ca096b715cd0ee0d5831a781e21d2b5fbb4e5229ace268b36aa",
-    ".github/workflows/ci.yml": "cb0e4152abc6117c2cb54c707ddf31aa59ceb638c45854fa8e088f70571cb63f",
+    ".github/workflows/ci.yml": "1cd4e5d879e01384438fe694d8b4ec94d8a4a7d36e861df6f9c16038247c815d",
     ".github/workflows/desktop-real-machine.yml": "8bd038c78f9acb0c2c497776d02fc94533ddc0708678cb4f45631888c9c66619",
     ".github/workflows/protocol-drift.yml": "16d6ca097a59f482debe1f6ceec13f9a4d5d05269a08856617db843bd6139b44",
     ".github/workflows/provider-real-cli.yml": "61835976ae5fbf5bc3b1f678256bee01f5477be44a66a8884901fb84b420df06",
-    ".github/workflows/release.yml": "0e6f71651e9bee9ed852337b1edf67181d6cdecd54be224fec31266c6683150a",
+    ".github/workflows/release.yml": "22e5ef96a9dd4d3acbeccab34e274bb26e70cfd147a691d10ad89b4127f90477",
     ".gitignore": "8e487a1cd8bcc778c5f8da139a6f43eb1984a428a10f715be49ae28989de4303",
     "BUILD_REPRODUCIBILITY.md": "e0a953308f1a02c8ccb9cce8fc345285d2194f023ee1e4a6c1657d0ada671086",
     "CHANGELOG.md": "d56cfe4c7a1e1bbf00aedbbb1a830f9563426b620985e23913601ab652bdae6c",
@@ -165,7 +165,7 @@
     "scripts/bootstrap-tauri.sh": "952683537f459964cbde39b9f0961546a69371b45365be9c56fc155fe255aca5",
     "scripts/check-migration-todo.js": "82ce68ef181a09bca2b555609f636e5fb39f9da6429934f4e043048c4a34c7e1",
     "scripts/check-protocol-drift.js": "111c1b11c25841f1f7e3f864637b16b651fb77baa113398f76fcc4f0e3b8cfd2",
-    "scripts/check-release-gates.js": "497b2071c688aca9ffb3be6c9c842ae167f279710d168eef0ad7b8ed3b74694b",
+    "scripts/check-release-gates.js": "cbd56436d9b47910125c5f4062d357a265ab04400950bcb8ad08e4eba485f903",
     "scripts/generate-checksums.js": "fc564c1060fadb251d5cc65e9742c77a6479a151509adae5c5d5b147240bc596",
     "scripts/generate-release-config.js": "db919271479f0154e0a412567a0c5c70ef9f3102cffaeba7a43798d1734b6d79",
     "scripts/generate-sbom.js": "f4be1749f16a4430c451c2c42f7ec7920c04fce6c9fae446cc061986355e6a0f",
@@ -339,6 +339,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "b0b1a20d0022096e930258c4d003a35f0579f582b2952284899239fb730ac398"
   },
-  "sha256_of_manifest": "f37b6bc12c9221f380cbc0e730e6279a910d684ea955b7864a798b232ab0ac2b",
+  "sha256_of_manifest": "3cb73e88a9000031f4ad321f7c5cdb0e42cef51a9b0eee559e2cf556a4fb44c4",
   "source_commit": "octopus-0.5.47"
 }

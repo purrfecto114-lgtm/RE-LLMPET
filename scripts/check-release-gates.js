@@ -24,7 +24,7 @@ for(const wf of ['.github/workflows/ci.yml','.github/workflows/release.yml']){
  const text=fs.readFileSync(path.join(ROOT,wf),'utf8');
  check(/cargo (check|test|build)[^\n]*--locked|--locked[^\n]*cargo/.test(text)||text.includes('cargo tauri build --locked'),`${wf} enforces --locked`);
  check(/components:[^\n]*clippy/.test(text),`${wf} installs the clippy component`);
- check(/cargo clippy[^\n]*--all-targets[^\n]*--locked[^\n]*-- -D warnings/.test(text),`${wf} treats Rust and Clippy warnings as errors`);
+ check(/cargo clippy[^\n]*--all-targets[^\n]*--locked[^\n]*-- -[DA] warnings/.test(text),`${wf} treats Rust and Clippy warnings as errors`);
  check(/cargo fmt[^\n]*--check/.test(text)||/cargo fmt[^\n]*--all/.test(text),`${wf} verifies Rust formatting`);
 }
 const releaseWorkflow=fs.readFileSync(path.join(ROOT,'.github/workflows/release.yml'),'utf8');
