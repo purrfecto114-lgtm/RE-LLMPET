@@ -670,3 +670,34 @@ re-llmpet.log 显示：
 - 22/22 static + npm test EXIT=0（346 manifest）
 - GitHub main: `558de34` 已推送
 
+
+---
+
+## Round 14: OpenCode 插件加载去理想化修复（2026-08-09 22:51 trigger）
+
+### 搜索 + 排查
+1. 安装 opencode-ai v1.18.15，测试 `opencode plugin` 命令
+2. 发现 R13 的 config.json "plugins" 数组导致 `Unrecognized key: plugins` 错误
+3. 从 opencode GitHub 源码（anomalyco fork）读取 `src/config/plugin.ts`
+4. 发现 opencode 通过 `Glob.scan('{plugin,plugins}/*.{ts,js}')` **目录扫描**加载插件
+5. config.json 的 `plugins` 字段在 v1.18.x 不存在（旧版本可能有，但当前版本拒绝）
+
+### 修复：移除 config.json 注册，依赖目录扫描
+- **R13 错误**: 向 config.json 写入 `plugins` 数组 → opencode config 验证失败
+- **R14 修复**: 
+  1. 移除 config.json plugins 数组写入
+  2. 添加清理逻辑：如果之前 R13 写入了 `plugins` key（且包含 llmpet-hook.js），移除它
+  3. ESM 文件在 `~/.config/opencode/plugins/llmpet-hook.js` 被 opencode 自动扫描发现
+  4. 不需要任何 config.json 注册
+
+### 去理想化教训
+- R13 假设 opencode 通过 config.json 加载插件（基于上游 Electron 的模式）
+- 实际 opencode v1.18.x 用目录扫描，config.json 没有 plugins 字段
+- R13 的修复反而 **破坏了** opencode 的 config 验证
+- 如果没有安装 opencode-ai 做真机测试，这个错误不会被发现
+
+### 验证
+- clippy -D warnings: ✅ EXIT=0
+- 22/22 static + npm test EXIT=0（346 manifest）
+- GitHub main: `49eecb6` 已推送
+
