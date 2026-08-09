@@ -82,6 +82,7 @@ body.window-fullscreen #card {
 .stat-label { font-size: 11px; color: #c79b86; text-transform: uppercase; letter-spacing: 0.4px; }
 .stat-value { font-size: 23px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; color: #ffcdb0; }
 .stat-foot { font-size: 10.5px; color: #a9826f; margin-top: 3px; }
+.stat-split { font-size: 9.5px; color: #785f54; margin-top: 2px; font-variant-numeric: tabular-nums; }
 
 /* 预算条 */
 .budget { padding: 0 16px 6px; }

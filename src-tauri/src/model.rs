@@ -1518,6 +1518,39 @@ impl Runtime {
             if let Some(cl) = codex_limits {
                 target.insert("codexLimits".into(), cl);
             }
+            // R10 backport: combineUsage — merge Claude + Codex cost into a
+            // headline so the panel can show "Claude $X · Codex $Y · 合计 $Z".
+            let claude_today_cost = target
+                .get("today")
+                .and_then(|t| t.get("cost"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let claude_today_unknown = target
+                .get("today")
+                .and_then(|t| t.get("unknownPrice"))
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            let (codex_today_cost, codex_today_exact) = codex_usage
+                .as_ref()
+                .and_then(|cu| cu.get("todayCost"))
+                .and_then(Value::as_f64)
+                .map(|c| {
+                    let exact = cu
+                        .as_object()
+                        .and_then(|o| o.get("todayCostExact"))
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    (c, exact)
+                })
+                .unwrap_or((0.0, false));
+            let combined = json!({
+                "todayCost": claude_today_cost + codex_today_cost,
+                "claudeTodayCost": claude_today_cost,
+                "codexTodayCost": codex_today_cost,
+                "codexTodayExact": codex_today_exact,
+                "claudeUnknownPrice": claude_today_unknown,
+            });
+            target.insert("combinedUsage".into(), combined);
             if let Some(cu) = codex_usage {
                 target.insert("codexUsage".into(), cu);
             }

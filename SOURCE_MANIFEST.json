@@ -110,9 +110,9 @@
     "frontend/assets/tray@2x.png": "2a92f82b767603868c7ead3948c4f3a1e6439e48dd178caf165a3df90cb1c61e",
     "frontend/renderer/icons.js": "b21a99460eff6d43e9642586bdd557c0b126af1b2960f748ca676a3cf8bcbf66",
     "frontend/renderer/panel-export.js": "e917f8d323b39e00fd33d449c00c1d43b850a4e2de3c073b03abbe088b08dc37",
-    "frontend/renderer/panel.css": "107168343d1f321ceecfe7f6ef50f5f6e4b91a01485a95bc8fa07061ebdf2e27",
-    "frontend/renderer/panel.html": "18eea1aafbb03066703272a73865993b5faa1e6c30e96a05444c9a80b98a58ef",
-    "frontend/renderer/panel.js": "3b2a292faade798dd5eb70d53b3cdbd1ceff7ae642bf1eccb1434a37d13fb5b0",
+    "frontend/renderer/panel.css": "06b000e473ba57f2a65b737c512932344aff785836bd3f8ae3d482fc5f30a9b1",
+    "frontend/renderer/panel.html": "68be910f127ee752e29cd82d4d1a51aa3ca1b678feb0476ee9bb191e0b35428b",
+    "frontend/renderer/panel.js": "ba451eabe576bcb50b764c90f4bc542387306eb2aa8e90a898b29ae958b303e8",
     "frontend/renderer/pet-agent-view.js": "3112dd7cca7a3733f598d6974f99f9d13a0a5f30f342ad693bce549f786438a5",
     "frontend/renderer/pet-session-lifecycle.js": "4e1f54482598ae3ec2b86eee2d26d1a06e21c33af88ec7f35ea67a8126e56977",
     "frontend/renderer/pet-travel-view.js": "2ab86cd02f64c1da81afe237b6cdc529a210654dad5ad247fdaf75537bcc8fe8",
@@ -253,7 +253,7 @@
     "src-tauri/src/main.rs": "85cddcc5c686d710971144ddb7d04ed57c8875f6ef6a1bef8236a114c25bfebc",
     "src-tauri/src/metering.rs": "b61cf9e686e66016930186edf6e426963c58cf333d704be8c9cc35edc4a727f9",
     "src-tauri/src/migration.rs": "387048764730e6f3c81c093555fdcbf4e7fdad3e623e7ed602cab267f593f794",
-    "src-tauri/src/model.rs": "6319e355cadb9bac2bea5a6b3a066c7540b0dfd8d0a91d4155884c79bc9d4698",
+    "src-tauri/src/model.rs": "d9fa49652fa82462997f595ace13253a5d3ed3b5db9a5054de2e99855d0fd2be",
     "src-tauri/src/platform.rs": "b7c8b3918c85c473ad2883fcd9cf2ab6f795a19c9c5d04d2470bf56422ff08d0",
     "src-tauri/src/pricing_sync.rs": "d2a01af5f848996803154d5ce689f8b2d5ab85b96ab43f10bf22ab6bb4901460",
     "src-tauri/src/secure_file.rs": "b1f926abc2b59d0f9d1f91a997828c72703f8dcc68c14eceea664d88c47b4ba2",
@@ -271,7 +271,7 @@
     "test/fixtures/codewhale-turn-end.json": "d15b9488c022fe62497034b59817ed6a8b40f88c62fe04e0822973f0fe83d538",
     "test/fixtures/models-dev-api-sample.json": "dcd80f0e1c22221738abe4c2ad0cd6ad0bd621264773213a030e983101b82e38",
     "test/latest-value-controller.test.js": "83dd646d346303f666d6a3ea4e968c7ec90bac1bfd928f48fd57c9c7a5dc18f9",
-    "test/maintainability-boundary-smoke.js": "995422d58f2449ada17eafcf27d4d56d2e0835e01dfe4dd3950b102026d158bf",
+    "test/maintainability-boundary-smoke.js": "222a68987cf8f444f2b6e29d2c1a718086c8642bcbea9966a61cf8fc88b73fc6",
     "test/native-hook-installer-smoke.js": "6a860ab110b029d5e7308e319adea1e5ead0de3c6cf045ae5e34ea6d85311820",
     "test/octopus-fix-regression-smoke.js": "b27d9f3320816413016ea9be6b56c78f94fe77412dfe53101486fd7fe777fa86",
     "test/panel-fit-controller.test.js": "a6f9a49563f25b971ddbfea72459d507ede2633798284967f055bdfc60ab703c",
@@ -339,8 +339,8 @@
     "test/tauri-tray-submenu-r12-smoke.js": "d0f7ebb3a69cdcc7c9b416613444aebd088e5f1402c75ca572c2c40d997e606d",
     "test/tauri-windows-static-smoke.js": "0d1a7b30b23b63438ebdac7d2cdf53c6e3a7d21d983de7dbab1cb0597e30e82d",
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
-    "worklog.md": "3bd69ef812b521480827813b033307077ed37a969c680b701dc87c02f5949d4c"
+    "worklog.md": "90b21fe10f42c5b2c2672f7f79bc32b1403e39d9584cb771979237577572f989"
   },
-  "sha256_of_manifest": "73a203293ee44b0298e2b0f9d2c758dab31e6015234e87ca899df57b7eeb9450",
+  "sha256_of_manifest": "f330964f8b23786b5e59a46847bc9be77aab8d88be72376160e23b1cd922affc",
   "source_commit": "octopus-0.5.47"
 }

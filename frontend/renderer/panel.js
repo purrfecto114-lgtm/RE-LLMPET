@@ -192,6 +192,25 @@ ${card.summary || ''}` : '';
   const today = s.today || {}, w5h = s.window5h || {};
   $('today-cost').textContent = aggregateCostText(today);
   $('today-tokens').textContent = fmt(today.tokens) + ' tokens · ' + today.messages + t('panel.rounds');
+  // R10 backport: combinedUsage — show Claude + Codex cost split
+  const combined = s.combinedUsage || {};
+  const splitEl = $('today-split');
+  if (splitEl) {
+    const claudeCost = Number(combined.claudeTodayCost) || 0;
+    const codexCost = Number(combined.codexTodayCost) || 0;
+    if (claudeCost > 0 || codexCost > 0) {
+      const parts = [];
+      if (claudeCost > 0) parts.push('Claude ' + fmtCost(claudeCost));
+      if (codexCost > 0) {
+        const exact = combined.codexTodayExact !== false;
+        parts.push('Codex ' + (exact ? '' : '≈') + fmtCost(codexCost));
+      }
+      splitEl.textContent = parts.join(' · ');
+      splitEl.style.display = '';
+    } else {
+      splitEl.style.display = 'none';
+    }
+  }
   $('win-cost').textContent = aggregateCostText(w5h);
   if (w5h.tokens > 0 && w5h.resetTs) {
     $('win-reset').textContent = fmt(w5h.tokens) + ' tok · ' + timeStr(w5h.resetTs) + t('panel.reset');
