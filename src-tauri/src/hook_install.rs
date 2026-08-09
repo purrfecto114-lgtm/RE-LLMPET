@@ -1302,30 +1302,35 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
     }
     write_text_atomic(&path, source.as_bytes())?;
 
-    // R13 fix: register the plugin in opencode's config.json so opencode
-    // actually loads it. Without this, the ESM file sits on disk but opencode
-    // never imports it — no events are captured.
+    // R13 fix (de-idealized): opencode v1.18.x loads plugins via directory
+    // scan of {plugin,plugins}/*.{ts,js} in the config dir — NOT via a
+    // "plugins" key in config.json (which causes "Unrecognized key" error).
+    // The file at ~/.config/opencode/plugins/llmpet-hook.js is auto-discovered.
+    // Previous R13 attempt wrote to config.json "plugins" array which broke
+    // opencode's config validation. Removed that; directory scan is sufficient.
+    // Also clean up any stale "plugins" key we may have previously written.
     let config_path = base.join("config.json");
-    let plugin_path_str = path.to_string_lossy().replace('\\', "/");
-    let mut config = fs::read_to_string(&config_path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        .unwrap_or_else(|| json!({}));
-    if let Some(obj) = config.as_object_mut() {
-        let plugins = obj
-            .entry("plugins".to_string())
-            .or_insert_with(|| Value::Array(vec![]));
-        if let Some(arr) = plugins.as_array_mut() {
-            let already = arr
-                .iter()
-                .any(|v| v.as_str().is_some_and(|s| s.contains("llmpet-hook.js")));
-            if !already {
-                arr.push(Value::String(plugin_path_str.clone()));
+    if let Ok(raw) = fs::read_to_string(&config_path) {
+        if let Ok(mut config) = serde_json::from_str::<Value>(&raw) {
+            if let Some(obj) = config.as_object_mut() {
+                if obj.contains_key("plugins") {
+                    let had_llmpet = obj
+                        .get("plugins")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .any(|v| v.as_str().is_some_and(|s| s.contains("llmpet-hook.js")))
+                        })
+                        .unwrap_or(false);
+                    if had_llmpet {
+                        obj.remove("plugins");
+                        if let Ok(config_bytes) = serde_json::to_vec_pretty(&config) {
+                            let _ = write_text_atomic(&config_path, &config_bytes);
+                        }
+                    }
+                }
             }
         }
-    }
-    if let Ok(config_bytes) = serde_json::to_vec_pretty(&config) {
-        let _ = write_text_atomic(&config_path, &config_bytes);
     }
 
     write_install_receipt(
@@ -1341,12 +1346,12 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
     );
     runtime.write_log(
         "hooks",
-        "OpenCode ESM plugin synced (v3) + registered in config.json",
+        "OpenCode ESM plugin synced (v3); auto-discovered via plugins/ directory scan",
     );
     Ok(InstallResult {
         added: 1,
         path,
-        message: "OpenCode ESM 插件已安装并注册到 config.json；权限事件仅观察，决策仍由 OpenCode 原生界面完成".into(),
+        message: "OpenCode ESM 插件已安装；opencode 自动扫描 plugins/ 目录加载".into(),
     })
 }
 

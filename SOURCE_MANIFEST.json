@@ -252,7 +252,7 @@
     "src-tauri/src/diagnostic_io.rs": "0e6a4d42d3a9bd2bffc3506551131d68770af22ccbc5331154fb63888339f33f",
     "src-tauri/src/emotion.rs": "dd485ae253523d98eb483fc36f34408728f090cf05bb63b963ba4bddc3177d5d",
     "src-tauri/src/hook_client.rs": "0b89e875522c8b67015155e6dbfaaae65144e5b5afb297c2a08a052be2bf36e8",
-    "src-tauri/src/hook_install.rs": "e702273d084d9a953e2902fbc4b10d02518f27ceb478eb5c9a83172a7fb625fb",
+    "src-tauri/src/hook_install.rs": "227e78bf133eb7f54cceda3879df70f41c210c6d93459606a76eac958acb20ba",
     "src-tauri/src/hook_watcher.rs": "2072146c742269c5010ef586f2691d40f2484d738adfeb8e6c8e2b7ba215ab28",
     "src-tauri/src/http_server.rs": "7599bcdaf8d1b0ecca09acc145f106e641e2c3ef77ce34eff265546ba6d85106",
     "src-tauri/src/i18n.rs": "2ca2a9fe27b0a1c7dc039290172c4a58c5e3c17e87179485568d92e4b2eaae01",
@@ -349,8 +349,8 @@
     "test/tauri-tray-submenu-r12-smoke.js": "d0f7ebb3a69cdcc7c9b416613444aebd088e5f1402c75ca572c2c40d997e606d",
     "test/tauri-windows-static-smoke.js": "0d1a7b30b23b63438ebdac7d2cdf53c6e3a7d21d983de7dbab1cb0597e30e82d",
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
-    "worklog.md": "74888be9c19b25b4437bb129fb991e7bd9005df76507752df898476716dfb344"
+    "worklog.md": "d19318af28956e38f34965427a1728cba35dc7f30840166429563f4fde133639"
   },
-  "sha256_of_manifest": "e1f12238e0d81b14ecad910f2cf2a35044be48d66df132ecc98658c81f3b057f",
+  "sha256_of_manifest": "983f03dd0f5f2ef3f9b2ec754f3775afe1d666badfd4058c8bab87962e38016a",
   "source_commit": "octopus-0.5.47"
 }
