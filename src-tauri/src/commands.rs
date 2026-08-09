@@ -2108,28 +2108,11 @@ fn codewhale_doctor_summary(value: Option<&Value>) -> Value {
     })
 }
 
-fn codewhale_config_path() -> PathBuf {
-    if let Some(path) = std::env::var_os("CODEWHALE_CONFIG_PATH")
-        .or_else(|| std::env::var_os("DEEPSEEK_CONFIG_PATH"))
-    {
-        return PathBuf::from(path);
-    }
-    if let Some(base) = std::env::var_os("CODEWHALE_HOME") {
-        return PathBuf::from(base).join("config.toml");
-    }
-    let current = home_dir().join(".codewhale").join("config.toml");
-    if current.exists() {
-        return current;
-    }
-    let legacy = home_dir().join(".deepseek").join("config.toml");
-    if legacy.exists() {
-        return legacy;
-    }
-    current
-}
+// R9: codewhale_config_path() consolidated into hook_install::codewhale_config_path()
+// (single source of truth). Use crate::hook_install::codewhale_config_path() directly.
 
 fn codewhale_config_candidates(cwd: &Path) -> Value {
-    let selected = codewhale_config_path();
+    let selected = crate::hook_install::codewhale_config_path();
     let current = home_dir().join(".codewhale").join("config.toml");
     let legacy = home_dir().join(".deepseek").join("config.toml");
     let project_current = cwd.join(".codewhale").join("config.toml");
@@ -2745,7 +2728,7 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
         } else if project_legacy.is_file() {
             warnings.push("Legacy CodeWhale project overlay .deepseek/config.toml is active in the diagnostic workspace; migrate deliberately after comparing provider, model, approval, and sandbox settings".into());
         }
-        let path = codewhale_config_path();
+        let path = crate::hook_install::codewhale_config_path();
         let config_raw = std::fs::read_to_string(&path).ok();
         let hook_block = config_raw
             .as_deref()

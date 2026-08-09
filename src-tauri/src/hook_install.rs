@@ -1427,7 +1427,11 @@ fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
     })
 }
 
-fn codewhale_config_path() -> PathBuf {
+/// R9: shared config path resolver — single source of truth for CodeWhale config discovery.
+/// Previously duplicated in commands.rs:2111 (identical impl), which risked drift.
+/// Precedence: CODEWHALE_CONFIG_PATH → DEEPSEEK_CONFIG_PATH → CODEWHALE_HOME/config.toml
+/// → existing ~/.codewhale/config.toml → existing legacy ~/.deepseek/config.toml → new codewhale path.
+pub fn codewhale_config_path() -> PathBuf {
     if let Some(path) = std::env::var_os("CODEWHALE_CONFIG_PATH")
         .or_else(|| std::env::var_os("DEEPSEEK_CONFIG_PATH"))
     {

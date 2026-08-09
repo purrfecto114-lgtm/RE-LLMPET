@@ -1543,3 +1543,49 @@ setup.credential.ready = false ← 一样！
   - 去理想化要求（每轮推送前联网交叉验证 + 多角度辩证检查）
   - GitHub PAT 可用，每轮直接 push
 
+
+---
+
+## Round 9 完成报告（2026-08-09 09:17 trigger）
+
+### 本轮优化：合并重复的 codewhale_config_path()（代码清理）
+
+**问题**：`codewhale_config_path()` 在两个文件中有完全相同的实现：
+- `commands.rs:2111`（19 行）
+- `hook_install.rs:1430`（19 行）
+
+两份代码字节相同，但分散在两个模块中，存在 drift 风险——如果一处更新 precedence 链而另一处忘记同步，会导致 hook 安装路径和诊断路径解析到不同的 config 文件。
+
+**修改**：
+
+| 文件 | 修改 |
+|---|---|
+| `src-tauri/src/hook_install.rs:1430` | `fn` → `pub fn`，添加 R9 注释 + precedence 文档 |
+| `src-tauri/src/commands.rs:2111` | 删除 19 行本地 `fn codewhale_config_path`，替换为 2 行 R9 注释 |
+| `src-tauri/src/commands.rs:2115` | `codewhale_config_path()` → `crate::hook_install::codewhale_config_path()` |
+| `src-tauri/src/commands.rs:2731` | 同上（diagnose_agent_sync 调用点） |
+| `test/tauri-codewhale-config-path-dedup-r9-smoke.js` | **新增**：验证单一共享定义 + commands.rs 无本地定义 + 2 处调用共享版本 |
+| `package.json` | test:smoke 脚本增加新测试 |
+
+### 验证
+- `node scripts/run-static-checks.js`: **22/22 PASS**
+- `npm test`: **EXIT=0**（含新 `tauri-codewhale-config-path-dedup-r9-smoke`）
+- `node scripts/generate-source-manifest.js`: 334 文件（+1 新测试）
+- 行数预算：commands.rs 3229/3250 ✓（净减 17 行），hook_install.rs 2295/2300 ✓（净增 4 行 = pub + 注释）
+
+### 去理想化辩证检查
+- **质疑**：把 `codewhale_config_path` 从 `commands.rs` 移到 `hook_install.rs` 作为 pub fn，是否会破坏模块封装？
+- **验证**：`hook_install` 模块已经是 `mod hook_install`（crate-private），且 `commands.rs` 已经通过 `crate::hook_install::` 调用了多个 pub fn（`sync_enabled`, `resync_current`, `verify_enabled`, `uninstall_provider_hooks`, `current_drift_signature`, `read_install_receipts`）。添加 `codewhale_config_path` 到 pub fn 列表符合现有模块边界设计。
+- **结论**：安全。模块封装未被削弱——`hook_install` 已经是 hook + config 安装的权威模块，config path 解析属于其职责范围。
+
+### 累计统计（Round 1-9）
+- **总修复/优化数**：71 个（Round 1-7 的 65 bug 修复 + Round 8 的 5 项 + Round 9 的 1 项去重）
+- **测试数**：63 个 smoke/unit 测试（+1 新增 R9 dedup smoke）
+- **GitHub main**：持续 fast-forward 推送
+
+### 下轮建议（Round 10）
+1. **P2-5 dead legacy prefix code**：`hook_install.rs:prune_backups` 有 `legacy_prefix = ".{stem}.re-llmpet-bak-"` 分支匹配 0 文件（真实 legacy 命名是 `.{stem}-re-llmpet-backup-<ts>.<ext>`）。移除 dead 分支。
+2. **上游 backport**：settings.json watcher（自动重注册被覆盖的 hooks）—— LOW 难度，高价值。
+3. **CodeWhale 增强**：cache 5m/1h TTL split（R18 gap，等 CodeWhale 上游暴露字段）。
+4. **测试增强**：增加 boundary 条件测试（空 config.toml、超大 config、权限错误）。
+

@@ -2,7 +2,7 @@
   "version": "0.5.46",
   "generated": 1785847535,
   "root": "Octopus-0.5.46",
-  "file_count": 333,
+  "file_count": 334,
   "files": {
     ".claude-plugin/plugin.json": "5671723c4869dcae32e8050aa18437e0ff01bde37fc6d18b5120810045cf5a09",
     ".gitattributes": "c41b15dfba8e2ca096b715cd0ee0d5831a781e21d2b5fbb4e5229ace268b36aa",
@@ -129,7 +129,7 @@
     "frontend/shared/toast.js": "6f37e8646361efdb0792b26a0819c504021f1de8c25111dd8f8e1cb6a5ecfa49",
     "migration-todo.json": "c5660f83917b04fcfc8ee9af965208e4edf089d22a028f8c8e2345a1b19195d4",
     "package-lock.json": "a5b3c4172e6c8bfb6e828bc08223debb44529369716c1e08cb4b2852dddf3628",
-    "package.json": "0d57950e68960ea093de21c8a598a6e055138c57ad529137a8cd60161b207c7a",
+    "package.json": "e015bbba47ac6c231d5305ebc63d62ce4bf3b131f8d09f762922998e8e633ef5",
     "protocol-baseline.json": "4e02f66dbdde7edae35131df1f1020ec17a4700c87d4e6ced19748cdf3ebb158",
     "reports/asset-visual-baseline.json": "be1ac817aa0912805f91a4aacf2892fe54316b2fac5bc80640731aa6a0462004",
     "reports/followup-drag-terminal-ui-file-diff-2026-07-28.txt": "60364894f73ee5f8943f430f90a4dc68f3c2868e58cc6698db8247a039271f46",
@@ -239,12 +239,12 @@
     "src-tauri/src/bin/octopus-hook.rs": "02b6304e3c1bb9e2b59437e4890ecf8ad45a7a29259cbfc14a571fbb3a339036",
     "src-tauri/src/bin/re-llmpet-hook.rs": "02b6304e3c1bb9e2b59437e4890ecf8ad45a7a29259cbfc14a571fbb3a339036",
     "src-tauri/src/codex_rollout.rs": "9e1b3158ae56750e79b9efbd12f2514faa02d25031a0379566ccb79def378160",
-    "src-tauri/src/commands.rs": "de219cc59f431913be3076b170fd2a6c9cff0cbb139d3bbc3f589db50be63ad1",
+    "src-tauri/src/commands.rs": "57cd05ddcea89b72e06dde2249218eeb06aaa683aba50517411903e8cbbd7be1",
     "src-tauri/src/diagnostic_control.rs": "c4dc92e39996c2b29c6a972c1fd2f79220a1e6d49f94001566411d9102c1d20a",
     "src-tauri/src/diagnostic_io.rs": "0e6a4d42d3a9bd2bffc3506551131d68770af22ccbc5331154fb63888339f33f",
     "src-tauri/src/emotion.rs": "ff091a1e00621620fd0008df2b355465c150ef5a1143dc16e93641d587c37cd0",
     "src-tauri/src/hook_client.rs": "155a703b92d7d4db7dfa87d86a54262894fd547df2009e66be24e4e7a6bab306",
-    "src-tauri/src/hook_install.rs": "7a508fee449ad93640337c181fd5db647cafc49ae391a39f367b21097c08074d",
+    "src-tauri/src/hook_install.rs": "da4a3d393037d4a8c0797c69edbf4af87b8b4f32ab32afa77f13c7229f85301e",
     "src-tauri/src/http_server.rs": "3e781361b0b93d1b22d319ee461c6dd11bc8adacb94b2eeb6c0770dccfe4ac81",
     "src-tauri/src/i18n.rs": "044318b3c9524cae22cd6af0af7a03ddde99e0666f0d6122477399bb2a08be93",
     "src-tauri/src/instance_probe.rs": "38fee6c5356d7d6e1662ca085bff609fdfcfbaaf585a3f7a1cb2b4fd346e0345",
@@ -287,6 +287,7 @@
     "test/tauri-cli-diagnostics-r5-smoke.js": "431e3522b5bd5c0c4e4ac23c654d1c69a44a79433c5abaf82e4960c2305687ba",
     "test/tauri-cli-hardening-r3-smoke.js": "48e9022bf3457254a74e25fab069e28abe7e6a0a73564722b8b964ffd71c759a",
     "test/tauri-cli-resilience-r7-smoke.js": "9ea1f56ad612b0d62c6faff3a130e50cf7529abb649f0f4f3edf485d5a97a2ab",
+    "test/tauri-codewhale-config-path-dedup-r9-smoke.js": "dd815acdf8936c860cb3f163077959bcc5c67b7deaee9c92f19e69ce8ba7915d",
     "test/tauri-codewhale-doctor-consistency-r10-smoke.js": "6c1fd821314404cf587117186824d64660485b78656f3416980dc65e5fcd9bc0",
     "test/tauri-codewhale-failed-turn-r8-smoke.js": "2b6d0dc68299bed979823dc050aa967a384930ce525b5be4f561510784bc8bba",
     "test/tauri-codewhale-v095-forward-compat-r8-smoke.js": "369a21e42be81ffe19eaad2dbf26bf063011e4eb872105ce42276d5370d5f98c",
@@ -336,8 +337,8 @@
     "test/tauri-tray-submenu-r12-smoke.js": "d0f7ebb3a69cdcc7c9b416613444aebd088e5f1402c75ca572c2c40d997e606d",
     "test/tauri-windows-static-smoke.js": "0d1a7b30b23b63438ebdac7d2cdf53c6e3a7d21d983de7dbab1cb0597e30e82d",
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
-    "worklog.md": "77610b12370d259f0bf7335b6164c9e706d06ba43033390126a1e087aeddb443"
+    "worklog.md": "6e47bf1c29fd1453c9612fe612126d6351a0d7f6c6c5dc2ef4399ddc23388dc9"
   },
-  "sha256_of_manifest": "3799150ce9b20a4b77234f9dcbd9c601e6a89190d5ad8ac3033df8b14c7c7430",
+  "sha256_of_manifest": "08acfaf5c6405c9afc5f476f96ec47b35c9f973ae157fa4492fda314d30d557a",
   "source_commit": "octopus-0.5.46"
 }
