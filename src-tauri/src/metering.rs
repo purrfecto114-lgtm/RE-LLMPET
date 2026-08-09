@@ -999,7 +999,8 @@ fn recover_compact_tmp(path: &Path) {
         Err(_) => None,
     };
     for entry in entries.flatten() {
-        let Some(name) = entry.file_name().to_str() else {
+        let file_name = entry.file_name();
+        let Some(name) = file_name.to_str() else {
             continue;
         };
         if !name.starts_with(".usage-events.") || !name.ends_with(".tmp") {
