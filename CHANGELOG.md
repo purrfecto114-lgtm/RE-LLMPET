@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.5.47 — CodeWhale v0.9.5 forward-compat + config path dedup（2026-08-09）
+
+### CodeWhale v0.9.5 前向兼容
+- `resolve_agent`: `MISSING_COMPANION_BINARY` 从硬错误改为警告（v0.9.5 移除 codewhale-tui，单运行时）
+- `diagnose_agent_sync`: `MISSING_COMPANION_BINARY` 从 issues 改为 warnings
+- `codewhale_doctor_probe`: dispatcher fallback 已处理 None companion（R10 不变）
+- 真机验证：CodeWhale v0.9.5 已发布（2026-08-08 16:39 UTC），codewhale-tui 已移除，codewhale doctor --json 正常工作
+
+### CodeWhale 0.9.4 真机冒烟测试
+- 下载真实 CodeWhale v0.9.4 CLI，端到端验证 hook 安装 + 事件捕获
+- 捕获真实 turn_end payload（失败 turn + fake API key）
+- 更新 fixture 反映真实 0.9.4 输出 shape（billing_surface: first-party-payg, UUID turn_id）
+- 新增失败 turn fixture + drop-on-zero-usage smoke test
+
+### 去理想化修正
+- `api_key.source` 警告：原匹配 `secret_store_unprobed` 会在每个有 key 的安装上误报
+  （doctor 从不探测 secret store，source 恒为 unprobed）。改用 `secret_backend.presence == absent`
+
+### 代码清理
+- 合并重复的 `codewhale_config_path()`（commands.rs + hook_install.rs → 单一 pub fn）
+- 消除 drift 风险：hook 安装路径和诊断路径现在共享同一 config path resolver
+
+### 自主修复 Round 3-9（63+8 个修复）
+- Round 3-7: 65 个 bug 修复（所有 CRITICAL/HIGH/MEDIUM 清零，11 审计区域全覆盖）
+- Round 8: CodeWhale 0.9.4 真机验证 + 去理想化 + v0.9.5 前向兼容
+- Round 9: codewhale_config_path() 去重
+
+### 验证
+- npm test: all pass（63 smoke/unit tests）
+- check:static: 22/22
+- 行数预算: commands.rs 3229/3250, hook_install.rs 2295/2300
+- 真机验证: CodeWhale v0.9.5 CLI（companion 已移除，dispatcher fallback 工作）
+
+---
+
+
 ## 0.5.46 — Global audit closure + secure file ops + session pref client（2026-08-04）
 
 Applies the user's globally-audited source tree which adds:
