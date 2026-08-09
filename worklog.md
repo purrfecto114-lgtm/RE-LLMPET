@@ -601,3 +601,37 @@ re-llmpet.log 显示：
 - 提示词包含 4 个问题的详细根因分析 + 修复方向
 - 包含本地 cargo check/clippy 验证步骤（GTK dev 已安装）
 
+
+---
+
+## Round 13: 4 个用户报告问题修复（2026-08-09 22:12 trigger）
+
+### 问题 1: 右键菜单 focus_pet ACL 错误 ✅
+- **根因**: `focus_pet` 在 build.rs + lib.rs:generate_handler 已注册，但 `pet.json` capabilities 缺少 `allow-focus-pet`
+- **修复**: `pet.json` permissions 数组添加 `"allow-focus-pet"`
+
+### 问题 2: OpenCode 工作状态不捕获 ✅
+- **根因**: ESM 插件文件写入 `~/.config/opencode/plugins/llmpet-hook.js`，但未在 opencode 的 `config.json` 中注册。opencode 只从 config.json 的 `plugins` 数组加载插件，不从 plugins/ 目录扫描
+- **修复**: `install_opencode()` 现在：
+  1. 写入 ESM 插件文件
+  2. 读取/创建 `~/.config/opencode/config.json`
+  3. 在 `plugins` 数组中添加插件路径（如已存在则跳过）
+  4. 添加 `export default LLMPETPlugin` 兼容 opencode 插件加载器
+
+### 问题 3: 自带检查工具卡"检查中" ✅
+- **根因**: 诊断探针超时 15s × 多个串行探针（version + doctor + auth），总时长可能超 60s
+- **修复**: 所有 doctor 探针超时从 15s → 8s
+  - claude doctor: 15s → 8s
+  - codewhale companion doctor: 15s → 8s  
+  - codewhale dispatcher doctor: 15s → 8s
+
+### 问题 4: 闲逛功能不完善 ✅
+- **根因**: `travel.rs:190` 限制 "wander currently supports Claude and Codex only"
+- **修复**: 扩展 wander 支持 CodeWhale（`matches!(value.as_str(), "claude" | "codex" | "codewhale")`）
+
+### 验证
+- clippy -D warnings: ✅ EXIT=0
+- 22/22 static + npm test EXIT=0（346 manifest）
+- cargo fmt --check: ✅
+- GitHub main: `7118a5c` 已推送
+
