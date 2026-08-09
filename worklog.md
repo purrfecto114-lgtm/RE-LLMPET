@@ -340,3 +340,65 @@ Architecturally complete and unit/smoke-tested. Main risks: (1) no real-CLI veri
 - 修复后构建成功，但需要多轮迭代（10+ 次 workflow 运行）
 - **教训**：未来 Rust 修改应在有 cargo 的环境验证，或至少用 rustfmt --check 预检
 
+
+---
+
+## Round 10: 托盘设置 + GUI 美化 + Codex 定价 backport（2026-08-09）
+
+### 1. 托盘"设置"子菜单（从禁用占位符 → 真实功能）
+- `lib.rs:build_tray_menu`: "⚙️ 设置" 从 disabled `MenuItem` 改为 `Submenu`，含 4 项：
+  - 🔄 刷新价格 → `refresh_model_prices` 命令
+  - 价格自动更新（checkable）→ `set_price_auto_update` 切换
+  - 🔍 诊断信息 → 打开面板
+  - 📁 打开数据目录 → `open_path(~/.re-llmpet)`
+- `i18n.js` + `i18n.rs`: 新增 5 个标签（tray.settingsMenu/refreshPrice/priceAuto/openDiagnostics/openLogDir），zh/en/ja 三语
+- `commands.rs`: `open_path` 改为 pub + 接受 `&str`
+- `tauri-tray-extras-r13-smoke`: 更新断言（disabled placeholder → submenu 结构）
+
+### 2. 价格自动/手动刷新（验证已工作 + 托盘集成）
+- `pricing_sync.rs:start()`: 自动刷新循环已工作（config.price_auto_update + price_refresh_hours + mpsc wake）
+- 面板：refresh 按钮 + auto checkbox + interval select 已接线
+- 托盘：refresh price + auto toggle 现在也触发相同命令
+- 三入口（面板/托盘/自动定时）同步
+
+### 3. GUI 美化（panel.css）
+- 统计卡片：渐变背景 + hover 边框/阴影 + 大写标签 + 字间距
+- 标题栏：底部分隔线 + logo 投影 + 关闭按钮 hover 红色调
+- 价格控制区：顶部边框分隔 + 更平滑过渡 + 更大触摸目标
+- 复选框：显式宽高保证渲染一致
+
+### 4. Codex 定价 backport（CRITICAL gap 修复）
+**新模块 `src-tauri/src/codex_pricing.rs`（~200 行）**：
+- 移植自上游 `backend/codex-pricing.js`
+- 5 个 tier（pro/codex/mini/nano/default）+ 13 个内置模型价格
+- `norm_codex_model_name`: 剥离 provider 前缀 + 日期后缀
+- `price_for_codex`: exact 模型匹配 → tier fallback
+- `codex_usage_cost`: fresh + cached + output 计费（不双计 cache）
+
+**OpenAI Pro cache rate 修复（上游 commit 769f3c0）**：
+- Pro 模型 cachedInput = input 全额（无 10% 折扣）
+- 非 Pro 模型 cachedInput = input × 10%
+- 修复了 Pro 模型少计费 ~90% 的问题
+
+**codex_rollout.rs 快照集成**：
+- today.todayCost / todayCostExact
+- lifetime.cost / costExact
+- diagnostics.pricingModel / pricingExact
+- 使用 gpt-5.3-codex 作为聚合默认模型（per-model 需要 FileSummary 改动，留到下轮）
+
+### 5. 新测试
+- `tauri-codex-pricing-r10-smoke`: 验证模块存在 + Pro cache rate + cost wiring + internal profile
+
+### 验证
+- 22/22 static + npm test EXIT=0（336 manifest）
+- cargo fmt --check EXIT=0（Rust 已安装，格式干净）
+- GitHub main: `6b8d47e` 已推送
+
+### 落后上游清单更新
+- ~~CRITICAL #1 codex-pricing~~ ✅ 已 backport
+- ~~CRITICAL #2 combineUsage~~ 待做（下轮）
+- HIGH #3 settings.json watcher
+- HIGH #4 machineGrowth
+- HIGH #5 meter-rebuild CLI
+- MEDIUM #6-9: usage-archive carry, pidwalk, territory episodes, _extractOpenAIModels
+
