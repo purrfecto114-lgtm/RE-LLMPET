@@ -529,3 +529,75 @@ Architecturally complete and unit/smoke-tested. Main risks: (1) no real-CLI veri
 
 **6/9 落后项已完成**，剩余 2 MEDIUM + 1 HIGH-difficulty。
 
+
+---
+
+## 用户报告 4 个问题 + 详细 Plan（2026-08-09 22:15）
+
+### 截图分析
+用户上传截图显示：右键桌宠出现环形菜单（详情/形象/待处理/后台/日志/静音/预算/退出），底部红色错误条：**"focus_pet Command focus_pet not allowed by ACL"**
+
+### 日志分析
+re-llmpet.log 显示：
+- 正常启动（port 41330）
+- CodeWhale hooks synced + OpenCode ESM plugin synced
+- 大量 `[dismiss] dom-blur` / `native-blur` 事件（右键菜单反复打开关闭）
+- 无诊断或旅行相关日志
+
+### 4 个问题的根因分析 + 修复 Plan
+
+#### 问题 1: 右键菜单 focus_pet ACL 错误（🔴 CRITICAL）
+- **根因**: `focus_pet` 命令在 `build.rs:38` 和 `lib.rs:239` 已注册，但 `pet.json` capabilities 缺少 `allow-focus-pet` 权限
+- **影响**: 每次右键菜单操作都触发 ACL 拒绝错误
+- **修复**: `pet.json` permissions 数组添加 `"allow-focus-pet"`
+- **难度**: LOW（1 行改动）
+- **风险**: 无
+
+#### 问题 2: OpenCode 工作状态不捕获（🟠 HIGH）
+- **根因**: `opencode_plugin_source()` 的 ESM 插件映射了 `session.status` → state 事件，但：
+  - a. 需要验证 OpenCode 实际发送的 `event.type` 是否匹配
+  - b. `event.properties.status` 的 shape（object vs string）可能不匹配
+  - c. Rust `http_server.rs` 处理 opencode provider 的逻辑可能不完整
+  - d. `model.rs:ingest()` 可能不正确映射 opencode 的 state 事件
+- **修复方向**: 
+  1. 检查 `http_server.rs` 的 `/state` handler 是否正确处理 opencode provider
+  2. 检查 `model.rs:ingest()` 是否正确映射 opencode 的 `native_event` → 状态
+  3. 可能需要更新 ESM 插件的事件类型映射
+  4. 添加 opencode session_id 提取逻辑
+- **难度**: MEDIUM（需要深入排查 ESM 插件 + Rust 端处理链）
+
+#### 问题 3: 自带检查工具卡"检查中"（🟠 HIGH）
+- **根因**: `diagnose_agent` 是 `async + spawn_blocking`，可能因为：
+  - a. 诊断探针超时太长（15s per probe, 多个探针串行）
+  - b. `DiagnosticControl` 的 `begin/finish` 状态机可能卡在 busy
+  - c. Windows 上 `codewhale doctor --json` 或 `claude doctor` 可能 hang
+  - d. `spawn_blocking` 的 task 可能 panic 后 `finish()` 未调用
+- **修复方向**:
+  1. 检查 `diagnostic_control.rs` 的 `begin/finish` 是否在所有路径都调用
+  2. 缩短探针超时（15s → 8s）
+  3. 添加 UI 进度反馈（每完成一个探针 emit 一次）
+  4. 确保 `finish()` 在 `await` 错误时也被调用
+- **难度**: MEDIUM
+
+#### 问题 4: 闲逛功能不完善（🟡 MEDIUM）
+- **根因**: `travel.rs:190` 限制 "wander currently supports Claude and Codex only"
+- **修复方向**:
+  1. 扩展 wander 支持 CodeWhale（已有 turn_end usage）
+  2. 改进 wander 的 mission 模板和工具集
+  3. 添加 wander 超时和取消机制（当前 30min 超时但无 UI 反馈）
+  4. 改进 postcard 生成和显示
+  5. wander 模式应该用 `--auto` 或等价的非交互模式
+- **难度**: MEDIUM-HIGH
+
+### 修复优先级
+1. **问题 1** (focus_pet ACL) — 1 行修复，立即做
+2. **问题 3** (诊断卡住) — 用户可感知，HIGH 优先
+3. **问题 2** (OpenCode 状态) — 需要 OpenCode CLI 真机验证
+4. **问题 4** (闲逛完善) — 功能增强，MEDIUM 优先
+
+### Cron 更新
+- 删除旧 Job 314511（30min 循环）
+- 创建新 Job 315063（1h 循环，priority=10 HIGH）
+- 提示词包含 4 个问题的详细根因分析 + 修复方向
+- 包含本地 cargo check/clippy 验证步骤（GTK dev 已安装）
+
