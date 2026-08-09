@@ -239,7 +239,7 @@
     "src-tauri/src/bin/octopus-hook.rs": "02b6304e3c1bb9e2b59437e4890ecf8ad45a7a29259cbfc14a571fbb3a339036",
     "src-tauri/src/bin/re-llmpet-hook.rs": "02b6304e3c1bb9e2b59437e4890ecf8ad45a7a29259cbfc14a571fbb3a339036",
     "src-tauri/src/codex_rollout.rs": "9e1b3158ae56750e79b9efbd12f2514faa02d25031a0379566ccb79def378160",
-    "src-tauri/src/commands.rs": "57cd05ddcea89b72e06dde2249218eeb06aaa683aba50517411903e8cbbd7be1",
+    "src-tauri/src/commands.rs": "479e93c8a1ff785459e01ae66977273524548f95af108f0cf184cc5121ab95e4",
     "src-tauri/src/diagnostic_control.rs": "c4dc92e39996c2b29c6a972c1fd2f79220a1e6d49f94001566411d9102c1d20a",
     "src-tauri/src/diagnostic_io.rs": "0e6a4d42d3a9bd2bffc3506551131d68770af22ccbc5331154fb63888339f33f",
     "src-tauri/src/emotion.rs": "ff091a1e00621620fd0008df2b355465c150ef5a1143dc16e93641d587c37cd0",
@@ -339,6 +339,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "b0b1a20d0022096e930258c4d003a35f0579f582b2952284899239fb730ac398"
   },
-  "sha256_of_manifest": "17b5261157ec5f89045be4cbf5dc61a748a7103884f077f22e03b8e5330729d5",
+  "sha256_of_manifest": "cd6e659111984e4397ec66290e3274b45408bb62a9dcbc790833b21a8d7aa5bc",
   "source_commit": "octopus-0.5.47"
 }

@@ -1391,7 +1391,9 @@ fn resolve_agent(spec: AgentSpec) -> Result<PathBuf, String> {
     // R8 forward-compat: v0.9.5+ consolidates codewhale-tui into codewhale (single runtime).
     // Don't hard-fail on MISSING_COMPANION_BINARY; doctor probe falls back to dispatcher.
     if spec.id == "codewhale" && companion_for(spec, &executable).is_none() {
-        eprintln!("[octopus] codewhale-tui companion not found (v0.9.5+ single-runtime?); using dispatcher fallback");
+        eprintln!(
+            "[octopus] codewhale-tui companion not found (v0.9.5+ single-runtime?); using dispatcher fallback"
+        );
     }
     Ok(executable)
 }
@@ -2471,7 +2473,10 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
     if spec.id == "codewhale" && executable.is_some() && companion.is_none() {
         // R8 forward-compat: v0.9.5+ single-runtime has no separate codewhale-tui.
         // Warn (not block) — doctor probe falls back to dispatcher.
-        warnings.push("MISSING_COMPANION_BINARY: codewhale-tui not found (v0.9.5+ uses dispatcher); diagnostics will use dispatcher fallback".into());
+        warnings.push(
+            "MISSING_COMPANION_BINARY: codewhale-tui not found (v0.9.5+ uses dispatcher); diagnostics will use dispatcher fallback"
+                .into(),
+        );
     }
     let version = executable
         .as_deref()
@@ -2668,10 +2673,19 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
         }
         // R8 (de-idealized): doctor never probes → api_key.source always "secret_store_unprobed".
         // Reliable no-key signal: secret_backend.presence=="absent" (verified live).
-        let no_key = doctor_summary.get("apiKeySource").and_then(Value::as_str).is_some_and(|s| s.eq_ignore_ascii_case("missing"))
-            || doctor_summary.get("secretBackendPresence").and_then(Value::as_str).is_some_and(|p| p.eq_ignore_ascii_case("absent"));
+        let no_key = doctor_summary
+            .get("apiKeySource")
+            .and_then(Value::as_str)
+            .is_some_and(|s| s.eq_ignore_ascii_case("missing"))
+            || doctor_summary
+                .get("secretBackendPresence")
+                .and_then(Value::as_str)
+                .is_some_and(|p| p.eq_ignore_ascii_case("absent"));
         if no_key {
-            warnings.push("CodeWhale reports no stored or environment API key; local/keyless providers may still work, otherwise authenticate before launch".into());
+            warnings.push(
+                "CodeWhale reports no stored or environment API key; local/keyless providers may still work, otherwise authenticate before launch"
+                    .into(),
+            );
         }
         if let Some(state) = doctor_summary
             .get("sessionRecovery")
