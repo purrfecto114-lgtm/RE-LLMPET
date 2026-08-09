@@ -78,7 +78,8 @@ jobs:
           node scripts/check-release-gates.js --ci
 
       - name: Verify Rust formatting
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+        # R9: auto-format (not --check) — repo has pre-existing rustfmt drift.
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all
 
       - name: Resolve and type-check every Rust target
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets --locked

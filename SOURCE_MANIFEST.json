@@ -6,7 +6,7 @@
   "files": {
     ".claude-plugin/plugin.json": "5671723c4869dcae32e8050aa18437e0ff01bde37fc6d18b5120810045cf5a09",
     ".gitattributes": "c41b15dfba8e2ca096b715cd0ee0d5831a781e21d2b5fbb4e5229ace268b36aa",
-    ".github/workflows/ci.yml": "741e9e5fea2bff63038aff4035a3c0f0aa92382f04a383110bfbc0ad463283ab",
+    ".github/workflows/ci.yml": "cb0e4152abc6117c2cb54c707ddf31aa59ceb638c45854fa8e088f70571cb63f",
     ".github/workflows/desktop-real-machine.yml": "8bd038c78f9acb0c2c497776d02fc94533ddc0708678cb4f45631888c9c66619",
     ".github/workflows/protocol-drift.yml": "16d6ca097a59f482debe1f6ceec13f9a4d5d05269a08856617db843bd6139b44",
     ".github/workflows/provider-real-cli.yml": "61835976ae5fbf5bc3b1f678256bee01f5477be44a66a8884901fb84b420df06",
@@ -339,6 +339,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "b0b1a20d0022096e930258c4d003a35f0579f582b2952284899239fb730ac398"
   },
-  "sha256_of_manifest": "a50fdf5f5177bdc5740765d55fdd76606bfc0c3b5d5510ddfeaffb119c1cc9a5",
+  "sha256_of_manifest": "d285957b7f3cfcfc5ab2c2e4532dcc0910d150ac7d13190dbab711be0c26b3e5",
   "source_commit": "octopus-0.5.47"
 }
