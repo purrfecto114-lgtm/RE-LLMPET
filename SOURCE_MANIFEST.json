@@ -6,11 +6,11 @@
   "files": {
     ".claude-plugin/plugin.json": "5671723c4869dcae32e8050aa18437e0ff01bde37fc6d18b5120810045cf5a09",
     ".gitattributes": "c41b15dfba8e2ca096b715cd0ee0d5831a781e21d2b5fbb4e5229ace268b36aa",
-    ".github/workflows/ci.yml": "515de42fc544a1379752f0c5aaeeada63c1f501f17132b359bd91ba76ed05084",
+    ".github/workflows/ci.yml": "35d39a8babe9a82f5c719bc1d4898d24b1292c38503ff9786eb099e8d07affb6",
     ".github/workflows/desktop-real-machine.yml": "8bd038c78f9acb0c2c497776d02fc94533ddc0708678cb4f45631888c9c66619",
     ".github/workflows/protocol-drift.yml": "16d6ca097a59f482debe1f6ceec13f9a4d5d05269a08856617db843bd6139b44",
     ".github/workflows/provider-real-cli.yml": "61835976ae5fbf5bc3b1f678256bee01f5477be44a66a8884901fb84b420df06",
-    ".github/workflows/release.yml": "192bccedf53b06f10a30d1800ad3bd6117e42d3672fca0ddeb36f7fdb3234419",
+    ".github/workflows/release.yml": "8c1f1301684e40bce74252702eb8bbfb1af2541b7624d9fc2d6e0a60faae89ad",
     ".gitignore": "8e487a1cd8bcc778c5f8da139a6f43eb1984a428a10f715be49ae28989de4303",
     "BUILD_REPRODUCIBILITY.md": "e0a953308f1a02c8ccb9cce8fc345285d2194f023ee1e4a6c1657d0ada671086",
     "CHANGELOG.md": "d56cfe4c7a1e1bbf00aedbbb1a830f9563426b620985e23913601ab652bdae6c",
@@ -165,7 +165,7 @@
     "scripts/bootstrap-tauri.sh": "952683537f459964cbde39b9f0961546a69371b45365be9c56fc155fe255aca5",
     "scripts/check-migration-todo.js": "82ce68ef181a09bca2b555609f636e5fb39f9da6429934f4e043048c4a34c7e1",
     "scripts/check-protocol-drift.js": "111c1b11c25841f1f7e3f864637b16b651fb77baa113398f76fcc4f0e3b8cfd2",
-    "scripts/check-release-gates.js": "529911ff4de2a64fd76305ec395f035e1ab0587db6f685716cd4bccb34c9945a",
+    "scripts/check-release-gates.js": "ad81a44f5978c37932a506f01dbe313605bf4f5616e6727c942c6070e9f13277",
     "scripts/generate-checksums.js": "fc564c1060fadb251d5cc65e9742c77a6479a151509adae5c5d5b147240bc596",
     "scripts/generate-release-config.js": "db919271479f0154e0a412567a0c5c70ef9f3102cffaeba7a43798d1734b6d79",
     "scripts/generate-sbom.js": "f4be1749f16a4430c451c2c42f7ec7920c04fce6c9fae446cc061986355e6a0f",
@@ -279,7 +279,7 @@
     "test/pet-runtime-startup-smoke.js": "d52b553212bbbfda1cd2fa78530c059c900a4bb3714438ffa64f695c794fd632",
     "test/reference-contract-smoke.js": "53f049d0edd37dcc646c3b4c6b815654a5eb80ae5b8b2f403d2447094ef350b3",
     "test/release-asset-verifier.test.js": "8dbb4c34e6bd0e12ae1e1f90538c7ba2507c9b7f4ede06e7cb56c1ada5ff9bc5",
-    "test/release-supply-chain-smoke.js": "3bee0a0af16ce8f4db65b71b07fb36079b1e21839982928a4828a2016336da8e",
+    "test/release-supply-chain-smoke.js": "51fb73f539083f3ab4f5c468d556de2987f6cd6ffc4d498a04e9a80117879926",
     "test/root-regression.test.js": "45fb4e199f2375a924382c5788bfc61070683dd1e8303a978368deb7a8096b3b",
     "test/session-pref-client.test.js": "d6c3c3b658a4ff7538a8bf666d30f47d89c5e3a4f074a44d3027e560c535e45a",
     "test/tauri-bridge-smoke.js": "2eb2efba3cd6f5528bf3c120566e18c52da70811d3d1f18e009043e18aad28c4",
@@ -344,6 +344,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "fd5fd88c8e7c3008659afac2a4dec552e06f8f9bd41fb4f843de8b007d7d382b"
   },
-  "sha256_of_manifest": "cf1f140bf8ac6d7318a56a8a258fb37589bb27c272c04ad01a0f5ab1ee05605d",
+  "sha256_of_manifest": "e1a61ea08eaaac7df796687635de73f0fa8c1970ac10fc3b929056d93dd3812a",
   "source_commit": "octopus-0.5.47"
 }

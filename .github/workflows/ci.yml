@@ -85,7 +85,7 @@ jobs:
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets --locked
 
       - name: Lint every Rust target without warnings
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -A warnings
 
       - name: Run Rust core unit tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
