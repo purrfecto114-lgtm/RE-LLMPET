@@ -86,7 +86,10 @@ pub fn start(runtime: Arc<Runtime>, app: AppHandle) -> Result<ServerInfo, StartE
             let file_port = rf.get("port").and_then(|v| v.as_u64());
             let file_token = rf.get("token").and_then(|v| v.as_str());
             if file_port != Some(port as u64) || file_token != Some(token.as_str()) {
-                runtime.write_log("server", "runtime.json clobbered by racing instance — aborting");
+                runtime.write_log(
+                    "server",
+                    "runtime.json clobbered by racing instance — aborting",
+                );
                 return Err(StartError::Unavailable(
                     "runtime.json overwritten by another instance".into(),
                 ));

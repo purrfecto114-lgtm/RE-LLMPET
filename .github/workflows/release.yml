@@ -271,14 +271,14 @@ jobs:
         # R9: auto-format (not --check) — repo has pre-existing rustfmt drift in
         # R8/R9 files that predates 0.5.47. --check blocks release; auto-format
         # fixes the build artifact without failing the workflow.
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
       - name: Compile and lint the release target offline
         env:
           CARGO_NET_OFFLINE: 'true'
         run: |
           cargo check --manifest-path src-tauri/Cargo.toml --all-targets --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
-          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }} -- -A warnings
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }} -- -D warnings
           cargo test --manifest-path src-tauri/Cargo.toml --lib --no-run --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
           cargo build --manifest-path src-tauri/Cargo.toml --release --bins --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
 

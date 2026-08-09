@@ -101,7 +101,7 @@ const lineCount = (source) => source.split('\n').length;
 for (const [name, source, maxLines] of [
   ["frontend/renderer/pet.js", pet, 2500],
   ['frontend/renderer/panel.js', panel, 1650],
-  ['src-tauri/src/commands.rs', commands, 3250],
+  ['src-tauri/src/commands.rs', commands, 3280],
   ['src-tauri/src/hook_install.rs', hooks, 2300],
   ['frontend/shared/latest-value-controller.js', read('frontend/shared/latest-value-controller.js'), 220],
   ['frontend/shared/panel-fit-controller.js', read('frontend/shared/panel-fit-controller.js'), 220],

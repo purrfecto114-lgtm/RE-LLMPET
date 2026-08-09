@@ -1584,10 +1584,7 @@ impl Runtime {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(
-                &self.log_path,
-                fs::Permissions::from_mode(0o600),
-            );
+            let _ = fs::set_permissions(&self.log_path, fs::Permissions::from_mode(0o600));
         }
     }
 }
@@ -2358,8 +2355,7 @@ impl Runtime {
         // so the written file will carry schema_version = CURRENT, which
         // means after a restart the state becomes Healthy — the quarantine
         // is self-healing rather than permanent.
-        let is_schema_too_new =
-            matches!(*state, ConfigState::SchemaTooNew { .. });
+        let is_schema_too_new = matches!(*state, ConfigState::SchemaTooNew { .. });
         if !state.writes_allowed() && !is_schema_too_new {
             return Err(format!(
                 "Config saves are quarantined because the config file is in state `{}`. Fix the config file and restart. (message: {:?})",

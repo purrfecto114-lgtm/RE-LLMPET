@@ -93,7 +93,10 @@ pub fn get_config_state(state: State<'_, AppState>) -> Value {
 /// state, and writes defaults. Returns the backup path so the UI can tell
 /// the user where their old config was preserved.
 #[tauri::command]
-pub fn backup_and_reset_config(app: AppHandle, state: State<'_, AppState>) -> Result<Value, String> {
+pub fn backup_and_reset_config(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
     let result = state.runtime.backup_and_reset_config()?;
     // R1-B#7 fix: log only the backup file NAME (not absolute path) to avoid
     // leaking the local username into re-llmpet.log. The full path is already
@@ -1402,11 +1405,27 @@ fn redact_sensitive_line(line: &str) -> String {
     let lower = line.to_ascii_lowercase();
     // R1-B#4: broadened key allowlist — original missed auth_token/jwt/email/etc.
     let sensitive_keys = [
-        "api_key", "api-key", "apikey", "authorization", "access_token",
-        "refresh_token", "client_secret", "password", "auth_token",
-        "bearer_token", "oauth_token", "session_token", "id_token", "jwt",
-        "api_token", "private_key", "signing_key", "email", "account",
-        "username", "user_id",
+        "api_key",
+        "api-key",
+        "apikey",
+        "authorization",
+        "access_token",
+        "refresh_token",
+        "client_secret",
+        "password",
+        "auth_token",
+        "bearer_token",
+        "oauth_token",
+        "session_token",
+        "id_token",
+        "jwt",
+        "api_token",
+        "private_key",
+        "signing_key",
+        "email",
+        "account",
+        "username",
+        "user_id",
     ];
     if sensitive_keys.iter().any(|key| lower.contains(key)) {
         if let Some(index) = line.find(':').or_else(|| line.find('=')) {
@@ -1419,17 +1438,26 @@ fn redact_sensitive_line(line: &str) -> String {
     let mut prev_was_bearer = false;
     for token in line.split_whitespace() {
         let normalized = token.trim_matches(|ch: char| {
-            matches!(ch, '\"' | '\'' | ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}')
+            matches!(
+                ch,
+                '\"' | '\'' | ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}'
+            )
         });
         let lt = normalized.to_ascii_lowercase();
         // R1-B#3: extended prefixes — JWT(eyJ), GitHub(gh[ousrp]_), GitLab(glpat-),
         // Slack(xox), plus redact token after bare "bearer".
-        let looks_secret = lt.starts_with("sk-") || lt.starts_with("sk_")
-            || lt.starts_with("ds-") || lt.starts_with("bearer-")
-            || lt.starts_with("eyJ") || lt.starts_with("gho_")
-            || lt.starts_with("ghu_") || lt.starts_with("ghs_")
-            || lt.starts_with("ghp_") || lt.starts_with("ghr_")
-            || lt.starts_with("glpat-") || lt.starts_with("xox")
+        let looks_secret = lt.starts_with("sk-")
+            || lt.starts_with("sk_")
+            || lt.starts_with("ds-")
+            || lt.starts_with("bearer-")
+            || lt.starts_with("eyJ")
+            || lt.starts_with("gho_")
+            || lt.starts_with("ghu_")
+            || lt.starts_with("ghs_")
+            || lt.starts_with("ghp_")
+            || lt.starts_with("ghr_")
+            || lt.starts_with("glpat-")
+            || lt.starts_with("xox")
             || prev_was_bearer;
         prev_was_bearer = lt == "bearer";
         output.push(if looks_secret { "***" } else { token });

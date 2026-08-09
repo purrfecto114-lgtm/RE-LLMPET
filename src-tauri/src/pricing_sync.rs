@@ -958,8 +958,16 @@ fn secure_dir(path: &Path) -> Result<(), String> {
     // following a symlink to an unintended target outside ~/.re-llmpet.
     #[cfg(unix)]
     {
-        if path.symlink_metadata().map_err(|e| e.to_string())?.file_type().is_symlink() {
-            return Err(format!("refusing to secure_dir on symlink: {}", path.display()));
+        if path
+            .symlink_metadata()
+            .map_err(|e| e.to_string())?
+            .file_type()
+            .is_symlink()
+        {
+            return Err(format!(
+                "refusing to secure_dir on symlink: {}",
+                path.display()
+            ));
         }
     }
     #[cfg(unix)]

@@ -315,7 +315,9 @@ fn parse_rollout_file(path: &Path) -> Result<FileSummary, String> {
     // bad UTF-8 byte. serde_json::from_slice accepts &[u8] directly,
     // so we never need to validate UTF-8 at the file level.
     let file = File::open(path).map_err(|error| format!("open: {error}"))?;
-    let opened = file.metadata().map_err(|error| format!("metadata: {error}"))?;
+    let opened = file
+        .metadata()
+        .map_err(|error| format!("metadata: {error}"))?;
     if !opened.is_file() || opened.len() > MAX_ROLLOUT_BYTES {
         return Err(if opened.len() > MAX_ROLLOUT_BYTES {
             "file exceeds size limit".into()
@@ -329,7 +331,7 @@ fn parse_rollout_file(path: &Path) -> Result<FileSummary, String> {
     for line_result in reader.lines() {
         let line = match line_result {
             Ok(line) => line,
-            Err(error) => {
+            Err(_) => {
                 summary.malformed_lines = summary.malformed_lines.saturating_add(1);
                 // Log the I/O error but continue parsing other lines
                 // (don't fail the whole file for a single read error).

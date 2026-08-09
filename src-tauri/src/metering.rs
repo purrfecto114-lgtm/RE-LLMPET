@@ -1030,10 +1030,7 @@ fn recover_compact_tmp(path: &Path) {
             }
             all_ok
         };
-        let tmp_mtime = tmp_path
-            .symlink_metadata()
-            .and_then(|m| m.modified())
-            .ok();
+        let tmp_mtime = tmp_path.symlink_metadata().and_then(|m| m.modified()).ok();
         let tmp_is_newer = matches!((main_mtime, tmp_mtime), (Some(m), Some(t)) if t > m);
         let main_missing = main_mtime.is_none();
         if valid && (main_missing || tmp_is_newer) {

@@ -6,9 +6,9 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -275,15 +275,20 @@ impl TravelManager {
                     "unknown panic in travel worker".into()
                 };
                 eprintln!("[octopus] travel worker panic: {msg}");
-                *manager_for_panic.child_pid.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                let _ = fs::remove_file(
-                    &runtime.app_dir.join(format!(".travel-{}.out", trip.id)),
-                );
-                let _ = fs::remove_file(
-                    &runtime.app_dir.join(format!(".travel-{}.err", trip.id)),
-                );
-                *manager_for_panic.active.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                let mut persisted = manager_for_panic.persisted.lock().unwrap_or_else(|e| e.into_inner());
+                *manager_for_panic
+                    .child_pid
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = None;
+                let _ = fs::remove_file(&runtime.app_dir.join(format!(".travel-{}.out", trip.id)));
+                let _ = fs::remove_file(&runtime.app_dir.join(format!(".travel-{}.err", trip.id)));
+                *manager_for_panic
+                    .active
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = None;
+                let mut persisted = manager_for_panic
+                    .persisted
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 persisted.failed = persisted.failed.saturating_add(1);
                 persisted.postcards.push(Postcard {
                     id: trip.id.clone(),
@@ -556,9 +561,7 @@ fn load_persisted(path: &Path) -> (PersistedTravel, bool) {
         Ok(Some(value)) => value,
         primary_result => match read_travel_value(&backup) {
             Ok(Some(value)) => {
-                eprintln!(
-                    "[octopus] travel.json missing/corrupt; recovered history from .bak"
-                );
+                eprintln!("[octopus] travel.json missing/corrupt; recovered history from .bak");
                 value
             }
             _ => {

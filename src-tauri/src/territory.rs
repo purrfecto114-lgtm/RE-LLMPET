@@ -122,48 +122,51 @@ pub fn start_auto(app: AppHandle, runtime: Arc<Runtime>, platform: Arc<PlatformS
     // would see territory as "on" but nothing happening.
     let _ = thread::Builder::new()
         .name("octopus-territory".into())
-        .spawn(AssertUnwindSafe(move || loop {
+        .spawn(AssertUnwindSafe(move || {
             // P7-3 partial fix (R2): track consecutive failures for logging.
             let mut consecutive_failures: u32 = 0;
-            thread::sleep(Duration::from_secs(15));
-            if !runtime.config().territory || platform.is_ui_busy() {
-                continue;
-            }
-            // P7-1 fix (R2): check patrol_busy to prevent concurrent patrols.
-            // If already busy (auto-poll + IPC race), skip this cycle.
-            if platform
-                .patrol_busy
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
-                .is_err()
-            {
-                continue;
-            }
-            let _guard = PatrolGuard {
-                flag: &platform.patrol_busy };
-            match run_now_inner(&app, &runtime) {
-                Ok(_) => {
-                    consecutive_failures = 0;
-                }
-                Err(error) => {
-                    consecutive_failures = consecutive_failures.saturating_add(1);
-                    runtime.write_log(
-                        "territory",
-                        &format!(
-                            "automatic patrol failed (consecutive={}): {error}",
-                            consecutive_failures
-                        ),
-                    );
-                    // P7-3 fix (R2): exponential backoff on repeated failures.
-                    // Capped at 5 minutes to avoid long stalls.
-                    let backoff_secs = 15u64
-                        .saturating_mul(1 << consecutive_failures.min(5))
-                        .min(300);
-                    thread::sleep(Duration::from_secs(backoff_secs));
-                    drop(_guard);
+            loop {
+                thread::sleep(Duration::from_secs(15));
+                if !runtime.config().territory || platform.is_ui_busy() {
                     continue;
                 }
+                // P7-1 fix (R2): check patrol_busy to prevent concurrent patrols.
+                // If already busy (auto-poll + IPC race), skip this cycle.
+                if platform
+                    .patrol_busy
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+                    .is_err()
+                {
+                    continue;
+                }
+                let _guard = PatrolGuard {
+                    flag: &platform.patrol_busy,
+                };
+                match run_now_inner(&app, &runtime) {
+                    Ok(_) => {
+                        consecutive_failures = 0;
+                    }
+                    Err(error) => {
+                        consecutive_failures = consecutive_failures.saturating_add(1);
+                        runtime.write_log(
+                            "territory",
+                            &format!(
+                                "automatic patrol failed (consecutive={}): {error}",
+                                consecutive_failures
+                            ),
+                        );
+                        // P7-3 fix (R2): exponential backoff on repeated failures.
+                        // Capped at 5 minutes to avoid long stalls.
+                        let backoff_secs = 15u64
+                            .saturating_mul(1 << consecutive_failures.min(5))
+                            .min(300);
+                        thread::sleep(Duration::from_secs(backoff_secs));
+                        drop(_guard);
+                        continue;
+                    }
+                }
+                drop(_guard);
             }
-            drop(_guard);
         }));
 }
 

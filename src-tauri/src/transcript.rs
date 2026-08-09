@@ -160,7 +160,9 @@ impl TranscriptScanner {
 
             if buffer.len() > MAX_LINE_BYTES {
                 self.oversized_lines = self.oversized_lines.saturating_add(1);
-                let remaining = MAX_SCAN_BYTES.saturating_sub(consumed).min(16 * 1024 * 1024);
+                let remaining = MAX_SCAN_BYTES
+                    .saturating_sub(consumed)
+                    .min(16 * 1024 * 1024);
                 let extra = discard_to_newline(&mut reader, remaining)?;
                 consumed = consumed.saturating_add(extra);
                 cursor = cursor.saturating_add(extra);
@@ -436,10 +438,7 @@ fn trim_line(bytes: &[u8]) -> &[u8] {
 }
 
 // R4-F1 fix: added max_bytes to prevent unbounded read on giant single-line inputs
-fn discard_to_newline(
-    reader: &mut BufReader<File>,
-    max_bytes: u64,
-) -> Result<u64, String> {
+fn discard_to_newline(reader: &mut BufReader<File>, max_bytes: u64) -> Result<u64, String> {
     let mut total = 0_u64;
     let mut buffer = Vec::new();
     loop {

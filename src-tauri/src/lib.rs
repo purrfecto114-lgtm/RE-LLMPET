@@ -279,7 +279,9 @@ pub fn run() {
             // .travel-*.out/.err files indefinitely. Must run BEFORE the
             // process exits; with `panic = "abort"` there is no Drop guarantee.
             state.runtime.travel.shutdown();
-            state.runtime.write_log("shutdown", "tray icon removed; travel child released");
+            state
+                .runtime
+                .write_log("shutdown", "tray icon removed; travel child released");
         }
         RunEvent::Resumed => {
             let state = app_handle.state::<AppState>();
