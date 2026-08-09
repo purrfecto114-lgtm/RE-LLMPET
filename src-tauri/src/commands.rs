@@ -3241,7 +3241,11 @@ fn launch_terminal(spec: AgentSpec, executable: &Path, cwd: &Path) -> Result<(),
     }
 }
 
-fn open_path(path: &Path) -> Result<(), String> {
+pub fn open_path(path: &str) -> Result<(), String> {
+    open_path_inner(std::path::Path::new(path))
+}
+
+fn open_path_inner(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         // Avoid routing a user-profile-derived path through cmd.exe. A home

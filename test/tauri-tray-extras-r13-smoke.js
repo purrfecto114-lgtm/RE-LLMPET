@@ -41,15 +41,15 @@ const build = read('src-tauri/build.rs');
 const i18nRust = read('src-tauri/src/i18n.rs');
 const i18nJs = read('frontend/shared/i18n.js');
 
-// ── build_tray_menu: settings placeholder + uninstall item ────────────────
+// ── build_tray_menu: settings submenu + uninstall item ────────────────
+// R10: settings is now a real submenu (refresh price, auto-update toggle,
+// diagnostics, open data dir) instead of a disabled placeholder.
 const buildFn = lib.slice(lib.indexOf('fn build_tray_menu'), lib.indexOf('/// Read the current language'));
-assert(buildFn.includes('"settings"'), 'build_tray_menu must include a settings item');
-assert(buildFn.includes('i18n::tray_label(lang, "tray.settings")'), 'settings label must come from tray.settings');
-// settings must be disabled (4th arg to MenuItem::with_id is `enabled: bool`)
-// The call spans multiple lines; use a multiline-friendly regex.
-const settingsCallRe = /MenuItem::with_id\(\s*app,\s*"settings"\s*,\s*i18n::tray_label\([^)]+\)\s*,\s*false\s*,/;
-assert(settingsCallRe.test(buildFn),
-  'settings item must be disabled (enabled=false, 4th arg to MenuItem::with_id)');
+assert(buildFn.includes('"settings_refresh_price"'), 'build_tray_menu must include settings_refresh_price item');
+assert(buildFn.includes('"settings_price_auto"'), 'build_tray_menu must include settings_price_auto toggle');
+assert(buildFn.includes('"settings_diagnostics"'), 'build_tray_menu must include settings_diagnostics item');
+assert(buildFn.includes('"settings_data_dir"'), 'build_tray_menu must include settings_data_dir item');
+assert(buildFn.includes('i18n::tray_label(lang, "tray.settingsMenu")'), 'settings submenu label must come from tray.settingsMenu');
 assert(buildFn.includes('"uninstall_claude_hooks"'), 'build_tray_menu must include uninstall_claude_hooks item');
 assert(buildFn.includes('i18n::tray_label(lang, "tray.uninstallHook")'), 'uninstall label must come from tray.uninstallHook');
 

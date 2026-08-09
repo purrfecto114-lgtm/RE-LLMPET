@@ -555,17 +555,44 @@ fn build_tray_menu<R: tauri::Runtime>(
         None::<&str>,
     )?;
 
-    // R13 (2026-07-30): "Settings" is a disabled placeholder so the tray
-    // visually matches the upstream Electron layout. A real settings panel
-    // is reachable from the dashboard; this item signals that the tray is
-    // not the place for full settings.
-    let settings = MenuItem::with_id(
+    // R10: "Settings" submenu — replaces the disabled placeholder with real
+    // quick-settings: refresh prices, toggle price auto-update, diagnostics,
+    // open data directory. Full settings remain in the dashboard panel.
+    let settings_refresh_price = MenuItem::with_id(
         app,
-        "settings",
-        i18n::tray_label(lang, "tray.settings"),
-        false,
+        "settings_refresh_price",
+        i18n::tray_label(lang, "tray.refreshPrice"),
+        true,
         None::<&str>,
     )?;
+    let settings_price_auto = CheckMenuItem::with_id(
+        app,
+        "settings_price_auto",
+        i18n::tray_label(lang, "tray.priceAuto"),
+        true,
+        config.price_auto_update,
+        None::<&str>,
+    )?;
+    let settings_diagnostics = MenuItem::with_id(
+        app,
+        "settings_diagnostics",
+        i18n::tray_label(lang, "tray.openDiagnostics"),
+        true,
+        None::<&str>,
+    )?;
+    let settings_data_dir = MenuItem::with_id(
+        app,
+        "settings_data_dir",
+        i18n::tray_label(lang, "tray.openLogDir"),
+        true,
+        None::<&str>,
+    )?;
+    let settings = SubmenuBuilder::new(app, i18n::tray_label(lang, "tray.settingsMenu"))
+        .item(&settings_refresh_price)
+        .item(&settings_price_auto)
+        .item(&settings_diagnostics)
+        .item(&settings_data_dir)
+        .build()?;
 
     // R13: "Uninstall Claude hooks" — single-provider hook cleanup.
     // Default provider is Claude (matches upstream Electron tray label);
@@ -750,6 +777,29 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             // one entry per provider.
             "uninstall_claude_hooks" => {
                 let _ = uninstall_hooks(app.clone(), app.state::<AppState>(), "claude".into());
+            }
+            // R10: settings submenu handlers
+            "settings_refresh_price" => {
+                let _ = refresh_model_prices(app.clone(), app.state::<AppState>());
+            }
+            "settings_price_auto" => {
+                let state = app.state::<AppState>();
+                let config = state.runtime.config();
+                let new_enabled = !config.price_auto_update;
+                let hours = config.price_refresh_hours;
+                drop(state);
+                let _ =
+                    set_price_auto_update(app.clone(), app.state::<AppState>(), new_enabled, hours);
+                refresh_tray_menu(app);
+            }
+            "settings_diagnostics" => {
+                let _ = open_panel(app.clone());
+            }
+            "settings_data_dir" => {
+                let state = app.state::<AppState>();
+                let data_dir = state.runtime.app_dir.clone();
+                drop(state);
+                let _ = open_path(&data_dir.to_string_lossy());
             }
             "quit" => {
                 let state = app.state::<AppState>();
