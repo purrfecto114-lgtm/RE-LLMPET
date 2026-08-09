@@ -152,12 +152,60 @@ pub fn price_for_codex(model: &str) -> (CodexPriceRow, bool) {
     static CACHE: OnceLock<HashMap<String, CodexPriceRow>> = OnceLock::new();
     let models = CACHE.get_or_init(|| {
         let mut m: HashMap<String, CodexPriceRow> = HashMap::new();
+        // Layer 1: built-in exact prices (offline fallback)
         for (id, row) in builtin_codex_models() {
             m.insert(id.to_string(), row.clone());
         }
-        // TODO: layer in synced openaiModels from models.dev cache + user override
-        // when pricing_sync.rs exposes them. For now, built-ins cover the common
-        // Codex models and the tier fallback covers the rest.
+        // R12 backport: Layer 2 — synced openai models from models.dev cache.
+        // The pricing-cache.models-dev.json file contains entries for openai
+        // models (gpt-5.x series) with cache_read = cached_input rate.
+        // This is the equivalent of upstream's _extractOpenAIModels.
+        if let Ok(catalog) = std::fs::read_to_string(
+            std::env::var("HOME")
+                .map(|h| std::path::Path::new(&h).join(".re-llmpet"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("~/.re-llmpet"))
+                .join("pricing-cache.models-dev.json"),
+        ) {
+            if let Ok(doc) = serde_json::from_str::<serde_json::Value>(&catalog) {
+                if let Some(entries) = doc.get("entries").and_then(|v| v.as_object()) {
+                    for (id, entry) in entries.iter() {
+                        let input = entry.get("input_usd_per_million").and_then(|v| v.as_f64());
+                        let output = entry.get("output_usd_per_million").and_then(|v| v.as_f64());
+                        if input.is_none() && output.is_none() {
+                            continue;
+                        }
+                        // For Codex: cache_read = cached_input rate.
+                        // Pro models have cached_input = input (no discount);
+                        // standard models use 10% of input when cache_read is missing.
+                        let cached_input = entry
+                            .get("cache_read_usd_per_million")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or_else(|| {
+                                let inp = input.unwrap_or(0.0);
+                                if id.contains("-pro") {
+                                    inp
+                                } else {
+                                    inp * 0.1
+                                }
+                            });
+                        let normed = norm_codex_model_name(id);
+                        if !normed.is_empty() {
+                            m.insert(
+                                normed,
+                                CodexPriceRow {
+                                    input: input.unwrap_or(0.0),
+                                    cached_input,
+                                    output: output.unwrap_or(0.0),
+                                    context_window: entry
+                                        .get("context_window")
+                                        .and_then(|v| v.as_u64()),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
         m
     });
 
