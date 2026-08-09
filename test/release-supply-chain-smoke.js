@@ -17,9 +17,9 @@ assert.strictEqual(lock.version, pkg.version, 'package-lock top-level version mu
 assert.strictEqual(lock.packages[''].version, pkg.version, 'package-lock root package version must match package.json');
 assert.match(ci, /cargo install cargo-audit --version 0\.22\.2 --locked/);
 assert.match(ci, /components: rustfmt, clippy/);
-assert.match(ci, /cargo clippy --manifest-path src-tauri\/Cargo\.toml --all-targets --locked -- -[DA] warnings/);
+assert.match(ci, /cargo clippy --manifest-path src-tauri\/Cargo\.toml --all-targets --locked -- -D warnings/);
 assert.match(release, /components: rustfmt, clippy/);
-assert.match(release, /cargo clippy --manifest-path src-tauri\/Cargo\.toml --all-targets --locked[\s\S]*-- -[DA] warnings/);
+assert.match(release, /cargo clippy --manifest-path src-tauri\/Cargo\.toml --all-targets --locked[\s\S]*-- -D warnings/);
 assert.match(release, /cargo test --manifest-path src-tauri\/Cargo\.toml --lib --no-run --locked/);
 assert.match(release, /Run Rust core unit tests on the host[\s\S]*cargo test --manifest-path src-tauri\/Cargo\.toml --lib --locked/,
   'tag releases must execute Rust unit tests instead of only compiling them');

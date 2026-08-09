@@ -24,6 +24,7 @@ pub struct CodexPriceRow {
     pub input: f64,
     pub cached_input: f64,
     pub output: f64,
+    #[allow(dead_code)]
     pub context_window: Option<u64>,
 }
 
@@ -131,9 +132,9 @@ pub fn norm_codex_model_name(model: &str) -> String {
     // Strip -YYYY-MM-DD or -YYYYMMDD suffix
     let bare = if let Some(idx) = bare.rfind("-20") {
         let suffix = &bare[idx + 1..];
-        if suffix.len() == 10 && suffix.chars().filter(|c| *c == '-').count() == 2 {
-            &bare[..idx]
-        } else if suffix.len() == 8 && suffix.chars().all(|c| c.is_ascii_digit()) {
+        let is_dated = (suffix.len() == 10 && suffix.chars().filter(|c| *c == '-').count() == 2)
+            || (suffix.len() == 8 && suffix.chars().all(|c| c.is_ascii_digit()));
+        if is_dated {
             &bare[..idx]
         } else {
             bare

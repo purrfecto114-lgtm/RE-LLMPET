@@ -84,12 +84,10 @@ const EMOTIONS: &[EmotionDef] = &[
 fn neighbor_negation(text: &str, idx: usize) -> bool {
     let mut buf = [char::default(); 8];
     let mut len = 0usize;
-    let mut char_count = 0usize;
-    for ch in text.chars() {
+    for (char_count, ch) in text.chars().enumerate() {
         if char_count >= idx {
             break;
         }
-        char_count += 1;
         // Sliding window: keep only the last 8 chars
         if len == 8 {
             buf.copy_within(1.., 0);

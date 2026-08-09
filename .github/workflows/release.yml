@@ -278,7 +278,7 @@ jobs:
           CARGO_NET_OFFLINE: 'true'
         run: |
           cargo check --manifest-path src-tauri/Cargo.toml --all-targets --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
-          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }} -- -A warnings
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }} -- -D warnings
           cargo test --manifest-path src-tauri/Cargo.toml --lib --no-run --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
           cargo build --manifest-path src-tauri/Cargo.toml --release --bins --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
 

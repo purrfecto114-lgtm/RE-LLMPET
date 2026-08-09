@@ -790,11 +790,11 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 let _ = refresh_model_prices(app.clone(), app.state::<AppState>());
             }
             "settings_price_auto" => {
-                let state = app.state::<AppState>();
-                let config = state.runtime.config();
-                let new_enabled = !config.price_auto_update;
-                let hours = config.price_refresh_hours;
-                drop(state);
+                let (new_enabled, hours) = {
+                    let state = app.state::<AppState>();
+                    let config = state.runtime.config();
+                    (!config.price_auto_update, config.price_refresh_hours)
+                };
                 let _ =
                     set_price_auto_update(app.clone(), app.state::<AppState>(), new_enabled, hours);
                 refresh_tray_menu(app);
@@ -803,9 +803,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 let _ = open_panel(app.clone());
             }
             "settings_data_dir" => {
-                let state = app.state::<AppState>();
-                let data_dir = state.runtime.app_dir.clone();
-                drop(state);
+                let data_dir = app.state::<AppState>().runtime.app_dir.clone();
                 let _ = open_path(&data_dir.to_string_lossy());
             }
             "quit" => {

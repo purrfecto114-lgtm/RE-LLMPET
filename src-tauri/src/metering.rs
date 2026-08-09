@@ -367,9 +367,8 @@ impl UsageLedger {
     pub fn rebuild_costs(&mut self) -> (f64, f64, usize) {
         let before_total: f64 = self.events.iter().filter_map(|e| e.cost_usd).sum();
         let count = self.events.len();
-        // Collect event indices + params first to avoid borrowing self.events
-        // mutably while also calling self.cost_for (which borrows self immutably).
-        let params: Vec<(String, Option<String>, u64, u64, u64, u64, bool)> = self
+        type EventPriceParams = (String, Option<String>, u64, u64, u64, u64, bool);
+        let params: Vec<EventPriceParams> = self
             .events
             .iter()
             .map(|e| {
