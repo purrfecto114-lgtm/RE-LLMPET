@@ -921,3 +921,36 @@ re-llmpet.log 显示：
 - #17: panel.js loading 文本
 - #18: panel.js render 路径硬编码文本
 
+
+---
+
+## v0.5.54: 全局审查 Round 2 — i18n 清理（2026-08-10）
+
+### HIGH: i18n 清理 — ~40 个硬编码字符串改为 i18n
+
+**i18n.js 新增 40 个键 × 3 语言（zh/en/ja）**：
+- `panel.*`: petMode, window, single, duo, travelGrowth, noTravel, machineGrowth, autoUpdate, interval6-72, byProvider, noData, sessPlaceholder, refreshing, rebuilding, rebuildCost, allProviders, noMatch, noActive, noTodo, bgClean, latestPostcard
+- `bubble.*`: newTask, waiting, needsinput, longCommand, noAccessibility, patrolling, patrolDone, patrolBusy, travelCancel, wanderStart, wanderFail, travelStart, travelFail, currencyCny, currencyUsd
+
+**panel.html**: 15 个硬编码中文添加 `data-i18n` 属性
+**panel.js**: 6 个硬编码替换为 `t()` 调用（刷新中/重算中/重算花费/最近明信片）
+**pet.js**: 6 个硬编码气泡替换为 `t()` 调用（收到新任务/命令有点久/巡视/旅行取消）
+
+### 效果
+切换语言到 en/ja 时，这些字符串现在正确翻译。之前切换后仍显示中文。
+
+### 版本号自动迭代
+- v0.5.53 → v0.5.54（HIGH: 用户可见的 i18n 改进）
+- tag v0.5.54 已推送
+
+### 验证
+- clippy -D warnings: ✅ EXIT=0
+- 22/22 static + npm test EXIT=0
+- GitHub main: `43a1445`, tag v0.5.54 ✅
+
+### 下轮重点（Round 3: HIGH 代码质量 + 测试）
+- #9: 文件行数超预算——commands.rs 拆分或更新预算
+- #10: platform.rs 添加 Rust 单元测试
+- #11: hook_install.rs 添加 strip_marker_variants 测试
+- #12-14: dead code 清理
+
