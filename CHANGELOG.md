@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.61 — 诊断结果导出 JSON（2026-08-10）
+
+### HIGH: 诊断结果导出为 JSON 文件
+- **功能**: 诊断面板新增「导出 JSON」按钮，用户可将诊断结果导出为 JSON 文件，方便提交 bug report 或反馈。
+- **实现**:
+  - `panel.js`: 新增 `exportDiagnosticJson()` 函数，使用 Blob + URL.createObjectURL 下载 JSON 文件
+  - 文件名格式: `octopus-diag-{provider}-{timestamp}.json`
+  - 导出完整的 `latestProviderDiagnostic` 对象（含 issues/warnings/probes/config 等）
+  - i18n: 新增 `diag.export` 键（中: 导出 JSON / 英: Export JSON / 日: JSON書き出し）
+- **使用场景**: 用户遇到诊断问题时，可导出 JSON 附在 GitHub Issue 中，帮助开发者快速定位问题。
+
+### 沙箱恢复
+- 本轮开始时沙箱被重置（v0.5.46 状态，Rust/GTK/remote 全部丢失）
+- 从 GitHub 重新克隆代码到 v0.5.60
+- 重新安装 Rust 1.97.1 + GTK dev deps（apt download + dpkg-deb -x）
+- 验证: clippy -D warnings ✅, 72/72 JS 测试 ✅, 22/22 静态检查 ✅
+
+### 验证
+- cargo clippy -D warnings --all-targets: ✅ EXIT=0
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+- panel.js: 1752/1760 行（预算内）
+
+---
+
 ## 0.5.60 — hide_console_window 回归测试 + ghproxy 中国镜像源（2026-08-10）
 
 ### HIGH: ghproxy.com 中国镜像源 fallback

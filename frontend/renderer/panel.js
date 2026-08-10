@@ -1000,6 +1000,7 @@ function renderProviderDiagnostic(result) {
     <div class="diag-actions">
       <button type="button" data-diag-action="rerun" data-provider="${escapeHtml(id)}">${escapeHtml(t('diag.rerun'))}</button>
       <button type="button" data-diag-action="launch" data-provider="${escapeHtml(id)}">${escapeHtml(t('diag.launch'))}</button>
+      <button type="button" data-diag-action="export">${escapeHtml(t('diag.export'))}</button>
     </div>`;
   el.classList.remove('hidden');
   if (summary) {
@@ -1409,9 +1410,24 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (error) {
         renderProviderDiagnosticError(provider, error);
       }
+    } else if (action === 'export') {
+      exportDiagnosticJson();
     }
   });
 });
+
+// B2: export diagnostic result as JSON for bug reports/feedback
+function exportDiagnosticJson() {
+  if (!latestProviderDiagnostic) return;
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const blob = new Blob([JSON.stringify(latestProviderDiagnostic, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `octopus-diag-${latestProviderDiagnostic.provider || 'unknown'}-${ts}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function applyConfigUI() {
   document.querySelectorAll('#mode-seg .seg-btn').forEach((b) =>
