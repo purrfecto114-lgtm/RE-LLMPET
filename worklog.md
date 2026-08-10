@@ -760,3 +760,28 @@ re-llmpet.log 显示：
 - 22/22 static + npm test EXIT=0（346 manifest）
 - GitHub main: `8a59ad6`, tag v0.5.49 ✅
 
+
+---
+
+## v0.5.50: CodeWhale/Codex per-model 定价（2026-08-10 01:20 trigger）
+
+### 沙箱重置恢复
+- 容器沙箱被重置，本地 git/cargo/gtk-dev 全部丢失
+- 重新安装 Rust + GTK dev 依赖
+- 重新初始化 git 并同步到 origin/main (v0.5.49)
+
+### HIGH: per-model cost
+- `codex_rollout.rs`: FileSummary 新增 `model` 字段，从 Codex rollout `session_meta` 提取模型名
+- `codex_rollout.rs`: `price_for_codex` 现在使用实际模型名查询价格（而非硬编码 `gpt-5.3-codex`）
+- `diagnostics.pricingModel` 显示实际使用的模型名
+- **效果**: 不同 Codex 模型（如 `gpt-5.5-pro` vs `gpt-5.3-codex`）现在按各自费率计价，不再统一用 codex tier 价格
+
+### 版本号自动迭代
+- v0.5.49 → v0.5.50（HIGH: 用户可见的成本准确性改进）
+- tag v0.5.50 已推送
+
+### 验证
+- clippy -D warnings: ✅ EXIT=0
+- 22/22 static + npm test EXIT=0
+- GitHub main: `41efbdf`, tag v0.5.50 ✅
+
