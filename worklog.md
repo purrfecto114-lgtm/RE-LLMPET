@@ -1471,3 +1471,52 @@ Phase A 的 A2 项：整理 v0.5.58-v0.5.60 修复的真机验证步骤，写入
 - **A1: #23 usage-archive carry** — 历史 usage 数据归档，跨版本迁移
 - 或进入 **Phase B: 用户体验打磨**（B1 闲逛模板自定义 / B2 诊断结果导出）
 
+
+---
+
+## v0.5.61 — 沙箱恢复 + 诊断结果导出 JSON（B2）（2026-08-10 21:38 trigger）
+
+### 沙箱重置恢复
+- **问题**: 本轮开始时发现沙箱被完全重置 — RE-LLMPET-main 目录为空（0 文件），Rust/GTK/remote 全部丢失，git log 显示 v0.5.46 时代的 Round 7/8 commits
+- **恢复步骤**:
+  1. `git clone https://github.com/purrfecto114-lgtm/RE-LLMPET.git RE-LLMPET-main` — 从 GitHub 恢复到 v0.5.60
+  2. 安装 Rust: `curl https://sh.rustup.rs | sh -s -- -y` → rustc 1.97.1
+  3. 安装 GTK dev: `apt-get download` + `dpkg-deb -x` 到 `~/.local/gtk-dev/`（36+ packages: libgtk-3-dev, libwebkit2gtk-4.1-dev, libjavascriptcoregtk-4.1-dev, libayatana-appindicator3-dev, librsvg2-dev, X11 deps, GL/EGL deps, atspi, systemd 等）
+  4. 验证: `cargo clippy -D warnings` ✅, 72/72 JS 测试 ✅, 22/22 静态检查 ✅
+
+### B2: 诊断结果导出 JSON（HIGH）
+- **功能**: 诊断面板新增「导出 JSON」按钮，用户可将诊断结果导出为 JSON 文件
+- **使用场景**: 遇到诊断问题时，导出 JSON 附在 GitHub Issue 中，帮助开发者快速定位
+- **实现**:
+  - `frontend/renderer/panel.js`: 新增 `exportDiagnosticJson()` 函数
+    - 使用 `Blob` + `URL.createObjectURL` 创建下载链接
+    - 文件名: `octopus-diag-{provider}-{timestamp}.json`
+    - 导出完整的 `latestProviderDiagnostic` 对象
+  - 诊断面板 `diag-actions` 区新增第三个按钮「导出 JSON」
+  - `frontend/shared/i18n.js`: 新增 `diag.export` 键 × 3 语言
+    - 中: 导出 JSON
+    - 英: Export JSON
+    - 日: JSON書き出し
+- **行数预算**: panel.js 1752/1760 ✅（+16 行，预算内）
+
+### 验证结果
+- `cargo clippy -D warnings --all-targets`: ✅ EXIT=0
+- `cargo fmt --check`: ✅
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+
+### 版本迭代
+- v0.5.60 → v0.5.61（1 HIGH 功能增强）
+- GitHub main: `a603038` 已推送，tag `v0.5.61` 已打
+
+### Phase B 进度
+- ✅ B2: 诊断结果导出 JSON（本轮）
+- ⏳ B1: 闲逛任务模板用户自定义
+- ⏳ B3: 状态过渡动画
+- ⏳ B4: panel 响应式优化
+- ⏳ B5: i18n 补全
+
+### 下轮重点
+- **B1: 闲逛任务模板用户自定义** — pet.js wander mission 支持用户传入自定义模板
+- 或 **B3: 状态过渡动画** — pet 状态切换平滑过渡
+
