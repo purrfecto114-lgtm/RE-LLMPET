@@ -223,16 +223,17 @@ fn resolve_ppid() -> Option<u32> {
     {
         let script =
             "(Get-CimInstance Win32_Process -Filter ('ProcessId=' + $args[0])).ParentProcessId";
-        let output = std::process::Command::new("powershell.exe")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                script,
-                &std::process::id().to_string(),
-            ])
-            .output()
-            .ok()?;
+        let mut command = std::process::Command::new("powershell.exe");
+        command.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script,
+            &std::process::id().to_string(),
+        ]);
+        // R22: hide the flashing PowerShell console window on first hook invocation.
+        crate::platform::hide_console_window(&mut command);
+        let output = command.output().ok()?;
         if output.status.success() {
             return String::from_utf8_lossy(&output.stdout).trim().parse().ok();
         }

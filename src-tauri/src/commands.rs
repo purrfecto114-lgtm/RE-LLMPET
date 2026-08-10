@@ -1813,10 +1813,14 @@ fn run_diagnostic_probe_capture(
     let mut command = if is_windows_script(executable) {
         let mut command = Command::new("cmd.exe");
         append_cmd_tail(&mut command, cmd_probe_call(executable, args));
+        // R22: hide the flashing cmd.exe window for .cmd/.bat shim probes.
+        crate::platform::hide_console_window(&mut command);
         command
     } else {
         let mut command = Command::new(executable);
         command.args(args);
+        // R22: hide console window for direct-exec probes (claude.exe etc.)
+        crate::platform::hide_console_window(&mut command);
         command
     };
     #[cfg(not(windows))]
@@ -2500,11 +2504,15 @@ pub(crate) fn kill_process_tree(pid: u32) -> Result<(), String> {
         // Verified via web-search of Microsoft docs: "/T Tree kill:
         //   terminates the specified process and any child processes
         //   which were started by it."
-        let output = Command::new("taskkill")
+        let mut command = Command::new("taskkill");
+        command
             .args(["/F", "/T", "/PID", &pid.to_string()])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+        // R22: hide the flashing taskkill.exe console window on probe cancel.
+        crate::platform::hide_console_window(&mut command);
+        let output = command
             .output()
             .map_err(|e| format!("failed to spawn taskkill: {e}"))?;
         if output.status.success() {
@@ -3029,13 +3037,18 @@ fn open_gui_application(executable: &Path) -> Result<(), String> {
             // shim is invoked without CreateProcessW re-quoting the call tail.
             let mut command = Command::new("cmd.exe");
             append_cmd_tail(&mut command, cmd_call(executable));
+            // R22: hide the brief cmd.exe flash before VS Code/Cursor opens.
+            crate::platform::hide_console_window(&mut command);
             return command
                 .spawn()
                 .map(|_| ())
                 .map_err(|e| format!("failed to launch {}: {e}", executable.display()));
         }
     }
-    Command::new(executable)
+    let mut command = Command::new(executable);
+    // R22: hide console window for direct-exec GUI launches.
+    crate::platform::hide_console_window(&mut command);
+    command
         .spawn()
         .map(|_| ())
         .map_err(|e| format!("failed to launch {}: {e}", executable.display()))

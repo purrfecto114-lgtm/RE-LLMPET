@@ -37,7 +37,7 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.58',
+assert.strictEqual(packageJson.version, '0.5.59',
   'R40: package.json version must be 0.5.57');
 
 // ──────────────────────────────────────────────────────────────────────────

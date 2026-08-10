@@ -18,8 +18,8 @@ const tauri = JSON.parse(read('src-tauri/tauri.conf.json'));
 const tauriLinux = JSON.parse(read('src-tauri/tauri.linux.conf.json'));
 const pinnedFixture = JSON.parse(read('test/fixtures/models-dev-api-sample.json'));
 
-assert.strictEqual(pkg.version, '0.5.58');
-assert.strictEqual(tauri.version, '0.5.58');
+assert.strictEqual(pkg.version, '0.5.59');
+assert.strictEqual(tauri.version, '0.5.59');
 assert(tauriLinux.bundle.linux.deb.depends.includes('curl'), 'Debian package must declare curl runtime dependency');
 assert(pinnedFixture.anthropic.models['claude-sample'].cost.cache_read > 0);
 
@@ -38,7 +38,11 @@ assert.match(pricing, /CURL_TOTAL_TIMEOUT_SECS: u64 = 60/);
 assert.match(pricing, /CURL_ATTEMPTS_PER_SOURCE: usize = 3/);
 assert.match(pricing, /PRICE_SOURCE_ENV: &str = \"RE_LLMPET_MODELS_DEV_URL\"/);
 assert(pricing.includes('value.starts_with("https://")'));
-assert.doesNotMatch(pricing, /MODELS_DEV_MIRROR_URL/);
+// R22 (2026-08-10): a GitHub raw mirror is now intentionally included for
+// China accessibility. It is HTTPS-only, validated against the same schema,
+// and tried before models.dev (which is frequently blocked by the GFW).
+assert.match(pricing, /MODELS_DEV_GITHUB_MIRROR_URL/);
+assert.match(pricing, /raw\.githubusercontent\.com/);
 assert.match(pricing, /force_ipv4 = attempt == 1/);
 assert.match(pricing, /command\.arg\("--ipv4"\)/);
 assert.match(pricing, /retryable_curl_exit/);

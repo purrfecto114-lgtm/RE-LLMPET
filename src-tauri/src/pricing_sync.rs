@@ -14,6 +14,16 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 const MODELS_DEV_URL: &str = "https://models.dev/api.json";
+/// R22 (2026-08-10): GitHub raw mirror of models.dev/api.json. models.dev is
+/// frequently unreachable from mainland China (GFW + Cloudflare edge). This
+/// mirror serves the same JSON from GitHub's raw content CDN. Tried BEFORE
+/// the primary because the primary is the one that's blocked.
+///
+/// Security: this is a raw.githubusercontent.com URL — HTTPS-only, no
+/// credentials, no query string. The response is validated against the same
+/// schema as the primary source (normalize_models_dev + max size + max models).
+const MODELS_DEV_GITHUB_MIRROR_URL: &str =
+    "https://raw.githubusercontent.com/anomalyco/models.dev/refs/heads/main/data/api.json";
 const PRICE_SOURCE_ENV: &str = "RE_LLMPET_MODELS_DEV_URL";
 pub const PRICE_SYNC_STATE_FILE_NAME: &str = "pricing-sync-state.json";
 const STARTUP_DELAY: Duration = Duration::from_secs(5);
@@ -406,6 +416,7 @@ fn refresh_once(app_dir: &Path, previous: &PersistedSyncState) -> Result<Refresh
 
 fn price_source_urls() -> Vec<String> {
     let mut urls = Vec::new();
+    // R22 (2026-08-10): user-configured mirror is tried first (highest priority).
     if let Ok(value) = std::env::var(PRICE_SOURCE_ENV) {
         let value = value.trim();
         // Custom mirrors are useful on corporate/offline networks, but never
@@ -419,6 +430,18 @@ fn price_source_urls() -> Vec<String> {
             urls.push(value.to_string());
         }
     }
+    // R22: GitHub raw mirror — tried before models.dev because models.dev is
+    // frequently blocked in mainland China. raw.githubusercontent.com is
+    // generally accessible (or at least more accessible than models.dev).
+    // If this mirror 404s or returns invalid JSON, the loop falls through
+    // to the primary models.dev URL below.
+    if !urls
+        .iter()
+        .any(|existing| existing == MODELS_DEV_GITHUB_MIRROR_URL)
+    {
+        urls.push(MODELS_DEV_GITHUB_MIRROR_URL.to_string());
+    }
+    // Primary source — always last as the ultimate fallback.
     if !urls.iter().any(|existing| existing == MODELS_DEV_URL) {
         urls.push(MODELS_DEV_URL.to_string());
     }
@@ -541,6 +564,12 @@ fn download_single_with_curl(
             .arg(format!("If-Modified-Since: {value}"));
     }
     command.arg(url);
+    // R22 (2026-08-10): hide the flashing black curl.exe console window on
+    // Windows. curl is a console-subsystem binary; when spawned from the
+    // GUI-subsystem Octopus process, Windows allocates a new conhost for it,
+    // producing a visible black cmd window on every price refresh. This is
+    // the #1 source of the "每次打开都会出现黑色cmd" user complaint.
+    crate::platform::hide_console_window(&mut command);
     let result = command
         .stdin(Stdio::null())
         .output()

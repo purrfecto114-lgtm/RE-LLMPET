@@ -456,16 +456,17 @@ fn parent_pid(pid: u32) -> Option<u32> {
 fn parent_pid(pid: u32) -> Option<u32> {
     let script =
         "(Get-CimInstance Win32_Process -Filter ('ProcessId=' + $args[0])).ParentProcessId";
-    let output = Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            script,
-            &pid.to_string(),
-        ])
-        .output()
-        .ok()?;
+    let mut command = Command::new("powershell.exe");
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        script,
+        &pid.to_string(),
+    ]);
+    // R22: hide the flashing PowerShell console window.
+    hide_console_window(&mut command);
+    let output = command.output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -524,16 +525,19 @@ $script:found = $false
 }, [IntPtr]::Zero) | Out-Null
 if ($script:found) { exit 0 } else { exit 3 }
 "#;
-    let status = Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            script,
-            &pids,
-        ])
+    let mut command = Command::new("powershell.exe");
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script,
+        &pids,
+    ]);
+    // R22: hide the flashing PowerShell console window on every focus click.
+    hide_console_window(&mut command);
+    let status = command
         .status()
         .map_err(|error| error.to_string())?;
     if status.success() {
@@ -573,6 +577,37 @@ fn focus_process_chain(chain: &[u32]) -> Result<(), String> {
         }
     }
     Err("X11 terminal focus requires xdotool and a visible window owned by the session process tree".into())
+}
+
+// ====================================================================
+// R22 (2026-08-10): Windows console window suppression helper.
+// Octopus is a GUI-subsystem binary; every console-mode child it spawns
+// (curl.exe, cmd.exe, powershell.exe, taskkill.exe) gets its own conhost
+// and a flashing black window. This helper applies CREATE_NO_WINDOW to
+// hide those windows for non-interactive spawns (NOT for launch_terminal,
+// which intentionally opens a visible terminal for the user).
+// ====================================================================
+
+/// Applies the `CREATE_NO_WINDOW` process creation flag on Windows so that
+/// console-mode children (curl, cmd, powershell, taskkill) do not flash a
+/// black cmd window. On non-Windows this is a no-op.
+///
+/// Call this on every `Command` that spawns a non-interactive helper process.
+/// Do NOT call this on `launch_terminal` / `open_gui_application` paths where
+/// the user expects to see a terminal window.
+#[cfg(windows)]
+pub(crate) fn hide_console_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    // CREATE_NO_WINDOW = 0x08000000 — prevents the child from inheriting or
+    // creating a console window. See Microsoft docs for
+    // CreateProcessW dwCreationFlags.
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+pub(crate) fn hide_console_window(_command: &mut Command) {
+    // No-op on Unix — console processes don't create new windows.
 }
 
 #[cfg(test)]

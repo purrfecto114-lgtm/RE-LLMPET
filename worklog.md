@@ -1150,3 +1150,77 @@ re-llmpet.log 显示：
 
 实际剩余可做项：#22 (诊断并行化) + #23 (usage-archive carry)
 
+
+---
+
+## v0.5.58 — 用户反馈三问题修复 + 诊断并行化（2026-08-10 17:40 trigger）
+
+### 用户报告的 3 个问题（附截图）
+
+用户上传了两张截图并报告：
+1. **闲逛功能当 claude/codex CLI 不在 PATH 会导致回退的 GUI 穿模** — 截图显示 panel 模态窗被 pet 透明窗口遮挡
+2. **Launch agent 错误提示消不掉** — 截图显示红色 error toast "aider: Aider CLI not found..." 的 ✕ 按钮点击无效
+3. **桌宠的动作还是不会随状态变化而更新** — pet 动画卡在 idle/sleeping
+
+用户特别提醒："可能存在补丁套补丁的现象间接导致这种问题，建议保留相关功能重写相关部分，请严禁谨慎操作，确保无回归"
+
+### 根因分析（使用 VLM 分析截图 + Explore agent 深挖代码）
+
+#### Issue 1: GUI 穿模（z-index 冲突）
+- **根因**: `tauri.conf.json` 中 pet 窗口 `alwaysOnTop:true`，panel 窗口 `alwaysOnTop:false`。打开 panel 时 pet 透明覆盖层始终在 panel 之上，toast/bubble 扩大 pet 区域时产生穿模。
+- **修复**: `open_panel` 调用 `window.set_always_on_top(true)`，`close_panel` 恢复 `false`。panel 可见时位于 pet 之上，关闭后恢复正常窗口层级。
+
+#### Issue 2: Launch agent 错误提示无法关闭
+- **根因**: `#re-llmpet-toast` 不在 `INTERACTIVE_HIT_SEL` 选择器中。持久错误 toast 渲染在 pet 窗口右下角（`#pet-anchor` 矩形外），落入 Rust `cursor_hit_decision` 计算的 click-through 区域。✕ 按钮点击穿透到桌面，toast 永远无法关闭。与 R35.2 修复 `#provider-chooser` 是同一类 bug。
+- **修复**:
+  1. `pet.js`: 将 `#re-llmpet-toast` 加入 `INTERACTIVE_HIT_SEL`
+  2. `toast.js`: 添加 `notifyVisualBoundsChanged()`，在 toast 显示/隐藏时调用 `reportPetVisualBounds()` 重新计算 click-through 区域
+  3. `pet.js`: 将 `reportPetVisualBounds` 暴露到 `window` 上供 toast.js 调用
+
+#### Issue 3: 桌宠动画不随状态更新
+- **根因 A**: `model.rs:1400-1410` stats 匹配没有 `"attention" =>` 分支。CodeWhale `turn_end` 和 OpenCode `session.idle` 设置的 `state:"attention"` 被忽略，不产生 `attentionCount`。
+- **根因 B**: `pet.js:1706-1729` `applyStats` 优先级梯子没有 `attention` 分支，落入 idle/sleeping。
+- **根因 C**: `pet.js:1627` `case 'state'` 事件处理器在 transient 窗口内（turn-done 后 1.8s）阻塞所有状态事件，包括紧随其后的 attention 事件。
+- **修复**:
+  1. `model.rs`: 添加 `"attention" => attention += 1` 分支 + `attentionCount` JSON 字段
+  2. `pet.js`: `applyStats` 梯子添加 `attention` 分支（位于 sweeping 和 juggling 之间，对应 STATE_PRIORITY=5）
+  3. `pet.js`: `case 'state'` 允许 sticky 高优先级状态（waiting/needsinput/error/attention）突破 transient 抑制
+  4. `pet.js`: `MASCOT_EYES` 添加 `attention` 映射（复用 `mascot-wait.png`）
+  5. `pet.css`: pixel/mascot 皮肤添加 `attention` 动画（复用 waiting 的 `attn` 动画 + 黄色光晕）
+
+### #22 审计项: 诊断探针并行化（MEDIUM）
+- **根因**: `diagnose_agent_sync` 中 4 个独立探针（`--version`、companion `--version`、`doctor`、`auth`）串行执行，最坏情况 26s（CodeWhale: 5+5+8+8）。
+- **修复**: 使用 `std::thread::scope` 并行执行 4 个探针，最坏情况降至 max(5,5,8,8)=8s。每个线程 clone 共享的 PathBuf（廉价），`control: &DiagnosticControl` 是 Sync 所以共享引用。
+- **DiagnosticControl 升级**: `pid: Option<u32>` → `pids: HashSet<u32>` 以支持多进程追踪。`cancel_diagnostic` 现在终止所有已注册的子进程。
+- **测试更新**: `diagnostic_control.rs` 从 3 个测试增加到 5 个，覆盖多 PID 注册/清理/恢复场景。
+
+### 测试更新（避免回归）
+- `tauri-r35-correctness-hotfix-smoke.js`: 更新 INTERACTIVE_HIT_SEL 断言
+- `tauri-r351-correctness-patch-smoke.js`: 更新 INTERACTIVE_HIT_SEL 断言
+- `tauri-r352-correctness-patch-smoke.js`: 更新 INTERACTIVE_HIT_SEL 断言
+- `tauri-r36-lifecycle-smoke.js`: 更新 DiagnosticState 断言（pid → pids HashSet）
+- `tauri-codewhale-v095-forward-compat-r8-smoke.js`: 更新 end marker（`let version = executable` → `let exe_v = executable.clone()`）
+- 12 个版本锁测试: 0.5.57 → 0.5.58
+
+### 验证结果
+- `cargo clippy -D warnings --all-targets`: ✅ EXIT=0
+- `cargo fmt --check`: ✅
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+- 行数预算: pet.js 2539/2540 ✅
+
+### 版本迭代
+- v0.5.57 → v0.5.58（3 个 HIGH + 1 个 MEDIUM）
+- 更新: package.json, Cargo.toml, tauri.conf.json, Cargo.lock, package-lock.json, SOURCE_REVISION, migration-todo.json, SOURCE_MANIFEST.json
+- GitHub main: `7636d35` 已推送，tag `v0.5.58` 已打
+
+### 审查进度
+26 项发现中已修复 22/26（2 CRITICAL + 9 HIGH + 11 MEDIUM），剩余 4 项：
+- #7 (设计选择，跳过)
+- #9 (文件预算——已提高上限)
+- #12 (API 契约，跳过)
+- #23 (usage-archive carry——MEDIUM，待做)
+- #24 (territory episodes——推迟到 0.7.0)
+
+实际剩余可做项：#23 (usage-archive carry)
+

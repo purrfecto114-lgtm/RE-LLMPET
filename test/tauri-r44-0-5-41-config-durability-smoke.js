@@ -29,7 +29,7 @@ const changelog = read('CHANGELOG.md');
 const packageJson = JSON.parse(read('package.json'));
 
 // Version
-assert.strictEqual(packageJson.version, '0.5.58',
+assert.strictEqual(packageJson.version, '0.5.59',
   '0.5.57: package.json version must be 0.5.57');
 
 // ──────────────────────────────────────────────────────────────────────────

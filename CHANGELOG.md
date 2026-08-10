@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.5.59 — 隐藏黑色 cmd 窗口 + 模型价格镜像源（2026-08-10）
+
+### HIGH: 隐藏 Windows 黑色 cmd 窗口
+- **根因**: Octopus 是 GUI 子系统二进制，每次 spawn console 子进程（curl.exe, cmd.exe, powershell.exe, taskkill.exe）时 Windows 会为新子进程分配 conhost，弹出黑色 cmd 窗口。用户反馈"每次打开都会出现黑色cmd的curl.exe"。
+- **修复**: 在 `platform.rs` 添加共享 `hide_console_window()` helper（Windows 使用 `CREATE_NO_WINDOW = 0x08000000`，Unix no-op）。应用到所有非交互式 spawn：
+  1. `pricing_sync.rs` — curl.exe 价格刷新（最主要的黑窗来源，每次启动+定时刷新都会弹）
+  2. `commands.rs` — 诊断探针（4 个并行 cmd.exe）+ taskkill（取消诊断时）+ open_gui_application（.cmd 启动 VS Code 时）
+  3. `platform.rs` — parent_pid + focus_process_chain（每次点击聚焦都会弹 PowerShell）
+  4. `travel.rs` — provider_command（闲逛/旅行时 .cmd shim 会弹 cmd 窗口持续 30s-2min）
+  5. `hook_client.rs` — resolve_ppid（首次 hook 调用时弹 PowerShell）
+- **不修改**: `launch_terminal` 的 `cmd.exe /K`（用户期望看到终端窗口）
+
+### HIGH: 模型价格镜像源（中国可访问）
+- **根因**: `models.dev` 在中国大陆经常不可访问（GFW + Cloudflare 边缘节点）。模型价格自动更新会失败，用户只能看到内置的离线价格。
+- **修复**: 在 `price_source_urls()` 添加 GitHub raw 镜像作为内置 fallback：
+  1. 用户自定义镜像（`RE_LLMPET_MODELS_DEV_URL` 环境变量）— 最高优先级
+  2. GitHub raw 镜像 — `https://raw.githubusercontent.com/anomalyco/models.dev/refs/heads/main/data/api.json` — 在 models.dev 之前尝试，因为 models.dev 是被墙的那个
+  3. models.dev 原始源 — 始终作为最终 fallback
+- **安全**: 镜像 URL 是 HTTPS-only 的 raw.githubusercontent.com 链接，无凭证、无查询字符串。响应经过与主源相同的 schema 验证（normalize_models_dev + max size 16MB + max models 20000）。etag/last_modified 验证器只发送给 models.dev 原始源，不发送给镜像（避免不同资源的 false 304）。
+
+### 验证
+- cargo clippy -D warnings --all-targets: ✅ EXIT=0
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+
+---
+
 ## 0.5.58 — 用户反馈三问题修复 + 诊断并行化（2026-08-10）
 
 ### HIGH: 闲逛/启动 GUI 穿模修复（z-index 冲突）
