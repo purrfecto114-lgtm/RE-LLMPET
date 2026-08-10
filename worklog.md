@@ -785,3 +785,35 @@ re-llmpet.log 显示：
 - 22/22 static + npm test EXIT=0
 - GitHub main: `41efbdf`, tag v0.5.50 ✅
 
+
+---
+
+## v0.5.51: 闲逛按钮激活 + 任务模板多样化（2026-08-10）
+
+### HIGH: 闲逛按钮功能完善
+- **发现**: pet.html 有 `#sl-wander` 按钮，但 pet.js **没有点击处理器**——按钮完全无效！
+- **修复**: 添加点击处理器，调用 `window.pet.startWander(mission, null)`
+- **个性化**: 从 3 个任务模板中随机选择（不硬编码单一任务），支持中/英/日三语
+- 点击后显示气泡反馈 + 自动关闭会话列表
+
+### 改进: 任务模板多样化
+- `commands.rs`: `pick_travel_mission()` 和 `pick_wander_mission()` 函数
+- 旅行任务 3 选 1（浏览项目/代码质量/架构设计）
+- 闲逛任务 3 选 1（新工具/开发者趋势/库或框架）
+- 基于时间戳取模随机，每次都有不同主题
+- 用户仍可通过 API 传入完全自定义任务
+
+### 设计原则
+- 不强制单一行为：每次闲逛/旅行都有不同的任务主题
+- 保留自定义：用户可通过 `startWander(mission, provider)` 传入完全自定义的任务
+- 不过度硬编码：任务模板是启发式建议，不是固定流程
+
+### 版本号自动迭代
+- v0.5.50 → v0.5.51（HIGH: 用户可见的功能完善——闲逛按钮从无效变为可用）
+- tag v0.5.51 已推送
+
+### 验证
+- clippy -D warnings: ✅ EXIT=0
+- 22/22 static + npm test EXIT=0
+- GitHub main: `82b4df2`, tag v0.5.51 ✅
+
