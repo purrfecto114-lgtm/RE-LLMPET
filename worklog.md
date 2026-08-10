@@ -817,3 +817,38 @@ re-llmpet.log 显示：
 - 22/22 static + npm test EXIT=0
 - GitHub main: `82b4df2`, tag v0.5.51 ✅
 
+
+---
+
+## v0.5.52: i18n 修复 + 导出数据增强 + 标签去硬编码（2026-08-10 12:20 trigger）
+
+### HIGH: 标签 i18n + 去硬编码
+- `pet.html`: `sl-new` 按钮从硬编码「新开 Claude」改为 `data-i18n` + provider 中性标签「新开 Agent」
+- `pet.html`: `sl-wander` 按钮添加 `data-i18n`
+- `i18n.js`: 新增 `sess.wander` 键（中/英/日三语）
+- `i18n.js`: `sess.newClaude` 从「新开 Claude」改为「新开 Agent」（provider 中性）
+- **效果**: 按钮文本跟随语言切换，不硬绑定特定 provider
+
+### MEDIUM: 导出数据增强
+- `panel-export.js`: 导出 JSON/CSV 新增：
+  - `combinedUsage`（Claude+Codex 合并成本分项）
+  - `machineGrowth`（全机 token 排名 + Claude/Codex 分项）
+  - `codex.todayCost` / `codex.lifetimeCost`（Codex 成本）
+  - `postcards`（旅行明信片历史）
+- `panel-export.js`: 版本号从硬编码 `'0.5.46'` 改为动态读取 `window.OctopusVersion`
+
+### 设计原则
+- **不硬编码**: 按钮标签通过 i18n 系统，跟随语言切换
+- **provider 中性**: 不在 UI 中硬绑定特定 provider（Claude → Agent）
+- **保留自定义**: 用户仍可通过 API 传入自定义任务/配置
+- **导出完整**: JSON/CSV 导出包含所有新增字段（combinedUsage, machineGrowth, codex cost, postcards）
+
+### 版本号自动迭代
+- v0.5.51 → v0.5.52（HIGH: 用户可见的 i18n + 去硬编码）
+- tag v0.5.52 已推送
+
+### 验证
+- clippy -D warnings: ✅ EXIT=0
+- 22/22 static + npm test EXIT=0
+- GitHub main: `71c4de4`, tag v0.5.52 ✅
+
