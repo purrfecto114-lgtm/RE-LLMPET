@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.62 — 桌宠状态过渡动画（B3）（2026-08-11）
+
+### HIGH: 状态切换平滑过渡
+- **功能**: 桌宠状态切换时（idle → working → happy → idle 等），mascot/cat 皮肤图片不再瞬间"弹"出，而是 150ms 淡入淡出过渡。
+- **实现**:
+  - `pet.js`: 新增 `fadeSwapImg()` 函数 — 透明度归零 → 换 src → load 事件恢复透明度
+  - `updateMascotEyes()` 和 `updateCat()` 改用 `fadeSwapImg` 替代直接 `img.src =`
+  - `pet.css`: `#mascot img` 和 `#cat img` 添加 `transition: opacity 0.15s ease`
+  - 已有 `prefers-reduced-motion` 媒体查询会自动禁用过渡（`transition: none !important`）
+- **行数预算**: pet.js 2540/2540（精确卡预算，通过删除冗余注释实现）
+
+### 沙箱恢复
+- 本轮开始时沙箱再次重置（v0.5.46 状态，Rust/GTK/remote 全部丢失）
+- 从 GitHub 重新克隆到 v0.5.61
+- 重新安装 Rust 1.97.1 + 52 个 GTK dev packages
+
+### 验证
+- cargo clippy -D warnings --all-targets: ✅ EXIT=0
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+- pet.js: 2540/2540 行（预算内）
+
+---
+
 ## 0.5.61 — 诊断结果导出 JSON（2026-08-10）
 
 ### HIGH: 诊断结果导出为 JSON 文件

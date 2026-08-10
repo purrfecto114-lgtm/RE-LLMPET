@@ -603,7 +603,9 @@ body.skin-cat #cat { display: flex; }
      animations need to be moved to the inner #mascot-img. */
   filter: drop-shadow(0 6px 10px rgba(150, 70, 40, 0.3));
 }
-#mascot img { width: 100%; height: 100%; object-fit: contain; -webkit-user-drag: none; }
+#mascot img { width: 100%; height: 100%; object-fit: contain; -webkit-user-drag: none;
+  /* B3: smooth fade when swapping mascot images on state change */
+  transition: opacity 0.15s ease; }
 
 /* R35 (2026-07-31): all state animations previously targeted #mascot
    directly. happyJump translates #mascot by -22px; attn rotates it ±4deg;
@@ -651,7 +653,9 @@ body.skin-cat #cat { display: flex; }
   flex-direction: column; align-items: center;
   filter: drop-shadow(0 6px 9px rgba(120, 90, 60, 0.28));
 }
-#cat img { width: 100%; height: 100%; object-fit: contain; -webkit-user-drag: none; }
+#cat img { width: 100%; height: 100%; object-fit: contain; -webkit-user-drag: none;
+  /* B3: smooth fade when swapping cat GIFs on state change */
+  transition: opacity 0.15s ease; }
 
 /* GIF 自带动效，容器不加任何位移动画；只保留「需要你出手」的发光提示 */
 #cat.waiting,

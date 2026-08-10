@@ -16,7 +16,6 @@ const i18n = window.OctoI18n;
 const t = (key, vars) => i18n ? i18n.t(key, vars) : key;
 const LOCALES = { zh: 'zh-CN', en: 'en-US', ja: 'ja-JP' };
 let currentLang = 'zh';
-// Initialize before the deferred cat preload can observe it.
 let skin = 'mascot';
 
 function applyLanguage(next) {
@@ -41,7 +40,6 @@ const mascot = document.getElementById('mascot');
 const mascotImg = document.getElementById('mascot-img');
 const cat = document.getElementById('cat'), petAnchor = document.getElementById('pet-anchor');
 
-// 图标款按状态换眼神（每种状态一张只改眼睛的图）
 const MASCOT_EYES = {
   working: 'mascot-work.png', // 干活：对着笔记本敲代码 + 咖啡（整幅工作场景）
   juggling: 'mascot-work.png', // 并行子任务：无独立图，回落到干活
@@ -64,13 +62,21 @@ const MASCOT_EYES = {
   sorry: 'mascot-wait.png',
   puzzled: 'mascot-think.png',
 };
+// B3: smooth fade when swapping mascot/cat images on state change.
+const FADE_MS = 150;
+function fadeSwapImg(img, newSrc) {
+  if (!img || img.getAttribute('src') === newSrc) return;
+  img.style.opacity = '0';
+  const onLoad = () => { img.removeEventListener('load', onLoad); img.style.opacity = '1'; };
+  img.addEventListener('load', onLoad);
+  setTimeout(() => { img.style.opacity = '1'; }, FADE_MS + 50); // cached fallback
+  img.src = newSrc;
+}
 function updateMascotEyes(s) {
   if (!mascotImg) return;
   const f = MASCOT_EYES[s] || 'mascot.png';
-  if (!mascotImg.getAttribute('src').endsWith(f)) mascotImg.src = '../assets/' + f;
+  if (!mascotImg.getAttribute('src').endsWith(f)) fadeSwapImg(mascotImg, '../assets/' + f);
 }
-
-// 月薪喵（cat）：每个状态一张动画 GIF（原作者：抖音 @月薪喵）
 const catImg = document.getElementById('cat-img');
 const CAT_STATES = {
   idle: 'cat-idle.gif',           // 转椅上冰淇淋+手机摸鱼：待命
@@ -95,9 +101,7 @@ const CAT_STATES = {
   sorry: 'cat-waiting.gif',       // 道歉 → 冒冷汗心虚
   puzzled: 'cat-needsinput.gif',  // 疑惑 → 头顶问号
 };
-// working/thinking 是停留最久的两个状态 → 多张姿态轮换：进入时换下一张，
-// 持续期间每 60s 也换一张。大上下文会话推理一次要几分钟，单张静止图
-// 播几分钟观感像卡死，轮换让「还活着」看得见。
+// working/thinking stay longest → multi-pose rotation every 60s (avoids "stuck" look).
 const CAT_POOLS = {
   working: [
     'cat-working.gif',   // 猛拍「上号」按钮
@@ -124,9 +128,7 @@ const CAT_ASSET_FILES = Array.from(new Set([
   ...Object.values(CAT_POOLS).flat(),
 ]));
 const catAssetCache = new Map();
-// R30 (2026-07-31): lazy-load cat assets only when cat skin is selected.
-// The old code preloaded ALL cat GIFs on startup (~2.4MB) even when the
-// user chose mascot/pixel skin, wasting IO, decode and memory.
+// R30: lazy-load cat assets only when cat skin is selected (was ~2.4MB startup waste).
 function preloadCatAssets() {
   for (const file of CAT_ASSET_FILES) {
     const image = new Image();
@@ -135,7 +137,6 @@ function preloadCatAssets() {
     catAssetCache.set(file, image);
   }
 }
-// Keep the canonical skin binding initialized before this deferred callback.
 function maybePreloadCatAssets() {
   if (skin === 'cat' && catAssetCache.size === 0) {
     preloadCatAssets();
@@ -151,14 +152,14 @@ function updateCat(s) {
   if (!catImg) return;
   const pool = CAT_POOLS[s];
   const f = pool ? pool[poolIdx % pool.length] : (CAT_STATES[s] || CAT_STATES.idle);
-  if (!catImg.getAttribute('src').endsWith(f)) catImg.src = '../assets/cat/' + f;
+  if (!catImg.getAttribute('src').endsWith(f)) fadeSwapImg(catImg, '../assets/cat/' + f);
   if (pool) {
     if (!poolRot) {
       poolRot = setInterval(() => {
         const cur = CAT_POOLS[state];
         if (!cur || skin !== 'cat') return;
         poolIdx++;
-        catImg.src = '../assets/cat/' + cur[poolIdx % cur.length];
+        fadeSwapImg(catImg, '../assets/cat/' + cur[poolIdx % cur.length]);
       }, POOL_ROTATE_MS);
     }
   } else if (poolRot) {
