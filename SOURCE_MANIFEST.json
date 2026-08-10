@@ -290,7 +290,7 @@
     "src-tauri/src/diagnostic_io.rs": "0e6a4d42d3a9bd2bffc3506551131d68770af22ccbc5331154fb63888339f33f",
     "src-tauri/src/emotion.rs": "dd485ae253523d98eb483fc36f34408728f090cf05bb63b963ba4bddc3177d5d",
     "src-tauri/src/hook_client.rs": "0b89e875522c8b67015155e6dbfaaae65144e5b5afb297c2a08a052be2bf36e8",
-    "src-tauri/src/hook_install.rs": "74e48c04a7635de73228586b06cc83b4969606bfc93b5a7bfdda95efccbb15a4",
+    "src-tauri/src/hook_install.rs": "d3bbaf21a2bb38f12867c1fbbf758c9d1c4179a9df75a990d34090a539f9c06e",
     "src-tauri/src/hook_watcher.rs": "235055fb87b8e5389ebab9d765656f150cc5cf8bad5a4566a0811258667ed46e",
     "src-tauri/src/http_server.rs": "2fe63d79b4828e51b8b8471391b07526b5b77c6952c9f102ce6009e91f9a9248",
     "src-tauri/src/i18n.rs": "2ca2a9fe27b0a1c7dc039290172c4a58c5e3c17e87179485568d92e4b2eaae01",
@@ -317,7 +317,7 @@
     "test/fixtures/codewhale-turn-end.json": "d15b9488c022fe62497034b59817ed6a8b40f88c62fe04e0822973f0fe83d538",
     "test/fixtures/models-dev-api-sample.json": "dcd80f0e1c22221738abe4c2ad0cd6ad0bd621264773213a030e983101b82e38",
     "test/latest-value-controller.test.js": "83dd646d346303f666d6a3ea4e968c7ec90bac1bfd928f48fd57c9c7a5dc18f9",
-    "test/maintainability-boundary-smoke.js": "ef234b98f93625be68f78c60056e836d266863619c4e3acce1488323b2cd181b",
+    "test/maintainability-boundary-smoke.js": "b535834a0a7225474e68b2ffb9b6f2bfe7e34d1bf4ac523221f4ae8080aa9dc5",
     "test/native-hook-installer-smoke.js": "6a860ab110b029d5e7308e319adea1e5ead0de3c6cf045ae5e34ea6d85311820",
     "test/octopus-fix-regression-smoke.js": "b27d9f3320816413016ea9be6b56c78f94fe77412dfe53101486fd7fe777fa86",
     "test/panel-fit-controller.test.js": "a6f9a49563f25b971ddbfea72459d507ede2633798284967f055bdfc60ab703c",
@@ -358,7 +358,7 @@
     "test/tauri-price-auto-update-smoke.js": "c369a20fde1c6b054e039ff6cfb482111b45f3a0804666116a146c1dae5cd96f",
     "test/tauri-protocol-drift-smoke.js": "6ff972ef1270b32666d92f0580f5fd3f1750729b328fd9300173da0ac8ef306f",
     "test/tauri-provider-phase2-smoke.js": "0cc581250d245f6a18f3072ca9cd83abe65a9e4beb5aa280d9065b32453d9acb",
-    "test/tauri-r11-settings-watcher-smoke.js": "ac849091fd03f5a96bffc3f2175151b96fc6822fbb89fee744b9eac90989bab2",
+    "test/tauri-r11-settings-watcher-smoke.js": "74ff5112680f4f2d611c598149bd976f082f0a70b552b6b6100f68c18f84ee32",
     "test/tauri-r32-bridge-error-visibility-smoke.js": "b9c4ce15bc6171f276745640c60933215bf0cc3d8bd80c40ace2fd4379357a13",
     "test/tauri-r34-config-transaction-smoke.js": "6a39cf9a204e3711dd63efe1565c15c789ba07ebf14c27c25268eba7360a6e40",
     "test/tauri-r35-correctness-hotfix-smoke.js": "8ab883e9f9026c5fa84c30388f575107df65cce1ceb03cccf8540eed38404c02",
@@ -387,8 +387,8 @@
     "test/tauri-tray-submenu-r12-smoke.js": "d0f7ebb3a69cdcc7c9b416613444aebd088e5f1402c75ca572c2c40d997e606d",
     "test/tauri-windows-static-smoke.js": "0d1a7b30b23b63438ebdac7d2cdf53c6e3a7d21d983de7dbab1cb0597e30e82d",
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
-    "worklog.md": "ceeb3fdd5e2b854f5c0e8ca33a164dfa738c76b0ea7ead3ad4fd960da04796e3"
+    "worklog.md": "d8a22832ac02eee3f8bfd59d365d83b1dd0b4de1da2c4d27278ab3ea5b8ee5d0"
   },
-  "sha256_of_manifest": "70ba5f3620cae79ce0401753cae215f63be471b7bb58e06a77aec7d127228254",
+  "sha256_of_manifest": "9f48dbaf661547bf61726321aac8d7a16de355d5cb23cf7de962949a1bed7296",
   "source_commit": "octopus-0.5.57"
 }

@@ -2323,3 +2323,68 @@ mod codewhale_config_tests {
         assert!(edited.contains("[provider]\napi_key = \"secret\""));
     }
 }
+
+#[cfg(test)]
+mod marker_tests {
+    use super::*;
+
+    const BEGIN: &str = "# >>> octopus:test:v1 >>>";
+    const END: &str = "# <<< octopus:test:v1 <<<";
+
+    #[test]
+    fn strip_removes_marker_block_and_preserves_surrounding_content() {
+        let input = format!("line1\n{BEGIN}\nremoved\n{END}\nline2\n");
+        let clean = strip_marker_variants(&input, &[(BEGIN, END)]).unwrap();
+        assert!(clean.contains("line1"));
+        assert!(clean.contains("line2"));
+        assert!(!clean.contains("removed"));
+        assert!(!clean.contains(BEGIN));
+    }
+
+    #[test]
+    fn strip_handles_multiple_marker_variants() {
+        let legacy_begin = "# >>> re-llmpet:test:v0 >>>";
+        let legacy_end = "# <<< re-llmpet:test:v0 <<<";
+        let input = format!(
+            "before\n{BEGIN}\ncurrent\n{END}\nmiddle\n{legacy_begin}\nlegacy\n{legacy_end}\nafter\n"
+        );
+        let clean =
+            strip_marker_variants(&input, &[(BEGIN, END), (legacy_begin, legacy_end)]).unwrap();
+        assert!(clean.contains("before"));
+        assert!(clean.contains("middle"));
+        assert!(clean.contains("after"));
+        assert!(!clean.contains("current"));
+        assert!(!clean.contains("legacy"));
+    }
+
+    #[test]
+    fn strip_returns_error_on_unterminated_block() {
+        let input = format!("line1\n{BEGIN}\ncontent without end\n");
+        let result = strip_marker_variants(&input, &[(BEGIN, END)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("unterminated"));
+    }
+
+    #[test]
+    fn strip_returns_error_on_nested_begin() {
+        let input = format!("{BEGIN}\n{BEGIN}\n{END}\n");
+        let result = strip_marker_variants(&input, &[(BEGIN, END)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("nested"));
+    }
+
+    #[test]
+    fn strip_returns_error_on_unmatched_end() {
+        let input = format!("line1\n{END}\n");
+        let result = strip_marker_variants(&input, &[(BEGIN, END)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("unmatched"));
+    }
+
+    #[test]
+    fn strip_preserves_content_with_no_markers() {
+        let input = "line1\nline2\nline3\n";
+        let clean = strip_marker_variants(input, &[(BEGIN, END)]).unwrap();
+        assert_eq!(clean, input);
+    }
+}
