@@ -18,8 +18,8 @@ const tauri = JSON.parse(read('src-tauri/tauri.conf.json'));
 const tauriLinux = JSON.parse(read('src-tauri/tauri.linux.conf.json'));
 const pinnedFixture = JSON.parse(read('test/fixtures/models-dev-api-sample.json'));
 
-assert.strictEqual(pkg.version, '0.5.56');
-assert.strictEqual(tauri.version, '0.5.56');
+assert.strictEqual(pkg.version, '0.5.57');
+assert.strictEqual(tauri.version, '0.5.57');
 assert(tauriLinux.bundle.linux.deb.depends.includes('curl'), 'Debian package must declare curl runtime dependency');
 assert(pinnedFixture.anthropic.models['claude-sample'].cost.cache_read > 0);
 

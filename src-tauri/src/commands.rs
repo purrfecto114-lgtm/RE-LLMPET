@@ -824,7 +824,10 @@ pub fn territory_toggle_auto(
     emit_config(&app, &state);
     if !config.territory {
         let result = json!({"enabled":false});
-        let _ = app.emit("pet:event", json!({"kind":"say","text":"领地模式已关闭。"}));
+        let _ = app.emit(
+            "pet:event",
+            json!({"kind":"say","text":"Territory mode disabled."}),
+        );
         return Ok(result);
     }
     if platform_state.is_ui_busy() {
@@ -3075,7 +3078,7 @@ pub fn focus_session(
             // R18: sanitize error — truncate to 200 chars to avoid leaking
             // long paths or platform-specific details into the pet UI.
             let safe_error: String = error.chars().take(200).collect();
-            let _ = app.emit("pet:event", json!({"kind":"say","text":format!("无法直接聚焦该终端：{safe_error}；已打开详情面板。")}));
+            let _ = app.emit("pet:event", json!({"kind":"say","text":format!("Cannot focus terminal: {safe_error}. Opening dashboard.")}));
             open_panel(app)
         }
     }

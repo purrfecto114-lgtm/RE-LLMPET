@@ -691,15 +691,17 @@ fn emit_hook_event(app: &AppHandle, body: &Value, session: &Session) {
             "kind":"operation",
             "tool":tool,
             "icon":"🔧",
-            "detail":if tool.is_empty() { "正在执行工具" } else { tool }
+            "detail":if tool.is_empty() { "Running tool" } else { tool }
         }),
-        "StopFailure" | "PostToolUseFailure" => json!({"kind":"error","text":"Agent 执行失败"}),
+        "StopFailure" | "PostToolUseFailure" => {
+            json!({"kind":"error","text":"Agent execution failed"})
+        }
         "Notification" | "PermissionDenied" | "Elicitation" => json!({"kind":"needsinput"}),
         "TaskCreated" => {
-            json!({"kind":"operation","tool":"Task","icon":"🤹","detail":"已创建并行任务"})
+            json!({"kind":"operation","tool":"Task","icon":"🤹","detail":"Task created"})
         }
         "TaskCompleted" => {
-            json!({"kind":"operation","tool":"Task","icon":"✅","detail":"并行任务已完成"})
+            json!({"kind":"operation","tool":"Task","icon":"✅","detail":"Task completed"})
         }
         "TeammateIdle" => json!({"kind":"state","state":"loafing"}),
         _ => json!({"kind":"state","state":session.state.clone()}),

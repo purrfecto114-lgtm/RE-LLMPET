@@ -223,7 +223,7 @@ fn run_now_inner(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
             json!({
                 "kind":"territory",
                 "phase":"unsupported",
-                "text":"领地模式的竞品窗口推动仅支持 macOS；已将 Octopus 窗口置顶。"
+                "text":"Territory rival push requires macOS. Octopus window brought to front."
             }),
         );
         Ok(result)
@@ -372,7 +372,7 @@ return output
     if detected == 0 {
         let _ = app.emit(
             "pet:event",
-            json!({"kind":"territory","phase":"clear","text":"巡视完成，没有发现其他桌宠。"}),
+            json!({"kind":"territory","phase":"clear","text":"Patrol complete, no rival pets found."}),
         );
     }
     Ok(json!({

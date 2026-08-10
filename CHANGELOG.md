@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.57 — Rust 事件文本去 i18n（2026-08-10）
+
+### HIGH: Rust 端 5 个中文事件文本改为英文
+- commands.rs: 领地模式关闭 → Territory mode disabled
+- commands.rs: 无法直接聚焦终端 → Cannot focus terminal
+- http_server.rs: Agent 执行失败 → Agent execution failed
+- http_server.rs: 已创建并行任务 → Task created
+- http_server.rs: 并行任务已完成 → Task completed
+- http_server.rs: 正在执行工具 → Running tool
+- territory.rs: 巡视完成 → Patrol complete, no rival pets found
+- territory.rs: 领地模式仅支持 macOS → Territory rival push requires macOS
+
+### 设计原则
+- Rust 后端不硬编码语言，统一发送英文
+- pet.js 前端根据 event kind 通过 i18n 系统翻译为当前语言
+- 这样切换语言时所有事件文本都正确翻译
+
+---
+
+
 ## 0.5.56 — 全局审查 Round 4: 去理想化 + 性能 + 安全（2026-08-10）
 
 ### CRITICAL: stats.bg 去理想化
