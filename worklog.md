@@ -883,3 +883,41 @@ re-llmpet.log 显示：
 - **文件预算**: 4/6 大文件超 CLAUDE.md 上限（需拆分或更新预算）
 - **上游差距**: 3 项 MEDIUM（usage-archive, pidwalk, territory episodes）
 
+
+---
+
+## v0.5.53: 全局审查 Round 1 — 文档修复 + 代码去重（2026-08-10）
+
+### 审查 Round 1 完成（5 项中的 4 项）
+
+| # | 审查项 | 优先级 | 状态 |
+|---|---|---|---|
+| #2 | CLAUDE.md/ROADMAP.md 版本 0.5.46 → 0.5.52 | CRITICAL | ✅ |
+| #6 | CHANGELOG 环境变量文档修正 | HIGH | ✅ |
+| #25 | migration-todo updatedAt 同步 | MEDIUM | ✅ |
+| #8 | OPENCODE_CONFIG_DIR 4× 重复 → helper | HIGH | ✅ |
+| #7 | codewhale_config_candidates 去重 | HIGH | 推迟（R9 已部分完成 codewhale_config_path 去重） |
+
+### 代码去重详情
+- 新增 `opencode_config_dir()` helper（hook_install.rs:680）
+- 4 处重复的 `std::env::var_os("OPENCODE_CONFIG_DIR").map(PathBuf::from).unwrap_or_else(...)` 全部替换
+- hook_presence、opencode_plugin_path、install_opencode、uninstall_opencode 均调用 helper
+- 消除 drift 风险：env-var 优先级链只在一处维护
+
+### 版本号自动迭代
+- v0.5.52 → v0.5.53（HIGH: 代码去重 + 文档修复）
+- tag v0.5.53 已推送
+
+### 验证
+- clippy -D warnings: ✅ EXIT=0
+- 22/22 static + npm test EXIT=0
+- GitHub main: `151ccd1`, tag v0.5.53 ✅
+
+### 下轮重点（Round 2: HIGH i18n 清理）
+- #3: panel.html ~30 个硬编码中文添加 data-i18n
+- #4: pet.html 按钮标签添加 data-i18n
+- #5: Rust 端 5 个中文 say 事件改为 i18n key + vars
+- #16: pet.js 12 个硬编码气泡消息
+- #17: panel.js loading 文本
+- #18: panel.js render 路径硬编码文本
+
