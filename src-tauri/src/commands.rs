@@ -3072,7 +3072,10 @@ pub fn focus_session(
                 "focus",
                 &format!("native focus unavailable for {session_id}: {error}"),
             );
-            let _ = app.emit("pet:event", json!({"kind":"say","text":format!("无法直接聚焦该终端：{error}；已打开详情面板。") }));
+            // R18: sanitize error — truncate to 200 chars to avoid leaking
+            // long paths or platform-specific details into the pet UI.
+            let safe_error: String = error.chars().take(200).collect();
+            let _ = app.emit("pet:event", json!({"kind":"say","text":format!("无法直接聚焦该终端：{safe_error}；已打开详情面板。")}));
             open_panel(app)
         }
     }

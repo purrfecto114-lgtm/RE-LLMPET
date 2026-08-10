@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.56 — 全局审查 Round 4: 去理想化 + 性能 + 安全（2026-08-10）
+
+### CRITICAL: stats.bg 去理想化
+- 之前 bg 字段恒为 {running:0, zombie:0, total:0, items:[]}，误导用户以为后台监控在工作
+- 现在 bg 添加 available:false 标记，panel.js 检测后隐藏整个后台任务区块
+- 真正的后台进程对账需要 pidwalk（P5-002），推迟到 0.7.0
+
+### MEDIUM: sessions HashMap 添加上限
+- prune_expired_sessions() 新增 MAX_SESSIONS=200 上限
+- 超过时按 updated_at 最旧的优先驱逐，防止长时间运行后内存增长
+
+### MEDIUM: focus_session 错误文本 sanitize
+- 错误信息截断为 200 字符，防止泄露长路径或平台细节到桌宠 UI
+
+---
+
+
 ## 0.5.55 — 全局审查 Round 3: 代码质量 + 测试（2026-08-10）
 
 ### HIGH: 代码质量改进

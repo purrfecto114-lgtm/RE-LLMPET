@@ -117,9 +117,9 @@ assert(!model.includes('let todo_session = sessions'));
 assert(model.includes('same_opened_config_file'));
 assert(model.includes('fs::symlink_metadata(path)'));
 
-// Do not fabricate background process state while the upstream protocol is empty.
-assert(model.includes('fixed empty contract'));
-assert(model.includes('"bg":{"running":0,"zombie":0,"total":0,"items":[]}'));
+// R18 de-idealized: bg now marks itself as unavailable instead of showing fake zeros
+assert(model.includes('"available":false'));
+assert(model.includes('pidwalk'));
 
 // Audit decisions are recorded for maintainers and parity tracking is current.
 const matrix = JSON.parse(read('docs/UPSTREAM_PARITY_MATRIX.json'));

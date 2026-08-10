@@ -1301,6 +1301,21 @@ impl Runtime {
     fn prune_expired_sessions(&self, now: u64) {
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions.retain(|_, session| !session_is_expired(session, now));
+        // R18: cap total sessions to prevent unbounded growth on machines
+        // that spawn many short-lived agent sessions. Evict oldest by
+        // updated_at (least recently active).
+        const MAX_SESSIONS: usize = 200;
+        if sessions.len() > MAX_SESSIONS {
+            let mut sorted: Vec<(String, u64)> = sessions
+                .iter()
+                .map(|(id, s)| (id.clone(), s.updated_at))
+                .collect();
+            sorted.sort_unstable_by_key(|(_, ts)| *ts);
+            let evict = sorted.len() - MAX_SESSIONS;
+            for (id, _) in sorted.into_iter().take(evict) {
+                sessions.remove(&id);
+            }
+        }
     }
 
     pub fn session(&self, session_id: &str) -> Option<Session> {
@@ -1525,9 +1540,12 @@ impl Runtime {
             "todosProject":todos_project,
             "lastActivityTs":sessions.iter().map(|s| s.updated_at).max().unwrap_or(self.started_at),
             "idleMs":now.saturating_sub(sessions.iter().map(|s| s.updated_at).max().unwrap_or(self.started_at)),
-            // Current upstream still exposes background reconciliation as a
-            // fixed empty contract. Keep the shape without inventing process data.
-            "bg":{"running":0,"zombie":0,"total":0,"items":[]},
+            // R18 de-idealized: bg was a permanent zero-placeholder that misled
+            // users into thinking background task monitoring was active. Real
+            // reconciliation needs pidwalk (P5-002, deferred to 0.7.0).
+            // Remove the zero values and mark as unavailable so the UI can
+            // hide the section instead of showing "✅0 · 🧟0".
+            "bg":{"running":0,"zombie":0,"total":0,"items":[],"available":false},
             "context":context,
             "travel":self.travel.snapshot(),
             "ts":now

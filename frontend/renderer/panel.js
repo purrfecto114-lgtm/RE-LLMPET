@@ -845,14 +845,18 @@ function ageStr(sec) {
 function renderBg(bg) {
   const el = $('bg-list');
   if (!el) return;
-  const items = (bg.items || []).filter((x) => x.alive); // 只列还活着的
-  // 没有后台进程时整块收起，不占版面
+  // R18: hide bg section entirely when monitoring is unavailable (pidwalk deferred to 0.7.0)
   const block = $('bg-block');
+  if (bg && bg.available === false) {
+    if (block) block.style.display = 'none';
+    return;
+  }
+  const items = (bg.items || []).filter((x) => x.alive);
   if (block) block.style.display = items.length ? '' : 'none';
   const head = $('bg-head');
-  if (head) head.textContent = `后台任务 ✅${bg.running || 0} · 🧟${bg.zombie || 0}`;
+  if (head) head.textContent = t('panel.bgHead') ? t('panel.bgHead', {running: bg.running || 0, zombie: bg.zombie || 0}) : `后台任务 ✅${bg.running || 0} · 🧟${bg.zombie || 0}`;
   if (!items.length) {
-    el.innerHTML = '<div class="empty">没有长跑的后台进程 — 干净</div>';
+    el.innerHTML = `<div class="empty">${t('panel.bgClean')}</div>`;
     return;
   }
   el.innerHTML = items
