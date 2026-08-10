@@ -77,19 +77,19 @@
       </section>
 
       <section class="block" id="pet-mode-block">
-        <div class="block-title">桌宠模式</div>
+        <div class="block-title" data-i18n="panel.petMode">桌宠模式</div>
         <div class="seg-row">
-          <span class="seg-label">窗口</span>
+          <span class="seg-label" data-i18n="panel.window">窗口</span>
           <div class="seg" id="pet-mode-seg">
-            <button class="seg-btn" data-pet-mode="single">单宠</button>
-            <button class="seg-btn" data-pet-mode="duo">双宠 · Claude + Codex</button>
+            <button class="seg-btn" data-pet-mode="single" data-i18n="panel.single">单宠</button>
+            <button class="seg-btn" data-pet-mode="duo" data-i18n="panel.duo">双宠 · Claude + Codex</button>
           </div>
         </div>
       </section>
 
       <section class="block" id="travel-block">
-        <div class="block-title"><span>🧳 旅行与成长</span><span id="travel-growth"></span></div>
-        <div id="travel-active" class="empty">当前没有旅行</div>
+        <div class="block-title"><span data-i18n="panel.travelGrowth">🧳 旅行与成长</span><span id="travel-growth"></span></div>
+        <div id="travel-active" class="empty" data-i18n="panel.noTravel">当前没有旅行</div>
         <div id="travel-postcard" class="travel-postcard"></div>
       </section>
 
@@ -98,7 +98,7 @@
            promotion: paw → star → moon → sun → crown). Mirrors upstream
            backend/growth.js#machineGrowth. -->
       <section class="block" id="machine-growth-block">
-        <div class="block-title"><span>🤖 本机成长</span><span id="machine-growth"></span></div>
+        <div class="block-title"><span data-i18n="panel.machineGrowth">🤖 本机成长</span><span id="machine-growth"></span></div>
       </section>
 
       <section class="block" id="todo-block">
@@ -138,13 +138,13 @@
         <div class="price-controls" aria-label="模型价格自动更新">
           <button id="price-refresh" type="button" title="立即检查 models.dev 最新价目">立即刷新</button>
           <button id="price-rebuild" type="button" title="用当前价目重算历史花费">重算花费</button>
-          <label class="price-auto"><input id="price-auto" type="checkbox" /> 自动更新</label>
+          <label class="price-auto"><input id="price-auto" type="checkbox" /> <span data-i18n="panel.autoUpdate">自动更新</span></label>
           <select id="price-interval" title="自动检查间隔">
-            <option value="6">每 6 小时</option>
-            <option value="12">每 12 小时</option>
-            <option value="24">每 24 小时</option>
-            <option value="48">每 48 小时</option>
-            <option value="72">每 72 小时</option>
+            <option value="6" data-i18n="panel.interval6">每 6 小时</option>
+            <option value="12" data-i18n="panel.interval12">每 12 小时</option>
+            <option value="24" data-i18n="panel.interval24">每 24 小时</option>
+            <option value="48" data-i18n="panel.interval48">每 48 小时</option>
+            <option value="72" data-i18n="panel.interval72">每 72 小时</option>
           </select>
           <span class="export-controls" aria-label="导出用量数据">
             <button id="export-csv" type="button" title="导出 CSV（可导入 Excel/Numbers）">📊 CSV</button>
@@ -170,8 +170,8 @@
         </section>
 
         <section class="block" id="provider-cost-block">
-          <div class="block-title">按 Provider（今日）</div>
-          <div id="provider-cost" class="rows"><div class="empty">暂无数据</div></div>
+          <div class="block-title" data-i18n="panel.byProvider">按 Provider（今日）</div>
+          <div id="provider-cost" class="rows"><div class="empty" data-i18n="panel.noData">暂无数据</div></div>
         </section>
 
       <section class="block" id="provider-block">
@@ -190,7 +190,7 @@
           </div>
           <div class="session-filters" aria-label="会话筛选">
             <select id="sess-provider-filter" title="按 Provider 筛选"><option value="">全部 Provider</option></select>
-            <input id="sess-query" type="search" maxlength="128" placeholder="项目或会话 ID" autocomplete="off" />
+            <input id="sess-query" type="search" maxlength="128" data-i18n-placeholder="panel.sessPlaceholder" placeholder="项目或会话 ID" autocomplete="off" />
             <!-- R19 (2026-07-30): attention filter + archive toggle.
                  "Attention" shows only waiting/needsinput sessions.
                  "Archived" toggles whether archived sessions are visible. -->

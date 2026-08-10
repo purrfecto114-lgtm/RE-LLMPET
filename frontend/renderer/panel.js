@@ -193,7 +193,7 @@ function render(s) {
   const postcardEl = $('travel-postcard');
   if (postcardEl) {
     const card = Array.isArray(travel.postcards) ? travel.postcards[0] : null;
-    postcardEl.textContent = card ? `最近明信片 · ${card.project}
+    postcardEl.textContent = card ? `${t('panel.latestPostcard')} · ${card.project}
 ${card.summary || ''}` : '';
   }
   // 头部：始终按真实快照重置，避免上一次 Provider/项目残留。
@@ -1215,7 +1215,7 @@ function renderPriceInfo(message) {
   const interval = $('price-interval');
   if (refresh) {
     refresh.disabled = inProgress || state === 'refreshing' || state === 'queued';
-    refresh.textContent = refresh.disabled ? '刷新中…' : '立即刷新';
+    refresh.textContent = refresh.disabled ? t('panel.refreshing') : t('panel.refreshNow');
   }
   if (auto) auto.checked = autoUpdate;
   if (interval) {
@@ -1288,7 +1288,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const priceInterval = $('price-interval');
   if (priceRefresh) priceRefresh.addEventListener('click', () => {
     priceRefresh.disabled = true;
-    priceRefresh.textContent = '刷新中…';
+    priceRefresh.textContent = t('panel.refreshing');
     window.pet.refreshModelPrices().then(renderPriceInfo).catch((error) => {
       renderPriceInfo({ ...(latestPriceInfo || {}), state: 'error', inProgress: false, lastError: String(error || '刷新失败') });
     });
@@ -1297,16 +1297,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const priceRebuild = $('price-rebuild');
   if (priceRebuild) priceRebuild.addEventListener('click', () => {
     priceRebuild.disabled = true;
-    priceRebuild.textContent = '重算中…';
+    priceRebuild.textContent = t('panel.rebuilding');
     window.pet.rebuildUsageCosts().then((result) => {
       priceRebuild.disabled = false;
-      priceRebuild.textContent = '重算花费';
+      priceRebuild.textContent = t('panel.rebuildCost');
       const delta = Number(result.delta) || 0;
       const sign = delta >= 0 ? '+' : '';
       priceRebuild.title = `重算完成：${result.eventCount} 个事件，${sign}$${delta.toFixed(4)}`;
     }).catch((error) => {
       priceRebuild.disabled = false;
-      priceRebuild.textContent = '重算花费';
+      priceRebuild.textContent = t('panel.rebuildCost');
       priceRebuild.title = '重算失败：' + String(error || '未知错误');
     });
   });

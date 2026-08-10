@@ -1480,7 +1480,7 @@ window.pet.onEvent((ev) => {
         // 多会话时聚合里 working > thinking，直接 setState 会在下个快照被盖掉
         // （只闪 ~150ms）。用 transient 保证「刚提交任务」的思考表情至少停留一会。
         if (state !== 'waiting') transient('thinking', 3500);
-        showBubble('📨 收到新任务！', 2600);
+        showBubble(t('bubble.newTask'), 2600);
       }
       break;
     case 'turn-done':
@@ -1530,7 +1530,7 @@ window.pet.onEvent((ev) => {
       break;
     }
     case 'longcmd':
-      if (state !== 'waiting') showBubble('💦 这条命令有点久，稍等…', 3000);
+      if (state !== 'waiting') showBubble(t('bubble.longCommand'), 3000);
       break;
     case 'travel':
       if (ev.phase === 'started') transient('excited', 2200, ev.text || '🧳 出发旅行！', 3200);
@@ -1571,13 +1571,13 @@ window.pet.onEvent((ev) => {
           showBubble('🔒 想把入侵者顶走，但还没有「辅助功能」权限（系统设置 → 隐私与安全性 → 辅助功能）', 7000);
           break;
         case 'searching':
-          showBubble('🔎 正在巡视桌面，找找有没有别的桌宠…', 2400);
+          showBubble(t('bubble.patrolling'), 2400);
           break;
         case 'clear':
-          showBubble('✨ 巡视完毕，地盘很安静～', 2600);
+          showBubble(t('bubble.patrolDone'), 2600);
           break;
         case 'busy':
-          showBubble('🔎 正在巡视中，等我处理完这只桌宠！', 2600);
+          showBubble(t('bubble.patrolBusy'), 2600);
           break;
         case 'abort':
           // 中途撤退(用户来了/弹层打开):静默收掉 march 的长斗志表情,
@@ -1741,7 +1741,7 @@ if (window.pet.onTravel) {
     } else if (event.phase === 'failed') {
       transient('error', 2600, `🧳 ${event.summary || '旅行失败'}`, 5000);
     } else if (event.phase === 'cancelled') {
-      showBubble('🧳 旅行已取消', 2600, true);
+      showBubble(t('bubble.travelCancel'), 2600, true);
     }
   });
 }
