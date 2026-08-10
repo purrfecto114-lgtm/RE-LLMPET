@@ -78,11 +78,13 @@ assert(hookWatcher.includes('"octopus-hook-watcher"'),
 assert(hookWatcher.includes('thread::Builder::new()'),
   'watcher must use thread::Builder::new() so it can be named');
 
-// ── 7. The watcher polls every 2 seconds (matches upstream cadence) ──
-assert(/Duration::from_secs\s*\(\s*2\s*\)/.test(hookWatcher),
-  'watcher must poll every 2 seconds (Duration::from_secs(2)) to match upstream');
+// ── 7. The watcher polls every 5 seconds with backoff (R18: raised from 2s) ──
+assert(/Duration::from_secs\s*\(\s*5\s*\)/.test(hookWatcher),
+  'watcher must poll every 5 seconds (Duration::from_secs(5)) — R18 raised from 2s for battery');
 assert(hookWatcher.includes('POLL_INTERVAL'),
   'watcher must define a POLL_INTERVAL constant for the cadence');
+assert(hookWatcher.includes('BACKOFF_INTERVAL'),
+  'watcher must define BACKOFF_INTERVAL for idle backoff (R18)');
 
 // ── 8. The watcher calls install_claude when drift is detected ──
 assert(/use crate::hook_install::\{[^}]*install_claude/.test(hookWatcher) ||

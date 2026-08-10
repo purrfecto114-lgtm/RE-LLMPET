@@ -36,8 +36,12 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-/// How often to poll `settings.json` for mtime changes. Matches upstream.
-const POLL_INTERVAL: Duration = Duration::from_secs(2);
+/// How often to poll `settings.json` for mtime changes.
+/// R18: raised from 2s to 5s + exponential backoff to reduce battery impact
+/// on laptops (43,200 stat()/day → 17,280/day nominal, fewer when idle).
+const POLL_INTERVAL: Duration = Duration::from_secs(5);
+const BACKOFF_INTERVAL: Duration = Duration::from_secs(30);
+const BACKOFF_THRESHOLD: u32 = 10;
 
 /// Spawn the settings.json watcher thread.
 ///
@@ -57,29 +61,31 @@ pub fn start_settings_watcher(runtime: Arc<Runtime>) {
 /// remains a one-liner.
 fn watch_loop(runtime: &Runtime) {
     let settings_path = home_dir().join(".claude").join("settings.json");
-    // Seed the last-seen mtime with the file's current state so we don't
-    // fire a spurious re-sync on the very first tick (which would be
-    // redundant with the startup `verify_enabled` check).
     let mut last_mtime = fs::metadata(&settings_path)
         .ok()
         .and_then(|m| m.modified().ok());
+    // R18: backoff counter — after N consecutive unchanged ticks, switch
+    // to longer interval to save battery. Reset on any change.
+    let mut unchanged_count: u32 = 0;
 
     loop {
-        thread::sleep(POLL_INTERVAL);
+        let interval = if unchanged_count >= BACKOFF_THRESHOLD {
+            BACKOFF_INTERVAL
+        } else {
+            POLL_INTERVAL
+        };
+        thread::sleep(interval);
 
-        // Re-stat the file. If it doesn't exist (Claude not yet
-        // initialized) or is unreadable, skip this tick — there's
-        // nothing to re-register. `last_mtime` is left untouched so
-        // when the file reappears we detect the change.
         let current_mtime = match fs::metadata(&settings_path) {
             Ok(m) => m.modified().ok(),
             Err(_) => continue,
         };
 
-        // Debounce: only act when the file actually changed.
         if current_mtime == last_mtime {
+            unchanged_count = unchanged_count.saturating_add(1);
             continue;
         }
+        unchanged_count = 0;
         last_mtime = current_mtime;
 
         // Drift check: only re-install if our hooks are missing. This
