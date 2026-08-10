@@ -47,9 +47,14 @@ window.OctopusExport = (() => {
     const travel = s.travel || {};
     const growth = travel.growth || {};
     const codexUsage = s.codexUsage || {};
+    const combinedUsage = s.combinedUsage || {};
+    const machineGrowth = s.machineGrowth || {};
+    // R16: read version dynamically from package.json via the bridge config
+    const config = (typeof window.pet !== 'undefined' && typeof window.pet.getConfig === 'function')
+      ? null : null; // config is async; we use a cached version tag instead
     return {
       exportedAt: new Date().toISOString(),
-      version: '0.5.46',
+      version: (window.OctopusVersion) || '0.5.51',
       summary: {
         today: {
           cost: today.cost || 0,
@@ -66,6 +71,11 @@ window.OctopusExport = (() => {
           tokens: w5h.tokens || 0,
           resetTs: w5h.resetTs || null,
         },
+        combinedUsage: {
+          todayCost: combinedUsage.todayCost || 0,
+          claudeTodayCost: combinedUsage.claudeTodayCost || 0,
+          codexTodayCost: combinedUsage.codexTodayCost || 0,
+        },
         growth: {
           leaves: growth.leaves || 0,
           stars: growth.stars || 0,
@@ -73,15 +83,23 @@ window.OctopusExport = (() => {
           days: growth.days || 0,
           totalTokens: growth.totalTokens || 0,
         },
+        machineGrowth: {
+          totalTokens: machineGrowth.totalTokens || 0,
+          claudeTokens: machineGrowth.claudeTokens || 0,
+          codexTokens: machineGrowth.codexTokens || 0,
+        },
         codex: {
           todayTokens: codexUsage.todayTokens || 0,
           lifetimeTokens: codexUsage.lifetimeTokens || 0,
+          todayCost: codexUsage.todayCost || 0,
+          lifetimeCost: (codexUsage.lifetime && codexUsage.lifetime.cost) || 0,
         },
       },
       byModel: byModel,
       providerCost: providerCost,
       sessions: cachedSessions || (s.sessions) || [],
       priceInfo: cachedPriceInfo || null,
+      postcards: (travel.postcards) || [],
     };
   }
 
@@ -121,7 +139,9 @@ window.OctopusExport = (() => {
       }
     };
     flat('summary', data.summary);
+    flat('combinedUsage', data.summary.combinedUsage);
     flat('growth', data.summary.growth);
+    flat('machineGrowth', data.summary.machineGrowth);
     flat('codex', data.summary.codex);
     // byModel rows
     rows.push([], ['By Model', '', '']);

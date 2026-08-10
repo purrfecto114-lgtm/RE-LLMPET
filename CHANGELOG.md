@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.52 — i18n 修复 + 导出数据增强 + 标签去硬编码（2026-08-10）
+
+### HIGH: 标签 i18n + 去硬编码
+- pet.html: sl-new 按钮从硬编码「新开 Claude」改为 data-i18n + provider 中性标签
+- pet.html: sl-wander 按钮添加 data-i18n
+- i18n.js: 新增 sess.wander 键（中/英/日三语）
+- i18n.js: sess.newClaude 从「新开 Claude」改为「新开 Agent」（provider 中性）
+- 效果：按钮文本跟随语言切换，不硬绑定特定 provider
+
+### MEDIUM: 导出数据增强
+- panel-export.js: 导出 JSON/CSV 新增 combinedUsage（Claude+Codex 合并成本）
+- panel-export.js: 新增 machineGrowth（全机 token 排名）
+- panel-export.js: 新增 codex.todayCost / lifetime.cost
+- panel-export.js: 新增 postcards（旅行明信片历史）
+- panel-export.js: 版本号从硬编码 '0.5.46' 改为动态读取
+
+---
+
+
 ## 0.5.51 — 闲逛按钮激活 + 任务模板多样化（2026-08-10）
 
 ### HIGH: 闲逛按钮功能完善

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// R44 0.5.51 (roadmap v5) — correctness closure smoke.
+// R44 0.5.52 (roadmap v5) — correctness closure smoke.
 //
-// Locks the 7 deliverables from roadmap v5 §0.5.51:
+// Locks the 7 deliverables from roadmap v5 §0.5.52:
 //
 //   §1  Node installer no longer claims HTTP hooks as ours
 //   §2  Config quarantine state machine (ConfigState enum on Runtime)
@@ -37,8 +37,8 @@ const packageJson = JSON.parse(read('package.json'));
 // Version
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.51',
-  '0.5.51: package.json version must be 0.5.51');
+assert.strictEqual(packageJson.version, '0.5.52',
+  '0.5.52: package.json version must be 0.5.52');
 
 // ──────────────────────────────────────────────────────────────────────────
 // §1: Node installer no longer claims HTTP hooks
@@ -79,7 +79,7 @@ assert.ok(model.includes('pub fn save_config(&self, config: &AppConfig) -> Resul
 assert.ok(model.includes('if !state.writes_allowed()'),
   '§2: Runtime::save_config must check state.writes_allowed() before writing');
 // backup_and_reset_config recovery method
-// R44 0.5.51: signature changed to Result<ResetResult, String> (transactional)
+// R44 0.5.52: signature changed to Result<ResetResult, String> (transactional)
 assert.ok(
   model.includes('pub fn backup_and_reset_config(&self) -> Result<ResetResult, String>') ||
   model.includes('pub fn backup_and_reset_config(&self) -> Result<PathBuf, String>'),
@@ -204,7 +204,7 @@ assert.ok(phase0e.includes('Test 12: CleanupResult variants'),
 // CHANGELOG
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.ok(changelog.includes('0.5.51'),
-  'CHANGELOG must have 0.5.51 entry');
+assert.ok(changelog.includes('0.5.52'),
+  'CHANGELOG must have 0.5.52 entry');
 
-console.log('✓ R44 0.5.51 (roadmap v5) correctness closure smoke: all assertions passed');
+console.log('✓ R44 0.5.52 (roadmap v5) correctness closure smoke: all assertions passed');
