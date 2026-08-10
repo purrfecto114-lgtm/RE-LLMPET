@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.53 — 全局审查 Round 1: 文档修复 + 代码去重（2026-08-10）
+
+### CRITICAL: 文档版本过时
+- CLAUDE.md: 版本从 0.5.46 更新到 0.5.52
+- ROADMAP.md: 版本 + 更新时间戳同步
+
+### HIGH: CHANGELOG 环境变量文档修复
+- 修正 OCTOPUS_MODELS_DEV_URL/PATH → RE_LLMPET_MODELS_DEV_URL（与代码实际实现一致）
+
+### HIGH: OPENCODE_CONFIG_DIR 代码去重
+- 新增 opencode_config_dir() helper（单一真相源）
+- 4 处重复的 env-os 解析全部替换为调用 helper
+- 消除 drift 风险
+
+### MEDIUM: migration-todo updatedAt 同步
+- 时间戳从 2026-08-04 更新到 2026-08-10
+
+---
+
+
 ## 0.5.52 — i18n 修复 + 导出数据增强 + 标签去硬编码（2026-08-10）
 
 ### HIGH: 标签 i18n + 去硬编码
@@ -2992,7 +3012,7 @@ These remain release gates per `docs/RELEASE.md`. This is a **source-reconciled 
   - Three-layer lookup: live cache > bundled seed > null (token-only)
   - Official-provider priority: when multiple providers serve the same model id (e.g. `deepseek-v4-pro` is served by both `deepseek` at $0.435/$0.87 and aggregator `frogbot` at $1.74/$3.48), the official provider wins
   - Graceful degradation: failure to fetch falls back to stale cache or bundled seed; never blocks startup
-  - Env knobs: `OCTOPUS_MODELS_DEV_URL`, `OCTOPUS_MODELS_DEV_PATH`, `OCTOPUS_DISABLE_MODELS_DEV_FETCH`, `OCTOPUS_NO_NET`
+  - Env knobs: `RE_LLMPET_MODELS_DEV_URL` (override API URL), `OCTOPUS_DISABLE_MODELS_DEV_FETCH` / `OCTOPUS_NO_NET` (disable network)
   - Schema validation: rejects absurd prices (>$1000/M), oversized context (>100M), malformed JSON; preserves `null` distinct from `0` (free)
   - HTTPS-only (refuses http:// URLs to prevent MITM)
 

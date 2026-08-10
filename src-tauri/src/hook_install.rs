@@ -552,9 +552,7 @@ fn hook_presence(id: &str) -> HookPresence {
             &[LEGACY_MARKER, LEGACY_HOOK_OWNER],
         ),
         "opencode" => {
-            let base = std::env::var_os("OPENCODE_CONFIG_DIR")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
+            let base = opencode_config_dir();
             file_marker_presence(
                 base.join("plugins").join("llmpet-hook.js"),
                 &[OPENCODE_MARKER],
@@ -676,13 +674,18 @@ fn cleanup_provider_with_path(id: &str, receipt_path: Option<&Path>) -> CleanupR
     }
 }
 
+/// R16: shared OpenCode config dir resolver — single source of truth.
+/// Previously duplicated 4× with the same env-var precedence chain.
+fn opencode_config_dir() -> PathBuf {
+    std::env::var_os("OPENCODE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_dir().join(".config").join("opencode"))
+}
+
 /// R44 0.5.41: derive the OpenCode plugin path from env vars (used when
 /// no receipt is available). Extracted from uninstall_opencode for reuse.
 fn opencode_plugin_path() -> PathBuf {
-    let base = std::env::var_os("OPENCODE_CONFIG_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
-    base.join("plugins").join("llmpet-hook.js")
+    opencode_config_dir().join("plugins").join("llmpet-hook.js")
 }
 
 fn finish_json_hook_cleanup(path: &Path) -> CleanupResult {
@@ -1280,9 +1283,7 @@ fn uninstall_codex() -> CleanupResult {
 }
 
 fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
-    let base = std::env::var_os("OPENCODE_CONFIG_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
+    let base = opencode_config_dir();
     let plugins_dir = base.join("plugins");
     fs::create_dir_all(&plugins_dir).map_err(|e| format!("create plugins dir failed: {e}"))?;
     let path = plugins_dir.join("llmpet-hook.js");
@@ -1361,10 +1362,7 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
 /// explicitly states "OpenCode 未删除文件时不得显示 `removed`".
 #[allow(dead_code)]
 fn uninstall_opencode() -> CleanupResult {
-    let base = std::env::var_os("OPENCODE_CONFIG_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".config").join("opencode"));
-    let path = base.join("plugins").join("llmpet-hook.js");
+    let path = opencode_plugin_path();
     match fs::read_to_string(&path) {
         Ok(raw) => {
             let owns_current = raw.contains(OPENCODE_MARKER);

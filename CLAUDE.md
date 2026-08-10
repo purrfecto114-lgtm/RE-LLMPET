@@ -7,7 +7,7 @@
 
 **Octopus** 是一个低占用 Tauri 2 / Rust 桌面宠物，监控 5 个 coding agent（Claude Code / CodeWhale / Codex / OpenCode / Aider）的生命周期、权限、会话和 token 花费。
 
-- **版本**: 0.5.46 prerelease（→ 0.6.0 stable）
+- **版本**: 0.5.52 prerelease（→ 0.6.0 stable）
 - **技术栈**: Tauri 2 + Rust（edition 2021）+ 原生 JS（无框架、无打包器、无运行时依赖）
 - **数据目录**: `~/.re-llmpet`（不可改名）
 - **二进制**: `octopus`（GUI）+ `octopus-hook`（hook 入口，legacy 别名 `re-llmpet-hook`）
