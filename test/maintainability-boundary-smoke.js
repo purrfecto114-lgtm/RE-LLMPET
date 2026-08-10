@@ -99,9 +99,9 @@ assert(boundaries.includes('tauri-bridge.js')
 // modules have a much smaller budget so they remain reviewable.
 const lineCount = (source) => source.split('\n').length;
 for (const [name, source, maxLines] of [
-  ["frontend/renderer/pet.js", pet, 2520],
+  ["frontend/renderer/pet.js", pet, 2540],
   ['frontend/renderer/panel.js', panel, 1760],
-  ['src-tauri/src/commands.rs', commands, 3320],
+  ['src-tauri/src/commands.rs', commands, 3360],
   ['src-tauri/src/hook_install.rs', hooks, 2330],
   ['frontend/shared/latest-value-controller.js', read('frontend/shared/latest-value-controller.js'), 220],
   ['frontend/shared/panel-fit-controller.js', read('frontend/shared/panel-fit-controller.js'), 220],

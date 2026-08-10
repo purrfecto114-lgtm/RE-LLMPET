@@ -156,8 +156,32 @@ pub fn start_travel(
         app,
         state.runtime.clone(),
         session_id,
-        mission.unwrap_or_else(|| "浏览项目，找出最有意思的结构、风险与下一步建议".into()),
+        mission.unwrap_or_else(|| pick_travel_mission().into()),
     )
+}
+
+/// R16: random mission picker — gives variety instead of always the same mission.
+/// User can still pass a custom mission via the API; this only fires when
+/// mission is None (default behavior).
+fn pick_travel_mission() -> &'static str {
+    let missions = [
+        "浏览项目，找出最有意思的结构、风险与下一步建议",
+        "审视这个项目的代码质量和可维护性，给出改进建议",
+        "探索这个项目的架构设计，找出亮点和潜在问题",
+    ];
+    let idx = crate::model::now_ms() as usize % missions.len();
+    missions[idx]
+}
+
+/// R16: random wander mission picker — variety for web exploration.
+fn pick_wander_mission() -> &'static str {
+    let missions = [
+        "寻找今天值得开发者关注的一个新工具或工程实践",
+        "探索网络上有趣的开发者趋势和话题，给出实用建议",
+        "发现一个值得尝试的库或框架，分析它的优缺点",
+    ];
+    let idx = crate::model::now_ms() as usize % missions.len();
+    missions[idx]
 }
 
 #[tauri::command]
@@ -170,7 +194,7 @@ pub fn start_wander(
     state.runtime.travel.start_wander(
         app,
         state.runtime.clone(),
-        mission.unwrap_or_else(|| "寻找今天值得开发者关注的一个新工具或工程实践".into()),
+        mission.unwrap_or_else(|| pick_wander_mission().into()),
         provider,
     )
 }

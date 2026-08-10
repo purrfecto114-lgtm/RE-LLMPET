@@ -2260,6 +2260,32 @@ document.getElementById('sl-new').addEventListener('click', (e) => {
   chooseProviderAndLaunch();
 });
 document.getElementById('sl-panel').addEventListener('click', (e) => { e.stopPropagation(); window.pet.openPanel(); closeSessList(); });
+// R16: wander button — launch wander with default mission, user can customize via panel
+const slWander = document.getElementById('sl-wander');
+if (slWander) slWander.addEventListener('click', (e) => {
+  e.stopPropagation();
+  // Use a random mission from a built-in list for variety (not hardcoded single mission)
+  const wanderMissions = currentLang === 'en' ? [
+    'Find a new tool or engineering practice worth knowing today',
+    'Explore the web for interesting developer trends',
+    'Discover a useful library or framework worth trying',
+  ] : currentLang === 'ja' ? [
+    '今日知っておくべき新しいツールやエンジニアリング手法を見つけて',
+    'ウェブを探索して興味深い開発者トレンドを発見して',
+    '試してみたいライブラリやフレームワークを見つけて',
+  ] : [
+    '寻找今天值得开发者关注的一个新工具或工程实践',
+    '探索网络上有趣的开发者趋势和话题',
+    '发现一个值得尝试的库或框架',
+  ];
+  const mission = wanderMissions[Math.floor(Math.random() * wanderMissions.length)];
+  window.pet.startWander(mission, null).then(() => {
+    showBubble(`🐾 ${currentLang === 'en' ? 'Off to wander!' : currentLang === 'ja' ? '散歩に出発！' : '出发闲逛！'}`, 3200, true);
+  }).catch((err) => {
+    showBubble(`❌ ${String(err || '闲逛失败')}`, 3000);
+  });
+  closeSessList();
+});
 sesslist.addEventListener('contextmenu', (e) => e.stopPropagation());
 todopop.querySelectorAll('.tp-ops button').forEach((b) => {
   b.addEventListener('click', (e) => {
