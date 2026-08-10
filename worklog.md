@@ -1365,3 +1365,61 @@ Octopus 是 GUI 子系统二进制（Windows GUI subsystem）。每次 spawn con
 5. 性能优化 — 提升体验质量
 6. 0.7.0 大功能 — 长期路线图
 
+
+---
+
+## v0.5.60 — hide_console_window 回归测试 + ghproxy 中国镜像源（2026-08-10 18:50 trigger）
+
+### 远端仓库检查
+- `git fetch origin` + `git rev-list --left-right --count HEAD...origin/main` → 0 0
+- 本地 HEAD `4fc5042` = 远端 `origin/main`，完全同步
+- 5 个最新 tag (v0.5.55-v0.5.59) 全部已推送
+- 工作区干净，无未提交/未跟踪文件
+- **结论**: 远端仓库干净，无需任何处理
+
+### A3: hide_console_window 回归测试（MEDIUM）
+- `test/tauri-windows-static-smoke.js` 添加 6 个断言：
+  1. `platform.rs` 必须定义 `pub(crate) fn hide_console_window`
+  2. 必须使用 `CREATE_NO_WINDOW: u32 = 0x0800_0000`
+  3. `pricing_sync.rs` curl spawn 必须调用 `crate::platform::hide_console_window`
+  4. `travel.rs` provider_command 必须有 `CREATE_NO_WINDOW` 或 `hide_console_window`
+  5. `hook_client.rs` resolve_ppid 必须调用 helper
+  6. `launch_terminal` 函数体必须**不**包含 `hide_console_window`（终端窗口应可见）
+- 防止未来回归导致黑色 cmd 窗口重新出现
+
+### A4: ghproxy.com 中国镜像源 fallback（HIGH）
+- **背景**: v0.5.59 添加了 GitHub raw 镜像，但 raw.githubusercontent.com 本身有时也被 GFW 封锁
+- **修复**: 在 `price_source_urls()` 添加 `MODELS_DEV_GHPROXY_MIRROR_URL` 作为第三个镜像源
+- **URL**: `https://gh-proxy.com/https://raw.githubusercontent.com/anomalyco/models.dev/refs/heads/main/data/api.json`
+- **尝试顺序**（4 层 fallback）:
+  1. 用户自定义镜像（`RE_LLMPET_MODELS_DEV_URL` 环境变量）— 最高优先级
+  2. GitHub raw 镜像（直接 raw.githubusercontent.com）— 最快，但可能被封
+  3. **ghproxy.com 镜像** — 中国可访问的反向代理，包装 GitHub raw URL
+  4. models.dev 原始源 — 最终 fallback
+- **安全考量**:
+  - ghproxy 响应经过与主源相同的 schema 验证（`normalize_models_dev` + max size 16MB + max models 20000）
+  - 篡改响应会被拒绝
+  - 无凭证发送（内容是公开的 model pricing JSON）
+  - etag/last_modified 验证器只发送给 models.dev 原始源，不发送给任何镜像
+
+### Web 搜索验证
+- gh-proxy.com 是公开的 GitHub 反向代理服务
+- URL 格式：在原始 GitHub raw URL 前加 `https://gh-proxy.com/`
+- 支持 Releases, Raw, Archive, clone 加速
+- 在中国大陆可访问
+
+### 验证结果
+- `cargo clippy -D warnings --all-targets`: ✅ EXIT=0
+- `cargo fmt --check`: ✅
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+
+### 版本迭代
+- v0.5.59 → v0.5.60（1 HIGH + 1 MEDIUM）
+- 更新: package.json, Cargo.toml, tauri.conf.json, Cargo.lock, package-lock.json, SOURCE_REVISION, migration-todo.json, SOURCE_MANIFEST.json
+- GitHub main: `722ce17` 已推送，tag `v0.5.60` 已打
+
+### 下轮重点（Phase A 剩余）
+- A1: #23 usage-archive carry — 历史 usage 数据归档
+- A2: 真机验证清单 — v0.5.58-v0.5.60 修复的真机验证步骤文档
+
