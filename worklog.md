@@ -1023,3 +1023,50 @@ re-llmpet.log 显示：
 | Round 4 | 去理想化 + 性能 + 安全 | ✅ v0.5.56 |
 | Round 5 | 上游 backport + 功能增强 | 下轮 |
 
+
+---
+
+## v0.5.57: Rust 事件文本去 i18n（2026-08-10 14:16 trigger）
+
+### HIGH: Rust 端 8 个中文事件文本改为英文
+
+| 文件 | 原文（中文） | 改后（英文） |
+|---|---|---|
+| commands.rs:827 | 领地模式已关闭。 | Territory mode disabled. |
+| commands.rs:3078 | 无法直接聚焦该终端：{error}；已打开详情面板。 | Cannot focus terminal: {error}. Opening dashboard. |
+| http_server.rs:696 | Agent 执行失败 | Agent execution failed |
+| http_server.rs:699 | 已创建并行任务 | Task created |
+| http_server.rs:702 | 并行任务已完成 | Task completed |
+| http_server.rs:694 | 正在执行工具 | Running tool |
+| territory.rs:375 | 巡视完成，没有发现其他桌宠。 | Patrol complete, no rival pets found. |
+| territory.rs:226 | 领地模式的竞品窗口推动仅支持 macOS；已将 Octopus 窗口置顶。 | Territory rival push requires macOS. Octopus window brought to front. |
+
+### 去理想化
+- 之前切换语言到 en/ja 时，Rust 发出的事件仍是中文
+- 现在 Rust 端统一英文，pet.js 前端根据 event kind 通过 i18n 系统翻译
+- 这样所有用户可见文本都跟随语言设置
+
+### #26 eprintln 评估
+- 26 个 eprintln 全部在 mutex poison recovery / early-init 路径
+- write_log 需要 &Runtime，在这些路径不可用
+- eprintln 是正确的安全网选择，不替换
+
+### 版本号自动迭代
+- v0.5.56 → v0.5.57（HIGH: 用户可见的 i18n 改进）
+- tag v0.5.57 已推送
+
+### 验证
+- clippy -D warnings --all-targets: ✅ EXIT=0
+- 22/22 static + npm test EXIT=0
+- GitHub main: `f87d94a`, tag v0.5.57 ✅
+
+### 全局审查总结（26 项 → 已修复 19 项）
+| 轮次 | 修复数 | 版本 |
+|---|---|---|
+| Round 1 | 4 项（#2,#6,#8,#25） | v0.5.53 |
+| Round 2 | ~40 个 i18n 字符串（#3,#16,#17,#18） | v0.5.54 |
+| Round 3 | 3 项（#13,#14,+5 Rust tests） | v0.5.55 |
+| Round 4 | 3 项（#1,#19,#20） | v0.5.56 |
+| Round 5 | 8 个 Rust 事件文本（#5） | v0.5.57 |
+| **剩余** | 7 项 MEDIUM/LOW（#7,#9,#10,#11,#12,#21,#22,#23,#24） | — |
+
