@@ -988,3 +988,38 @@ re-llmpet.log 显示：
 | Round 4 | MEDIUM 性能 + 安全 + 功能 | 下轮 |
 | Round 5 | 上游 backport + 功能增强 | 待做 |
 
+
+---
+
+## v0.5.56: 全局审查 Round 4 — 去理想化 + 性能 + 安全（2026-08-10）
+
+### CRITICAL: stats.bg 去理想化
+- **问题**: `bg` 字段恒为 `{running:0, zombie:0, total:0, items:[]}`，面板显示"✅0 · 🧟0"误导用户以为后台监控在工作
+- **修复**: `model.rs` 添加 `"available":false` 标记；`panel.js` 检测后隐藏整个后台任务区块
+- **去理想化**: 不再用零值假装功能存在。真正的后台进程对账需要 pidwalk（P5-002），推迟到 0.7.0
+
+### MEDIUM: sessions HashMap 上限
+- `prune_expired_sessions()` 新增 `MAX_SESSIONS=200` 上限
+- 超过时按 `updated_at` 最旧优先驱逐，防止长时间运行后内存增长
+
+### MEDIUM: focus_session 错误文本 sanitize
+- 错误信息截断为 200 字符，防止泄露长路径或平台细节到桌宠 UI
+
+### 版本号自动迭代
+- v0.5.55 → v0.5.56（HIGH: 去理想化 — 用户可见的 UI 改进）
+- tag v0.5.56 已推送
+
+### 验证
+- clippy -D warnings --all-targets: ✅ EXIT=0
+- 22/22 static + npm test EXIT=0
+- GitHub main: `6a49912`, tag v0.5.56 ✅
+
+### 审查进度
+| 轮次 | 重点 | 状态 |
+|---|---|---|
+| Round 1 | 文档/配置/代码去重 | ✅ v0.5.53 |
+| Round 2 | i18n 清理 | ✅ v0.5.54 |
+| Round 3 | 代码质量 + 测试 | ✅ v0.5.55 |
+| Round 4 | 去理想化 + 性能 + 安全 | ✅ v0.5.56 |
+| Round 5 | 上游 backport + 功能增强 | 下轮 |
+
