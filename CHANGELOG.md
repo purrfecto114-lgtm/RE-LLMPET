@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.5.60 — hide_console_window 回归测试 + ghproxy 中国镜像源（2026-08-10）
+
+### HIGH: ghproxy.com 中国镜像源 fallback
+- **背景**: v0.5.59 添加了 GitHub raw 镜像，但 raw.githubusercontent.com 本身有时也被 GFW 封锁。
+- **修复**: 在 `price_source_urls()` 添加 ghproxy.com 作为第三个镜像源，尝试顺序：
+  1. 用户自定义镜像（`RE_LLMPET_MODELS_DEV_URL` 环境变量）
+  2. GitHub raw 镜像（直接 raw.githubusercontent.com）— 最快，但可能被封
+  3. **ghproxy.com 镜像** — `https://gh-proxy.com/https://raw.githubusercontent.com/...` — 中国可访问的反向代理
+  4. models.dev 原始源 — 最终 fallback
+- **安全**: ghproxy 响应经过与主源相同的 schema 验证（normalize_models_dev + max size 16MB + max models 20000），篡改响应会被拒绝。无凭证发送（内容是公开的）。
+
+### MEDIUM: hide_console_window 回归测试
+- `test/tauri-windows-static-smoke.js` 添加断言：
+  1. `platform.rs` 必须定义 `hide_console_window` helper
+  2. 必须使用 `CREATE_NO_WINDOW: u32 = 0x0800_0000`
+  3. `pricing_sync.rs` curl spawn 必须调用 helper
+  4. `travel.rs` provider_command 必须有 CREATE_NO_WINDOW
+  5. `hook_client.rs` resolve_ppid 必须调用 helper
+  6. `launch_terminal` 必须**不**调用 helper（终端窗口应可见）
+- 防止未来回归导致黑色 cmd 窗口重新出现
+
+### 验证
+- cargo clippy -D warnings --all-targets: ✅ EXIT=0
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+
+---
+
 ## 0.5.59 — 隐藏黑色 cmd 窗口 + 模型价格镜像源（2026-08-10）
 
 ### HIGH: 隐藏 Windows 黑色 cmd 窗口

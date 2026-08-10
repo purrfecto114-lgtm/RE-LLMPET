@@ -66,4 +66,35 @@ assert.strictEqual(packageJson.dependencies.electron, undefined);
 assert.strictEqual(packageJson.devDependencies.electron, undefined);
 assert(packageJson.scripts['package:win'].includes('--bundles nsis'));
 
+// R22 (2026-08-10): hide_console_window regression guard.
+// Octopus is a GUI-subsystem binary; every non-interactive console child
+// (curl, cmd, powershell, taskkill) must have CREATE_NO_WINDOW applied via
+// the shared helper. This prevents the "黑色 cmd 窗口" flash that users
+// reported. launch_terminal is intentionally excluded (visible terminal).
+assert(platform.includes('pub(crate) fn hide_console_window'),
+  'platform.rs must define hide_console_window helper');
+assert(platform.includes('CREATE_NO_WINDOW: u32 = 0x0800_0000'),
+  'hide_console_window must use CREATE_NO_WINDOW (0x08000000)');
+
+// Verify the helper is called at all expected spawn sites.
+const pricing = read('src-tauri/src/pricing_sync.rs');
+assert(pricing.includes('crate::platform::hide_console_window'),
+  'pricing_sync curl spawn must hide console window (#1 source of black cmd)');
+
+const travel = read('src-tauri/src/travel.rs');
+assert(travel.includes('CREATE_NO_WINDOW') || travel.includes('hide_console_window'),
+  'travel provider_command must hide console window for .cmd shim trips');
+
+const hookClient = read('src-tauri/src/hook_client.rs');
+assert(hookClient.includes('hide_console_window'),
+  'hook_client resolve_ppid must hide powershell window');
+
+// launch_terminal must NOT have hide_console_window (terminal is intentionally visible)
+const launchTerminalSection = commands.slice(
+  commands.indexOf('fn launch_terminal'),
+  commands.indexOf('fn open_path')
+);
+assert(!launchTerminalSection.includes('hide_console_window'),
+  'launch_terminal must NOT hide console window (user expects visible terminal)');
+
 console.log('tauri-windows-static-smoke: ok');

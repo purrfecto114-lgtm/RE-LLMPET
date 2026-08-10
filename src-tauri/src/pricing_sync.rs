@@ -24,6 +24,15 @@ const MODELS_DEV_URL: &str = "https://models.dev/api.json";
 /// schema as the primary source (normalize_models_dev + max size + max models).
 const MODELS_DEV_GITHUB_MIRROR_URL: &str =
     "https://raw.githubusercontent.com/anomalyco/models.dev/refs/heads/main/data/api.json";
+/// R22-A4 (2026-08-10): ghproxy.com wrapper around the GitHub raw mirror.
+/// raw.githubusercontent.com itself is sometimes blocked by the GFW. gh-proxy.com
+/// is a public GitHub reverse-proxy that re-serves raw content from a China-
+/// accessible edge. The response is validated against the same schema, so a
+/// tampered response is rejected. No credentials are sent (content is public).
+/// Tried AFTER the direct GitHub raw mirror (which is faster when reachable)
+/// and BEFORE models.dev (which is the most frequently blocked endpoint).
+const MODELS_DEV_GHPROXY_MIRROR_URL: &str =
+    "https://gh-proxy.com/https://raw.githubusercontent.com/anomalyco/models.dev/refs/heads/main/data/api.json";
 const PRICE_SOURCE_ENV: &str = "RE_LLMPET_MODELS_DEV_URL";
 pub const PRICE_SYNC_STATE_FILE_NAME: &str = "pricing-sync-state.json";
 const STARTUP_DELAY: Duration = Duration::from_secs(5);
@@ -434,12 +443,22 @@ fn price_source_urls() -> Vec<String> {
     // frequently blocked in mainland China. raw.githubusercontent.com is
     // generally accessible (or at least more accessible than models.dev).
     // If this mirror 404s or returns invalid JSON, the loop falls through
-    // to the primary models.dev URL below.
+    // to the ghproxy mirror and then the primary models.dev URL below.
     if !urls
         .iter()
         .any(|existing| existing == MODELS_DEV_GITHUB_MIRROR_URL)
     {
         urls.push(MODELS_DEV_GITHUB_MIRROR_URL.to_string());
+    }
+    // R22-A4: ghproxy.com mirror — tried after direct GitHub raw (which is
+    // faster when reachable) but before models.dev. raw.githubusercontent.com
+    // is sometimes blocked by the GFW; gh-proxy.com re-serves the same content
+    // from a China-accessible edge. Response is schema-validated.
+    if !urls
+        .iter()
+        .any(|existing| existing == MODELS_DEV_GHPROXY_MIRROR_URL)
+    {
+        urls.push(MODELS_DEV_GHPROXY_MIRROR_URL.to_string());
     }
     // Primary source — always last as the ultimate fallback.
     if !urls.iter().any(|existing| existing == MODELS_DEV_URL) {

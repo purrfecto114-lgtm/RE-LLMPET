@@ -18,8 +18,8 @@ const tauri = JSON.parse(read('src-tauri/tauri.conf.json'));
 const tauriLinux = JSON.parse(read('src-tauri/tauri.linux.conf.json'));
 const pinnedFixture = JSON.parse(read('test/fixtures/models-dev-api-sample.json'));
 
-assert.strictEqual(pkg.version, '0.5.59');
-assert.strictEqual(tauri.version, '0.5.59');
+assert.strictEqual(pkg.version, '0.5.60');
+assert.strictEqual(tauri.version, '0.5.60');
 assert(tauriLinux.bundle.linux.deb.depends.includes('curl'), 'Debian package must declare curl runtime dependency');
 assert(pinnedFixture.anthropic.models['claude-sample'].cost.cache_read > 0);
 
@@ -43,6 +43,9 @@ assert(pricing.includes('value.starts_with("https://")'));
 // and tried before models.dev (which is frequently blocked by the GFW).
 assert.match(pricing, /MODELS_DEV_GITHUB_MIRROR_URL/);
 assert.match(pricing, /raw\.githubusercontent\.com/);
+// R22-A4: ghproxy.com mirror as China fallback for raw.githubusercontent.com
+assert.match(pricing, /MODELS_DEV_GHPROXY_MIRROR_URL/);
+assert.match(pricing, /gh-proxy\.com/);
 assert.match(pricing, /force_ipv4 = attempt == 1/);
 assert.match(pricing, /command\.arg\("--ipv4"\)/);
 assert.match(pricing, /retryable_curl_exit/);
