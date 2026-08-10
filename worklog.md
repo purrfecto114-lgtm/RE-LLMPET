@@ -1224,3 +1224,144 @@ re-llmpet.log 显示：
 
 实际剩余可做项：#23 (usage-archive carry)
 
+
+---
+
+## v0.5.59 — 隐藏黑色 cmd 窗口 + 模型价格镜像源（2026-08-10 18:10 trigger）
+
+### 用户报告的 2 个问题
+
+1. **每次打开都会出现黑色 cmd 的 curl.exe** — 希望隐藏
+2. **模型价格更新的镜像源在中国大概率不可用** — 寻找镜像站或更好的办法，注意安全
+
+### 问题 1: 隐藏黑色 cmd 窗口
+
+#### 根因分析
+Octopus 是 GUI 子系统二进制（Windows GUI subsystem）。每次 spawn console 子进程时，Windows 会为新子进程分配 conhost.exe 并弹出黑色 cmd 窗口。通过 Explore agent 审计发现 **13 处 `Command::new()` spawn 点**中有 8 处会弹出可见的 console 窗口：
+
+| 位置 | 命令 | 频率 | 严重度 |
+|------|------|------|--------|
+| pricing_sync.rs:503 | curl.exe | 每次启动+定时刷新 | 🟥 最主要 |
+| commands.rs:1814 | cmd.exe (诊断探针) | 每次诊断×4并行 | 🟥 高 |
+| commands.rs:2507 | taskkill.exe | 取消诊断时 | 🟧 中 |
+| commands.rs:3038 | cmd.exe (open_gui) | .cmd启动VS Code | 🟧 低 |
+| platform.rs:459 | powershell.exe (parent_pid) | 首次调用 | 🟨 低 |
+| platform.rs:527 | powershell.exe (focus) | 每次点击聚焦 | 🟥 高 |
+| travel.rs:872 | cmd.exe (闲逛) | 30s-2min | 🟥 高 |
+| hook_client.rs:226 | powershell.exe (PPID) | 首次hook | 🟨 低 |
+
+#### 修复
+在 `platform.rs` 添加共享 `hide_console_window()` helper：
+- Windows: `creation_flags(CREATE_NO_WINDOW = 0x08000000)`
+- Unix: no-op（Unix console 不创建新窗口）
+
+应用到所有 8 处非交互式 spawn。**不修改** `launch_terminal` 的 `cmd.exe /K`（用户期望看到终端窗口）。
+
+#### 文件变更
+- `src-tauri/src/platform.rs`: 新增 `hide_console_window()` + 修补 2 处 powershell
+- `src-tauri/src/pricing_sync.rs`: 修补 curl.exe
+- `src-tauri/src/commands.rs`: 修补诊断探针(2处) + taskkill + open_gui(2处)
+- `src-tauri/src/travel.rs`: 修补 provider_command(2处)
+- `src-tauri/src/hook_client.rs`: 修补 resolve_ppid
+
+### 问题 2: 模型价格镜像源
+
+#### 根因分析
+- 主源 `https://models.dev/api.json` 在中国大陆经常不可访问（GFW + Cloudflare 边缘节点）
+- jsDelivr CDN (`cdn.jsdelivr.net`) 在中国也被封锁
+- 原代码只有 `RE_LLMPET_MODELS_DEV_URL` 环境变量作为用户自定义镜像，无内置 fallback
+
+#### 修复
+在 `price_source_urls()` 添加 GitHub raw 镜像作为内置 fallback，尝试顺序：
+1. **用户自定义镜像** (`RE_LLMPET_MODELS_DEV_URL` 环境变量) — 最高优先级
+2. **GitHub raw 镜像** — `https://raw.githubusercontent.com/anomalyco/models.dev/refs/heads/main/data/api.json` — 在 models.dev 之前尝试（因为 models.dev 是被墙的那个）
+3. **models.dev 原始源** — 始终作为最终 fallback
+
+#### 安全考量
+- 镜像 URL 是 HTTPS-only 的 raw.githubusercontent.com 链接
+- 无凭证、无查询字符串、无控制字符
+- 响应经过与主源相同的 schema 验证（`normalize_models_dev` + max size 16MB + max models 20000）
+- etag/last_modified 验证器只发送给 models.dev 原始源，不发送给镜像（避免不同资源的 false 304）
+- 每个 URL 3 次重试（第 2 次 force IPv4），跨 URL 顺序 fallback
+
+#### Web 搜索验证
+- models.dev 的 GitHub 仓库是 `anomalyco/models.dev`
+- api.json 存储在 `data/api.json`（通过 opencode issue #26068 确认 raw URL 格式）
+- raw.githubusercontent.com 在中国通常可访问（GFW 封锁 raw.githubusercontent.com 但不总是）
+
+### 验证结果
+- `cargo clippy -D warnings --all-targets`: ✅ EXIT=0
+- `cargo fmt --check`: ✅
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+
+### 版本迭代
+- v0.5.58 → v0.5.59（2 个 HIGH）
+- 更新: package.json, Cargo.toml, tauri.conf.json, Cargo.lock, package-lock.json, SOURCE_REVISION, migration-todo.json, SOURCE_MANIFEST.json
+- GitHub main: `2c96b0b` 已推送，tag `v0.5.59` 已打
+
+### 测试更新
+- `tauri-price-auto-update-smoke.js`: 将 `doesNotMatch(MODELS_DEV_MIRROR_URL)` 改为 `match(MODELS_DEV_GITHUB_MIRROR_URL)` + `match(raw.githubusercontent.com)`
+
+
+---
+
+## 定时任务更新 + 后续路径规划（2026-08-10 18:25）
+
+### 定时任务变更
+- 旧任务 ID 316006（1h 间隔，v0.5.52 时代创建）已删除
+- 新任务 ID 316354（45min 间隔，v0.5.59 当前状态）
+- 时区: Asia/Shanghai
+- Priority: 5 (medium)
+
+### 后续路径规划（5 个阶段，按优先级推进）
+
+#### 阶段 A: 收尾 + 真机验证（当前-下2轮）
+- **A1**: #23 usage-archive carry — 历史.usage 数据归档，跨版本迁移
+- **A2**: 真机验证清单 — v0.5.58-v0.5.59 修复的真机验证步骤文档
+- **A3**: 回归测试增强 — hide_console_window 的 Windows 测试断言
+- **A4**: 镜像源增强 — 考虑 ghproxy.com 作为 raw.githubusercontent.com 的中国 fallback
+
+#### 阶段 B: 用户体验打磨（第3-5轮）
+- **B1**: 闲逛任务模板用户自定义 — pet.js wander mission 支持自定义模板
+- **B2**: 诊断结果导出 — diagnose_agent 结果可导出 JSON
+- **B3**: 状态过渡动画 — pet 状态切换平滑过渡（fade/slide）
+- **B4**: panel 响应式优化 — 小屏幕（<420px）布局
+- **B5**: i18n 补全 — 剩余硬编码字符串（中/英/日）
+
+#### 阶段 C: Provider 兼容性加固（第6-8轮）
+- **C1**: CodeWhale v0.9.5+ 前向兼容 — 单 runtime doctor 探针健壮性
+- **C2**: OpenCode 插件目录扫描 — 符号链接/权限/超大目录处理
+- **C3**: Aider 配置检测 — .aider.conf.yml 解析增强
+- **C4**: 新 provider 支持 — 评估 Cursor/Windsurf/Continue
+- **C5**: hook 安装幂等性 — 重复安装检测和清理
+
+#### 阶段 D: 性能与可观测性（第9-11轮）
+- **D1**: notify crate 替换轮询 — hook_watcher 文件系统事件监听
+- **D2**: 内存优化 — pet.js/panel.js 长列表渲染优化
+- **D3**: 启动时间优化 — 延迟加载非关键资源
+- **D4**: eprintln! 清理 — #26 LOW，替换为 runtime.write_log()
+- **D5**: 遥测（opt-in）— 匿名使用统计
+
+#### 阶段 E: 0.7.0 路线图（第12轮+）
+- **E1**: territory episodes — #24，领地模式剧情系统
+- **E2**: 真实后台任务检测 — stats.bg 真实实现
+- **E3**: 多桌宠支持 — 同时显示多个 provider 桌宠
+- **E4**: 插件系统 — 第三方扩展点
+- **E5**: Web Dashboard — 可选 Web 管理界面
+
+### 每轮工作策略（45min 限制）
+- 选 1-2 个小而完整的项，避免半成品
+- 优先修复用户反馈的实际问题
+- 每轮至少完成 1 个可验证的改进点
+- 如果某项太大，记录进度到 worklog.md，下轮继续
+
+### 优先级决策依据
+基于用户反馈模式的优先级排序：
+1. 用户可见的 bug 修复（GUI 穿模、toast、动画、黑窗、镜像）— 已完成
+2. 真机验证 — 确保 v0.5.58-v0.5.59 修复实际生效
+3. 用户体验打磨 — 让产品更易用
+4. Provider 兼容性 — 扩大支持范围
+5. 性能优化 — 提升体验质量
+6. 0.7.0 大功能 — 长期路线图
+
