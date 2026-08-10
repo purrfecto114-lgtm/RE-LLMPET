@@ -309,6 +309,8 @@ body.skin-cat #cat { display: flex; }
    mid-animation. Moving the animation to .pixel-sprite keeps the
    outer #pixel — and therefore #pet-anchor — geometrically stable. */
 #pixel.waiting .pixel-sprite { animation: attn 0.55s ease-in-out infinite; filter: drop-shadow(0 0 9px rgba(255, 190, 80, 0.95)); }
+/* R22: attention reuses the waiting attn animation (both mean "look at me"). */
+#pixel.attention .pixel-sprite { animation: attn 0.55s ease-in-out infinite; filter: drop-shadow(0 0 9px rgba(255, 190, 80, 0.95)); }
 @keyframes attn {
   0%, 100% { transform: translateX(0) rotate(0); }
   20% { transform: translateX(-4px) rotate(-4deg); }
@@ -621,6 +623,9 @@ body.skin-cat #cat { display: flex; }
    attn animation moves to #mascot-img. */
 #mascot.waiting { filter: drop-shadow(0 0 10px rgba(255,190,80,0.95)) drop-shadow(0 6px 10px rgba(150,70,40,0.3)); }
 #mascot.waiting #mascot-img { animation: attn 0.55s ease-in-out infinite; }
+/* R22: attention reuses the waiting animation + glow (both mean "look at me"). */
+#mascot.attention { filter: drop-shadow(0 0 10px rgba(255,190,80,0.95)) drop-shadow(0 6px 10px rgba(150,70,40,0.3)); }
+#mascot.attention #mascot-img { animation: attn 0.55s ease-in-out infinite; }
 #mascot.error #mascot-img { animation: errShake 0.42s ease-in-out 3; }
 #mascot.error #mascot-body { fill: #c9381a; }
 #mascot.greet #mascot-img { animation: greetWave 0.5s ease-in-out 4; transform-origin: bottom center; }

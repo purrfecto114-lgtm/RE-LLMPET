@@ -61,12 +61,20 @@
         e.stopPropagation();
         el.classList.remove('show');
         el.hidden = true;
+        // R22: notify the pet window to recompute visual bounds after the
+        // toast is hidden, so the click-through region shrinks back to the
+        // pet anchor.
+        notifyVisualBoundsChanged();
       });
       el.appendChild(closeBtn);
     }
 
     el.hidden = false;
     el.classList.add('show');
+    // R22: notify the pet window to expand the click-through region to
+    // include the now-visible toast. requestAnimationFrame ensures the
+    // layout has settled before we measure getBoundingClientRect.
+    notifyVisualBoundsChanged();
     // Clear any prior auto-hide timer
     if (el._reLlmpetToastTimer) {
       clearTimeout(el._reLlmpetToastTimer);
@@ -75,8 +83,30 @@
       el._reLlmpetToastTimer = setTimeout(() => {
         el.classList.remove('show');
         // Keep `hidden` attribute in sync after the fade-out animation
-        setTimeout(() => { if (!el.classList.contains('show')) el.hidden = true; }, 250);
+        setTimeout(() => {
+          if (!el.classList.contains('show')) el.hidden = true;
+          notifyVisualBoundsChanged();
+        }, 250);
       }, timeout);
+    }
+  }
+
+  // R22: tell the pet window (if present) to recompute its visual bounds.
+  // The pet window's native click-through guard (cursor_hit_decision in
+  // platform.rs) uses petVisualBounds to decide whether to ignore cursor
+  // events. When a toast appears or disappears, the interactive rect
+  // changes and must be re-reported.
+  function notifyVisualBoundsChanged() {
+    if (typeof global.requestAnimationFrame === 'function') {
+      global.requestAnimationFrame(() => {
+        if (global.pet && typeof global.pet.petVisualBounds === 'function') {
+          // Delegate to pet.js's reportPetVisualBounds if available, which
+          // recomputes the union of all INTERACTIVE_HIT_SEL elements.
+          if (typeof global.reportPetVisualBounds === 'function') {
+            global.reportPetVisualBounds();
+          }
+        }
+      });
     }
   }
 

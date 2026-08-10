@@ -38,9 +38,9 @@ assert(model.includes('pub diagnostic_control: crate::diagnostic_control::Diagno
   'Runtime must delegate diagnostic lifecycle ownership to DiagnosticControl');
 assert(diagnosticControl.includes('struct DiagnosticState')
   && diagnosticControl.includes('provider: Option<String>')
-  && diagnosticControl.includes('pid: Option<u32>')
+  && diagnosticControl.includes('pids: HashSet<u32>')
   && diagnosticControl.includes('cancel_requested: bool'),
-  'provider, PID and cancellation must share one mutex-owned state');
+  'provider, PIDs and cancellation must share one mutex-owned state (R22: pids is now HashSet for parallel probes)');
 assert(diagnosticControl.includes('diagnostic already in progress'),
   'DiagnosticControl must reject overlapping provider diagnostics');
 assert(commands.includes('diagnostic_control.begin(provider.clone())'),

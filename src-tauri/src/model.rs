@@ -1381,6 +1381,7 @@ impl Runtime {
         let mut thinking = 0u32;
         let mut loafing = 0u32;
         let mut errors = 0u32;
+        let mut attention = 0u32;
 
         for session in &sessions {
             let project = session_projects
@@ -1406,6 +1407,12 @@ impl Runtime {
                 "thinking" => thinking += 1,
                 "loafing" => loafing += 1,
                 "error" => errors += 1,
+                // R22 (2026-08-10): "attention" is set by CodeWhale turn_end
+                // (hook_client.rs) and OpenCode session.idle (hook_install.rs).
+                // Without this arm, attention sessions were invisible to the
+                // aggregate-state ladder and the pet appeared stuck in
+                // idle/sleeping even while a session was actively waiting.
+                "attention" => attention += 1,
                 _ => {}
             }
             rows.push(json!({
@@ -1536,6 +1543,7 @@ impl Runtime {
             "thinkingCount":thinking,
             "loafingCount":loafing,
             "errorCount":errors,
+            "attentionCount":attention,
             "todos":top_todos,
             "todosProject":todos_project,
             "lastActivityTs":sessions.iter().map(|s| s.updated_at).max().unwrap_or(self.started_at),

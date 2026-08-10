@@ -46,8 +46,9 @@ const build = read('src-tauri/build.rs');
 assert(petJs.includes('providerChooserOpen || isInteracting()'),
   'R35.2: syncUiBusy must include providerChooserOpen');
 // chooser is in INTERACTIVE_HIT_SEL
-assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#provider-chooser'"),
-  'R35.2: INTERACTIVE_HIT_SEL must include #provider-chooser');
+// R22 (2026-08-10): selector now also includes #re-llmpet-toast
+assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#provider-chooser,#re-llmpet-toast'"),
+  'R22: INTERACTIVE_HIT_SEL must include #provider-chooser + #re-llmpet-toast');
 // chooser reads status from latestProviderStatuses (config), not lastStats
 assert(petJs.includes('let latestProviderStatuses = {}'),
   'R35.2: pet.js must declare latestProviderStatuses (sourced from config)');

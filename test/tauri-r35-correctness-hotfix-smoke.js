@@ -92,10 +92,10 @@ assert(petJs.includes("getElementById('pet-anchor')"),
 // skin elements (#pixel/#mascot/#cat) in the hit-test union still caused
 // the click-through boundary to shift during state animations. R35.1
 // removed them. R35.2 added #provider-chooser (0.5.12 carpet audit
-// P0-1 证据B). Assert the current selector and the absence of the
-// animated skins in it.
-assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#provider-chooser'"),
-  'R35.2: INTERACTIVE_HIT_SEL must be anchor-only + #provider-chooser');
+// P0-1 证据B). R22 (2026-08-10) added #re-llmpet-toast so the persistent
+// error toast's ✕ button is clickable (not in the click-through zone).
+assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#provider-chooser,#re-llmpet-toast'"),
+  'R22: INTERACTIVE_HIT_SEL must include #re-llmpet-toast for dismissible toasts');
 assert(!petJs.includes("'#pet-anchor,#pixel,#mascot,#cat,#radial,"),
   'R35.1: the old union selector (with animated skins) must be gone');
 // geometryBusy guard exists and is checked in openRadial

@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.58 — 用户反馈三问题修复 + 诊断并行化（2026-08-10）
+
+### HIGH: 闲逛/启动 GUI 穿模修复（z-index 冲突）
+- **根因**: pet 窗口 `alwaysOnTop:true`，panel 窗口 `alwaysOnTop:false`。打开 panel 时 pet 透明覆盖层遮住 panel，toast/bubble 扩大 pet 区域时产生穿模。
+- **修复**: `open_panel` 设置 panel `set_always_on_top(true)`，`close_panel` 恢复 `false`。panel 可见时位于 pet 之上，关闭后恢复正常窗口层级。
+
+### HIGH: Launch agent 错误提示无法关闭
+- **根因**: `#re-llmpet-toast` 不在 `INTERACTIVE_HIT_SEL` 选择器中。持久错误 toast 渲染在 pet 窗口右下角（#pet-anchor 矩形外），落入 click-through 区域，✕ 按钮点击穿透到桌面。
+- **修复**: 将 `#re-llmpet-toast` 加入 `INTERACTIVE_HIT_SEL`。toast.js 在显示/隐藏时调用 `reportPetVisualBounds()` 重新计算 click-through 区域。与 R35.2 修复 #provider-chooser 是同一类 bug。
+
+### HIGH: 桌宠动画不随状态更新
+- **根因 A**: Rust stats 匹配没有 `"attention" =>` 分支，CodeWhale turn_end 和 OpenCode session.idle 设置的 `state:"attention"` 会被忽略，不产生 `attentionCount`。
+- **根因 B**: 前端 `applyStats` 优先级梯子没有 `attention` 分支，落入 idle/sleeping。
+- **根因 C**: `case 'state'` 事件处理器在 transient 窗口内（turn-done 后 1.8s）阻塞所有状态事件，包括紧随其后的 attention 事件。
+- **修复**:
+  1. model.rs: 添加 `"attention" => attention += 1` 分支 + `attentionCount` JSON 字段
+  2. pet.js: `applyStats` 梯子添加 `attention` 分支（位于 sweeping 和 juggling 之间，对应 STATE_PRIORITY=5）
+  3. pet.js: `case 'state'` 允许 sticky 高优先级状态（waiting/needsinput/error/attention）突破 transient 抑制
+  4. pet.js: MASCOT_EYES 添加 `attention` 映射
+  5. pet.css: pixel/mascot 皮肤添加 `attention` 动画（复用 waiting 的 attn 动画 + 黄色光晕）
+
+### MEDIUM: 诊断探针并行化（#22 审计项）
+- **根因**: `diagnose_agent_sync` 中 4 个独立探针（--version、companion --version、doctor、auth）串行执行，最坏情况 26s（CodeWhale: 5+5+8+8）。
+- **修复**: 使用 `std::thread::scope` 并行执行 4 个探针，最坏情况降至 max(5,5,8,8)=8s。`DiagnosticControl` 从 `pid: Option<u32>` 升级为 `pids: HashSet<u32>` 以支持多进程追踪。`cancel_diagnostic` 现在终止所有已注册的子进程。
+
+### 验证
+- cargo clippy -D warnings --all-targets: ✅ EXIT=0
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+- 行数预算: pet.js 2539/2540 ✅
+
+---
+
 ## 0.5.57 — Rust 事件文本去 i18n（2026-08-10）
 
 ### HIGH: Rust 端 5 个中文事件文本改为英文

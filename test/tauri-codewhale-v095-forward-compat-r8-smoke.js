@@ -42,9 +42,11 @@ assert(companionCheck.includes('eprintln'),
   'resolve_agent must emit eprintln warning for missing companion (not silent)');
 
 // ── 2. diagnose_agent_sync: MISSING_COMPANION_BINARY is a warning, not an issue ──
+// R22 (2026-08-10): the end marker changed from 'let version = executable' to
+// 'let exe_v = executable.clone()' after the diagnostic probe parallelization.
 const diagSection = commands.slice(
   commands.indexOf('if spec.id == "codewhale" && executable.is_some() && companion.is_none()'),
-  commands.indexOf('let version = executable')
+  commands.indexOf('let exe_v = executable.clone()')
 );
 assert.ok(diagSection.length > 0, 'diagnose_agent_sync companion check must exist');
 assert(diagSection.includes('warnings.push') && diagSection.includes('MISSING_COMPANION_BINARY'),

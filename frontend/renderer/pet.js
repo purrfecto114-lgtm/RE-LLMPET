@@ -55,6 +55,7 @@ const MASCOT_EYES = {
   talking: 'mascot-happy.png',
   waiting: 'mascot-wait.png', // 等你处理：瞪大
   needsinput: 'mascot-think.png', // 等你回复：往上看(期待)
+  attention: 'mascot-wait.png', // 需要注意：瞪大（CodeWhale turn_end / OpenCode idle）
   error: 'mascot-wait.png',
   // 情绪短暂态 → 就近回落（专属图未画）
   loved: 'mascot-happy.png',
@@ -1621,10 +1622,18 @@ window.pet.onEvent((ev) => {
     }
     // R13: handle 'state' kind events (from OpenCode session.status, CodeWhale mode_change, etc.)
     // These provide immediate state transitions without waiting for the next stats snapshot.
+    // R22 (2026-08-10): allow high-priority sticky states (waiting, needsinput,
+    // error, attention) to break through the transient suppression window.
+    // Previously, a turn-done transient (1.8s) would block the subsequent
+    // attention state event from CodeWhale turn_end, leaving the pet stuck
+    // in "happy" then falling to idle instead of showing "attention".
     case 'state': {
       if (ev.state && STATE_WORDS.includes(ev.state)) {
         const hold = state === 'waiting' || state === 'needsinput' || state === 'error';
-        if (!hold && perfNow() >= transientUntil) {
+        // Sticky high-priority states break through transients immediately.
+        const stickyHi = ev.state === 'waiting' || ev.state === 'needsinput'
+          || ev.state === 'error' || ev.state === 'attention';
+        if (!hold && (stickyHi || perfNow() >= transientUntil)) {
           setState(ev.state);
         }
       }
@@ -1701,8 +1710,11 @@ function applyStats(s) {
 
   // 聚合梯子，对齐 STATES.md 的优先级表：
   //   waiting > 短暂态 > error(8) > needsinput/notification(7) > sweeping(6)
-  //   > juggling(4) > working(3) > thinking(2) > idle(1) > sleeping(0)
+  //   > attention(5) > juggling(4) > working(3) > thinking(2) > idle(1) > sleeping(0)
   // 之前 working 排在 needsinput 前面，多会话时「等你回复」被干活态彻底盖住。
+  // R22 (2026-08-10): added attentionCount branch. CodeWhale turn_end and
+  // OpenCode session.idle set state="attention" — without this branch the
+  // pet appeared stuck in idle/sleeping while a session was actively waiting.
   if (s.waitingCount > 0) {
     setState('waiting');
   } else if (perfNow() < transientUntil) {
@@ -1713,6 +1725,8 @@ function applyStats(s) {
     setState('needsinput');
   } else if (s.sweepingCount > 0) {
     setState('sweeping');
+  } else if (s.attentionCount > 0) {
+    setState('attention'); // 会话需要关注（CodeWhale turn_end / OpenCode idle）
   } else if (s.jugglingCount > 0) {
     setState('juggling');
   } else if (s.workingCount > 0) {
@@ -2051,26 +2065,12 @@ function applySkin(s) {
   requestAnimationFrame(reportPetVisualBounds);
 }
 
-// R35.1 (2026-07-31): hit-test selector NO LONGER includes the animated
-// skin elements (#pixel/#mascot/#cat). The 0.5.11 deep-recheck flagged
-// that taking the union of #pet-anchor + animated skin rects meant the
-// click-through boundary still shifted during state animations
-// (happyJump translates -22px, attn rotates ±4deg, bob ±7px), even
-// though #pet-anchor itself is stable. The pet body is now represented
-// in the hit-test ONLY by #pet-anchor. HUD/popup elements are kept
-// because they're not animated and need their own click regions.
-//
-// Verified via web-search of Tauri 2 docs: reportPetVisualBounds feeds
-// the native set_visual_bounds which is used for click-through; a
-// shifting boundary during animations is exactly the "桌宠跳动" symptom
-// the audit traced to this union.
-// R35.2 (2026-07-31): INTERACTIVE_HIT_SEL now includes #provider-chooser.
-// The 0.5.12 carpet audit (P0-1 证据B) flagged that the chooser card,
-// when it extends beyond #pet-anchor's rect, could fall into a transparent
-// click-through region — the buttons would appear but not reliably receive
-// mouse events. Adding #provider-chooser to the hit-test selector makes
-// Rust's native click-through guard keep the chooser's rect interactive.
-const INTERACTIVE_HIT_SEL = '#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#provider-chooser';
+// R35.1: hit-test selector excludes animated skin elements (#pixel/#mascot/#cat)
+// — their transforms shift the click-through boundary during state animations.
+// R35.2: added #provider-chooser (0.5.12 carpet audit P0-1 证据B).
+// R22 (2026-08-10): added #re-llmpet-toast — persistent error toast's ✕ button
+// was in the click-through zone and impossible to dismiss.
+const INTERACTIVE_HIT_SEL = '#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#provider-chooser,#re-llmpet-toast';
 
 function reportPetVisualBounds() {
   const rects = Array.from(document.querySelectorAll(INTERACTIVE_HIT_SEL))
@@ -2089,6 +2089,10 @@ function reportPetVisualBounds() {
     window.pet.petVisualBounds({ x: left, y: top, width: right - left, height: bottom - top });
   } catch {}
 }
+
+// R22: expose reportPetVisualBounds globally so toast.js can call it when a
+// toast appears or disappears, keeping the click-through region in sync.
+window.reportPetVisualBounds = reportPetVisualBounds;
 
 // ====================================================================
 // 拖动 + 点击（短按=会话列表 / 移动=等价上游的手动窗口拖动）

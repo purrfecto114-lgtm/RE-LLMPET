@@ -44,8 +44,9 @@ const release = read('.github/workflows/release.yml');
 // R35.2 (2026-07-31): the selector now ALSO includes #provider-chooser
 // (0.5.12 carpet audit P0-1 证据B). The R35.1 anchor-only assertion is
 // preserved but the expected string is updated to include #provider-chooser.
-assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#provider-chooser'"),
-  'R35.2: INTERACTIVE_HIT_SEL must be anchor-only + #provider-chooser');
+// R22 (2026-08-10): added #re-llmpet-toast for dismissible error toasts.
+assert(petJs.includes("'#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#provider-chooser,#re-llmpet-toast'"),
+  'R22: INTERACTIVE_HIT_SEL must include #re-llmpet-toast');
 assert(!petJs.includes("'#pet-anchor,#pixel,#mascot,#cat,#radial,"),
   'R35.1: the old union selector with animated skins must be gone');
 

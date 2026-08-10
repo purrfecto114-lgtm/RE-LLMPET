@@ -972,6 +972,12 @@ pub fn open_panel(app: AppHandle) -> Result<(), String> {
         .get_webview_window("panel")
         .ok_or("panel window missing")?;
     fit_and_center_panel(&app, &window, None)?;
+    // R22 (2026-08-10): The pet window is alwaysOnTop=true (tauri.conf.json)
+    // so it floats above all normal windows. When the panel opens, it would
+    // be clipped by the pet's transparent overlay. Setting the panel to
+    // alwaysOnTop=true while visible ensures it renders above the pet.
+    // This is reverted in close_panel to restore normal window stacking.
+    window.set_always_on_top(true).map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
     // The panel WebView survives hide/show. Emit an explicit lifecycle event
@@ -986,6 +992,10 @@ pub fn close_panel(app: AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("panel")
         .ok_or("panel window missing")?;
+    // R22: revert the alwaysOnTop toggle from open_panel so the panel
+    // returns to normal window stacking (it can go behind other apps
+    // when hidden, and doesn't fight the pet's z-order on re-show).
+    let _ = window.set_always_on_top(false);
     window.hide().map_err(|e| e.to_string())?;
     // Every hide path shares this lifecycle signal, allowing the renderer to
     // stop hidden-window rendering regardless of whether the close button,
@@ -2447,27 +2457,34 @@ pub async fn cancel_diagnostic(state: State<'_, AppState>) -> Result<Value, Stri
     if !request.active {
         return Ok(json!({"cancelled": false, "reason": "no active diagnostic"}));
     }
-    let Some(pid) = request.pid else {
+    if request.pids.is_empty() {
         return Ok(json!({
             "cancelled": true,
             "reason": "cancellation requested between diagnostic probes"
         }));
-    };
-    match kill_process_tree(pid) {
-        Ok(()) => Ok(json!({"cancelled": true, "pid": pid})),
-        Err(error) => {
-            state
-                .runtime
-                .diagnostic_control
-                .restore_pid_after_failed_termination(pid);
-            Ok(json!({
-                "cancelled": true,
-                "pid": pid,
-                "killError": error,
-                "reason": "cancellation remains active; the worker will retry process termination"
-            }))
+    }
+    // Kill all registered child processes (parallel probes may have multiple).
+    let mut killed = Vec::new();
+    let mut errors = Vec::new();
+    for pid in &request.pids {
+        match kill_process_tree(*pid) {
+            Ok(()) => killed.push(*pid),
+            Err(error) => {
+                state
+                    .runtime
+                    .diagnostic_control
+                    .restore_pid_after_failed_termination(*pid);
+                errors.push(json!({"pid": *pid, "killError": error}));
+            }
         }
     }
+    let result = json!({
+        "cancelled": true,
+        "killedPids": killed,
+        "killErrors": errors,
+        "reason": if errors.is_empty() { "all probes terminated" } else { "cancellation remains active; the worker will retry failed terminations" }
+    });
+    Ok(result)
 }
 
 /// R35.2: Kill a process and all its descendants. On Windows, uses
@@ -2571,134 +2588,96 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
                 .into(),
         );
     }
-    let version = executable
-        .as_deref()
-        .map(|path| {
-            run_diagnostic_probe(
-                path,
-                &["--version"],
-                &working_directory,
-                Duration::from_secs(5),
-                control,
-            )
-        })
-        .unwrap_or(Value::Null);
-    let companion_version = if spec.id == "codewhale" {
-        companion
-            .as_deref()
-            .map(|path| {
-                run_diagnostic_probe(
-                    path,
-                    &["--version"],
-                    &working_directory,
-                    Duration::from_secs(5),
-                    control,
-                )
+    // R22 (#22 audit item): Parallelize diagnostic probes. The four independent
+    // probes (--version, companion --version, doctor, auth) previously ran
+    // serially, taking up to 26 s on CodeWhale (5+5+8+8). Using
+    // std::thread::scope, they now run concurrently, reducing worst-case wall
+    // clock to max(5, 5, 8, 8) = 8 s. Cancellation targets all tracked PIDs.
+    //
+    // Each thread gets its own clone of shared PathBufs (cheap: a few heap
+    // pointers). `control: &DiagnosticControl` is Sync so it's shared by ref.
+    // `spec.id` is `&'static str` (Copy) so we pass it by value.
+    use std::thread;
+    let spec_id: &'static str = spec.id;
+    let scope_result = thread::scope(|s| {
+        // Clone shared owned data for the version probe thread.
+        let exe_v = executable.clone();
+        let wd_v = working_directory.clone();
+        let version_handle = s.spawn(move || {
+            exe_v.as_deref().map_or(Value::Null, |path| {
+                run_diagnostic_probe(path, &["--version"], &wd_v, Duration::from_secs(5), control)
             })
-            .unwrap_or(Value::Null)
-    } else {
-        Value::Null
-    };
-    // CodeWhale's detailed command reference identifies `doctor` as a TUI
-    // subcommand. R10 (2026-07-30) reversed the probe order so the matched
-    // `codewhale-tui doctor --json` runs first; the dispatcher alias is the
-    // fallback for command-surface drift. Both attempts remain visible.
-    let (doctor, doctor_target, doctor_surface, doctor_json, doctor_attempts) = match spec.id {
-        "codewhale" => {
-            let result = codewhale_doctor_probe(
-                executable.as_deref(),
-                companion.as_deref(),
-                &working_directory,
-                control,
-            );
-            (
-                result.report,
-                result.target,
-                result.surface,
-                result.json,
-                Value::Array(result.attempts),
-            )
-        }
-        "claude" => (
-            executable
-                .as_deref()
-                .map(|path| {
+        });
+        // Clone for companion version probe.
+        let comp_cv = companion.clone();
+        let wd_cv = working_directory.clone();
+        let companion_version_handle = s.spawn(move || {
+            if spec_id == "codewhale" {
+                comp_cv.as_deref().map_or(Value::Null, |path| {
                     run_diagnostic_probe(
                         path,
-                        &["doctor"],
-                        &working_directory,
-                        Duration::from_secs(8),
+                        &["--version"],
+                        &wd_cv,
+                        Duration::from_secs(5),
                         control,
                     )
                 })
-                .unwrap_or(Value::Null),
-            executable
-                .as_deref()
-                .map(|path| path.to_string_lossy().into_owned()),
-            executable.as_ref().map(|_| "cli"),
-            None,
-            Value::Null,
-        ),
-        _ => (Value::Null, None, None, None, Value::Null),
-    };
-    let auth = match spec.id {
-        "codewhale" => executable
-            .as_deref()
-            .map(|path| {
-                run_diagnostic_probe(
-                    path,
-                    &["auth", "status"],
-                    &working_directory,
-                    Duration::from_secs(8),
-                    control,
+            } else {
+                Value::Null
+            }
+        });
+        // Clone for doctor probe.
+        let exe_d = executable.clone();
+        let comp_d = companion.clone();
+        let wd_d = working_directory.clone();
+        let doctor_handle = s.spawn(move || match spec_id {
+            "codewhale" => {
+                let result = codewhale_doctor_probe(exe_d.as_deref(), comp_d.as_deref(), &wd_d, control);
+                (
+                    result.report,
+                    result.target,
+                    result.surface,
+                    result.json,
+                    Value::Array(result.attempts),
                 )
-            })
-            .unwrap_or(Value::Null),
-        "codex" => executable
-            .as_deref()
-            .map(|path| {
-                run_diagnostic_probe(
-                    path,
-                    &["login", "status"],
-                    &working_directory,
-                    Duration::from_secs(8),
-                    control,
-                )
-            })
-            .unwrap_or(Value::Null),
-        "opencode" => executable
-            .as_deref()
-            .map(|path| {
-                // R40.1 (2026-08-01): REVERTED the 0.5.19 "providers list"
-                // experiment. The 0.5.19 carpet audit (P1-1) proved
-                // `opencode auth list` is still the official command
-                // (verified via opencode.ai docs, anomalyco-opencode
-                // mintlify CLI overview, and GitHub issue #4533 which
-                // references `opencode auth list` output). The 0.5.19
-                // "fix" was based on a misreading of `opencode --help`
-                // — `opencode providers` is a SEPARATE command for
-                // managing provider configurations, not a replacement
-                // for `opencode auth list`. Using `providers list` as
-                // the primary probe caused every healthy install to
-                // run a failing command first, adding latency + noise.
-                //
-                // R40.1 fix: `auth list` is primary (the official
-                // credential-listing command). No fallback — if a
-                // future OpenCode build renames it, the diagnostic
-                // will surface the failure and we'll add a fixture
-                // then. Inventing unverified fallbacks is what got
-                // us here.
-                run_diagnostic_probe(
-                    path,
-                    &["auth", "list"],
-                    &working_directory,
-                    Duration::from_secs(8),
-                    control,
-                )
-            })
-            .unwrap_or(Value::Null),
-        _ => Value::Null,
-    };
+            }
+            "claude" => (
+                exe_d.as_deref().map_or(Value::Null, |path| {
+                    run_diagnostic_probe(path, &["doctor"], &wd_d, Duration::from_secs(8), control)
+                }),
+                exe_d.as_deref().map(|path| path.to_string_lossy().into_owned()),
+                exe_d.as_ref().map(|_| "cli"),
+                None,
+                Value::Null,
+            ),
+            _ => (Value::Null, None, None, None, Value::Null),
+        });
+        // Clone for auth probe.
+        let exe_a = executable.clone();
+        let wd_a = working_directory.clone();
+        let auth_handle = s.spawn(move || match spec_id {
+            "codewhale" => exe_a.as_deref().map_or(Value::Null, |path| {
+                run_diagnostic_probe(path, &["auth", "status"], &wd_a, Duration::from_secs(8), control)
+            }),
+            "codex" => exe_a.as_deref().map_or(Value::Null, |path| {
+                run_diagnostic_probe(path, &["login", "status"], &wd_a, Duration::from_secs(8), control)
+            }),
+            "opencode" => exe_a.as_deref().map_or(Value::Null, |path| {
+                // R40.1: REVERTED the 0.5.19 "providers list" experiment.
+                // `auth list` is the official credential-listing command.
+                run_diagnostic_probe(path, &["auth", "list"], &wd_a, Duration::from_secs(8), control)
+            }),
+            _ => Value::Null,
+        });
+        (
+            version_handle.join().unwrap(),
+            companion_version_handle.join().unwrap(),
+            doctor_handle.join().unwrap(),
+            auth_handle.join().unwrap(),
+        )
+    });
+    let (version, companion_version, doctor, auth) = scope_result;
+    let (doctor, doctor_target, doctor_surface, doctor_json, doctor_attempts) = doctor;
     let doctor_summary = codewhale_doctor_summary(doctor_json.as_ref());
     if executable.is_some() && !probe_succeeded(&version) {
         issues.push(format!(
