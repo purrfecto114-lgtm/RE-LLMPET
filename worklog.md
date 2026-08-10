@@ -1070,3 +1070,38 @@ re-llmpet.log 显示：
 | Round 5 | 8 个 Rust 事件文本（#5） | v0.5.57 |
 | **剩余** | 7 项 MEDIUM/LOW（#7,#9,#10,#11,#12,#21,#22,#23,#24） | — |
 
+
+---
+
+## 性能改进: hook_watcher backoff（2026-08-10 15:16 trigger）
+
+### #21 MEDIUM: hook_watcher 轮询优化
+- **问题**: hook_watcher 每 2 秒轮询 `~/.claude/settings.json`，永不停止（43,200 stat()/天）
+- **修复**:
+  - POLL_INTERVAL: 2s → 5s（17,280 stat()/天，减少 60%）
+  - 新增 BACKOFF_INTERVAL=30s + BACKOFF_THRESHOLD=10
+  - 连续 10 次（50s）无变化后切换到 30s 间隔
+  - 检测到变化时立即重置回 5s
+- **效果**: 笔记本电池续航改善，settings.json 变化仍在 30s 内检测到
+
+### 沙箱恢复
+- 容器沙箱再次重置，重新安装 Rust + GTK dev + git 同步到 origin/main (v0.5.57)
+
+### 验证
+- clippy -D warnings --all-targets: ✅ EXIT=0
+- 22/22 static + npm test EXIT=0
+- GitHub main: `6158d77` 已推送
+- 无版本迭代（MEDIUM 级别，按规则不触发版本号迭代）
+
+### 审查进度更新
+| 轮次 | 修复 | 版本 | 状态 |
+|---|---|---|---|
+| Round 1 | 文档/配置/代码去重 | v0.5.53 | ✅ |
+| Round 2 | i18n 清理 | v0.5.54 | ✅ |
+| Round 3 | 代码质量 + 测试 | v0.5.55 | ✅ |
+| Round 4 | 去理想化 + 性能 + 安全 | v0.5.56 | ✅ |
+| Round 5 | Rust 事件文本去 i18n | v0.5.57 | ✅ |
+| Round 6 | hook_watcher backoff | — | ✅ (MEDIUM, 无版本迭代) |
+
+**26 项发现中已修复 20 项**（2 CRITICAL + 9 HIGH + 9 MEDIUM），剩余 6 项 MEDIUM/LOW。
+
