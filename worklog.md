@@ -852,3 +852,34 @@ re-llmpet.log 显示：
 - 22/22 static + npm test EXIT=0
 - GitHub main: `71c4de4`, tag v0.5.52 ✅
 
+
+---
+
+## 全局审查 + Cron 更新（2026-08-10）
+
+### 全局审查结果
+对 v0.5.52 做了 8 维度全面审查，发现 **26 个可改进点**：
+- **2 CRITICAL**: stats.bg 零占位符 + CLAUDE.md/ROADMAP.md 版本过时
+- **9 HIGH**: i18n 硬编码（panel.html 30+ / pet.html 4 / Rust 5）、文档不一致、代码重复、测试缺失、文件超预算
+- **13 MEDIUM**: dead code、性能（轮询/串行探针）、安全（错误文本泄露）、上游 backport 剩余
+- **2 LOW**: eprintln! 替换、territory episodes 推迟
+
+### Cron 更新
+- 删除旧 Job 315222
+- 创建新 Job 316006（1h 循环，priority=10）
+- 提示词按审查结果分 5 轮优先级推进：
+  1. CRITICAL + HIGH 文档/配置修复（Effort: S）
+  2. HIGH i18n 清理（Effort: M）
+  3. HIGH 代码质量 + 测试（Effort: M）
+  4. MEDIUM 性能 + 安全 + 功能（Effort: M-L）
+  5. 上游 backport + 功能增强
+- 每轮选 2-3 项，按优先级表推进
+- 包含版本号自动迭代规则 + 行数预算更新
+
+### 关键发现
+- **安全**: 良好（loopback + token + TOCTOU 防护）
+- **测试**: 73 JS + 51 Rust，但 platform.rs/hook_install.rs 缺 Rust 单元测试
+- **i18n**: 354 键 × 3 语言平衡，但 ~50 个硬编码中文字符串未走 i18n
+- **文件预算**: 4/6 大文件超 CLAUDE.md 上限（需拆分或更新预算）
+- **上游差距**: 3 项 MEDIUM（usage-archive, pidwalk, territory episodes）
+
