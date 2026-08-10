@@ -1423,3 +1423,51 @@ Octopus 是 GUI 子系统二进制（Windows GUI subsystem）。每次 spawn con
 - A1: #23 usage-archive carry — 历史 usage 数据归档
 - A2: 真机验证清单 — v0.5.58-v0.5.60 修复的真机验证步骤文档
 
+
+---
+
+## A2: 真机验证清单文档（2026-08-10 19:23 trigger）
+
+### 任务
+Phase A 的 A2 项：整理 v0.5.58-v0.5.60 修复的真机验证步骤，写入 docs/。
+
+### 完成
+创建 `docs/VERIFICATION_CHECKLIST_v0.5.58-v0.5.60.md`（234 行），包含：
+
+#### 8 个验证项（每项含：用户反馈、根因、验证步骤、预期结果、回归标志）
+1. **GUI 穿模修复** (v0.5.58) — panel z-index 验证
+2. **Launch agent toast 可关闭** (v0.5.58) — ✕ 按钮点击验证
+3. **桌宠动画随状态变化** (v0.5.58) — thinking/working/attention 状态验证
+4. **诊断探针并行化** (v0.5.58) — ~8s 完成时间验证
+5. **隐藏 Windows 黑色 cmd 窗口** (v0.5.59) — 启动/诊断/闲逛/聚焦全程无黑窗
+6. **模型价格中国镜像源** (v0.5.59) — 中国网络下价格更新验证
+7. **hide_console_window 回归测试** (v0.5.60) — 测试存在且通过
+8. **ghproxy.com 中国镜像源 fallback** (v0.5.60) — 4 层 fallback 验证
+
+#### 附加内容
+- **综合冒烟测试表**: 8 项快速验证，用于每次发布前
+- **已知限制**: launch_terminal 仍显示终端（设计行为）、persistent toast 不自动消失（设计行为）、macOS/Linux 无黑窗问题
+- **版本历史表**: v0.5.58-v0.5.60 主要修复一览
+- **反馈指引**: GitHub Issues 提交格式
+
+### 验证结果
+- 72/72 JS 测试通过（manifest 重新生成后）
+- 22/22 静态检查通过
+- clippy -D warnings: ✅
+- 文档无版本迭代（docs-only，无代码变更）
+
+### 提交
+- GitHub main: `91a49d9` 已推送
+- 无版本号变更（docs-only）
+- SOURCE_MANIFEST.json 重新生成（385 files，+1 doc）
+
+### Phase A 进度
+- ✅ A3: hide_console_window 回归测试（v0.5.60）
+- ✅ A4: ghproxy.com 中国镜像源（v0.5.60）
+- ✅ A2: 真机验证清单文档（本轮）
+- ⏳ A1: #23 usage-archive carry — 下轮
+
+### 下轮重点
+- **A1: #23 usage-archive carry** — 历史 usage 数据归档，跨版本迁移
+- 或进入 **Phase B: 用户体验打磨**（B1 闲逛模板自定义 / B2 诊断结果导出）
+
