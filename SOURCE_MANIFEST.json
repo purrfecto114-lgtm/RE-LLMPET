@@ -2,7 +2,7 @@
   "version": "0.5.60",
   "generated": 1785847535,
   "root": "Octopus-0.5.60",
-  "file_count": 384,
+  "file_count": 385,
   "files": {
     ".claude-plugin/plugin.json": "5671723c4869dcae32e8050aa18437e0ff01bde37fc6d18b5120810045cf5a09",
     ".gitattributes": "c41b15dfba8e2ca096b715cd0ee0d5831a781e21d2b5fbb4e5229ace268b36aa",
@@ -67,6 +67,7 @@
     "docs/TASK_RECOVERY_2026-08-03_RUST_COMPILE.md": "8de402ca29b5b46eb105e84d1c05346c0a90bd4ebd3b2b8a4271f119b35beb9b",
     "docs/UPSTREAM_PARITY_MATRIX.json": "d786eec345314a66b8490823673213735658affdf8cfbe713e6f5088864ae740",
     "docs/UPSTREAM_RECONCILIATION_2026-07-28.md": "aecf8f185f0b5a657f82596168fcd223f0ad68e8881836482f01c7a468783d5b",
+    "docs/VERIFICATION_CHECKLIST_v0.5.58-v0.5.60.md": "49f6e1204adf8ec98e798514bc55579af10232b569e8133070e72c0afff6f62c",
     "docs/WINDOWS-INSTALL.md": "fbdfbae8b9e6fc7d3352462b8fbb31b88959c91fc8b986cdc83c10d536d96ca4",
     "docs/WINDOWS.md": "43c50c01022de662f1b832b73fcef6c14f6762529ee1b5885da5bdd9ed53c85f",
     "docs/next-actions.md": "e0b46ef29ad487547f50b9415284de25d9c7ad84ea41149dfb7827c364464ab6",
@@ -387,8 +388,8 @@
     "test/tauri-tray-submenu-r12-smoke.js": "d0f7ebb3a69cdcc7c9b416613444aebd088e5f1402c75ca572c2c40d997e606d",
     "test/tauri-windows-static-smoke.js": "67e90641b81792b31b7963ac56faf7cd4bf827f4fc5efb34e50e531fa2d28907",
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
-    "worklog.md": "04321afbb06c76c21adfb43b7a2f1209371e61063d2a1269ac8df45eafe23197"
+    "worklog.md": "004e6cf03110a1ec37fca6928f56c794b6ba729ed1ee4fa7111ef2eb5a96aae0"
   },
-  "sha256_of_manifest": "eb816808fc2b69151830a39975d09b1e664dcf254039dee930355dfda01e672d",
+  "sha256_of_manifest": "a7cd49aa75dbe9baa60e6d6f16b530f8b3a34de1e7e84cb5443ea26a8de91980",
   "source_commit": "octopus-0.5.60"
 }
