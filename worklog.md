@@ -954,3 +954,37 @@ re-llmpet.log 显示：
 - #11: hook_install.rs 添加 strip_marker_variants 测试
 - #12-14: dead code 清理
 
+
+---
+
+## v0.5.55: 全局审查 Round 3 — 代码质量 + Rust 测试（2026-08-10）
+
+### HIGH: 代码质量改进
+
+| # | 审查项 | 修复 |
+|---|---|---|
+| #14 | `is_windows_script` 使用 `#[allow(dead_code)]` 而非 `#[cfg(windows)]` | ✅ 改为 `#[cfg(windows)]`，非 Windows 不编译 |
+| #13 | `territory.rs` 6 个 `#[allow(dead_code)]` | ✅ 改为 `#[cfg_attr(not(target_os = "macos"), allow(dead_code))]`，仅 macOS 保留 |
+
+### HIGH: 新增 Rust 单元测试
+- `platform.rs`: 5 个 `process_chain` 测试（之前 0 个）
+  - PID 0/1 终止（不包含调度器/init）
+  - 当前 PID 包含在链中
+  - 链中无重复 PID
+  - 不超过 `MAX_PARENT_DEPTH`
+
+### 验证
+- clippy -D warnings --all-targets: ✅ EXIT=0（包括测试代码）
+- 22/22 static + npm test EXIT=0
+- GitHub main: `40b0f4c`, tag v0.5.55 ✅
+- Rust 测试本地无法链接（缺 soup/javascriptcore .so），CI 验证
+
+### 审查进度
+| 轮次 | 重点 | 状态 |
+|---|---|---|
+| Round 1 | CRITICAL + HIGH 文档/配置/代码去重 | ✅ v0.5.53 |
+| Round 2 | HIGH i18n 清理 | ✅ v0.5.54 |
+| Round 3 | HIGH 代码质量 + 测试 | ✅ v0.5.55 |
+| Round 4 | MEDIUM 性能 + 安全 + 功能 | 下轮 |
+| Round 5 | 上游 backport + 功能增强 | 待做 |
+
