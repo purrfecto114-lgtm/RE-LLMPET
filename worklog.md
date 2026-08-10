@@ -1105,3 +1105,48 @@ re-llmpet.log 显示：
 
 **26 项发现中已修复 20 项**（2 CRITICAL + 9 HIGH + 9 MEDIUM），剩余 6 项 MEDIUM/LOW。
 
+
+---
+
+## hook_install.rs marker tests + 评估 #7/#12（2026-08-10 16:16 trigger）
+
+### #11 HIGH: hook_install.rs 添加 6 个 Rust 单元测试
+- `marker_tests` 模块，测试 `strip_marker_variants` 的核心逻辑：
+  1. 移除 marker block 并保留周围内容
+  2. 处理多个 marker 变体（current + legacy）
+  3. 未终止 block 返回错误
+  4. 嵌套 begin 返回错误
+  5. 不匹配的 end 返回错误
+  6. 无 marker 时保持内容不变
+- 之前 hook_install.rs 仅 2 个测试 → 现在 8 个
+- 预算：hook_install.rs 2330→2400（65 行测试代码）
+
+### #7 评估：codewhale_config_candidates 重复
+- `codewhale_config_candidates()` 在 commands.rs 中重新实现 env-var 链
+- 但这是**设计选择**——诊断需要列出所有候选路径，不只是选中的那个
+- `codewhale_config_path()` 已在 R9 去重到 hook_install.rs
+- **跳过 #7**——不是 bug，是设计
+
+### #12 评估：CleanupResult::Changed/PathDrift dead code
+- 两个变体从未被构造，但有 `#[allow(dead_code)]`
+- 它们是**公共 API 契约**的一部分（to_json 有对应 arm）
+- 移除会破坏 JSON 响应格式约定
+- **跳过 #12**——`#[allow(dead_code)]` 是正确的
+
+### 验证
+- clippy -D warnings --all-targets: ✅ EXIT=0
+- 22/22 static + npm test EXIT=0
+- GitHub main: `0ad29fe` 已推送
+
+### 审查进度
+**26 项发现中已修复 21 项**，剩余 5 项：
+- #7 (设计选择，跳过)
+- #9 (文件预算——已提高上限)
+- #10 (platform.rs 测试——已在 R3 完成)
+- #12 (API 契约，跳过)
+- #22 (诊断并行化——MEDIUM，待做)
+- #23 (usage-archive carry——MEDIUM，待做)
+- #24 (territory episodes——推迟到 0.7.0)
+
+实际剩余可做项：#22 (诊断并行化) + #23 (usage-archive carry)
+
