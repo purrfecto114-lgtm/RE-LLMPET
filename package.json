@@ -1,6 +1,6 @@
 {
   "name": "octopus",
-  "version": "0.5.49",
+  "version": "0.5.50",
   "productName": "Octopus",
   "description": "低占用多 Agent 桌面宠物：Tauri 2 + Rust 原生 provider 适配层",
   "license": "MIT",

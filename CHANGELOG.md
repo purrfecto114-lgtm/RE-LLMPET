@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.50 — CodeWhale/Codex per-model 定价（2026-08-10）
+
+### HIGH: per-model cost
+- FileSummary 新增 model 字段，从 session_meta 提取模型名
+- codex_rollout snapshot 现在使用实际模型名查询价格（而非硬编码 gpt-5.3-codex）
+- diagnostics.pricingModel 显示实际使用的模型名
+- 效果：不同 Codex 模型（gpt-5.5-pro vs gpt-5.3-codex）现在按各自费率计价
+
+---
+
+
 ## 0.5.49 — 诊断进度反馈 + 测试修复（2026-08-09）
 
 ### HIGH: 诊断工具进度反馈

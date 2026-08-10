@@ -76,6 +76,7 @@ impl UsageTotals {
 #[derive(Debug, Clone, Default)]
 struct FileSummary {
     session_id: String,
+    model: String,
     usage: UsageTotals,
     daily: BTreeMap<String, UsageTotals>,
     latest_limits: Option<(u64, Value)>,
@@ -236,10 +237,21 @@ pub fn snapshot(app_dir: &Path) -> (Option<Value>, Option<Value>) {
     }
 
     let limits = latest_limits.map(|(_, limits)| normalize_limits(&limits));
-    // R10 backport: compute Codex cost using codex_pricing module.
-    // Uses the default Codex model (gpt-5.3-codex tier) for aggregate cost.
-    // Per-model cost would require tracking usage by model id in FileSummary.
-    let (today_price, today_exact) = crate::codex_pricing::price_for_codex("gpt-5.3-codex");
+    // R15: per-model cost — use the model from the first session_meta found,
+    // falling back to gpt-5.3-codex if no model was recorded.
+    let model_for_pricing = cache
+        .files
+        .values()
+        .filter_map(|c| {
+            if !c.summary.model.is_empty() {
+                Some(c.summary.model.as_str())
+            } else {
+                None
+            }
+        })
+        .next()
+        .unwrap_or("gpt-5.3-codex");
+    let (today_price, today_exact) = crate::codex_pricing::price_for_codex(model_for_pricing);
     let today_cost = crate::codex_pricing::codex_usage_cost(
         today.input,
         today.cached,
@@ -274,7 +286,7 @@ pub fn snapshot(app_dir: &Path) -> (Option<Value>, Option<Value>) {
             "skippedLargeFiles": skipped_large,
             "unreadableFiles": unreadable,
             "maxFiles": MAX_ROLLOUT_FILES,
-            "pricingModel": "gpt-5.3-codex",
+            "pricingModel": model_for_pricing,
             "pricingExact": today_exact,
         }
     }));
@@ -382,6 +394,7 @@ fn parse_rollout_file(path: &Path) -> Result<FileSummary, String> {
         if line_type == "session_meta" {
             summary.session_id = json_text(payload, &["id", "session_id", "sessionId"])
                 .unwrap_or_else(|| path.to_string_lossy().into_owned());
+            summary.model = json_text(payload, &["model", "model_id"]).unwrap_or_default();
             continue;
         }
         if line_type != "event_msg"
