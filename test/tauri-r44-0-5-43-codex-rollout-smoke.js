@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// R44 0.5.54: Codex rollout watcher + parity matrix verification.
+// R44 0.5.55: Codex rollout watcher + parity matrix verification.
 //
 // Verifies:
 // 1. codex_rollout.rs exists and is registered as a module
@@ -25,8 +25,8 @@ const changelog = read('CHANGELOG.md');
 const packageJson = JSON.parse(read('package.json'));
 
 // Version
-assert.strictEqual(packageJson.version, '0.5.54',
-  '0.5.54: package.json version must be 0.5.54');
+assert.strictEqual(packageJson.version, '0.5.55',
+  '0.5.55: package.json version must be 0.5.55');
 
 // ── 1. codex_rollout module ──────────────────────────────────────────────
 assert.ok(lib.includes('mod codex_rollout;'),
@@ -66,7 +66,7 @@ const codexRolloutItem = findItem('Codex rollout watcher (token usage + rate lim
 assert.ok(codexRolloutItem && codexRolloutItem.reStatus === 'complete',
   '3: Codex rollout watcher must be marked complete');
 assert.ok(codexRolloutItem.implementedIn === '0.5.46',
-  '3: Codex rollout watcher must be marked implementedIn 0.5.46 (historical: feature shipped in 0.5.46) (historical: feature shipped in 0.5.54)');
+  '3: Codex rollout watcher must be marked implementedIn 0.5.46 (historical: feature shipped in 0.5.46) (historical: feature shipped in 0.5.55)');
 
 const territoryItem = findItem('Territory mode (macOS)');
 assert.ok(territoryItem && territoryItem.reStatus === 'complete',
@@ -85,7 +85,7 @@ assert.ok(!commands.includes('领地巡视尚未实现（stub）'),
   '4: territory run-now must no longer claim to be unimplemented');
 
 // ── 5. CHANGELOG ────────────────────────────────────────────────────────
-assert.ok(changelog.includes('0.5.54'),
-  'CHANGELOG must have 0.5.54 entry');
+assert.ok(changelog.includes('0.5.55'),
+  'CHANGELOG must have 0.5.55 entry');
 
-console.log('✓ R44 0.5.54 Codex rollout + parity matrix smoke: all assertions passed');
+console.log('✓ R44 0.5.55 Codex rollout + parity matrix smoke: all assertions passed');

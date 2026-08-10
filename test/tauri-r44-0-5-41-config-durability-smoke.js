@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// R44 0.5.54 — Config durability + receipt-driven uninstall + idempotent sync.
+// R44 0.5.55 — Config durability + receipt-driven uninstall + idempotent sync.
 //
 // This version focuses on real user impact, not blindly following the roadmap:
 //   1. schemaVersion + unknown-field preservation (prevents data loss)
@@ -29,8 +29,8 @@ const changelog = read('CHANGELOG.md');
 const packageJson = JSON.parse(read('package.json'));
 
 // Version
-assert.strictEqual(packageJson.version, '0.5.54',
-  '0.5.54: package.json version must be 0.5.54');
+assert.strictEqual(packageJson.version, '0.5.55',
+  '0.5.55: package.json version must be 0.5.55');
 
 // ──────────────────────────────────────────────────────────────────────────
 // 1. schemaVersion + unknown-field preservation
@@ -95,7 +95,7 @@ assert.ok(hookInstall.includes('fn provider_config_path('),
 // CHANGELOG
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.ok(changelog.includes('0.5.54'),
-  'CHANGELOG must have 0.5.54 entry');
+assert.ok(changelog.includes('0.5.55'),
+  'CHANGELOG must have 0.5.55 entry');
 
-console.log('✓ R44 0.5.54 config durability + receipt-driven uninstall smoke: all assertions passed');
+console.log('✓ R44 0.5.55 config durability + receipt-driven uninstall smoke: all assertions passed');

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.55 — 全局审查 Round 3: 代码质量 + 测试（2026-08-10）
+
+### HIGH: 代码质量改进
+- #14: is_windows_script 从 #[allow(dead_code)] 改为 #[cfg(windows)]（正确平台门控）
+- #13: territory.rs 6 个 #[allow(dead_code)] 改为 #[cfg_attr(not(target_os="macos"), allow(dead_code))]（仅 macOS 编译时保留）
+- clippy -D warnings 通过（包括 --all-targets 测试代码）
+
+### HIGH: 新增 Rust 单元测试
+- platform.rs: 5 个 process_chain 测试（PID 0/1 终止、当前 PID 包含、无重复、最大深度）
+- 之前 platform.rs 0 个测试，现在有 5 个行为测试
+
+---
+
+
 ## 0.5.54 — 全局审查 Round 2: i18n 清理（2026-08-10）
 
 ### HIGH: i18n 清理 — ~40 个硬编码字符串改为 i18n

@@ -3155,7 +3155,7 @@ pub fn quit_app(app: AppHandle, state: State<'_, AppState>) {
     app.exit(0);
 }
 
-#[allow(dead_code)]
+#[cfg(windows)]
 fn is_windows_script(path: &Path) -> bool {
     path.extension()
         .and_then(|value| value.to_str())

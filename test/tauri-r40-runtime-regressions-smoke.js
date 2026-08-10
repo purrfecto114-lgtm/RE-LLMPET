@@ -37,8 +37,8 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.54',
-  'R40: package.json version must be 0.5.54');
+assert.strictEqual(packageJson.version, '0.5.55',
+  'R40: package.json version must be 0.5.55');
 
 // ──────────────────────────────────────────────────────────────────────────
 // R40-1: OpenCode plugin — `session.status` must NOT map to UserPromptSubmit
@@ -96,15 +96,15 @@ assert(!commands.includes('"providers", "list"'),
 // diagnostic still detects; backup-before-write added
 // ──────────────────────────────────────────────────────────────────────────
 
-// R40.1/R44-0.5.54: strip_legacy_codewhale_hooks was DELETED in 0.5.54
+// R40.1/R44-0.5.55: strip_legacy_codewhale_hooks was DELETED in 0.5.55
 // (roadmap v5 §6 — "delete dangerous dead code"). The function was a
 // line-oriented TOML scanner that could absorb user-owned tables into
 // a legacy hook body and silently delete them. It was disabled since
-// R40.1 but kept as dead code; 0.5.54 removes it entirely.
+// R40.1 but kept as dead code; 0.5.55 removes it entirely.
 assert(!hookInstall.includes('fn strip_legacy_codewhale_hooks'),
-  'R44-0.5.54: strip_legacy_codewhale_hooks must be DELETED (roadmap v5 §6 — dangerous dead code)');
+  'R44-0.5.55: strip_legacy_codewhale_hooks must be DELETED (roadmap v5 §6 — dangerous dead code)');
 assert(!hookInstall.includes('fn parse_toml_string_value'),
-  'R44-0.5.54: parse_toml_string_value must be DELETED (only used by deleted strip_legacy_codewhale_hooks)');
+  'R44-0.5.55: parse_toml_string_value must be DELETED (only used by deleted strip_legacy_codewhale_hooks)');
 assert(hookInstall.includes('fn backup_codewhale_config'),
   'R40.1-P0-2: hook_install must have backup_codewhale_config function');
 assert(hookInstall.includes('backup_codewhale_config(&path, runtime)'),

@@ -574,3 +574,52 @@ fn focus_process_chain(chain: &[u32]) -> Result<(), String> {
     }
     Err("X11 terminal focus requires xdotool and a visible window owned by the session process tree".into())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn process_chain_terminates_on_pid_zero() {
+        // PID 0 is the scheduler (Linux) or System process — should not be
+        // included in the chain.
+        let chain = process_chain(0);
+        assert!(chain.is_empty(), "PID 0 should produce empty chain");
+    }
+
+    #[test]
+    fn process_chain_terminates_on_pid_one() {
+        // PID 1 is init/systemd — should not be included.
+        let chain = process_chain(1);
+        assert!(chain.is_empty(), "PID 1 should produce empty chain");
+    }
+
+    #[test]
+    fn process_chain_includes_start_pid() {
+        // The current process should always be in the chain.
+        let chain = process_chain(std::process::id());
+        assert!(!chain.is_empty(), "current PID should be in chain");
+        assert_eq!(chain[0], std::process::id());
+    }
+
+    #[test]
+    fn process_chain_has_no_duplicates() {
+        let chain = process_chain(std::process::id());
+        let mut seen = std::collections::HashSet::new();
+        for &pid in &chain {
+            assert!(seen.insert(pid), "duplicate PID {pid} in chain");
+        }
+    }
+
+    #[test]
+    fn process_chain_respects_max_depth() {
+        // The chain should never exceed MAX_PARENT_DEPTH entries.
+        let chain = process_chain(std::process::id());
+        assert!(
+            chain.len() <= MAX_PARENT_DEPTH,
+            "chain length {} exceeds MAX_PARENT_DEPTH {}",
+            chain.len(),
+            MAX_PARENT_DEPTH
+        );
+    }
+}
