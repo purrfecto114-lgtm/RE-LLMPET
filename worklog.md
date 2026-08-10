@@ -1520,3 +1520,51 @@ Phase A 的 A2 项：整理 v0.5.58-v0.5.60 修复的真机验证步骤，写入
 - **B1: 闲逛任务模板用户自定义** — pet.js wander mission 支持用户传入自定义模板
 - 或 **B3: 状态过渡动画** — pet 状态切换平滑过渡
 
+
+---
+
+## v0.5.62 — 沙箱恢复 + 状态过渡动画 B3（2026-08-11 06:38 trigger）
+
+### 沙箱再次重置恢复
+- 本轮开始时沙箱再次完全重置（v0.5.46 状态，RE-LLMPET-main 目录为空，Rust/GTK/remote 全部丢失）
+- 恢复步骤（与前次相同）:
+  1. `git clone https://github.com/purrfecto114-lgtm/RE-LLMPET.git` → v0.5.61
+  2. 安装 Rust 1.97.1（rustup）
+  3. 下载 + 解压 52 个 GTK dev packages 到 `~/.local/gtk-dev/`
+  4. 验证 clippy + 72 JS 测试 + 22 静态检查全通过
+
+### B3: 状态过渡动画（HIGH）
+- **功能**: 桌宠状态切换时（idle → working → happy → idle 等），mascot/cat 皮肤图片不再瞬间"弹"出，而是 150ms 淡入淡出过渡
+- **实现**:
+  - `frontend/renderer/pet.js`: 新增 `fadeSwapImg(img, newSrc)` 函数
+    - 将 `img.style.opacity` 设为 '0'
+    - 添加 `load` 事件监听器，加载完成后恢复 opacity='1'
+    - 安全 fallback: 200ms 后强制恢复（防止缓存图片不触发 load）
+    - `updateMascotEyes()` 和 `updateCat()` 改用 `fadeSwapImg` 替代直接 `img.src =`
+  - `frontend/renderer/pet.css`:
+    - `#mascot img`: 添加 `transition: opacity 0.15s ease`
+    - `#cat img`: 添加 `transition: opacity 0.15s ease`
+  - 已有 `prefers-reduced-motion` 媒体查询会自动禁用过渡（`transition: none !important`）
+- **行数预算挑战**: pet.js 原本 2540 行，新增 fadeSwapImg 函数后超预算。通过删除 6 行冗余注释（R30 注释块、CAT_POOLS 注释、MASCOT_EYES 注释等）精确卡回 2540/2540
+
+### 验证结果
+- `cargo clippy -D warnings --all-targets`: ✅ EXIT=0
+- `cargo fmt --check`: ✅
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+- pet.js: 2540/2540 行（精确卡预算）
+
+### 版本迭代
+- v0.5.61 → v0.5.62（1 HIGH 功能增强）
+- GitHub main: `f3a4976` 已推送，tag `v0.5.62` 已打
+
+### Phase B 进度
+- ✅ B2: 诊断结果导出 JSON（v0.5.61）
+- ✅ B3: 状态过渡动画（本轮）
+- ⏳ B1: 闲逛任务模板用户自定义
+- ⏳ B4: panel 响应式优化
+- ⏳ B5: i18n 补全
+
+### 下轮重点
+- **B1: 闲逛任务模板用户自定义** 或 **B4: panel 响应式优化**
+
