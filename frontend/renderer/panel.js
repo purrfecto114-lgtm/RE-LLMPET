@@ -813,7 +813,7 @@ function renderTodos(todos, proj) {
   const prog = $('todo-prog');
   const pj = $('todo-proj');
   if (!todos.length) {
-    el.innerHTML = '<div class="empty">当前没有待办</div>';
+    el.innerHTML = `<div class="empty">${t('panel.noTodo')}</div>`;
     if (prog) prog.textContent = '';
     if (pj) pj.textContent = '';
     return;
@@ -1370,7 +1370,7 @@ document.addEventListener('DOMContentLoaded', () => {
           // Hooks partially failed, but selection was saved. Show a toast
           // so the user knows which hooks failed; do NOT revert checkbox.
           const errs = Array.isArray(result.errors) && result.errors.length
-            ? result.errors.join('；') : 'hook install partial failure';
+            ? result.errors.join('; ') : 'hook install partial failure';
           window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
             detail: { command: 'set_providers', message: errs }
           }));

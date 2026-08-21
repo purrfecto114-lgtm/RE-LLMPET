@@ -11,6 +11,7 @@ use std::sync::{Mutex, OnceLock};
 static SYNC_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 // R44 Phase 0C: unified backup + install receipt system.
+// User requirement: "不要破坏原本 hooks（创建备份，注意备份的数量）" —
 // backup_config_file(): generic pre-write backup, fail-closed.
 // write_install_receipt(): records provider/events/path/version/hash to ~/.re-llmpet/receipts/.
 // read_install_receipts(): latest receipt per provider for diagnostics + uninstall.

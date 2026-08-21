@@ -19,9 +19,9 @@ const panel = read('frontend/renderer/panel.js');
 const panelHtml = read('frontend/renderer/panel.html');
 const claudeFixture = JSON.parse(read('test/fixtures/claude-transcript-assistant.jsonl').trim());
 
-assert.strictEqual(pkg.version, '0.5.63');
-assert.strictEqual(tauri.version, '0.5.63');
-assert.match(cargo, /version = "0.5.63"/);
+// version cross-check moved to consistency block;
+assert.strictEqual(tauri.version, pkg.version, 'tauri.conf.json version must match package.json');
+assert.match(cargo, new RegExp('version = "' + pkg.version.replace(/\./g, '\\.') + '"'), 'Cargo.toml version must match package.json');
 
 // Modules must be part of the active Tauri build and runtime, not dead drafts.
 assert.match(lib, /mod pricing_sync;/);

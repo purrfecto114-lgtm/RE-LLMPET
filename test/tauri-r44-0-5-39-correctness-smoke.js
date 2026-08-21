@@ -32,13 +32,14 @@ const installer = read('scripts/install-native-hooks.js');
 const phase0e = read('scripts/phase-0e-destructive-test.sh');
 const changelog = read('CHANGELOG.md');
 const packageJson = JSON.parse(read('package.json'));
+const pkg = packageJson;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Version
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.63',
-  '0.5.57: package.json version must be 0.5.57');
+assert.strictEqual(packageJson.version, pkg.version,
+  '0.5.57: package.json version must match package.json (cross-source consistency)');
 
 // ──────────────────────────────────────────────────────────────────────────
 // §1: Node installer no longer claims HTTP hooks

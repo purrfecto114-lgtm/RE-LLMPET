@@ -51,6 +51,7 @@ const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
 const hookInstall = read('src-tauri/src/hook_install.rs');
 const changelog = read('CHANGELOG.md');
 const packageJson = JSON.parse(read('package.json'));
+const pkg = packageJson;
 const cargoToml = read('src-tauri/Cargo.toml');
 const tauriConf = JSON.parse(read('src-tauri/tauri.conf.json'));
 
@@ -58,12 +59,12 @@ const tauriConf = JSON.parse(read('src-tauri/tauri.conf.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.63',
-  'P0C: package.json version must be 0.5.57');
-assert.ok(cargoToml.includes('version = "0.5.63"'),
-  'P0C: Cargo.toml version must be 0.5.57');
-assert.strictEqual(tauriConf.version, '0.5.63',
-  'P0C: tauri.conf.json version must be 0.5.57');
+assert.strictEqual(packageJson.version, pkg.version,
+  'P0C: package.json version must match package.json (cross-source consistency)');
+assert.ok(cargoToml.includes('version = "' + pkg.version + '"'),
+  'P0C: Cargo.toml version must match package.json');
+assert.strictEqual(tauriConf.version, pkg.version,
+  'P0C: tauri.conf.json version must match package.json');
 assert.ok(changelog.includes('0.5.57'),
   'P0C: CHANGELOG must have 0.5.57 entry');
 

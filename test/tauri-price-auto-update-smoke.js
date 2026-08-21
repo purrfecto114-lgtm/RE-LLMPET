@@ -18,8 +18,8 @@ const tauri = JSON.parse(read('src-tauri/tauri.conf.json'));
 const tauriLinux = JSON.parse(read('src-tauri/tauri.linux.conf.json'));
 const pinnedFixture = JSON.parse(read('test/fixtures/models-dev-api-sample.json'));
 
-assert.strictEqual(pkg.version, '0.5.63');
-assert.strictEqual(tauri.version, '0.5.63');
+// version cross-check moved to consistency block;
+assert.strictEqual(tauri.version, pkg.version, 'tauri.conf.json version must match package.json');
 assert(tauriLinux.bundle.linux.deb.depends.includes('curl'), 'Debian package must declare curl runtime dependency');
 assert(pinnedFixture.anthropic.models['claude-sample'].cost.cache_read > 0);
 
@@ -100,8 +100,8 @@ assert.match(panel, /function renderPriceInfo/);
 assert.match(panel, /lastUpdatedAt/);
 assert.match(panel, /nextCheckAt/);
 assert.match(panel, /consecutiveFailures/);
-assert.match(panel, /价格更新失败/);
-assert.match(panel, /无变化/);
+assert.match(panel, /t\('price\.stateError'/);  // v0.5.65: 价格更新失败 → t('price.stateError')
+assert.match(panel, /t\('price\.stateNotModified'/);  // v0.5.65: 无变化 → t('price.stateNotModified')
 
 // Unit-test source covers validators, parser, backoff, wrapper shape and persisted state.
 for (const testName of [
