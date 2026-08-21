@@ -52,6 +52,7 @@
     'tray.openDiagnostics': '🔍 诊断信息',
     'tray.openLogDir': '📁 打开数据目录',
 
+    'tray.resetStats': '重置统计与配置（备份后重置）',
     'skin.mascot': '章鱼',
     'skin.pixel': '像素怪兽',
     'skin.cat': '月薪喵',
@@ -583,6 +584,7 @@
     'tray.openDiagnostics': '🔍 Diagnostics',
     'tray.openLogDir': '📁 Open data directory',
 
+    'tray.resetStats': 'Reset Stats & Config (backup then reset)',
     'skin.mascot': 'Octopus',
     'skin.pixel': 'Pixel monster',
     'skin.cat': 'Payday Cat',
@@ -1094,6 +1096,7 @@
     'tray.openDiagnostics': '🔍 診断情報',
     'tray.openLogDir': '📁 データディレクトリを開く',
 
+    'tray.resetStats': '統計と設定をリセット（バックアップ後にリセット）',
     'skin.mascot': 'タコ',
     'skin.pixel': 'ドット怪獣',
     'skin.cat': '給料ニャン',

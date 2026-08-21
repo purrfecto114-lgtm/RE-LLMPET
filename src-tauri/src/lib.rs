@@ -595,11 +595,21 @@ fn build_tray_menu<R: tauri::Runtime>(
         true,
         None::<&str>,
     )?;
+    // v0.5.75: Reset stats — creates a backup then resets config to defaults.
+    // Useful when the usage ledger gets corrupted or the user wants a fresh start.
+    let settings_reset_stats = MenuItem::with_id(
+        app,
+        "settings_reset_stats",
+        i18n::tray_label(lang, "tray.resetStats"),
+        true,
+        None::<&str>,
+    )?;
     let settings = SubmenuBuilder::new(app, i18n::tray_label(lang, "tray.settingsMenu"))
         .item(&settings_refresh_price)
         .item(&settings_price_auto)
         .item(&settings_diagnostics)
         .item(&settings_data_dir)
+        .item(&settings_reset_stats)
         .build()?;
 
     // R13: "Uninstall Claude hooks" — single-provider hook cleanup.
@@ -806,6 +816,12 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             "settings_data_dir" => {
                 let data_dir = app.state::<AppState>().runtime.app_dir.clone();
                 let _ = open_path(&data_dir.to_string_lossy());
+            }
+            // v0.5.75: Reset stats — backup + reset config to defaults.
+            // backup_and_reset_config emits config+stats so UI refreshes.
+            "settings_reset_stats" => {
+                let _ = backup_and_reset_config(app.clone(), app.state::<AppState>());
+                refresh_tray_menu(app);
             }
             "quit" => {
                 let state = app.state::<AppState>();
