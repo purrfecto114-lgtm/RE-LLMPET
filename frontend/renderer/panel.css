@@ -614,3 +614,90 @@ body.window-fullscreen #card {
 
 .travel-postcard { margin-top: 8px; white-space: pre-wrap; font-size: 11px; line-height: 1.55; color: #785b4d; max-height: 150px; overflow: auto; }
 #travel-growth { font-size: 11px; color: #b07b59; }
+
+/* ====================================================================
+   v0.5.68: panel animation polish + micro-interactions
+   - Block entrance animation on panel open
+   - Button press feedback (scale down on active)
+   - Stat-value flash enhancement (subtle glow)
+   - Focus-visible ring for keyboard nav (WCAG 2.4.7)
+   ==================================================================== */
+.block {
+  animation: blockEnter 0.18s ease-out;
+}
+@keyframes blockEnter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Button press feedback */
+button:active:not(:disabled) {
+  transform: scale(0.96);
+  transition: transform 0.08s ease;
+}
+.seg-btn:active:not(:disabled),
+.sess-filter-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+/* Stat-value flash glow enhancement */
+.stat-value.flash {
+  animation: statFlashGlow 0.55s ease-out;
+}
+@keyframes statFlashGlow {
+  0% { color: #ffcdb0; text-shadow: none; }
+  30% { color: #ffe4cc; text-shadow: 0 0 8px rgba(255,205,176,.5); }
+  100% { color: #ffcdb0; text-shadow: none; }
+}
+
+/* Bar-fill smooth growth with subtle pulse */
+.bar-fill {
+  position: relative;
+  overflow: hidden;
+}
+.bar-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.15), transparent);
+  animation: barShimmer 2.5s ease-in-out infinite;
+}
+@keyframes barShimmer {
+  0%, 100% { transform: translateX(-100%); }
+  50% { transform: translateX(100%); }
+}
+
+/* Focus-visible ring for keyboard navigation */
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid #d97757;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Hover lift for interactive cards */
+.block:hover {
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  transition: box-shadow 0.2s ease;
+}
+
+/* Scrollbar styling for overflow blocks */
+.block::-webkit-scrollbar,
+.todos::-webkit-scrollbar,
+#session-list::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.block::-webkit-scrollbar-thumb,
+.todos::-webkit-scrollbar-thumb,
+#session-list::-webkit-scrollbar-thumb {
+  background: rgba(217,119,87,.25);
+  border-radius: 3px;
+}
+.block::-webkit-scrollbar-thumb:hover,
+.todos::-webkit-scrollbar-thumb:hover,
+#session-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(217,119,87,.4);
+}

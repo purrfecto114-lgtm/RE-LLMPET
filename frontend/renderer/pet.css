@@ -1192,3 +1192,82 @@ body.skin-cat #cat { display: flex; }
 .sl-action.sl-travel { color: #ffd38a; }
 .agent-tag.claude { background: rgba(217,119,87,.22); color: #ffb495; border-color: rgba(217,119,87,.45); }
 .agent-tag.codex { background: rgba(59,130,246,.20); color: #9cc4ff; border-color: rgba(59,130,246,.45); }
+
+/* ====================================================================
+   v0.5.68: responsive breakpoints + animation polish
+   - Small pet window (<380px): shrink ask bubble, todo list, session bar
+   - Enhance hover/focus transitions for accessibility
+   - Add subtle entrance animations for ask bubble + todo list
+   ==================================================================== */
+@media (max-width: 380px) {
+  #ask { max-width: 240px; padding: 9px 10px; }
+  .ask-q { font-size: 11.5px; line-height: 1.4; }
+  .ask-proj { font-size: 9.5px; }
+  .ask-nav { font-size: 9.5px; padding: 2px 6px; }
+  .ao-l { font-size: 11.5px; }
+  .ao-d { font-size: 9.5px; }
+  #notepad { max-width: 240px; }
+  .tp-prog { font-size: 10px; }
+  #session-list { max-width: 260px; }
+  .sl-name { font-size: 10.5px; }
+  .sl-meta { font-size: 9px; }
+  #chip-window { font-size: 9.5px; }
+  #chip-tokens { font-size: 9.5px; }
+}
+
+/* Enhanced hover/focus for interactive pet elements (a11y + polish) */
+.ask-nav:hover, .ask-nav:focus-visible {
+  background: #c46644;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(217,119,87,.35);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.ao-option:hover, .ao-option:focus-visible {
+  border-color: #d97757;
+  box-shadow: 0 2px 6px rgba(217,119,87,.2);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.sl-row:hover, .sl-row:focus-visible {
+  background: rgba(255,255,255,.04);
+  transition: background 0.12s ease;
+}
+.sl-row.pinned:hover, .sl-row.pinned:focus-visible {
+  background: rgba(255,211,138,.08);
+}
+
+/* Subtle entrance animations */
+#ask.ask-enter {
+  animation: askEnter 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes askEnter {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+#notepad.np-enter {
+  animation: npEnter 0.18s ease-out;
+}
+@keyframes npEnter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+#session-list.sl-enter {
+  animation: slEnter 0.2s ease-out;
+}
+@keyframes slEnter {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Focus-visible ring for keyboard navigation (WCAG 2.1 SC 2.4.7) */
+.ao-option:focus-visible,
+.ask-nav:focus-visible,
+.sl-row:focus-visible,
+.sl-action:focus-visible,
+.sl-filter:focus-visible,
+#sl-close:focus-visible,
+#tp-close:focus-visible,
+#pc-close:focus-visible {
+  outline: 2px solid #d97757;
+  outline-offset: 2px;
+  border-radius: 6px;
+}

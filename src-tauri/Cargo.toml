@@ -1,6 +1,6 @@
 [package]
 name = "octopus"
-version = "0.5.67"
+version = "0.5.68"
 description = "Low-overhead multi-agent desktop pet"
 authors = ["Octopus contributors"]
 license = "MIT"

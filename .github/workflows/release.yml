@@ -95,6 +95,15 @@ jobs:
               -F prerelease="$PRERELEASE" \
               --jq '.id')
           fi
+          # Stale-draft cleanup: if previous failed runs left orphan drafts under
+          # the same tag, delete them so matrix build jobs upload SBOMs/checksums
+          # to THIS fresh draft (not a stale one). This fixes the v0.5.66 publish
+          # failure where SBOMs landed on an orphan draft from an earlier retry.
+          STALE_DRAFTS=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG_NAME\" and .draft == true and .id != $RELEASE_ID) | .id" 2>/dev/null || true)
+          for STALE_ID in $STALE_DRAFTS; do
+            echo "::notice::Deleting stale draft $STALE_ID for tag $TAG_NAME (current draft is $RELEASE_ID)"
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$STALE_ID" 2>/dev/null || true
+          done
           echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
           echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
