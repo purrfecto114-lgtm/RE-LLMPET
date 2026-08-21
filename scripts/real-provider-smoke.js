@@ -21,7 +21,6 @@ const contracts = {
   codewhale: { events: ['session-start', 'tool', 'turn-end'], decisions: ['allow', 'deny', 'ask'] },
   codex: { events: ['session-start', 'tool', 'turn-end'], decisions: ['allow', 'deny'], trustReview: true },
   opencode: { events: ['session-start', 'tool', 'turn-end'], permissionMode: 'native-only' },
-  aider: { events: ['turn-end'], permissionMode: 'native-only' }
 };
 if (!contracts[provider]) fail(`unsupported provider ${provider || '(missing)'}`);
 const command = process.env.OCTOPUS_PROVIDER_SMOKE_COMMAND;

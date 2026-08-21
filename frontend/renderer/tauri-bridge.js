@@ -205,7 +205,6 @@ function currentPetAgent() {
     launchCodeWhale: () => send('launch_agent', { provider: 'codewhale' }),
     launchCodex: () => send('launch_agent', { provider: 'codex' }),
     launchOpenCode: () => send('launch_agent', { provider: 'opencode' }),
-    launchAider: () => send('launch_agent', { provider: 'aider' }),
     diagnoseAgent: (provider) => call('diagnose_agent', { provider }),
     // R35.2 (2026-07-31): cancel_diagnostic — kills the currently-running
     // diagnostic process tree (taskkill /F /T on Windows, kill on Unix).

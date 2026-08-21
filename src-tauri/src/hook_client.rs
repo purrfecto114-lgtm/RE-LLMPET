@@ -69,7 +69,7 @@ fn run() -> Result<(), String> {
         Value::Object(Map::new())
     } else {
         // R4-E1 fix: spawn stdin reader thread with timeout to prevent
-        // permanent hang when provider (claude/aider) doesn't close stdin
+        // permanent hang when provider (claude) doesn't close stdin
         let (tx, rx) = mpsc::channel::<Vec<u8>>();
         let reader_handle = std::thread::spawn(move || {
             let mut raw = Vec::new();
@@ -322,19 +322,6 @@ fn normalize_provider_body(
         if native_event == "turn_end" {
             normalize_codewhale_turn_end(object);
         }
-    } else if provider == "aider" {
-        let cwd = std::env::current_dir()
-            .ok()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        object.entry("cwd").or_insert(Value::String(cwd.clone()));
-        object
-            .entry("session_id")
-            .or_insert(Value::String(stable_session("aider", &cwd)));
-        object.insert("hook_event_name".into(), Value::String("Stop".into()));
-        object
-            .entry("state")
-            .or_insert(Value::String("attention".into()));
     } else {
         if !object.contains_key("hook_event_name") && !native_event.is_empty() {
             object.insert("hook_event_name".into(), Value::String(native_event));

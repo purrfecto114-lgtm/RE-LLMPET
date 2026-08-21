@@ -354,7 +354,7 @@ pub fn uninstall_hooks(
     provider: String,
 ) -> Result<Value, String> {
     let provider = provider.trim().to_lowercase();
-    let all_providers = ["claude", "codewhale", "codex", "opencode", "aider"];
+    let all_providers = ["claude", "codewhale", "codex", "opencode"];
 
     // Helper: run the cleanup pipeline for one provider and return its
     // JSON result object. Used by both single-provider and bulk paths.
@@ -1260,12 +1260,6 @@ fn agent_spec(provider: &str) -> Result<AgentSpec, String> {
             id: "opencode",
             title: "OpenCode",
             command: "opencode",
-            companion: None,
-        }),
-        "aider" => Ok(AgentSpec {
-            id: "aider",
-            title: "Aider",
-            command: "aider",
             companion: None,
         }),
         _ => Err(format!("unsupported agent provider: {provider}")),
@@ -2345,53 +2339,6 @@ fn nearest_git_root(start: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-fn aider_configuration_summary(cwd: &Path) -> Value {
-    let mut candidates = Vec::<Value>::new();
-    let cwd_config = cwd.join(".aider.conf.yml");
-    candidates.push(json!({
-        "kind": "working-directory",
-        "path": cwd_config.to_string_lossy(),
-        "present": cwd_config.is_file()
-    }));
-    if let Some(git_root) = nearest_git_root(cwd) {
-        let path = git_root.join(".aider.conf.yml");
-        if path != cwd_config {
-            candidates.push(json!({
-                "kind": "git-root",
-                "path": path.to_string_lossy(),
-                "present": path.is_file()
-            }));
-        }
-    }
-    let home_config = home_dir().join(".aider.conf.yml");
-    if home_config != cwd_config {
-        candidates.push(json!({
-            "kind": "home",
-            "path": home_config.to_string_lossy(),
-            "present": home_config.is_file()
-        }));
-    }
-    let credential_environment = [
-        "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "DEEPSEEK_API_KEY",
-        "OPENROUTER_API_KEY",
-        "GEMINI_API_KEY",
-        "AZURE_API_KEY",
-    ]
-    .into_iter()
-    .filter(|name| {
-        std::env::var_os(name).is_some_and(|value| !value.to_string_lossy().trim().is_empty())
-    })
-    .collect::<Vec<_>>();
-    let model_environment = std::env::var_os("AIDER_MODEL")
-        .is_some_and(|value| !value.to_string_lossy().trim().is_empty());
-    json!({
-        "configCandidates": candidates,
-        "credentialEnvironment": credential_environment,
-        "modelEnvironment": model_environment
-    })
-}
 
 fn executable_kind(path: &Path) -> &'static str {
     #[cfg(windows)]
@@ -2960,29 +2907,6 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
     } else {
         Value::Null
     };
-    let aider_summary = if spec.id == "aider" {
-        let summary = aider_configuration_summary(&working_directory);
-        let has_config = summary
-            .get("configCandidates")
-            .and_then(Value::as_array)
-            .is_some_and(|items| {
-                items.iter().any(|item| {
-                    item.get("present")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false)
-                })
-            });
-        let has_credential_env = summary
-            .get("credentialEnvironment")
-            .and_then(Value::as_array)
-            .is_some_and(|items| !items.is_empty());
-        if executable.is_some() && !has_config && !has_credential_env {
-            warnings.push("Aider is installed but no .aider.conf.yml or common credential environment variable is visible to Octopus; keyring, provider-specific config, or interactive setup may still work".into());
-        }
-        summary
-    } else {
-        Value::Null
-    };
     let path_entry_count = std::env::var_os("PATH")
         .map(|raw| std::env::split_paths(&raw).count())
         .unwrap_or(0);
@@ -3005,7 +2929,6 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
         "doctorAttempts": doctor_attempts,
         "doctorSummary": doctor_summary,
         "authProbe": auth,
-        "aiderSummary": aider_summary,
         "terminal": terminal,
         "pathEntryCount": path_entry_count
     }))
@@ -3043,7 +2966,7 @@ pub fn launch_agent_gui(provider: String) -> Result<(), String> {
                 launch_agent(provider)
             }
         }
-        "codewhale" | "opencode" | "aider" => launch_agent(provider),
+        "codewhale" | "opencode" => launch_agent(provider),
         _ => Err(format!("unsupported agent provider: {provider}")),
     }
 }

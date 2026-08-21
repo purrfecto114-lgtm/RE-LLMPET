@@ -6,7 +6,6 @@
 // Locks the Phase 0C deliverables:
 //
 //   P0C-1  Generic `backup_config_file()` helper exists and is called
-//          by install_claude / install_codex / install_aider (in addition
 //          to the existing CodeWhale path).
 //
 //   P0C-2  Backup naming is `.<stem>.re-llmpet-bak-<unix_ms>.<ext>` and
@@ -22,7 +21,6 @@
 //          compat with 0.5.34–0.5.37.
 //
 //   P0C-5  `write_install_receipt()` exists and is called by all 5 install_*
-//          functions (claude, codex, codewhale, opencode, aider).
 //
 //   P0C-6  Receipts go to `~/.re-llmpet/receipts/<provider>-<unix_ms>.json`
 //          with fields: provider, version, installed_at, path, backup_path,
@@ -76,8 +74,6 @@ assert.ok(hookInstall.includes('fn backup_config_file('),
   'P0C-1: backup_config_file function must be defined');
 assert.ok(hookInstall.includes('fn prune_backups('),
   'P0C-1: prune_backups helper must be defined');
-
-// Claude, Codex, Aider must all call backup_config_file (CodeWhale still
 // uses backup_codewhale_config which delegates to the generic helper).
 const claudeSection = hookInstall.slice(
   hookInstall.indexOf('pub fn install_claude('),
@@ -93,12 +89,6 @@ const codexSection = hookInstall.slice(
 assert.ok(codexSection.includes('backup_config_file(&path, runtime)?'),
   'P0C-1: install_codex must call backup_config_file (fail-closed via ?)');
 
-const aiderSection = hookInstall.slice(
-  hookInstall.indexOf('fn install_aider('),
-  hookInstall.indexOf('fn codewhale_config_path(')
-);
-assert.ok(aiderSection.includes('backup_config_file(&path, runtime)?'),
-  'P0C-1: install_aider must call backup_config_file (fail-closed via ?)');
 
 // OpenCode also calls backup_config_file (its file is owned by us, but
 // a backup protects against partial writes).
@@ -189,8 +179,7 @@ assert.ok(codexSection.includes('write_install_receipt('),
   'P0C-5: install_codex must call write_install_receipt');
 assert.ok(opencodeSection.includes('write_install_receipt('),
   'P0C-5: install_opencode must call write_install_receipt');
-assert.ok(aiderSection.includes('write_install_receipt('),
-  'P0C-5: install_aider must call write_install_receipt');
+// aider provider removed in v0.5.77
 
 const codewhaleSection = hookInstall.slice(
   hookInstall.indexOf('fn install_codewhale('),

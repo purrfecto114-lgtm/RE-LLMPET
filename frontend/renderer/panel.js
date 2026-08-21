@@ -471,7 +471,6 @@ const PCOST_META = {
   codewhale: { icon: '🐋', label: 'CodeWhale' },
   codex: { icon: '💻', label: 'Codex CLI' },
   opencode: { icon: '🧩', label: 'OpenCode' },
-  aider: { icon: '🛠️', label: 'Aider' },
 };
 // R15 (2026-07-30): Codex today + lifetime tokens rendering.
 // Mirrors the upstream Electron panel.js renderCodexUsage. Hidden when
@@ -877,7 +876,6 @@ const PROVIDER_META = {
   codewhale: { icon: '🐋', label: 'CodeWhale' },
   codex: { icon: '🤖', label: 'Codex CLI' },
   opencode: { icon: '🧩', label: 'OpenCode' },
-  aider: { icon: '🛠️', label: 'Aider' },
 };
 
 function probeText(probe) {
@@ -919,8 +917,6 @@ function renderProviderDiagnostic(result) {
     ? result.doctorSummary : null;
   const configInfo = result.config && typeof result.config === 'object' ? result.config : null;
   const terminal = result.terminal && typeof result.terminal === 'object' ? result.terminal : null;
-  const aiderSummary = result.aiderSummary && typeof result.aiderSummary === 'object'
-    ? result.aiderSummary : null;
   const statusLabel = ready ? t('diag.ready') : t('diag.problem');
   const issueHtml = issues.length
     ? `<ul class="diag-issues">${issues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join('')}</ul>`
@@ -941,17 +937,6 @@ function renderProviderDiagnostic(result) {
     diagnosticRow(t('diag.projectConfig'), projectOverlays, true),
     diagnosticRow(t('diag.hooks'), configInfo.reLlmpetHookBlock ? t('diag.present') : t('diag.absent'), false),
     diagnosticRow(t('diag.legacyModels'), legacyModels, true),
-  ].join('') : '';
-  const aiderConfigs = aiderSummary && Array.isArray(aiderSummary.configCandidates)
-    ? aiderSummary.configCandidates.filter((item) => item && item.present).map((item) => item.path).join(' · ')
-    : '';
-  const aiderCredentials = aiderSummary && Array.isArray(aiderSummary.credentialEnvironment)
-    ? aiderSummary.credentialEnvironment.join(', ')
-    : '';
-  const aiderRows = aiderSummary ? [
-    diagnosticRow(t('diag.configCandidates'), aiderConfigs || t('diag.absent'), true),
-    diagnosticRow(t('diag.credentialHints'), aiderCredentials || t('diag.absent'), true),
-    diagnosticRow(t('diag.modelEnvironment'), aiderSummary.modelEnvironment ? t('diag.present') : t('diag.absent'), false),
   ].join('') : '';
   const terminalRows = terminal ? [
     diagnosticRow('Windows Terminal', terminal.windowsTerminal || t('diag.absent'), true),
@@ -988,7 +973,7 @@ function renderProviderDiagnostic(result) {
       ${doctorRows}
       ${configRows}
       ${terminalRows}
-      ${aiderRows}
+      
     </div>
     ${auth ? `<details class="diag-details"><summary>${escapeHtml(t('diag.authOutput'))}</summary><pre>${escapeHtml(auth)}</pre></details>` : ''}
     ${doctor ? `<details class="diag-details"><summary>${escapeHtml(t('diag.doctor'))}</summary><pre>${escapeHtml(doctor)}</pre></details>` : ''}

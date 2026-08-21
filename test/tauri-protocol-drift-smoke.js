@@ -56,6 +56,6 @@ const report = JSON.parse(fs.readFileSync(tempReport, 'utf8'));
 fs.rmSync(tempReport, { force: true });
 assert.notStrictEqual(report.verdict, 'review-required', 'verdict must not be review-required when local contracts match');
 assert(report.local.every((entry) => entry.ok));
-assert(Array.isArray(report.cliVersions) && report.cliVersions.length === 5);
+assert(Array.isArray(report.cliVersions) && report.cliVersions.length === 4);
 
 console.log('tauri-protocol-drift-smoke: ok');

@@ -107,7 +107,6 @@ async function main() {
     compareArray('codewhale-events', parseRustStringArray(installer, 'CODEWHALE_EVENTS'), baseline.localContracts.codewhaleEvents),
     compareArray('codex-events', parseRustStringArray(installer, 'CODEX_EVENTS'), baseline.localContracts.codexEvents),
     checkNeedles('opencode-contract', installer, baseline.localContracts.opencodeNeedles),
-    checkNeedles('aider-contract', installer, baseline.localContracts.aiderNeedles),
   ];
   const cliVersions = baseline.cliVersionCommands.map(cliVersion);
   const remote = remoteEnabled ? await Promise.all(baseline.remoteContracts.map(fetchContract)) : [];

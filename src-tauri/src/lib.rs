@@ -369,19 +369,11 @@ fn build_tray_menu<R: tauri::Runtime>(
         true,
         None::<&str>,
     )?;
-    let launch_aider = MenuItem::with_id(
-        app,
-        "launch_aider",
-        i18n::tray_label(lang, "tray.launchAider"),
-        true,
-        None::<&str>,
-    )?;
     let launch_menu = SubmenuBuilder::new(app, i18n::tray_label(lang, "tray.launchAgent"))
         .item(&launch_claude)
         .item(&launch_cw)
         .item(&launch_codex)
         .item(&launch_opencode)
-        .item(&launch_aider)
         .build()?;
 
     // R12 (2026-07-30): language submenu (radio-like via CheckMenuItem;
@@ -721,9 +713,6 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             }
             "launch_opencode" => {
                 let _ = launch_agent("opencode".into());
-            }
-            "launch_aider" => {
-                let _ = launch_agent("aider".into());
             }
             // R12 (2026-07-30): tray-driven config switches. Each branch
             // mirrors the corresponding #[tauri::command] in commands.rs:

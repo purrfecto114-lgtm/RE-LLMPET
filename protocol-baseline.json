@@ -71,10 +71,6 @@
       "session.compacted",
       "session.deleted",
       "session.status"
-    ],
-    "aiderNeedles": [
-      "notifications_command:",
-      "turn-end-only"
     ]
   },
   "remoteContracts": [
@@ -170,13 +166,6 @@
     {
       "id": "opencode",
       "command": "opencode",
-      "args": [
-        "--version"
-      ]
-    },
-    {
-      "id": "aider",
-      "command": "aider",
       "args": [
         "--version"
       ]

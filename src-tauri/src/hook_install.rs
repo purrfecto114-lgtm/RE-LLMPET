@@ -123,14 +123,6 @@ const CW_END: &str = "# <<< octopus:codewhale-hooks:v4 <<<";
 const CW_LEGACY_BEGIN: &str = "# >>> re-llmpet:codewhale-hooks:v3 >>>";
 const CW_LEGACY_END: &str = "# <<< re-llmpet:codewhale-hooks:v3 <<<";
 const CW_MARKERS: &[(&str, &str)] = &[(CW_BEGIN, CW_END), (CW_LEGACY_BEGIN, CW_LEGACY_END)];
-const AIDER_BEGIN: &str = "# >>> octopus:aider-notification:v4 >>>";
-const AIDER_END: &str = "# <<< octopus:aider-notification:v4 <<<";
-const AIDER_LEGACY_BEGIN: &str = "# >>> re-llmpet:aider-notification:v3 >>>";
-const AIDER_LEGACY_END: &str = "# <<< re-llmpet:aider-notification:v3 <<<";
-const AIDER_MARKERS: &[(&str, &str)] = &[
-    (AIDER_BEGIN, AIDER_END),
-    (AIDER_LEGACY_BEGIN, AIDER_LEGACY_END),
-];
 const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v3";
 const OPENCODE_MARKER_LEGACY: &[&str] =
     &["re-llmpet-opencode-plugin-v1", "octopus-opencode-plugin-v2"];
@@ -267,7 +259,6 @@ fn provider_config_path(id: &str) -> PathBuf {
         "codewhale" => codewhale_config_path(),
         "codex" => home_dir().join(".codex").join("hooks.json"),
         "opencode" => opencode_plugin_path(),
-        "aider" => home_dir().join(".aider.conf.yml"),
         _ => PathBuf::new(),
     }
 }
@@ -291,7 +282,7 @@ pub fn sync_enabled(
         });
     let selected: HashSet<&str> = enabled.iter().map(String::as_str).collect();
     let mut statuses = Vec::new();
-    for id in ["claude", "codewhale", "codex", "opencode", "aider"] {
+    for id in ["claude", "codewhale", "codex", "opencode"] {
         let result = if selected.contains(id) {
             // R44 0.5.41: idempotent sync — skip backup+write+receipt if hook
             // command is unchanged (port/token read from runtime.json at invocation).
@@ -384,7 +375,7 @@ pub fn resync_current(runtime: &Runtime) -> Result<Vec<ProviderStatus>, String> 
 pub fn verify_enabled(runtime: &Runtime, enabled: &[String]) -> Vec<ProviderStatus> {
     let selected: HashSet<&str> = enabled.iter().map(String::as_str).collect();
     let mut statuses = Vec::new();
-    for id in ["claude", "codewhale", "codex", "opencode", "aider"] {
+    for id in ["claude", "codewhale", "codex", "opencode"] {
         let is_selected = selected.contains(id);
         let installed = is_hook_installed(id);
         let (permission_mode, capabilities) = provider_capabilities(id);
@@ -432,7 +423,6 @@ fn install_provider(
         "codewhale" => install_codewhale(runtime),
         "codex" => install_codex(runtime),
         "opencode" => install_opencode(runtime),
-        "aider" => install_aider(runtime),
         _ => Err(format!("unknown provider: {id}")),
     }
 }
@@ -524,11 +514,6 @@ fn hook_presence(id: &str) -> HookPresence {
                 OPENCODE_MARKER_LEGACY,
             )
         }
-        "aider" => file_block_presence(
-            home_dir().join(".aider.conf.yml"),
-            (AIDER_BEGIN, AIDER_END),
-            &[(AIDER_LEGACY_BEGIN, AIDER_LEGACY_END)],
-        ),
         _ => HookPresence::Missing,
     }
 }
@@ -625,12 +610,6 @@ fn cleanup_provider_with_path(id: &str, receipt_path: Option<&Path>) -> CleanupR
                 .map(|p| p.to_path_buf())
                 .unwrap_or_else(opencode_plugin_path);
             uninstall_opencode_at(&path)
-        }
-        "aider" => {
-            let path = receipt_path
-                .map(|p| p.to_path_buf())
-                .unwrap_or_else(|| home_dir().join(".aider.conf.yml"));
-            uninstall_marker_variants(&path, AIDER_MARKERS)
         }
         _ => CleanupResult::ManualActionRequired {
             path: PathBuf::new(),
@@ -897,10 +876,6 @@ fn provider_capabilities(id: &str) -> (&'static str, Value) {
             "observe-native",
             json!({"lifecycle":true,"permissionBubble":false,"metering":"pending","trustReview":false,"bypassWarning":"Permission decisions stay in OpenCode native UI"}),
         ),
-        "aider" => (
-            "terminal-native",
-            json!({"lifecycle":"turn-end-only","permissionBubble":false,"metering":false,"trustReview":false,"bypassWarning":"Aider exposes completion notifications, not an external permission contract"}),
-        ),
         _ => ("none", json!({})),
     }
 }
@@ -1033,7 +1008,7 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
 }
 
 /// R44 Phase 0C (2026-08-03): generic pre-write backup for any provider's
-/// config file. Used by install_claude / install_codex / install_aider in
+/// config file. Used by install_claude / install_codex in
 /// addition to the existing CodeWhale path. Returns the backup file path
 /// on success so callers can record it in the install receipt.
 ///
@@ -1355,61 +1330,6 @@ fn uninstall_opencode() -> CleanupResult {
     }
 }
 
-fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
-    let path = home_dir().join(".aider.conf.yml");
-    // R44 Phase 0C: pre-write backup (fail-closed).
-    let backup_path = backup_config_file(&path, runtime)?;
-    // R44 (audit P0-03): do NOT use unwrap_or_default() — if the file
-    // exists but is unreadable (permissions, I/O error, non-UTF-8),
-    // treating it as empty would cause the subsequent write to overwrite
-    // the user's real config with only our marker block. Only
-    // ErrorKind::NotFound is safe to treat as "new file".
-    let current = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(format!(
-            "Aider config exists but cannot be read ({}). Aborting to protect existing config. No changes were made.",
-            e
-        )),
-    };
-    let stripped = strip_marker_variants(&current, AIDER_MARKERS)?;
-    // Aider YAML config uses underscores (notifications_command); the CLI flag
-    // uses hyphens (--notifications-command). Detect either form to avoid
-    // clobbering a pre-existing foreign notification command.
-    let foreign = stripped.lines().find(|line| {
-        let t = line.trim();
-        (t.starts_with("notifications_command:") || t.starts_with("notifications-command:"))
-            && !t.contains(MARKER)
-    });
-    if let Some(line) = foreign {
-        return Err(format!(
-            "Aider 已配置其他 notifications_command，未覆盖：{}",
-            line.trim()
-        ));
-    }
-    let executable = current_exe_clean().map_err(|e| e.to_string())?;
-    let command = hook_command(&executable, "aider", Some("turn_end"), false);
-    // YAML key: notifications_command (underscore). The CLI flag is
-    // --notifications-command (hyphen), but the config file uses underscore.
-    let block = format!(
-        "{AIDER_BEGIN}\nnotifications: true\nnotifications_command: {}\n{AIDER_END}",
-        yaml_string(&command)
-    );
-    replace_marker_variants(&path, AIDER_MARKERS, &block)?;
-    write_install_receipt(
-        runtime,
-        "aider",
-        &path,
-        &["turn_end".to_string()],
-        backup_path.as_deref(),
-    );
-    runtime.write_log("hooks", "Aider notification bridge synced");
-    Ok(InstallResult {
-        added: 1,
-        path,
-        message: "Aider 通知桥已安装；仅可靠提供回复完成事件，不接管终端内权限".into(),
-    })
-}
 
 /// R9: shared config path resolver — single source of truth for CodeWhale config discovery.
 /// Previously duplicated in commands.rs:2111 (identical impl), which risked drift.
@@ -1835,7 +1755,7 @@ fn write_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
 fn write_text_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("config path has no parent")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    // Do NOT chmod the parent directory — for files like ~/.aider.conf.yml the
+    // Do NOT chmod the parent directory — for files like config files the
     // parent is $HOME, and changing its permissions to 0700 is an unacceptable
     // side effect. Only secure the temp file and the final file themselves.
     let temp = parent.join(format!(

@@ -969,8 +969,8 @@ const CODEX_ICON =
   '<svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="#3b82f6"/>' +
   '<path d="M7 8l4 4-4 4" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
   '<path d="M13 16.5h4.5" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>';
-const PROVIDER_ICONS = { claude: CLAUDE_ICON, codewhale: '🐋', codex: CODEX_ICON, opencode: '🧩', aider: '🛠️' };
-const PROVIDER_LABELS = { claude: 'Claude', codewhale: 'CodeWhale', codex: 'Codex', opencode: 'OpenCode', aider: 'Aider' };
+const PROVIDER_ICONS = { claude: CLAUDE_ICON, codewhale: '🐋', codex: CODEX_ICON, opencode: '🧩' };
+const PROVIDER_LABELS = { claude: 'Claude', codewhale: 'CodeWhale', codex: 'Codex', opencode: 'OpenCode' };
 const SESS_META = {
   waiting: t('pet.state.waiting'), needsinput: t('pet.state.needsinput'),
   working: t('pet.state.working'), juggling: t('pet.state.juggling'), sweeping: t('pet.state.sweeping'),
@@ -1781,7 +1781,7 @@ function renderSessions(sessions) {
 }
 
 let activeProviders = [];
-let availableProviders = ['claude', 'codewhale', 'codex', 'opencode', 'aider'];
+let availableProviders = ['claude', 'codewhale', 'codex', 'opencode'];
 // R35.2 (2026-07-31): latestProviderStatuses — the per-provider install
 // status map, sourced from config_view()'s `providers.statuses` (NOT
 // from stats(), which the 0.5.12 carpet audit P0-1 证据C confirmed does

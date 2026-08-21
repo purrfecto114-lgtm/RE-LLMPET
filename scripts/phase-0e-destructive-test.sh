@@ -10,7 +10,6 @@
 #
 # Prerequisites:
 #   - RE-LLMPET 0.5.38+ installed
-#   - At least one of: Claude Code, CodeWhale, Codex, OpenCode, Aider
 #   - Backup of any provider config you care about (this script
 #     deliberately tests destructive paths)
 set -euo pipefail
@@ -24,7 +23,6 @@ read -p "Continue? (yes/no): " yn
 [[ "$yn" == "yes" ]] || { echo "Aborted."; exit 0; }
 
 RECEIPTS_DIR="$HOME/.re-llmpet/receipts"
-PROVIDERS=("claude" "codewhale" "codex" "opencode" "aider")
 
 # ──────────────────────────────────────────────────────────────────────────
 # Test 1: Fresh install creates receipt + backup

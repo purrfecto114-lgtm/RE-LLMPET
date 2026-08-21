@@ -122,7 +122,6 @@ function Invoke-BoundedProbe {
 
 $resolvedWorkingDirectory = Resolve-Path -LiteralPath $WorkingDirectory -ErrorAction Stop
 $agents = [ordered]@{}
-foreach ($name in 'claude','codewhale','codewhale-tui','codex','opencode','aider') {
   $cmd = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
   $agents[$name] = [ordered]@{
     found = [bool]$cmd
@@ -184,14 +183,9 @@ $opencodeAuth = $null
 if ($agents['opencode'].found) {
   $opencodeAuth = Invoke-BoundedProbe -Exe $agents['opencode'].source -Arguments @('auth','list') -TimeoutSeconds 12
 }
-$aiderConfigCandidates = @(
-  [ordered]@{ kind = 'working-directory'; path = (Join-Path $resolvedWorkingDirectory.Path '.aider.conf.yml'); present = (Test-Path -LiteralPath (Join-Path $resolvedWorkingDirectory.Path '.aider.conf.yml')) },
-  [ordered]@{ kind = 'home'; path = (Join-Path $HOME '.aider.conf.yml'); present = (Test-Path -LiteralPath (Join-Path $HOME '.aider.conf.yml')) }
 )
-$aiderCredentialEnvironment = @()
 foreach ($name in 'OPENAI_API_KEY','ANTHROPIC_API_KEY','DEEPSEEK_API_KEY','OPENROUTER_API_KEY','GEMINI_API_KEY','AZURE_API_KEY') {
   if (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-    $aiderCredentialEnvironment += $name
   }
 }
 
@@ -212,10 +206,6 @@ $report = [ordered]@{
     authentication = $opencodeAuth
     launchArguments = @('--dir','.')
   }
-  aider = [ordered]@{
-    configCandidates = $aiderConfigCandidates
-    credentialEnvironment = $aiderCredentialEnvironment
-    modelEnvironment = (-not [string]::IsNullOrWhiteSpace($env:AIDER_MODEL))
   }
   codewhale = [ordered]@{
     companionPairComplete = ($agents['codewhale'].found -and $agents['codewhale-tui'].found)

@@ -5,7 +5,7 @@
 # 项目背景
 
 - 本仓库：`purrfecto114-lgtm/RE-LLMPET`（Tauri 2 + Rust 重写分支，Rust 1.85+ / edition 2024 / Tauri 2.11+）
-- 状态机、五 provider 适配（Claude Code / CodeWhale / Codex / OpenCode / Aider）、权限流、托盘、计量、session 聚焦已在主分支
+- 状态机、五 provider 适配（Claude Code / CodeWhale / Codex / OpenCode）、权限流、托盘、计量、session 聚焦已在主分支
 - **未迁**：原 `purrfecto114-lgtm/LLMPET`（Electron/Node）里的桌宠互动层
 - 资源：`frontend/assets/cat/cat-*.gif` 共 14+ 个 GIF，文件名已与状态机状态名对齐
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-04T11:44:34.929Z",
+  "generatedAt": "2026-08-21T23:45:47.825Z",
   "baselineUpdatedAt": "2026-08-01",
   "sourceFork": {
     "repository": "https://github.com/purrfecto114-lgtm/LLMPET",
@@ -193,11 +193,6 @@
       "id": "opencode-contract",
       "ok": true,
       "missing": []
-    },
-    {
-      "id": "aider-contract",
-      "ok": true,
-      "missing": []
     }
   ],
   "cliVersions": [
@@ -218,11 +213,6 @@
     },
     {
       "id": "opencode",
-      "installed": false,
-      "error": "ENOENT"
-    },
-    {
-      "id": "aider",
       "installed": false,
       "error": "ENOENT"
     }

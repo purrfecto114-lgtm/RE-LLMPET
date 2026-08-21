@@ -20,7 +20,7 @@ assert(css.includes('filter: none;'), 'transparent popup must not use compositor
 const pet = read('frontend/renderer/pet.js');
 assert(pet.includes("window.pet.onWindowBlur(() => dismissTransientUi('native-blur'))"), 'native blur must dismiss transient UI');
 assert(pet.includes('availableProviders') && pet.includes('openProviderChooser'), 'new Agent must have a provider chooser path');
-assert(pet.includes("['claude', 'codewhale', 'codex', 'opencode', 'aider']"), 'chooser must know every supported provider');
+assert(pet.includes("['claude', 'codewhale', 'codex', 'opencode']"), 'chooser must know every supported provider');
 
 const panel = read('frontend/renderer/panel.js');
 assert.strictEqual((panel.match(/\$\('close'\)\.addEventListener/g) || []).length, 1, 'panel close button must have one listener');

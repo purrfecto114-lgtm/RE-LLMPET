@@ -17,7 +17,7 @@
 //!   * **Claude-only** — the upstream watcher only re-registers Claude
 //!     hooks because `~/.claude/settings.json` is the file CC-Switch
 //!     overwrites. Other providers' config files (CodeWhale TOML, Codex
-//!     hooks.json, OpenCode plugin JS, Aider YAML) are not touched by
+//!     hooks.json, OpenCode plugin JS) are not touched by
 //!     CC-Switch and don't need watching.
 //!   * **Graceful failure** — if the file doesn't exist (Claude not yet
 //!     initialized), the watcher skips that tick. If `install_claude`

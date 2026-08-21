@@ -159,7 +159,7 @@ impl AppConfig {
         self.pinned_sessions = sanitize_session_ids(self.pinned_sessions, &HashSet::new());
         let pinned = self.pinned_sessions.iter().cloned().collect::<HashSet<_>>();
         self.archived_sessions = sanitize_session_ids(self.archived_sessions, &pinned);
-        let known = ["claude", "codewhale", "codex", "opencode", "aider"];
+        let known = ["claude", "codewhale", "codex", "opencode"];
         let mut providers = Vec::new();
         for provider in self.providers {
             let p = provider.trim().to_lowercase();
@@ -688,7 +688,7 @@ impl Runtime {
         let statuses = self.provider_statuses();
         let mut root = serde_json::to_value(&config).unwrap_or_else(|_| json!({}));
         if let Some(object) = root.as_object_mut() {
-            let all = ["claude", "codewhale", "codex", "opencode", "aider"];
+            let all = ["claude", "codewhale", "codex", "opencode"];
             let cw_installed = statuses
                 .get("codewhale")
                 .map(|status| status.installed)

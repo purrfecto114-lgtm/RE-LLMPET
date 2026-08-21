@@ -18,8 +18,8 @@
     if (!provider) return true;
     // P4-1 fix (R1): in duo mode, the 'claude' pet is the AGGREGATE bucket —
     // it owns every event that is NOT codex (claude, codewhale, opencode,
-    // aider, and any future provider). The 'codex' pet owns only codex
-    // events. Previously codewhale/opencode/aider events matched neither pet
+    // and any future provider). The 'codex' pet owns only codex
+    // events. Previously codewhale/opencode events matched neither pet
     // and were silently dropped in duo mode, making those providers appear
     // "dead" until the user switched back to single mode.
     if (agent === 'codex') return provider === 'codex';

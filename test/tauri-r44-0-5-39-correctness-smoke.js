@@ -125,7 +125,7 @@ assert.ok(hookInstall.includes('pub fn uninstall_provider_hooks(id: &str) -> Cle
 // OpenCode uninstall must NOT return Removed when file wasn't deleted
 const opencodeSection = hookInstall.slice(
   hookInstall.indexOf('fn uninstall_opencode()'),
-  hookInstall.indexOf('fn install_aider(')
+  hookInstall.indexOf('fn codewhale_config_path(')
 );
 assert.ok(opencodeSection.includes('CleanupResult::Unowned { path }'),
   '§3: uninstall_opencode must return Unowned when file is not ours (not Removed/Ok)');

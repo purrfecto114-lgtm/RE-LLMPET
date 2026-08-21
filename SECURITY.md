@@ -7,7 +7,6 @@
 - Permission payload metadata is persisted without raw tool input.
 - Provider contracts are not treated as interchangeable: Claude-only `updatedInput` / `updatedPermissions` are never inserted into Codex responses.
 - Tauri custom commands are generated into the application ACL and split between the `pet` and `panel` window capabilities; a compromised panel cannot invoke pet-only approval, launch, log-open or quit commands.
-- OpenCode and Aider keep permission decisions in their native interaction path.
 - Hook installers merge only Octopus-owned entries and refuse malformed ownership markers.
 
 ## Permission fail-safe behavior

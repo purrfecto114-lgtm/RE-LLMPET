@@ -2,7 +2,7 @@
 
 > **低占用多 Agent 桌面宠物**：Tauri 2 + Rust 原生 provider 适配层，保留原有 Web UI 与图片资源。
 >
-> 盯着 **Claude Code / CodeWhale / Codex / OpenCode / Aider** 五个 coding agent，随状态变表情、弹消息气泡、一键授权，并统计 token 用量与花费。本地优先、MIT。
+> 盯着 **Claude Code / CodeWhale / Codex / OpenCode** 五个 coding agent，随状态变表情、弹消息气泡、一键授权，并统计 token 用量与花费。本地优先、MIT。
 
 [简体中文](README.md) | [English](README_EN.md) | [日本語](README_JA.md)
 
@@ -24,7 +24,7 @@
 
 ## 当前能力
 
-- **五 provider 适配**：Claude Code、CodeWhale、Codex、OpenCode、Aider 的 provider-specific 安装与事件适配
+- **五 provider 适配**：Claude Code、CodeWhale、Codex、OpenCode 的 provider-specific 安装与事件适配
 - **分层 CLI 诊断**：在现有 Provider 面板内区分安装、认证、CodeWhale Provider/模型路由、工作目录和终端问题；输出有界脱敏，不将 doctor 或登录状态误当成端到端联网健康检查
 - **权限流**：Claude 结构化提问、方案评审和 `updatedPermissions` 建议回传；Codex 不伪造 Claude 专属字段
 - **并行权限请求**：只合并相同 provider + session + tool + input 的重试；同一会话内不同请求分别显示、分别决策

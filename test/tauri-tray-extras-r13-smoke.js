@@ -71,7 +71,7 @@ assert(commands.includes('#[tauri::command]\npub fn uninstall_hooks(') ||
 assert(commands.includes('crate::hook_install::uninstall_provider_hooks'),
   'uninstall_hooks must call hook_install::uninstall_provider_hooks');
 // Must validate provider against the 5-provider allowlist
-assert(commands.includes('"claude", "codewhale", "codex", "opencode", "aider"'),
+assert(commands.includes('"claude", "codewhale", "codex", "opencode"'),
   'uninstall_hooks must validate provider against the 5-provider allowlist');
 // Must resync provider statuses after uninstall
 assert(commands.includes('hook_install::resync_current'),

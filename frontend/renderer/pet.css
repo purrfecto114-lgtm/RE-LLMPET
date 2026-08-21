@@ -1012,7 +1012,6 @@ body.skin-cat #cat { display: flex; }
 .agent-tag.provider-codex { background: rgba(59,130,246,.20); color: #9cc4ff; border-color: rgba(59,130,246,.45); }
 .agent-tag.provider-codewhale { background: rgba(37,160,190,.20); color: #93e4f6; border-color: rgba(37,160,190,.45); }
 .agent-tag.provider-opencode { background: rgba(139,92,246,.20); color: #c9b4ff; border-color: rgba(139,92,246,.45); }
-.agent-tag.provider-aider { background: rgba(52,199,89,.18); color: #a4edb5; border-color: rgba(52,199,89,.4); }
 
 /* === R32 (2026-07-31): bridge-error toast === */
 .re-llmpet-toast {

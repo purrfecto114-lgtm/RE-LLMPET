@@ -20,14 +20,14 @@ const panel = read('frontend/renderer/panel.js');
 const pet = read('frontend/renderer/pet.js');
 const bridge = read('frontend/renderer/tauri-bridge.js');
 
-for (const id of ['claude', 'codewhale', 'codex', 'opencode', 'aider']) {
+for (const id of ['claude', 'codewhale', 'codex', 'opencode']) {
   assert(installer.includes(`"${id}"`), `provider missing in native installer: ${id}`);
   assert(panel.includes(`${id}:`), `provider missing in renderer metadata: ${id}`);
 }
-for (const [id, label] of Object.entries({ claude: 'Claude', codewhale: 'CodeWhale', codex: 'Codex', opencode: 'OpenCode', aider: 'Aider' })) {
+for (const [id, label] of Object.entries({ claude: 'Claude', codewhale: 'CodeWhale', codex: 'Codex', opencode: 'OpenCode' })) {
   assert(pet.includes(`${id}: '${label}'`), `pet provider label missing: ${id}`);
 }
-for (const id of ['claude', 'codewhale', 'codex', 'opencode', 'aider']) {
+for (const id of ['claude', 'codewhale', 'codex', 'opencode']) {
   assert(pet.includes(`${id}:`), `pet provider icon missing: ${id}`);
   assert(panel.includes(`${id}:`), `panel provider cost/status metadata missing: ${id}`);
 }
@@ -91,13 +91,7 @@ fs.writeFileSync(temp, pluginMatch[1]);
 const pluginCheck = spawnSync(process.execPath, ['--check', temp], { encoding: 'utf8' });
 fs.rmSync(temp, { force: true });
 assert.strictEqual(pluginCheck.status, 0, pluginCheck.stderr);
-
-// Aider: YAML config uses underscore (notifications_command); the CLI flag
-// uses hyphen (--notifications-command). The installer must write the YAML form.
-assert(installer.includes('notifications_command:'));
-assert(installer.includes('notifications: true\\nnotifications_command:'));
-assert(installer.includes('turn-end-only'));
-assert(client.includes('stable_session("aider"'));
+// aider provider removed in v0.5.77; notifications_command assertions dropped
 
 // Renderer contract: persisted Vec becomes a richer runtime view.
 assert(model.includes('pub fn config_view(&self) -> Value'));

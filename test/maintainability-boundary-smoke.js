@@ -58,10 +58,9 @@ assert(platform.includes('struct CursorHitDecision'));
 // New external ownership uses Octopus. Legacy identifiers remain only in
 // explicit migration arrays and compatibility storage/protocol paths.
 assert(hooks.includes('# >>> octopus:codewhale-hooks:v4 >>>'));
-assert(hooks.includes('# >>> octopus:aider-notification:v4 >>>'));
+// provider list updated in v0.5.77
 assert(hooks.includes('octopus-opencode-plugin-v3'));
 assert(hooks.includes('name = \\"octopus-{event}\\"'));
-assert(hooks.includes('CW_MARKERS') && hooks.includes('AIDER_MARKERS'));
 assert(hooks.includes('enum HookPresence')
   && hooks.includes('HookPresence::Mixed')
   && hooks.includes('block_marker_presence')
