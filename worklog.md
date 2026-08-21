@@ -1706,3 +1706,42 @@ Phase A 的 A2 项：整理 v0.5.58-v0.5.60 修复的真机验证步骤，写入
 ### 下轮重点
 - **B5 延续**: renderPriceInfo() 主体 i18n（~15 字符串，24+ 新键）
 - 或 **B4: panel 响应式优化**（<420px 小屏适配）
+
+
+---
+
+## v0.5.65 — B5 renderPriceInfo i18n 完成，panel.js 全量 i18n（2026-08-21 15:41 trigger）
+
+### 沙箱恢复
+- 沙箱重置，从 GitHub 克隆恢复到 v0.5.64
+- 重新安装 Rust 1.98.0 + 57 个 GTK dev packages（含 libsoup-3.0-dev、libepoxy-dev、libcloudproviders-dev 等依赖链）
+
+### 修复内容
+1. **renderPriceInfo() 全量 i18n (HIGH)**: 价格信息面板中所有硬编码中文替换为 `t()` 调用
+   - 基础行（base）：`价目：用户覆盖/models.dev 缓存/内置兜底表` → `t('price.onlineUserOverride/ModelsDev/fallbackSrc*')`
+   - 状态尾缀（tail）：7 种状态分支（refreshing/not-modified/updated/error/network-disabled/auto-disabled/next/auto-check）全部 i18n
+   - 错误状态内联变量：连续失败次数、重试时间、保留旧价 → `t('price.consecutiveFails/retryAt/keepOld')`
+   - 工具提示（title）：`固定来源/条件请求/失败退避` → `t('price.tooltipDefault', {url, cond, backoff})`
+2. **新增 16 个 i18n 键 × 3 语言**（zh/en/ja）
+
+### 验证结果
+- `cargo clippy -D warnings`: ✅
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+- panel.js: 1757/1760 ✅
+
+### 版本迭代
+- v0.5.64 → v0.5.65（panel.js 全量 i18n 完成）
+- GitHub main: `f84e708` 已推送，tag `v0.5.65` 已打
+
+### Phase B 进度
+- ✅ B1: 闲逛任务模板用户自定义（v0.5.63）
+- ✅ B2: 诊断结果导出 JSON（v0.5.61）
+- ✅ B3: 状态过渡动画（v0.5.62）
+- ⏳ B4: panel 响应式优化
+- ✅ B5: i18n 补全 — panel.js 全量 i18n 完成（v0.5.64 + v0.5.65 两轮完成）
+
+### 下轮重点
+- **B4: panel 响应式优化**（<420px 小屏适配）
+- 或 **B5 pet.js i18n**（~65 个硬编码字符串，需独立 2-3 轮）
+- 或 **A1: #23 usage-archive carry**（历史 usage 数据归档）
