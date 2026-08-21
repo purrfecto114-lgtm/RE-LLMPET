@@ -90,6 +90,9 @@
       thinkingCount: count('thinking'),
       loafingCount: count('loafing'),
       errorCount: count('error'),
+      // v0.5.71: transcript-detected flags (ESC interrupt + API error)
+      interruptedCount: sessions.filter((s) => s.interrupted).length,
+      apiErrorCount: sessions.filter((s) => s.api_error).length,
       todos: todoSession ? todoSession.todos : [],
       todosProject: todoSession ? todoSession.project : '',
       idleMs: idleMs === Infinity ? null : idleMs,

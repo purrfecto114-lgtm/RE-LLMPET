@@ -276,6 +276,16 @@ pub struct Session {
     pub last_event_key: Option<String>,
     #[serde(default, skip_serializing)]
     pub ended_at: Option<u64>,
+    /// v0.5.71: true when the last transcript scan detected an ESC
+    /// interruption (interruptedAfter). Cleared on the next non-interrupted
+    /// scan. Surfaced to the pet UI for a "paused" animation.
+    #[serde(default)]
+    pub interrupted: bool,
+    /// v0.5.71: true when the last transcript scan detected an API error
+    /// (apiErrorAfter / isApiErrorMessage). Cleared on the next clean
+    /// scan. Surfaced to the pet UI for an "error" animation.
+    #[serde(default)]
+    pub api_error: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -795,6 +805,9 @@ impl Runtime {
         } else {
             None
         };
+        // v0.5.71: transcript scan flags (set when scan detects ESC/API error)
+        let mut last_transcript_interrupted = false;
+        let mut last_transcript_api_error = false;
         let source_pid = body
             .get("source_pid")
             .or_else(|| body.get("sourcePid"))
@@ -844,6 +857,14 @@ impl Runtime {
                 if model.is_none() {
                     model = scan.model;
                 }
+                // v0.5.71: propagate interrupted/api_error flags to the
+                // session so the pet UI can react with paused/error animations.
+                if scan.interrupted {
+                    last_transcript_interrupted = true;
+                }
+                if scan.api_error {
+                    last_transcript_api_error = true;
+                }
             }
             combined
         };
@@ -873,6 +894,8 @@ impl Runtime {
                 last_event_rank: 0,
                 last_event_key: None,
                 ended_at: None,
+                interrupted: false,
+                api_error: false,
             });
             let accepted =
                 should_accept_event(entry, event_at, event_seq, event_rank, event_key.as_deref());
@@ -890,6 +913,20 @@ impl Runtime {
                 }
                 if assistant_last_output.is_some() {
                     entry.assistant_last_output = assistant_last_output;
+                }
+                // v0.5.71: update interrupted/api_error flags from transcript scan.
+                // A clean scan (no signals) clears prior flags so the pet can
+                // return to normal animation after the user resumes or the API
+                // recovers.
+                if last_transcript_interrupted {
+                    entry.interrupted = true;
+                } else if entry.interrupted {
+                    entry.interrupted = false;
+                }
+                if last_transcript_api_error {
+                    entry.api_error = true;
+                } else if entry.api_error {
+                    entry.api_error = false;
                 }
                 if let Some(todos) = incoming_todos.clone() {
                     entry.todos = todos;
@@ -1287,6 +1324,8 @@ impl Runtime {
                 last_event_rank: 0,
                 last_event_key: None,
                 ended_at: None,
+                interrupted: false,
+                api_error: false,
             });
         if let Some((provider, tool_name, permission_id)) = pending_meta {
             entry.provider = provider;
@@ -2965,6 +3004,8 @@ mod session_order_tests {
             last_event_rank: rank,
             last_event_key: key.map(str::to_string),
             ended_at: None,
+            interrupted: false,
+            api_error: false,
         }
     }
 

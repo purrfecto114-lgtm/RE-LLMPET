@@ -1716,8 +1716,12 @@ function applyStats(s) {
     setState('waiting');
   } else if (perfNow() < transientUntil) {
     setState(transientState);
+  } else if (s.apiErrorCount > 0) {
+    setState('error'); // v0.5.71: API error (apiErrorAfter) → 瘫倒, until API recovers
   } else if (s.errorCount > 0) {
     setState('error'); // 有会话卡在 API 错误 → 瘫倒，直到该会话恢复或 oneshot 衰减
+  } else if (s.interruptedCount > 0) {
+    setState('needsinput'); // v0.5.71: ESC 中断 → 显示「等你回复」态, pet waits for user action
   } else if (s.needsinputCount > 0) {
     setState('needsinput');
   } else if (s.sweepingCount > 0) {
