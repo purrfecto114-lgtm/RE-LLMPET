@@ -1652,3 +1652,57 @@ Phase A 的 A2 项：整理 v0.5.58-v0.5.60 修复的真机验证步骤，写入
 ### 下轮重点
 - **B4: panel 响应式优化** 或 **D4 延续**（全局日志回退机制）
 
+---
+
+## v0.5.64 — B5 i18n 修复 panel.js + currentLang bug（2026-08-21 14:11 trigger）
+
+### 沙箱恢复
+- 沙箱重置，从 GitHub 克隆恢复到 v0.5.63
+- 环境已就绪（Rust 1.98.0 + GTK dev packages 已安装）
+
+### 发现的问题
+1. **currentLang 未定义 bug**: panel.js 在诊断取消提示和诊断进度中使用 `currentLang` 变量进行手动语言切换，但该变量从未声明或赋值，导致所有分支始终走中文（`undefined !== 'en'` && `undefined !== 'ja'`）
+2. **formatPriceTime() 硬编码 zh-CN**: 日期格式化时 locale 固定为 `'zh-CN'`，而同文件 `timeStr()` 已正确使用 `LOCALES[config.lang]`
+3. **BG_META 硬编码中文标签**: 4 个后台任务状态标签（该跑/可疑/疑似僵尸/已结束）直接写死中文，但 i18n.js 已有对应 `bg.*` 键
+4. **render() 散落硬编码中文**: 尚未成长、闲逛/项目旅行、当前没有旅行、N 个、没有匹配的会话、暂无活跃会话
+5. **重建/刷新错误消息硬编码**: 重算完成/重算失败/刷新失败/未知错误
+
+### 修复内容
+1. **currentLang bug 修复 (HIGH)**: 
+   - 诊断取消提示（原 line 1059）: 3 语种手动三元 → `t('diag.cancelHint')`
+   - 诊断进度（原 lines 1463-1467）: 5 行手动三元 → 2 行 PHASE_KEYS 查表 + `t()`
+   - 添加 5 个 `diag.phase.*` i18n 键
+2. **formatPriceTime locale 修复 (MEDIUM)**: `'zh-CN'` → `LOCALES[config.lang] || 'zh-CN'`
+3. **BG_META i18n (MEDIUM)**: `{ label: '中文' }` → `{ key: 'bg.running' }`，渲染时 `t(m.key)`
+4. **render() 散落字符串 i18n (MEDIUM)**:
+   - `panel.noGrowth` (2 处)、`panel.wanderMode`、`panel.travelMode`、`panel.noTravel`
+   - `panel.allProviders`、`panel.sessCountFull/Filtered`、`panel.noMatch`、`panel.noActive`
+5. **冗余三元简化**: `t('panel.bgHead') ? t(...) : fallback` → `t(...)`
+6. **错误消息 i18n**: `price.refreshFailed`、`price.rebuildDone/Failed`、`price.unknownError`、`price.everyNHours`
+7. **i18n.js 新增 18 键 × 3 语言** (zh/en/ja)
+
+### 未完成（下轮继续）
+- **renderPriceInfo() 主体**: ~15 个硬编码中文价格状态字符串，需要 24+ 新 i18n 键，是最大的一块
+- **pet.js i18n**: ~65 个硬编码字符串（Categories A-H），需要独立一轮处理
+
+### 验证结果
+- `cargo clippy -D warnings`: ✅
+- `cargo fmt --check`: ✅
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+- panel.js: 1749/1760 ✅
+
+### 版本迭代
+- v0.5.63 → v0.5.64（1 HIGH bug fix + 4 MEDIUM i18n）
+- GitHub main: `5f653b3` 已推送，tag `v0.5.64` 已打
+
+### Phase B 进度
+- ✅ B1: 闲逛任务模板用户自定义（v0.5.63）
+- ✅ B2: 诊断结果导出 JSON（v0.5.61）
+- ✅ B3: 状态过渡动画（v0.5.62）
+- ⏳ B4: panel 响应式优化
+- 🔧 B5: i18n 补全（本轮：panel.js 13 处 + currentLang bug；剩余：renderPriceInfo 主体 + pet.js 65 处）
+
+### 下轮重点
+- **B5 延续**: renderPriceInfo() 主体 i18n（~15 字符串，24+ 新键）
+- 或 **B4: panel 响应式优化**（<420px 小屏适配）
