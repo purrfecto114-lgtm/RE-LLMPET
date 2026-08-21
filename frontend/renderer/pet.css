@@ -306,6 +306,11 @@ body.skin-cat #cat { display: flex; }
 #mascot.thinking #mascot-img {
   filter: drop-shadow(0 0 5px rgba(154, 127, 214, 0.4));
 }
+/* v0.5.74: sleeping glow — soft blue tint matches the calm identity */
+#pixel.sleeping .pixel-sprite,
+#mascot.sleeping #mascot-img {
+  filter: drop-shadow(0 0 5px rgba(150, 180, 220, 0.3));
+}
 
 /* 旧的小 💤 已停用，睡觉改用 #sleep 的大号 z z Z */
 .pixel-zzz { display: none; }
@@ -699,6 +704,21 @@ body.skin-cat #cat { display: flex; }
 }
 #cat.error {
   filter: drop-shadow(0 0 9px rgba(232, 80, 55, 0.85)) drop-shadow(0 6px 9px rgba(120, 90, 60, 0.28));
+}
+/* v0.5.74: cat skin state glows (match pixel/mascot color identity) */
+#cat.working {
+  filter: drop-shadow(0 0 8px rgba(74, 158, 255, 0.6)) drop-shadow(0 6px 9px rgba(120, 90, 60, 0.28));
+}
+#cat.thinking {
+  filter: drop-shadow(0 0 7px rgba(154, 127, 214, 0.5)) drop-shadow(0 6px 9px rgba(120, 90, 60, 0.28));
+}
+#cat.sleeping {
+  filter: drop-shadow(0 0 6px rgba(150, 180, 220, 0.4)) drop-shadow(0 6px 9px rgba(120, 90, 60, 0.28));
+  animation: catPurr 3.2s ease-in-out infinite;
+}
+@keyframes catPurr {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
 }
 
 /* ---- 召唤小分身 ---- */
