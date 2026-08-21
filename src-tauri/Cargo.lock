@@ -2127,7 +2127,7 @@ dependencies = [
 
 [[package]]
 name = "octopus"
-version = "0.5.75"
+version = "0.5.76"
 dependencies = [
  "chrono",
  "serde",

@@ -1577,6 +1577,11 @@ window.addEventListener('beforeunload', () => {
   }
 });
 
+// v0.5.76: persist panel window size across sessions via localStorage.
+const _PK = 'octopus.panelSize';
+try { const s = JSON.parse(localStorage.getItem(_PK) || '{}'); if (s.w >= 360 && s.h >= 400) window.resizeTo(s.w, s.h); } catch {}
+window.addEventListener('resize', () => { try { const w = window.outerWidth, h = window.outerHeight; if (w >= 360 && h >= 400) localStorage.setItem(_PK, JSON.stringify({ w, h })); } catch {} });
+
 document.querySelectorAll('#pet-mode-seg .seg-btn').forEach((b) =>
   b.addEventListener('click', () => {
     config.petMode = b.dataset.petMode;
