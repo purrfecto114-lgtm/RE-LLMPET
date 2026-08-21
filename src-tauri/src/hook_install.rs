@@ -1617,36 +1617,6 @@ fn replace_codewhale_marker_block(path: &Path, block: &str) -> Result<(), String
     write_text_atomic(path, clean.as_bytes())
 }
 
-fn replace_marker_variants(
-    path: &Path,
-    markers: &[(&str, &str)],
-    block: &str,
-) -> Result<(), String> {
-    let existing = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => {
-            return Err(format!(
-                "Config file exists but cannot be read ({}). Aborting to protect existing config.",
-                e
-            ))
-        }
-    };
-    let mut clean = strip_marker_variants(&existing, markers)?
-        .trim_end()
-        .to_string();
-    if !clean.is_empty() {
-        clean.push_str(
-            "
-
-",
-        );
-    }
-    clean.push_str(block);
-    clean.push('\n');
-    write_text_atomic(path, clean.as_bytes())
-}
-
 fn uninstall_marker_variants(path: &Path, markers: &[(&str, &str)]) -> CleanupResult {
     if !path.exists() {
         return CleanupResult::NotFound {
@@ -1739,9 +1709,6 @@ fn strip_marker_block(input: &str, begin: &str, end: &str) -> Result<String, Str
 
 fn toml_string(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into())
-}
-fn yaml_string(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn write_json_atomic(path: &Path, value: &Value) -> Result<(), String> {

@@ -2332,13 +2332,6 @@ fn codewhale_config_compatibility(path: &Path) -> Value {
     })
 }
 
-fn nearest_git_root(start: &Path) -> Option<PathBuf> {
-    start
-        .ancestors()
-        .find(|candidate| candidate.join(".git").exists())
-        .map(Path::to_path_buf)
-}
-
 fn executable_kind(path: &Path) -> &'static str {
     #[cfg(windows)]
     {

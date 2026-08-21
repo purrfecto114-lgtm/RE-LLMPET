@@ -249,12 +249,12 @@
     "src-tauri/src/bin/re-llmpet-hook.rs": "02b6304e3c1bb9e2b59437e4890ecf8ad45a7a29259cbfc14a571fbb3a339036",
     "src-tauri/src/codex_pricing.rs": "4a29d8a816e113dc1b7ffade5375da7ee25712d019fdba6ee200e62c0e07a61d",
     "src-tauri/src/codex_rollout.rs": "42911969e3ecc96ce8d847cc16a0295b80e387c3f77bf42a76c9b5669095da5a",
-    "src-tauri/src/commands.rs": "ae189db234256d4ab532ad67b9dc5cb0cca071a884f4b965e6c639e7e3b567dd",
+    "src-tauri/src/commands.rs": "6eb95f8f1429ff2de1861477da10dab27c82fda82b15a4c276a82b20d1b1e1c3",
     "src-tauri/src/diagnostic_control.rs": "74431753f44208e0a85e757d9dabeaca91f062e3cc1d23490b652b1289787750",
     "src-tauri/src/diagnostic_io.rs": "0e6a4d42d3a9bd2bffc3506551131d68770af22ccbc5331154fb63888339f33f",
     "src-tauri/src/emotion.rs": "dd485ae253523d98eb483fc36f34408728f090cf05bb63b963ba4bddc3177d5d",
-    "src-tauri/src/hook_client.rs": "58b8849478a88e19872da6b4c036a9cc105e1e0c59a2837c4aa5e4c6ef8c2d44",
-    "src-tauri/src/hook_install.rs": "b2155ccbcc96f481bc7b0c46f295aa7c34ef728f7ab6a3ed5abf79c0046f1a5d",
+    "src-tauri/src/hook_client.rs": "5d6fa40d45ff21105df2c6e3fc12c79f956406213146756a5cb56d701803ea82",
+    "src-tauri/src/hook_install.rs": "866d8ce8d44eabda353a0e0e96b70bf70d5d37ac1251c41b7e1407134260dc4e",
     "src-tauri/src/hook_watcher.rs": "70760cd2305c5d0b41450db89b35aaa417a38d7c1e5f75130f0360e6eb87dad0",
     "src-tauri/src/http_server.rs": "2fe63d79b4828e51b8b8471391b07526b5b77c6952c9f102ce6009e91f9a9248",
     "src-tauri/src/i18n.rs": "79e9b29cad80e05395afba8426f8fcc6f4fa4926200d1fbc0ccdc5cfe5f1455f",
@@ -354,6 +354,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "2ce2e44e89f98627cef974064269446dad6d234fc20bf104f9158256a645be94"
   },
-  "sha256_of_manifest": "ab1f7f2e316e764be7931f03d05c262b2cc719c10a8c32968f029a89db3fef64",
+  "sha256_of_manifest": "b8531ee4615cb561bcfd9fc5f6ad83da66421d3e013e02f9965d97b8ad088f3a",
   "source_commit": "octopus-0.5.77"
 }

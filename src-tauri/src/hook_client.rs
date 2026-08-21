@@ -452,16 +452,6 @@ fn alias(object: &mut Map<String, Value>, from: &str, to: &str) {
     }
 }
 
-fn stable_session(prefix: &str, value: &str) -> String {
-    // FNV-1a is stable across processes and requires no extra dependency.
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in value.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{prefix}:{hash:016x}")
-}
-
 fn run_pretool(provider: &str, body: &Value) -> Result<(), String> {
     let object = body.as_object().ok_or("stdin JSON must be an object")?;
     let tool = object
