@@ -17,6 +17,14 @@ pub struct TranscriptScanResult {
     pub usage: UsageIngest,
     pub assistant_text: Option<String>,
     pub model: Option<String>,
+    /// v0.5.70: true if the scan detected an `interruptedAfter` event
+    /// (user pressed ESC to cancel a response). Surfaced to the pet UI
+    /// so the pet can react with a "paused" animation.
+    pub interrupted: bool,
+    /// v0.5.70: true if the scan detected an `apiErrorAfter` event
+    /// (API error such as rate limit or server error). Surfaced to the
+    /// pet UI so the pet can react with an "error" animation.
+    pub api_error: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -209,6 +217,16 @@ impl TranscriptScanner {
                     self.malformed_lines = self.malformed_lines.saturating_add(1);
                 }
             }
+            // v0.5.70: detect interruptedAfter (ESC cancel) and apiErrorAfter
+            // (API error). These appear as keys on the message object of user
+            // type lines in Claude transcript JSONL. Surfaced to the pet UI
+            // so the pet can react with paused/error animations.
+            if !result.interrupted && line_has_interrupted_after(&line) {
+                result.interrupted = true;
+            }
+            if !result.api_error && line_has_api_error_after(&line) {
+                result.api_error = true;
+            }
         }
 
         self.scanned_files = self.scanned_files.saturating_add(1);
@@ -247,6 +265,60 @@ fn matches_session(line: &Value, session_id: &str) -> bool {
         .and_then(Value::as_str)
         .map(|value| value == session_id)
         .unwrap_or(true)
+}
+
+/// v0.5.70: Detect ESC cancellation. Claude transcript JSONL user messages
+/// may carry `message.interruptedAfter` (string, names the block that was
+/// interrupted) or `message.content[].type == "interrupted"` to signal that
+/// the user pressed ESC to stop a response.
+fn line_has_interrupted_after(line: &Value) -> bool {
+    let message = match line.get("message") {
+        Some(msg) => msg,
+        None => return false,
+    };
+    // Primary signal: message.interruptedAfter is a non-null string
+    if message
+        .get("interruptedAfter")
+        .or_else(|| message.get("interrupted_after"))
+        .and_then(Value::as_str)
+        .is_some()
+    {
+        return true;
+    }
+    // Secondary signal: content array contains a block with type "interrupted"
+    if let Some(content) = message.get("content").and_then(Value::as_array) {
+        for block in content.iter().take(128) {
+            if block.get("type").and_then(Value::as_str) == Some("interrupted") {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// v0.5.70: Detect API errors. Claude transcript JSONL user messages may
+/// carry `message.apiErrorAfter` (string, names the block after which the
+/// error occurred) or set `isApiErrorMessage: true` on the line to signal
+/// a rate-limit, server error, or other API failure.
+fn line_has_api_error_after(line: &Value) -> bool {
+    // Fast path: isApiErrorMessage flag on the line itself
+    if line.get("isApiErrorMessage").and_then(Value::as_bool) == Some(true) {
+        return true;
+    }
+    let message = match line.get("message") {
+        Some(msg) => msg,
+        None => return false,
+    };
+    // Primary signal: message.apiErrorAfter is a non-null string
+    if message
+        .get("apiErrorAfter")
+        .or_else(|| message.get("api_error_after"))
+        .and_then(Value::as_str)
+        .is_some()
+    {
+        return true;
+    }
+    false
 }
 
 fn is_subagent(line: &Value) -> bool {
@@ -554,5 +626,102 @@ mod tests {
         let _ = fs::remove_dir_all(root);
         let _ = fs::remove_dir_all(app);
         let _ = fs::remove_file(outside);
+    }
+
+    #[test]
+    fn interrupted_after_is_detected() {
+        // Claude transcript user line with message.interruptedAfter
+        let line = serde_json::json!({
+            "type": "user",
+            "sessionId": "s1",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "stop"}],
+                "interruptedAfter": "tool_use_block_id"
+            }
+        });
+        assert!(line_has_interrupted_after(&line));
+        // snake_case variant
+        let line2 = serde_json::json!({
+            "type": "user",
+            "message": {"interrupted_after": "block-2"}
+        });
+        assert!(line_has_interrupted_after(&line2));
+        // content array with interrupted block type
+        let line3 = serde_json::json!({
+            "type": "user",
+            "message": {
+                "content": [{"type": "interrupted"}]
+            }
+        });
+        assert!(line_has_interrupted_after(&line3));
+    }
+
+    #[test]
+    fn interrupted_after_absent_when_no_signal() {
+        let line = serde_json::json!({
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "hello"}]}
+        });
+        assert!(!line_has_interrupted_after(&line));
+        assert!(!line_has_api_error_after(&line));
+    }
+
+    #[test]
+    fn api_error_after_is_detected() {
+        // isApiErrorMessage flag on line
+        let line = serde_json::json!({
+            "type": "user",
+            "isApiErrorMessage": true,
+            "message": {"content": []}
+        });
+        assert!(line_has_api_error_after(&line));
+        // message.apiErrorAfter string
+        let line2 = serde_json::json!({
+            "type": "user",
+            "message": {"apiErrorAfter": "assistant_block_1"}
+        });
+        assert!(line_has_api_error_after(&line2));
+        // snake_case variant
+        let line3 = serde_json::json!({
+            "type": "user",
+            "message": {"api_error_after": "block-x"}
+        });
+        assert!(line_has_api_error_after(&line3));
+    }
+
+    #[test]
+    fn scan_surfaces_interrupted_and_api_error_flags() {
+        let root = temp_dir("scan-flags-root");
+        let app = temp_dir("scan-flags-app");
+        let transcript = root.join("proj").join("session-flags.jsonl");
+        fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+        // Write a normal assistant line + a user line with interruptedAfter
+        let assistant = assistant_line("msg-flag-1", 100, "working on it");
+        let interrupted_line = serde_json::json!({
+            "type": "user",
+            "sessionId": "session-flags",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "esc"}],
+                "interruptedAfter": "tool_use_1"
+            }
+        });
+        let mut content = String::new();
+        content.push_str(&assistant.to_string());
+        content.push('\n');
+        content.push_str(&interrupted_line.to_string());
+        content.push('\n');
+        fs::write(&transcript, content).unwrap();
+        let now = crate::model::now_ms();
+        let mut ledger = UsageLedger::open(&app, now);
+        let mut scanner = TranscriptScanner::open(&app, root.clone());
+        let result = scanner
+            .scan_path(&transcript, "session-flags", &mut ledger, now, Some(800))
+            .unwrap();
+        assert!(result.interrupted, "interrupted flag should be set");
+        assert!(!result.api_error, "api_error flag should NOT be set");
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(app);
     }
 }
