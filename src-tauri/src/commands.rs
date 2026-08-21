@@ -2339,7 +2339,6 @@ fn nearest_git_root(start: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-
 fn executable_kind(path: &Path) -> &'static str {
     #[cfg(windows)]
     {

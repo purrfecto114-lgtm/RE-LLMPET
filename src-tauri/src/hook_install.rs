@@ -1330,7 +1330,6 @@ fn uninstall_opencode() -> CleanupResult {
     }
 }
 
-
 /// R9: shared config path resolver — single source of truth for CodeWhale config discovery.
 /// Previously duplicated in commands.rs:2111 (identical impl), which risked drift.
 /// Precedence: CODEWHALE_CONFIG_PATH → DEEPSEEK_CONFIG_PATH → CODEWHALE_HOME/config.toml
