@@ -1568,3 +1568,52 @@ Phase A 的 A2 项：整理 v0.5.58-v0.5.60 修复的真机验证步骤，写入
 ### 下轮重点
 - **B1: 闲逛任务模板用户自定义** 或 **B4: panel 响应式优化**
 
+
+---
+
+## v0.5.63 — 代码修复 + B1 闲逛任务模板自定义（2026-08-21）
+
+### 沙箱恢复
+- 沙箱再次重置，从 GitHub 重新克隆到 v0.5.62
+- 重新安装 Rust 1.98.0 + 52 个 GTK dev packages
+
+### 发现的问题
+1. **travel.rs 代码重复**: `provider_command` 函数有 inline `CREATE_NO_WINDOW` 常量和 `creation_flags` 调用，而不是使用共享的 `hide_console_window()` helper
+2. **pet.js fadeSwapImg timer 泄漏**: 快速连续状态切换时，前一个 `setTimeout` 可能在新图片 opacity 设为 '0' 后将其恢复为 '1'，导致闪烁
+3. **B1 闲逛任务模板未实现**: 用户无法自定义闲逛任务模板
+
+### 修复
+1. **travel.rs DRY**: 将 2 处 inline `CREATE_NO_WINDOW` 替换为 `crate::platform::hide_console_window(&mut command)` 调用
+2. **fadeSwapImg 修复**: 添加 `fadeTimer` 变量跟踪当前 timer，每次调用 `fadeSwapImg` 时清除前一个 timer；`onLoad` 回调也检查并清除 timer
+3. **B1 闲逛任务模板自定义**:
+   - `model.rs`: AppConfig 新增 `wander_missions: Vec<String>` 字段
+   - `commands.rs`: `pick_wander_mission()` 改为接受 `&State`，优先使用 config 中的自定义任务
+   - `commands.rs`: 新增 `set_wander_missions` 命令
+   - `lib.rs` + `build.rs`: 注册新命令
+   - `capabilities/pet.json` + `panel.json`: 添加权限
+   - `tauri-bridge.js`: 添加 `setWanderMissions` 绑定
+   - `pet.js`: 闲逛按钮改为传 `null`，让后端从 config 或默认值中选择
+
+### 验证结果
+- `cargo clippy -D warnings --all-targets`: ✅ EXIT=0
+- `cargo fmt --check`: ✅
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+- pet.js: 2525/2540 行
+- commands.rs: 3360/3360 行
+
+### 版本迭代
+- v0.5.62 → v0.5.63（1 HIGH + 2 MEDIUM）
+- GitHub main: `6c006a9` 已推送，tag `v0.5.63` 已打
+
+### Phase B 进度
+- ✅ B1: 闲逛任务模板用户自定义（本轮）
+- ✅ B2: 诊断结果导出 JSON（v0.5.61）
+- ✅ B3: 状态过渡动画（v0.5.62）
+- ⏳ B4: panel 响应式优化
+- ⏳ B5: i18n 补全
+
+### 下轮重点
+- **B4: panel 响应式优化** — 小屏幕（<420px）下 panel 布局优化
+- **B5: i18n 补全** — 检查并补全剩余硬编码字符串
+
