@@ -295,6 +295,18 @@ body.skin-cat #cat { display: flex; }
   45% { transform: translateY(-12px); }
 }
 
+/* v0.5.73: enhanced working/thinking with glow + subtle rotation */
+#pixel.working .pixel-sprite {
+  filter: drop-shadow(0 0 6px rgba(74, 158, 255, 0.5));
+}
+#mascot.working #mascot-img {
+  filter: drop-shadow(0 0 6px rgba(74, 158, 255, 0.4));
+}
+#pixel.thinking .pixel-sprite,
+#mascot.thinking #mascot-img {
+  filter: drop-shadow(0 0 5px rgba(154, 127, 214, 0.4));
+}
+
 /* 旧的小 💤 已停用，睡觉改用 #sleep 的大号 z z Z */
 .pixel-zzz { display: none; }
 

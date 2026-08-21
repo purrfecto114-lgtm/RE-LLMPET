@@ -548,7 +548,8 @@
     'price.stateNextCheck': '下次 {when} 检查',
     'price.stateAutoCheck': '每 {hours} 小时自动检查',
     'price.tooltipDefault': '固定来源：{url}；条件请求：{cond}；失败退避：{backoff}',
-  };
+  
+    'help.shortcuts': '⌨️ 快捷键：Ctrl+P 面板 · Ctrl+M 模式 · Ctrl+S 形象 · ? 帮助 · Esc 关闭',};
 
   const en = {
     'tray.tooltip': 'Octopus — Claude Code / Codex desk pet',
@@ -1058,7 +1059,8 @@
     'price.stateNextCheck': 'Next check {when}',
     'price.stateAutoCheck': 'Auto-check every {hours}h',
     'price.tooltipDefault': 'Fixed source: {url}; Conditional requests: {cond}; Failure backoff: {backoff}',
-  };
+  
+    'help.shortcuts': '⌨️ Shortcuts: Ctrl+P panel · Ctrl+M mode · Ctrl+S skin · ? help · Esc close',};
 
   const ja = {
     'tray.tooltip': 'Octopus — Claude Code / Codex デスクトップペット',
@@ -1568,7 +1570,8 @@
     'price.stateNextCheck': '次回 {when} 確認',
     'price.stateAutoCheck': '{hours} 時間ごとに自動確認',
     'price.tooltipDefault': '固定ソース：{url}；条件付きリクエスト：{cond}；失敗時バックオフ：{backoff}',
-  };
+  
+    'help.shortcuts': '⌨️ ショートカット: Ctrl+P パネル · Ctrl+M モード · Ctrl+S スキン · ? ヘルプ · Esc 閉じる',};
 
   const DICT = { zh, en, ja };
 

@@ -2053,11 +2053,16 @@ window.addEventListener('keydown', (e) => {
   // Ctrl+P / Cmd+P → open panel (detail view)
   // Ctrl+M / Cmd+M → toggle pet mode (single ↔ duo)
   // Ctrl+S / Cmd+S → cycle skin (mascot → cat → pixel)
+  // ? (Shift+/) → show shortcuts help bubble
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
     const k = e.key.toLowerCase();
     if (k === 'p') { e.preventDefault(); try { window.pet.openPanel(); } catch {} }
     else if (k === 'm') { e.preventDefault(); try { window.pet.setPetMode(petMode === 'single' ? 'duo' : 'single'); } catch {} }
     else if (k === 's') { e.preventDefault(); applySkin(skin === 'mascot' ? 'cat' : skin === 'cat' ? 'pixel' : 'mascot'); }
+  } else if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+    // v0.5.73: ? shows shortcuts help
+    e.preventDefault();
+    showBubble(t('help.shortcuts'), 5000);
   }
 });
 // R35.1: blur closes the chooser too (consistent with radial/sesslist).
