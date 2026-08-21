@@ -476,6 +476,29 @@ body.skin-cat #cat { display: flex; }
 #pixel.error .pixel-sprite { filter: drop-shadow(0 0 9px rgba(232, 80, 55, 0.95)); }
 
 /* ====================================================================
+   v0.5.72: interrupted/paused animation — user pressed ESC to cancel.
+   The pet freezes in a "paused" pose with a subtle blue tint, conveying
+   "I stopped because you asked me to." Distinct from error (red shake)
+   and needsinput (amber pulse) — this is an intentional user action.
+   ==================================================================== */
+#pixel.needsinput .pixel-sprite {
+  animation: pausedBreathe 2.5s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px rgba(100, 160, 255, 0.7));
+}
+@keyframes pausedBreathe {
+  0%, 100% { transform: scale(1) translateY(0); opacity: 1; }
+  50% { transform: scale(0.97) translateY(-2px); opacity: 0.85; }
+}
+#mascot.needsinput #mascot-img {
+  animation: pausedBreathe 2.5s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px rgba(100, 160, 255, 0.7));
+}
+/* needsinput already has attn animation; the interrupted variant above
+   overrides with a calmer "paused" feel when the trigger is ESC (not
+   a genuine permission prompt). The amber pulse is kept for session
+   list dots. */
+
+/* ====================================================================
    空闲小动作：东张西望 / 蹦一下
    ==================================================================== */
 @keyframes glance {

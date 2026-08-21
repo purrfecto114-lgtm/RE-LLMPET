@@ -2047,6 +2047,17 @@ if (providerChooserEl) {
 window.addEventListener('keydown', (e) => {
   if (providerChooserOpen && e.key === 'Escape') {
     closeProviderChooser();
+    return;
+  }
+  // v0.5.72: keyboard shortcuts for quick actions.
+  // Ctrl+P / Cmd+P → open panel (detail view)
+  // Ctrl+M / Cmd+M → toggle pet mode (single ↔ duo)
+  // Ctrl+S / Cmd+S → cycle skin (mascot → cat → pixel)
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+    const k = e.key.toLowerCase();
+    if (k === 'p') { e.preventDefault(); try { window.pet.openPanel(); } catch {} }
+    else if (k === 'm') { e.preventDefault(); try { window.pet.setPetMode(petMode === 'single' ? 'duo' : 'single'); } catch {} }
+    else if (k === 's') { e.preventDefault(); applySkin(skin === 'mascot' ? 'cat' : skin === 'cat' ? 'pixel' : 'mascot'); }
   }
 });
 // R35.1: blur closes the chooser too (consistent with radial/sesslist).
