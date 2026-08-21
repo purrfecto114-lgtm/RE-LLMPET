@@ -546,12 +546,12 @@ function renderElicitation(c) {
   askLabel.textContent = 'Needs Input';
   const qs = elic.questions;
   const q = qs[elic.qIdx] ||
-    { question: c.question || '需要你回答', options: (c.options || []).map((o) => ({ label: o.label, description: o.desc })) };
+    { question: c.question || t('pet.ask.needAnswer'), options: (c.options || []).map((o) => ({ label: o.label, description: o.desc })) };
   askQhead.textContent = q.header || '';
   askQ.textContent = q.question || '';
   const multi = !!q.multiSelect;
   elic.multi = multi;
-  askHint.textContent = multi ? '可多选（点选多个）' : 'Choose one option';
+  askHint.textContent = multi ? t('pet.ask.multiSelect') : t('pet.ask.chooseOne');
 
   const prior = elic.answers[q.question];
   const opts = q.options || [];
@@ -631,8 +631,8 @@ let emptyWarnTimer = null;
 function warnEmptyInput() {
   askText.focus();
   askText.classList.add('warn');
-  if (!askText.dataset.ph) askText.dataset.ph = askText.placeholder || '输入自定义回答…';
-  askText.placeholder = '⚠️ 还没输入内容，是不是忘了填？';
+  if (!askText.dataset.ph) askText.dataset.ph = askText.placeholder || t('pet.ask.inputPlaceholder');
+  askText.placeholder = t('pet.ask.emptyWarn');
   clearTimeout(emptyWarnTimer);
   emptyWarnTimer = setTimeout(() => {
     askText.classList.remove('warn');
@@ -656,7 +656,7 @@ function elicNextOrSubmit(c) {
   else elic.answers[c.question || '_'] = val;
   if (elic.qIdx < (qs.length || 1) - 1) { elic.qIdx++; renderElicitation(c); return; }
   // R32 (2026-07-31): await IPC before removing the choice card.
-  submitDecision(c, { type: 'elicitation-submit', answers: { ...elic.answers } }, '✅ 已提交回答');
+  submitDecision(c, { type: 'elicitation-submit', answers: { ...elic.answers } }, t('pet.ask.submitted'));
 }
 
 function elicBack(c) {
@@ -666,9 +666,9 @@ function elicBack(c) {
 // ② 授权：允许(绿)/拒绝(红) + 可选会话级批量授权按钮
 function renderPerm(c) {
   clearAskBody();
-  askLabel.textContent = '需要授权';
+  askLabel.textContent = t('pet.ask.needAuth');
   askQhead.textContent = c.header || '';
-  askQ.textContent = c.question || '需要你授权';
+  askQ.textContent = c.question || t('pet.ask.needYouAuth');
   const opts = c.options || [];
   if (opts.length === 2) askOpts.classList.add('perm-row'); // 仅允许/拒绝时并排
   opts.forEach((opt) => {
@@ -690,7 +690,7 @@ function renderPerm(c) {
 function renderContinue(c) {
   clearAskBody();
   askLabel.textContent = 'Needs Input';
-  askQ.textContent = c.question || firstProviderLabel() + ' 在等你回复';
+  askQ.textContent = c.question || t('pet.ask.waitingReply', { provider: firstProviderLabel() });
   askFoot.classList.add('hidden');
   askTerm.classList.remove('hidden');
 }
@@ -698,24 +698,24 @@ function renderContinue(c) {
 // ④ ExitPlanMode 方案评审：展示方案 + 批准 / 打回并反馈
 function renderPlan(c) {
   clearAskBody();
-  askLabel.textContent = '方案评审';
+  askLabel.textContent = t('pet.ask.planReview');
   askQhead.textContent = c.project ? '📂 ' + c.project : '';
-  askQ.textContent = c.question || '请审阅这个方案';
+  askQ.textContent = c.question || t('pet.ask.reviewPlan');
   const approve = document.createElement('button');
   approve.className = 'ask-opt act allow';
-  approve.innerHTML = '<span class="ask-ot"><span class="ask-ol">✅ 批准方案</span></span>';
-  approve.addEventListener('click', () => submitPerm('allow', c, '✅ 已批准方案'));
+  approve.innerHTML = `<span class="ask-ot"><span class="ask-ol">${t('pet.ask.approve')}</span></span>`;
+  approve.addEventListener('click', () => submitPerm('allow', c, t('pet.ask.approved')));
   askOpts.appendChild(approve);
   const reject = document.createElement('button');
   reject.className = 'ask-opt act deny';
-  reject.innerHTML = '<span class="ask-ot"><span class="ask-ol">✏️ 打回并反馈</span></span>';
+  reject.innerHTML = `<span class="ask-ot"><span class="ask-ol">${t('pet.ask.reject')}</span></span>`;
   reject.addEventListener('click', () => {
     // R32 (2026-07-31): await IPC before removing the choice card.
-    submitDecision(c, { type: 'plan-feedback', feedback: (askText.value || '').trim() }, '✏️ 已打回方案');
+    submitDecision(c, { type: 'plan-feedback', feedback: (askText.value || '').trim() }, t('pet.ask.rejected'));
   });
   askOpts.appendChild(reject);
   askInputRow.classList.remove('hidden');
-  askText.placeholder = '可写修改意见，打回让 Claude 改…';
+  askText.placeholder = t('pet.ask.feedbackPlaceholder');
   askFoot.classList.add('hidden');
   askTerm.classList.remove('hidden');
 }
@@ -734,16 +734,16 @@ function finishChoice(choice, bubbleMsg) {
   }
 }
 function submitPerm(key, choice, label) {
-  const msg = key === 'allow' ? '✅ 已允许' : key === 'deny' ? '⛔ 已拒绝' : '🔓 已记住（本会话）';
+  const msg = key === 'allow' ? t('pet.perm.allowed') : key === 'deny' ? t('pet.perm.denied') : t('pet.perm.remembered');
   // W11/W24: CodeWhale batch authorization keys.
   // R32 (2026-07-31): all paths now go through submitDecision() so the IPC
   // is awaited and the choice card is only removed on actual success.
   if (key === 'cw-allow-session') {
-    submitDecision(choice, { __cw_batch: 'session' }, '✅✅ 本轮全部自动允许');
+    submitDecision(choice, { __cw_batch: 'session' }, t('pet.perm.batchSession'));
     return;
   }
   if (key === 'cw-allow-tool') {
-    submitDecision(choice, { __cw_batch: 'tool' }, '🔓 本会话内此工具自动允许');
+    submitDecision(choice, { __cw_batch: 'tool' }, t('pet.perm.batchTool'));
     return;
   }
   submitDecision(choice, key, msg);
@@ -757,7 +757,7 @@ function gotoSession(choice) {
   if (!choice.permId) {
     // No permission to deny — just focus the terminal and finish.
     window.pet.focusSession(choice.sessionId || '');
-    finishChoice(choice, '💬 已带你去终端');
+    finishChoice(choice, t('pet.action.terminalTaken'));
     return;
   }
   // With a permission: await the deny, then focus the terminal and finish.
@@ -835,7 +835,7 @@ function updateNotepad(s) {
 function renderTodoPop() {
   const acts = actionableItems();
   const done = curTodos.filter((t) => t.status === 'completed').length;
-  tpProg.textContent = curTodos.length ? `待办 ${done}/${curTodos.length}` : '';
+  tpProg.textContent = curTodos.length ? `${t('pet.todo.label')} ${done}/${curTodos.length}` : '';
   // 需要你处理
   if (acts.length) {
     tpActSec.classList.remove('hidden');
@@ -864,14 +864,14 @@ function renderTodoPop() {
 function buildActCard(c) {
   const card = document.createElement('div');
   card.className = 'tp-act';
-  const kindTag = c.kind === 'perm' ? '授权' : c.kind === 'continue' ? '回复' : c.kind === 'plan' ? '方案' : '选择';
+  const kindTag = c.kind === 'perm' ? t('pet.kind.perm') : c.kind === 'continue' ? t('pet.kind.continue') : c.kind === 'plan' ? t('pet.kind.plan') : t('pet.kind.choice');
   const head = document.createElement('div');
   head.className = 'tp-act-proj';
   head.textContent = `📂 ${c.project || '?'} · ${kindTag}`;
   card.appendChild(head);
   const q = document.createElement('div');
   q.className = 'tp-act-q';
-  q.textContent = (c.header ? '【' + c.header + '】 ' : '') + (c.question || '需要你处理');
+  q.textContent = (c.header ? '【' + c.header + '】 ' : '') + (c.question || t('pet.action.needHandle'));
   card.appendChild(q);
 
   const opts = document.createElement('div');
@@ -898,7 +898,7 @@ function buildActCard(c) {
     });
     const go = document.createElement('button');
     go.className = 'tp-act-go';
-    go.textContent = '💬 去这个会话回复 →';
+    go.textContent = t('pet.action.goReply');
     go.addEventListener('click', (e) => { e.stopPropagation(); popGoto(c); });
     opts.appendChild(go);
   }
@@ -911,7 +911,7 @@ function buildActCard(c) {
 // stays interactive (the popup itself doesn't close on success, but if IPC
 // fails the choice must remain answerable).
 function popPerm(choice, key) {
-  const msg = key === 'allow' ? '✅ 已允许' : key === 'deny' ? '⛔ 已拒绝' : '🔓 已记住';
+  const msg = key === 'allow' ? t('pet.perm.allowed') : key === 'deny' ? t('pet.perm.denied') : t('pet.perm.rememberedShort');
   const todoPop = document.getElementById('todo-pop');
   const buttons = todoPop ? todoPop.querySelectorAll('button') : [];
   buttons.forEach((b) => { b.disabled = true; });
@@ -977,10 +977,10 @@ const CODEX_ICON =
 const PROVIDER_ICONS = { claude: CLAUDE_ICON, codewhale: '🐋', codex: CODEX_ICON, opencode: '🧩', aider: '🛠️' };
 const PROVIDER_LABELS = { claude: 'Claude', codewhale: 'CodeWhale', codex: 'Codex', opencode: 'OpenCode', aider: 'Aider' };
 const SESS_META = {
-  waiting: '✋ 等你授权', needsinput: '💬 等你回复',
-  working: '⚙️ 干活中', juggling: '🤹 并行子任务', sweeping: '🧹 清理上下文',
-  thinking: '💭 思考中', loafing: '🍦 摸鱼中(等下一步)', error: '😵 出错了',
-  idle: '空闲', sleeping: '💤 休息中',
+  waiting: t('pet.state.waiting'), needsinput: t('pet.state.needsinput'),
+  working: t('pet.state.working'), juggling: t('pet.state.juggling'), sweeping: t('pet.state.sweeping'),
+  thinking: t('pet.state.thinking'), loafing: t('pet.state.loafing'), error: t('pet.state.error'),
+  idle: t('pet.state.idle'), sleeping: t('pet.state.sleeping'),
 };
 const SESS_SORT = { waiting: 0, needsinput: 0, error: 1, working: 2, juggling: 2, sweeping: 2, thinking: 2, loafing: 3, idle: 4, sleeping: 5 };
 const SESSION_STATE_KEYS = {
@@ -1085,7 +1085,7 @@ function renderSessList() {
       ? `<button class="sl-action sl-unarchive" title="${t('sess.unarchive')}"${prefDisabled}>📥</button>`
       : `<button class="sl-action sl-archive" title="${t('sess.archive')}"${prefDisabled}>📤</button>`;
     const travelBtn = !s.headless && ['claude', 'codex'].includes(s.providerId || s.provider)
-      ? `<button class="sl-action sl-travel" title="项目旅行">🧳</button>` : '';
+      ? `<button class="sl-action sl-travel" title="${t('pet.travel.title')}">🧳</button>` : '';
     row.innerHTML =
       `<span class="sl-dot ${dotCls}"></span>` +
       `<span class="sl-icon">${provIcon}</span>` +
@@ -1477,7 +1477,7 @@ window.pet.onEvent((ev) => {
     case 'user-turn':
       // 你的输入里带情绪（loved/sad/excited）→ 章鱼即时反应；否则像以前一样进 thinking
       if (ev.emotion && state !== 'waiting') {
-        const tip = ev.emotion === 'loved' ? '🥰 谢谢夸奖！' : ev.emotion === 'sad' ? '😢 别生气…' : '✨ 收到！';
+        const tip = ev.emotion === 'loved' ? t('pet.emotion.loved') : ev.emotion === 'sad' ? t('pet.emotion.sad') : t('pet.emotion.default');
         transient(ev.emotion, 2800, tip, 2600);
       } else {
         // 多会话时聚合里 working > thinking，直接 setState 会在下个快照被盖掉
