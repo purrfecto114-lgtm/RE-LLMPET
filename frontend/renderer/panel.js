@@ -1185,33 +1185,41 @@ function renderPriceInfo(message) {
 
   let base;
   if (live) {
-    const when = formatPriceTime(updated) || '缓存';
-    base = `💲 价目：${source === 'user-override' ? '用户覆盖' : 'models.dev 缓存'} ${count} 项 · ${when} 更新`;
+    const when = formatPriceTime(updated) || t('price.justNow');
+    base = source === 'user-override'
+      ? t('price.onlineUserOverride', { count, when })
+      : t('price.onlineModelsDev', { count, when });
   } else {
-    base = `💲 价目：内置兜底表 ${count ? '· ' + count + ' 项' : ''}`;
+    base = count ? t('price.fallbackSrcCount', { count }) : t('price.fallbackSrcEmpty');
   }
 
   let tail = '';
   if (inProgress || state === 'refreshing' || state === 'queued') {
-    tail = ' · 正在检查最新价格…';
+    tail = ' · ' + t('price.stateRefreshing');
   } else if (state === 'not-modified') {
-    tail = ` · ${formatPriceTime(checked) || '刚刚'}检查，无变化`;
+    tail = ' · ' + t('price.stateNotModified', { when: formatPriceTime(checked) || t('price.justNow') });
   } else if (state === 'updated') {
-    tail = ` · ${formatPriceTime(checked) || '刚刚'}已同步`;
+    tail = ' · ' + t('price.stateUpdated', { when: formatPriceTime(checked) || t('price.justNow') });
   } else if (state === 'error') {
-    tail = ` · 价格更新失败${consecutiveFailures ? `（连续 ${consecutiveFailures} 次）` : ''}，${next ? formatPriceTime(next) + '重试' : '保留旧价'}`;
+    const fails = consecutiveFailures ? t('price.consecutiveFails', { n: consecutiveFailures }) : '';
+    const retry = next ? t('price.retryAt', { when: formatPriceTime(next) }) : t('price.keepOld');
+    tail = ' · ' + t('price.stateError', { fails, retry });
   } else if (state === 'network-disabled') {
-    tail = ' · 网络更新已被环境变量关闭';
+    tail = ' · ' + t('price.stateNetworkDisabled');
   } else if (!autoUpdate || state === 'auto-disabled') {
-    tail = ' · 自动更新已关闭';
+    tail = ' · ' + t('price.stateAutoDisabled');
   } else if (next) {
-    tail = ` · 下次 ${formatPriceTime(next)} 检查`;
+    tail = ' · ' + t('price.stateNextCheck', { when: formatPriceTime(next) });
   } else {
-    tail = ` · 每 ${refreshHours} 小时自动检查`;
+    tail = ' · ' + t('price.stateAutoCheck', { hours: refreshHours });
   }
 
   el.textContent = base + tail;
-  el.title = error || `固定来源：${message.sourceUrl || 'https://models.dev/api.json'}；条件请求：${message.conditionalRequests ? '已启用' : '未启用'}；失败退避：${message.failureBackoff ? '已启用' : '未启用'}`;
+  el.title = error || t('price.tooltipDefault', {
+    url: message.sourceUrl || 'https://models.dev/api.json',
+    cond: message.conditionalRequests ? t('price.enabled') : t('price.disabled'),
+    backoff: message.failureBackoff ? t('price.enabled') : t('price.disabled'),
+  });
   el.classList.toggle('price-error', state === 'error');
   el.classList.toggle('price-live', live && state !== 'error');
 
