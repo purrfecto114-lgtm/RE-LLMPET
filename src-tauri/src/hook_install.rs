@@ -10,36 +10,16 @@ use std::sync::{Mutex, OnceLock};
 // that could cause config lost-update races. Held for the duration of sync.
 static SYNC_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-// R44 Phase 0C (2026-08-03): unified backup + install receipt.
-//
-// User requirement: "不要破坏原本 hooks（创建备份，注意备份的数量）" —
-// "Do not break existing hooks: create backups; mind the backup count."
-//
-// Before Phase 0C only CodeWhale had a pre-write backup. Claude, Codex,
-// and Aider wrote directly to the user's external config file. If the
-// write failed mid-way (atomic rename was already in place, but a buggy
-// serializer could still emit partial JSON), or if our `remove_all_ours`
-// accidentally matched a user hook (we already narrowed ownership, but
-// defense in depth), the user's config was gone with no recovery path.
-//
-// Phase 0C closes that gap:
-//   1. `backup_config_file()` — generic, works for any file extension.
-//      Fail-closed: returns Err if the file exists and backup fails.
-//   2. `write_install_receipt()` — records what we installed (provider,
-//      events, path, backup path, version, timestamp, content hash).
-//      Stored under `~/.re-llmpet/receipts/<provider>-<ts>.json`.
-//      Capped at 20 most-recent per provider.
-//   3. `read_install_receipts()` — returns the latest receipt per
-//      provider, for diagnostics and Phase 0D uninstall confirmation.
+// R44 Phase 0C: unified backup + install receipt system.
+// backup_config_file(): generic pre-write backup, fail-closed.
+// write_install_receipt(): records provider/events/path/version/hash to ~/.re-llmpet/receipts/.
+// read_install_receipts(): latest receipt per provider for diagnostics + uninstall.
 const BACKUP_RETENTION: usize = 5;
 const RECEIPT_RETENTION: usize = 20;
 const RECEIPTS_DIR_NAME: &str = "receipts";
 
-/// R22 (2026-07-30): get the current executable path with the Windows
-/// `\\?\` prefix stripped. The prefix is added by `std::env::current_exe()`
-/// on Windows for long-path support, but it breaks hook command execution
-/// because CodeWhale's `cmd /C` wrapper and Claude's direct execution both
-/// fail to parse the `\\?\` prefix correctly in quoted paths.
+/// R22: Strip Windows `\\?\` long-path prefix from current_exe().
+/// CodeWhale cmd /C and Claude both fail to parse it in quoted hook commands.
 fn current_exe_clean() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     #[cfg(windows)]
@@ -64,13 +44,10 @@ const LEGACY_MARKER: &str = "--re-llmpet-hook";
 /// migrate without leaving duplicate hooks behind.
 const HOOK_OWNER: &str = "--owner octopus";
 const LEGACY_HOOK_OWNER: &str = "--owner re-llmpet";
-// Install only observer-safe lifecycle events. Claude Code exposes additional
-// decision/replacement hooks (for example ConfigChange, UserPromptExpansion,
-// WorktreeCreate and FileChanged), but registering a generic desktop observer
-// there would silently participate in policy or high-volume content paths.
-// MessageDisplay and PostToolBatch are also intentionally excluded because they
-// may contain rendered conversation/tool payloads that are unnecessary for pet
-// state and expand the privacy/size surface.
+// Observer-safe lifecycle events only. Decision/replacement hooks (ConfigChange,
+// UserPromptExpansion, WorktreeCreate, FileChanged) are excluded to avoid
+// participating in policy or high-volume paths. MessageDisplay/PostToolBatch
+// excluded due to large payload size and privacy surface.
 const CLAUDE_EVENTS: [&str; 23] = [
     "SessionStart",
     "SessionEnd",
@@ -90,10 +67,8 @@ const CLAUDE_EVENTS: [&str; 23] = [
     "TaskCreated",
     "TaskCompleted",
     "TeammateIdle",
-    // R27 (2026-07-30): 5 new observer events added in Claude Code v2.1.219+.
-    // These are non-blocking observer events — the hook runs in background
-    // and the result is discarded. PermissionRequest is NOT here because it
-    // is already installed separately with a 600s timeout and --permission flag.
+    // R27: 5 new observer events (Claude Code v2.1.219+). PermissionRequest
+    // installed separately with 600s timeout and --permission flag.
     "Setup",
     "InstructionsLoaded",
     "CwdChanged",
@@ -317,17 +292,9 @@ pub fn sync_enabled(
     let mut statuses = Vec::new();
     for id in ["claude", "codewhale", "codex", "opencode", "aider"] {
         let result = if selected.contains(id) {
-            // R44 0.5.41: idempotent sync. If the hook is already installed,
-            // skip the backup + write + receipt cycle. The hook command
-            // (`--provider X EventName`) doesn't contain port/token (those
-            // are read from runtime.json at invocation time), so re-writing
-            // the same command is a no-op that just creates churn (backup
-            // files + receipts). The 5-backup cap prevents unbounded growth,
-            // but skipping the write entirely is cleaner.
-            //
-            // Exact legacy ownership is not treated as current here. An
-            // explicit resync rewrites those blocks to Octopus markers while
-            // startup verification remains read-only.
+            // R44 0.5.41: idempotent sync — skip backup+write+receipt if hook
+            // command is unchanged (port/token read from runtime.json at invocation).
+            // Legacy ownership not treated as current; resync rewrites to Octopus markers.
             if is_current_hook_installed(id) {
                 Ok(InstallResult {
                     path: provider_config_path(id),
@@ -338,10 +305,7 @@ pub fn sync_enabled(
                 install_provider(runtime, id, port, token, permission_enabled)
             }
         } else {
-            // R44 0.5.39: cleanup_provider returns CleanupResult. Convert
-            // to InstallResult for the status_from_result helper. The
-            // cleanup's path + a human-readable message are extracted
-            // from the CleanupResult variant.
+            // R44 0.5.39: Convert CleanupResult to InstallResult for status helper.
             let cleanup = cleanup_provider(id);
             let path = match &cleanup {
                 CleanupResult::Removed { path }
@@ -1099,13 +1063,8 @@ fn backup_config_file(path: &Path, runtime: &Runtime) -> Result<Option<PathBuf>,
         .unwrap_or("config");
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
     let ts = now_ms();
-    // Build a backup filename that:
-    //   - starts with `.` (hidden on Unix, mostly ignored by Windows tooling)
-    //   - embeds the original stem so multiple provider configs in the same
-    //     directory (e.g. ~/.codex/hooks.json + ~/.codex/config.toml) do
-    //     not collide on the pruner's stem match
-    //   - embeds the extension so a TOML backup isn't accidentally picked
-    //     up by a JSON tool that globs `*.json`
+    // Backup filename: hidden (leading `.`), stem-embedded (avoid collisions),
+    // extension-embedded (prevent JSON tool from reading TOML backups).
     let backup_name = if ext.is_empty() {
         format!(".{stem}.octopus-bak-{ts}")
     } else {
@@ -1303,13 +1262,9 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
     }
     write_text_atomic(&path, source.as_bytes())?;
 
-    // R13 fix (de-idealized): opencode v1.18.x loads plugins via directory
-    // scan of {plugin,plugins}/*.{ts,js} in the config dir — NOT via a
-    // "plugins" key in config.json (which causes "Unrecognized key" error).
-    // The file at ~/.config/opencode/plugins/llmpet-hook.js is auto-discovered.
-    // Previous R13 attempt wrote to config.json "plugins" array which broke
-    // opencode's config validation. Removed that; directory scan is sufficient.
-    // Also clean up any stale "plugins" key we may have previously written.
+    // R13: opencode v1.18.x auto-discovers plugins via directory scan of
+    // {plugin,plugins}/*.{ts,js} — NOT via config.json "plugins" key.
+    // Also clean any stale "plugins" key from a previous broken install.
     let config_path = base.join("config.json");
     if let Ok(raw) = fs::read_to_string(&config_path) {
         if let Ok(mut config) = serde_json::from_str::<Value>(&raw) {
@@ -1565,17 +1520,10 @@ fn add_group(hooks: &mut Map<String, Value>, event: &str, desired: Value) {
 }
 
 fn command_is_ours(command: &str) -> bool {
-    // P2-1 fix (R1): ownership is decided ONLY by the strong branded signals
-    // — the `--owner re-llmpet` / `--owner octopus` argument, and the
-    // `# re-llmpet-hook` / `# octopus-hook` marker comment. The previous
-    // implementation also matched bare filename substrings like
-    // `pretool-hook.js` and `llmpet-hook.js`, which are generic names with
-    // no Octopus branding — a user's own `pretool-hook.js` script would be
-    // misclassified as ours and silently deleted on uninstall. This was the
-    // same class of bug as the 0.5.39 `isOurHttp` fix. The branded owner
-    // tag / marker are always present on hooks we install (see the install_*
-    // functions), so removing the filename list does not weaken detection of
-    // our own hooks — it only stops falsely claiming foreign hooks.
+    // P2-1 (R1): Ownership decided ONLY by branded signals:
+    // --owner re-llmpet/octopus arg, or # re-llmpet-hook/# octopus-hook marker.
+    // Previous code also matched bare filenames (pretool-hook.js etc.), causing
+    // false positives on user scripts. Brand tags are always present on our hooks.
     command.contains(HOOK_OWNER)
         || command.contains(LEGACY_HOOK_OWNER)
         || command.contains(MARKER)
@@ -2216,18 +2164,9 @@ function sidFromToolInput(input, directory) {
 }
 export const LLMPETPlugin = async ({ directory }) => ({
   event: async ({ event }) => {
-    // R40: `session.status` MUST NOT be mapped to `UserPromptSubmit` —
-    // that caused the "every tool call = received new task" regression.
-    //
-    // R40.1 (audit P1-2): the 0.5.19 plugin hardcoded `state: "thinking"`
-    // for every `session.status` event, ignoring the actual status. This
-    // made idle/retry/busy transitions all look like "thinking" and could
-    // overwrite correct working/attention/error states. Fix: read the
-    // actual status from `event.properties.status` (OpenCode v0.9.x
-    // payload shape, verified via opencode.school lessons/plugins docs
-    // and the smithery.ai opencode-sdk-development skill). Map the raw
-    // status string to our internal state vocabulary; unknown values
-    // are forwarded as-is so the server can decide.
+    // R40/R40.1: Map session.status to internal state vocabulary.
+    // Must NOT use UserPromptSubmit (caused "every tool call = new task" bug).
+    // Read actual status from event.properties.status; unknown values forwarded as-is.
     const fixedMap = {
       "session.created": ["SessionStart", "idle"],
       "session.compacted": ["PreCompact", "sweeping"],

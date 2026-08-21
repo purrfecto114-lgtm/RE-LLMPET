@@ -40,9 +40,7 @@ fn emit_config(app: &AppHandle, state: &AppState) {
     let _ = app.emit("panel:config", config);
 }
 
-/// User-initiated permission decisions need immediate UI feedback. Stats
-/// revisioning and coalescer timestamps are owned by http_server so there is
-/// only one broadcast implementation to keep correct.
+/// Stats broadcast delegate — implementation lives in http_server.
 fn emit_stats_now(app: &AppHandle, state: &AppState) {
     crate::http_server::emit_stats_now(app, &state.runtime);
 }
@@ -56,11 +54,7 @@ pub fn get_config(state: State<'_, AppState>) -> Value {
     state.runtime.config_view()
 }
 
-/// R44 0.5.39 (roadmap v5 §2): return the current config quarantine state.
-/// The UI uses this to decide whether to show the recovery page:
-///   - healthy / notFound → normal UI
-///   - parseError / unreadable / tooLarge / schemaTooNew → recovery page
-///     with "backup and reset" button calling `backup_and_reset_config`.
+/// Return config quarantine state. Unhealthy states → recovery page.
 #[tauri::command]
 pub fn get_config_state(state: State<'_, AppState>) -> Value {
     let cs = state.runtime.config_state();
@@ -273,9 +267,7 @@ pub fn set_price_auto_update(
     Ok(())
 }
 
-/// R11 backport: rebuild usage costs — recompute all historical event costs
-/// with the current price catalog. Fixes past events that were priced wrong
-/// (e.g. new model billed at default before pricing sync caught up).
+/// R11: rebuild usage costs with current price catalog.
 #[tauri::command]
 pub fn rebuild_usage_costs(app: AppHandle, state: State<'_, AppState>) -> Result<Value, String> {
     let mut usage = state
@@ -330,11 +322,8 @@ pub fn set_mode(app: AppHandle, state: State<'_, AppState>, mode: String) -> Res
     state
         .runtime
         .update_config(|config| config.mode = mode.clone())?;
-    // R14: window side-effect. "hidePet" hides the pet window so the user
-    // gets a tray-only experience (the upstream Electron "menubar" mode
-    // equivalent — Tauri has no native menubar). "pet" and "panel" both
-    // show the pet window again. The panel window is controlled separately
-    // by open_panel/close_panel and is not touched here.
+    // R14: "hidePet" hides pet (tray-only); "pet"/"panel" show it.
+    // Panel window controlled separately by open/close_panel.
     let config = state.runtime.config();
     sync_pet_windows(&app, &config);
     if mode != "hidePet" {
@@ -506,7 +495,7 @@ pub fn uninstall_hooks(
         } else {
             format!(
                 "Provider selection cleared. Some external hooks could not be fully verified: {}",
-                failures.join("；")
+                failures.join("; ")
             )
         };
         Ok(json!({
@@ -565,16 +554,8 @@ pub fn uninstall_hooks(
     }
 }
 
-/// R44 Phase 0D: return the latest install receipt per provider. Used by
-/// the frontend's "Uninstall" confirmation dialog to show the user:
-///   "你于 2026-08-03 14:23 通过 Octopus 0.5.38 安装了 Claude hooks。
-///    备份文件：~/.claude/.settings.re-llmpet-bak-1722700000000.json。
-///    配置漂移：未检测到 / 已检测到（用户或第三方工具修改过）。"
-///
-/// Returns a JSON object keyed by provider id. Each value is the receipt
-/// JSON written by `write_install_receipt`. Providers without receipts
-/// (never installed by 0.5.38+, or receipts pruned) are absent from the
-/// map — the frontend treats absent key as "no provenance info".
+/// R44 Phase 0D: latest install receipt per provider for the uninstall
+/// confirmation dialog. Absent key = no provenance info.
 #[tauri::command]
 pub fn get_install_receipts() -> Value {
     let map = crate::hook_install::read_install_receipts();
@@ -619,12 +600,8 @@ pub fn set_pet_mode(
     Ok(())
 }
 
-/// R19 (2026-07-30): persist session list pin/archive prefs. The renderer
-/// sends the full pinned + archived session-id lists; we replace the
-/// config fields atomically. Mirrors the upstream Electron
-/// `set-session-prefs` IPC. Session ids are bounded to 256 chars and
-/// deduplicated; archived ids that are also pinned are dropped from
-/// archived (pin wins).
+/// R19: persist session pin/archive prefs atomically. Ids bounded to
+/// 256 chars, deduplicated; pinned wins over archived.
 #[tauri::command]
 pub fn set_session_prefs(
     app: AppHandle,
@@ -654,8 +631,7 @@ pub fn set_session_prefs(
     Ok(())
 }
 
-/// Atomically mutate one session preference. This avoids lost updates when the
-/// panel and two pet windows act on stale copies of the full preference arrays.
+/// Atomic single-field session pref mutation (avoids stale-copy races).
 #[tauri::command]
 pub fn set_session_pref(
     app: AppHandle,
@@ -2665,7 +2641,8 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
         let wd_d = working_directory.clone();
         let doctor_handle = s.spawn(move || match spec_id {
             "codewhale" => {
-                let result = codewhale_doctor_probe(exe_d.as_deref(), comp_d.as_deref(), &wd_d, control);
+                let result =
+                    codewhale_doctor_probe(exe_d.as_deref(), comp_d.as_deref(), &wd_d, control);
                 (
                     result.report,
                     result.target,
@@ -2678,7 +2655,9 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
                 exe_d.as_deref().map_or(Value::Null, |path| {
                     run_diagnostic_probe(path, &["doctor"], &wd_d, Duration::from_secs(8), control)
                 }),
-                exe_d.as_deref().map(|path| path.to_string_lossy().into_owned()),
+                exe_d
+                    .as_deref()
+                    .map(|path| path.to_string_lossy().into_owned()),
                 exe_d.as_ref().map(|_| "cli"),
                 None,
                 Value::Null,
@@ -2690,15 +2669,33 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
         let wd_a = working_directory.clone();
         let auth_handle = s.spawn(move || match spec_id {
             "codewhale" => exe_a.as_deref().map_or(Value::Null, |path| {
-                run_diagnostic_probe(path, &["auth", "status"], &wd_a, Duration::from_secs(8), control)
+                run_diagnostic_probe(
+                    path,
+                    &["auth", "status"],
+                    &wd_a,
+                    Duration::from_secs(8),
+                    control,
+                )
             }),
             "codex" => exe_a.as_deref().map_or(Value::Null, |path| {
-                run_diagnostic_probe(path, &["login", "status"], &wd_a, Duration::from_secs(8), control)
+                run_diagnostic_probe(
+                    path,
+                    &["login", "status"],
+                    &wd_a,
+                    Duration::from_secs(8),
+                    control,
+                )
             }),
             "opencode" => exe_a.as_deref().map_or(Value::Null, |path| {
                 // R40.1: REVERTED the 0.5.19 "providers list" experiment.
                 // `auth list` is the official credential-listing command.
-                run_diagnostic_probe(path, &["auth", "list"], &wd_a, Duration::from_secs(8), control)
+                run_diagnostic_probe(
+                    path,
+                    &["auth", "list"],
+                    &wd_a,
+                    Duration::from_secs(8),
+                    control,
+                )
             }),
             _ => Value::Null,
         });

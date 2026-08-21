@@ -1617,3 +1617,38 @@ Phase A 的 A2 项：整理 v0.5.58-v0.5.60 修复的真机验证步骤，写入
 - **B4: panel 响应式优化** — 小屏幕（<420px）下 panel 布局优化
 - **B5: i18n 补全** — 检查并补全剩余硬编码字符串
 
+
+---
+
+## D4 部分 + 代码卫生 + 预算合规（2026-08-21 13:26 trigger）
+
+### 任务
+深度审查 + 代码卫生：eprintln! 清理（D4 #26 LOW）、i18n 修复、行数预算合规。
+
+### 沙箱恢复
+- 沙箱被重置（Rust/GTK/代码全丢）
+- 重新安装 Rust 1.98.0 + 55 个 GTK dev packages
+- 从 GitHub 克隆恢复（发现远程已是 v0.5.63）
+
+### 修复内容
+1. **D4 eprintln! 清理**: model.rs save_config 中 2 处 eprintln! → self.write_log()
+   - 完整审计 22 处 eprintln!（7 文件），20 处因无 Runtime 访问而正确保留
+2. **i18n 分隔符**: commands.rs failures.join("；") → failures.join("; ")
+3. **hook_install.rs 预算合规**: 2390→2329 行（-61，≤2330 ✅）
+   - 精简 9 处冗长注释块，保留关键信息
+4. **commands.rs 预算合规**: 3381→3357 行（-24，≤3360 ✅）
+   - 精简 6 处冗长注释块
+5. **.gitignore**: 添加 .next/ 排除
+
+### 验证结果
+- `cargo clippy -D warnings`: ✅
+- 22/22 静态检查通过
+- JS 测试通过
+- 行数预算全部合规
+
+### 版本
+- 无版本号变更（LOW 级别修复）
+
+### 下轮重点
+- **B4: panel 响应式优化** 或 **D4 延续**（全局日志回退机制）
+

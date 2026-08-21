@@ -2494,13 +2494,15 @@ impl Runtime {
                             .file_name()
                             .map(|s| s.to_string_lossy().into_owned())
                             .unwrap_or_default();
-                        eprintln!(
-                            "[octopus] backed up newer-schema config to {label} before allowing downgraded write"
+                        self.write_log(
+                            "config",
+                            &format!("backed up newer-schema config to {label} before allowing downgraded write"),
                         );
                     }
                     Err(error) => {
-                        eprintln!(
-                            "[octopus] WARNING: could not back up newer-schema config before write: {error}. Proceeding anyway."
+                        self.write_log(
+                            "config",
+                            &format!("WARNING: could not back up newer-schema config before write: {error}. Proceeding anyway."),
                         );
                     }
                 }

@@ -44,3 +44,4 @@ tool-results/
 node_modules/
 *.zip
 !node_modules
+.next/
