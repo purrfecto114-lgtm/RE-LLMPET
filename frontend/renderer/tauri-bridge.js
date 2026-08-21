@@ -192,6 +192,7 @@ function currentPetAgent() {
     getTravel: () => call('get_travel'),
     startTravel: (sessionId, mission) => call('start_travel', { sessionId, mission }),
     startWander: (mission, provider) => call('start_wander', { mission, provider }),
+    setWanderMissions: (missions) => call('set_wander_missions', { missions }),
     cancelTravel: () => call('cancel_travel'),
     quit: () => send('quit_app'),
     getWinPos: () => call('get_win_pos', { agent: currentPetAgent() }).then((pos) => {

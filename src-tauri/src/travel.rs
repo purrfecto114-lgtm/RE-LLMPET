@@ -872,17 +872,13 @@ fn provider_command(executable: &Path, args: &[String]) -> Command {
         let mut command = Command::new("cmd.exe");
         command.args(["/D", "/S", "/C"]).raw_arg(tail.join(" "));
         // R22: hide the cmd.exe window for .cmd/.bat shim travel/wander trips.
-        // Without this, every travel trip that uses an npm-installed CLI
-        // (codewhale, opencode) shows a visible cmd window for 30s-2min.
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
+        crate::platform::hide_console_window(&mut command);
         command
     } else {
         let mut command = Command::new(executable);
         command.args(args);
         // R22: hide console window for direct-exec travel.
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
+        crate::platform::hide_console_window(&mut command);
         command
     }
 }

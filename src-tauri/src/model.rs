@@ -63,6 +63,10 @@ pub struct AppConfig {
     // state, only the display ordering.
     pub pinned_sessions: Vec<String>,
     pub archived_sessions: Vec<String>,
+    /// B1: user-customizable wander mission templates. Empty = use built-in
+    /// defaults. Non-empty = pick randomly from user's list each wander.
+    #[serde(default)]
+    pub wander_missions: Vec<String>,
     /// R44 0.5.41: unknown-field preservation. Any JSON key not covered by
     /// the fields above is captured here and round-tripped on save. This
     /// prevents data loss when:
@@ -107,6 +111,7 @@ impl Default for AppConfig {
             price_refresh_hours: 24,
             pinned_sessions: Vec::new(),
             archived_sessions: Vec::new(),
+            wander_missions: Vec::new(),
             extras: serde_json::Map::new(),
         }
     }

@@ -43,6 +43,7 @@
     "allow-get-travel",
     "allow-start-travel",
     "allow-start-wander",
+    "allow-set-wander-missions",
     "allow-cancel-travel"
   ]
 }

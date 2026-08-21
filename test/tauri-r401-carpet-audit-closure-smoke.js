@@ -34,7 +34,7 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.62',
+assert.strictEqual(packageJson.version, '0.5.63',
   'R40.1: package.json version must be 0.5.21');
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -162,7 +162,7 @@ assert(Number.isFinite(dateEpoch) && dateEpoch > 1_000_000_000,
 
 // Manifest must be valid JSON with the right structure
 const manifest = JSON.parse(read('SOURCE_MANIFEST.json'));
-assert.strictEqual(manifest.version, '0.5.62',
+assert.strictEqual(manifest.version, '0.5.63',
   'P0-5: manifest version must be 0.5.57');
 // R40.5: manifest.source_commit is optional (CI sets it to GITHUB_SHA;
 // local dev may set an octopus-* label; legacy re-llmpet-* remains accepted.
@@ -176,8 +176,8 @@ assert(manifest.file_count > 200,
   `P0-5: manifest must list >200 files (got ${manifest.file_count})`);
 assert(manifest.sha256_of_manifest,
   'P0-5: manifest must have sha256_of_manifest field');
-assert.strictEqual(manifest.root, `Octopus-0.5.62`,
-  `P0-5: manifest.root must be Octopus-0.5.62 (got ${manifest.root})`);
+assert.strictEqual(manifest.root, `Octopus-0.5.63`,
+  `P0-5: manifest.root must be Octopus-0.5.63 (got ${manifest.root})`);
 
 // R40.4: run manifest verifier (exact file set + hash check)
 const { execSync } = require('child_process');

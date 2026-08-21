@@ -174,14 +174,20 @@ fn pick_travel_mission() -> &'static str {
 }
 
 /// R16: random wander mission picker — variety for web exploration.
-fn pick_wander_mission() -> &'static str {
+/// B1: uses user's custom missions from config if non-empty, else built-in defaults.
+fn pick_wander_mission(state: &State<'_, AppState>) -> String {
+    let config = state.runtime.config();
+    if !config.wander_missions.is_empty() {
+        let idx = crate::model::now_ms() as usize % config.wander_missions.len();
+        return config.wander_missions[idx].clone();
+    }
     let missions = [
         "寻找今天值得开发者关注的一个新工具或工程实践",
         "探索网络上有趣的开发者趋势和话题，给出实用建议",
         "发现一个值得尝试的库或框架，分析它的优缺点",
     ];
     let idx = crate::model::now_ms() as usize % missions.len();
-    missions[idx]
+    missions[idx].into()
 }
 
 #[tauri::command]
@@ -194,9 +200,28 @@ pub fn start_wander(
     state.runtime.travel.start_wander(
         app,
         state.runtime.clone(),
-        mission.unwrap_or_else(|| pick_wander_mission().into()),
+        mission.unwrap_or_else(|| pick_wander_mission(&state)),
         provider,
     )
+}
+
+/// B1: set user-customizable wander mission templates. Empty = use built-in defaults.
+#[tauri::command]
+pub fn set_wander_missions(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    missions: Vec<String>,
+) -> Result<Value, String> {
+    let sanitized: Vec<String> = missions
+        .into_iter()
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty())
+        .collect();
+    state.runtime.update_config(|c| {
+        c.wander_missions = sanitized.clone();
+    })?;
+    emit_config(&app, &state);
+    Ok(json!({ "wanderMissions": sanitized }))
 }
 
 #[tauri::command]

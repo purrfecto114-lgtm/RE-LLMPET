@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-wander-missions"
+description = "Enables the set_wander_missions command without any pre-configured scope."
+commands.allow = ["set_wander_missions"]
+
+[[permission]]
+identifier = "deny-set-wander-missions"
+description = "Denies the set_wander_missions command without any pre-configured scope."
+commands.deny = ["set_wander_missions"]

@@ -207,6 +207,7 @@ pub fn run() {
             get_travel,
             start_travel,
             start_wander,
+            set_wander_missions,
             cancel_travel,
             get_price_info,
             refresh_model_prices,

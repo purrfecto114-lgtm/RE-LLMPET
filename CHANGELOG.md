@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.5.63 — 代码修复 + B1 闲逛任务模板自定义（2026-08-21）
+
+### HIGH: B1 闲逛任务模板用户自定义
+- **功能**: 用户可在 config 中自定义闲逛任务模板，空列表时使用内置默认值
+- **实现**:
+  - `model.rs`: AppConfig 新增 `wander_missions: Vec<String>` 字段（`#[serde(default)]`，向后兼容）
+  - `commands.rs`: `pick_wander_mission()` 改为接受 `&State`，优先使用 config 中的自定义任务
+  - `commands.rs`: 新增 `set_wander_missions` Tauri 命令，支持前端设置自定义任务列表
+  - `lib.rs` + `build.rs`: 注册新命令
+  - `capabilities/pet.json` + `panel.json`: 添加 `allow-set-wander-missions` 权限
+  - `tauri-bridge.js`: 添加 `setWanderMissions` 绑定
+  - `pet.js`: 闲逛按钮改为传 `null` 让后端从 config 或默认值中随机选择
+- **效果**: 用户可通过 panel UI 或 API 自定义闲逛任务
+
+### MEDIUM: 代码修复
+- **travel.rs DRY**: 将 inline `CREATE_NO_WINDOW` 代码替换为共享 `hide_console_window()` helper（2 处）
+- **pet.js fadeSwapImg 修复**: 添加 `fadeTimer` 跟踪并清除前一个 timer，防止快速状态切换时过早恢复 opacity
+
+### 验证
+- cargo clippy -D warnings --all-targets: ✅ EXIT=0
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+- pet.js: 2525/2540 行（预算内）
+- commands.rs: 3360/3360 行（预算内）
+
+---
+
 ## 0.5.62 — 桌宠状态过渡动画（B3）（2026-08-11）
 
 ### HIGH: 状态切换平滑过渡

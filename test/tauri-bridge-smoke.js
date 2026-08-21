@@ -59,7 +59,7 @@ const expected = [
   'onEvent', 'onStats', 'onPanelStats', 'onConfig', 'onPrice', 'onTravel', 'onWindowBlur', 'onPanelShown', 'onPanelHidden',
   'getConfig', 'getStats', 'getPriceInfo', 'getTravel', 'refreshModelPrices', 'setPriceAutoUpdate', 'rebuildUsageCosts', 'setLanguage', 'openPanel', 'closePanel', 'setMode', 'setPetMode', 'setSkin', 'onDiagnosticProgress',
   'setBudget', 'setCurrency', 'setSessionPrefs', 'setSessionPref', 'toggleMute', 'setProviders', 'territoryRunNow',
-  'territoryToggleAuto', 'startTravel', 'startWander', 'cancelTravel', 'quit', 'getWinPos', 'setWinPos', 'commitWinPos', 'launchClaude',
+  'territoryToggleAuto', 'startTravel', 'startWander', 'setWanderMissions', 'cancelTravel', 'quit', 'getWinPos', 'setWinPos', 'commitWinPos', 'launchClaude',
   'launchCodeWhale', 'launchCodex', 'launchOpenCode', 'launchAider', 'diagnoseAgent', 'cancelDiagnostic', 'launchAgent', 'launchAgentChecked', 'launchAgentGui',
   'decidePermission', 'decideCwPermission',
   'decideCwPermissionBatch', 'focusSession', 'primaryAction', 'setIgnoreMouse',

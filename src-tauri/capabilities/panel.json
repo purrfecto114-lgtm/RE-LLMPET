@@ -32,6 +32,7 @@
     "allow-backup-and-reset-config",
     "allow-get-install-receipts",
     "allow-set-pet-mode",
-    "allow-get-travel"
+    "allow-get-travel",
+    "allow-set-wander-missions"
   ]
 }
