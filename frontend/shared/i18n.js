@@ -455,6 +455,27 @@
     'bubble.travelFail': '⚠️ 无法出发',
     'bubble.currencyCny': '💴 切换为 ¥（人民币）',
     'bubble.currencyUsd': '💲 切换为 $（美元）',
+    // B5 (2026-08-21): i18n for previously-hardcoded panel.js strings
+    'panel.noGrowth': '尚未成长',
+    'panel.wanderMode': '🐾 闲逛',
+    'panel.travelMode': '🧳 项目旅行',
+    'panel.sessCountFull': '{total} 个',
+    'panel.sessCountFiltered': '{filtered}/{total} 个',
+    'diag.cancelHint': '点 ✕ 隐藏结果并停止后台任务',
+    'diag.phase.starting': '启动中...',
+    'diag.phase.version': '检查版本中...',
+    'diag.phase.doctor': '运行诊断中...',
+    'diag.phase.auth': '检查认证中...',
+    'diag.phase.checking': '检查中...',
+    // B5: renderPriceInfo strings (deferred full rewrite — new keys for quick fixes)
+    'price.justNow': '刚刚',
+    'price.refreshFailed': '刷新失败',
+    'price.rebuildDone': '重算完成：{count} 个事件，{delta}',
+    'price.rebuildFailed': '重算失败：{error}',
+    'price.unknownError': '未知错误',
+    'price.everyNHours': '每 {hours} 小时',
+    'price.enabled': '已启用',
+    'price.disabled': '未启用',
   };
 
   const en = {
@@ -872,6 +893,27 @@
     'bubble.travelFail': '⚠️ Cannot start',
     'bubble.currencyCny': '💴 Switched to ¥ (CNY)',
     'bubble.currencyUsd': '💲 Switched to $ (USD)',
+    // B5 (2026-08-21): i18n for previously-hardcoded panel.js strings
+    'panel.noGrowth': 'No growth yet',
+    'panel.wanderMode': '🐾 Wander',
+    'panel.travelMode': '🧳 Project trip',
+    'panel.sessCountFull': '{total}',
+    'panel.sessCountFiltered': '{filtered}/{total}',
+    'diag.cancelHint': 'Click ✕ to hide and stop',
+    'diag.phase.starting': 'Starting...',
+    'diag.phase.version': 'Checking version...',
+    'diag.phase.doctor': 'Running doctor...',
+    'diag.phase.auth': 'Checking auth...',
+    'diag.phase.checking': 'Checking...',
+    // B5: renderPriceInfo strings (deferred full rewrite)
+    'price.justNow': 'just now',
+    'price.refreshFailed': 'Refresh failed',
+    'price.rebuildDone': 'Rebuild done: {count} events, {delta}',
+    'price.rebuildFailed': 'Rebuild failed: {error}',
+    'price.unknownError': 'unknown error',
+    'price.everyNHours': 'Every {hours}h',
+    'price.enabled': 'enabled',
+    'price.disabled': 'disabled',
   };
 
   const ja = {
@@ -1289,6 +1331,27 @@
     'bubble.travelFail': '⚠️ 出発できません',
     'bubble.currencyCny': '💴 ¥（人民元）に切替',
     'bubble.currencyUsd': '💲 $（ドル）に切替',
+    // B5 (2026-08-21): i18n for previously-hardcoded panel.js strings
+    'panel.noGrowth': 'まだ成長してない',
+    'panel.wanderMode': '🐾 散歩',
+    'panel.travelMode': '🧳 プロジェクト旅行',
+    'panel.sessCountFull': '{total} 件',
+    'panel.sessCountFiltered': '{filtered}/{total} 件',
+    'diag.cancelHint': '✕で非表示にし停止',
+    'diag.phase.starting': '開始中...',
+    'diag.phase.version': 'バージョン確認中...',
+    'diag.phase.doctor': 'doctor実行中...',
+    'diag.phase.auth': '認証確認中...',
+    'diag.phase.checking': '確認中...',
+    // B5: renderPriceInfo strings (deferred full rewrite)
+    'price.justNow': 'たった今',
+    'price.refreshFailed': '更新失敗',
+    'price.rebuildDone': '再計算完了：{count} イベント、{delta}',
+    'price.rebuildFailed': '再計算失敗：{error}',
+    'price.unknownError': '不明なエラー',
+    'price.everyNHours': '{hours} 時間ごと',
+    'price.enabled': '有効',
+    'price.disabled': '無効',
   };
 
   const DICT = { zh, en, ja };

@@ -175,7 +175,7 @@ function render(s) {
   const growthEl = $('travel-growth');
   if (growthEl) {
     const icons = `${'🌿'.repeat(Number(growth.leaves) || 0)}${'⭐'.repeat(Number(growth.stars) || 0)}${'🌙'.repeat(Number(growth.moons) || 0)}${Number(growth.days) ? `☀️×${growth.days}` : ''}`;
-    growthEl.textContent = `${icons || '尚未成长'} · ${fmt(growth.totalTokens || 0)} tok`;
+    growthEl.textContent = `${icons || t('panel.noGrowth')} · ${fmt(growth.totalTokens || 0)} tok`;
   }
   // R11 backport: machineGrowth — whole-machine rank combining Claude + Codex
   // lifetime tokens (10M tokens per unit, QQ-style 4-to-1 promotion:
@@ -184,12 +184,12 @@ function render(s) {
   const mgEl = $('machine-growth');
   if (mgEl) {
     const icons = `${'👑'.repeat(Number(mgRank.crown) || 0)}${'☀️'.repeat(Number(mgRank.sun) || 0)}${'🌙'.repeat(Number(mgRank.moon) || 0)}${'⭐'.repeat(Number(mgRank.star) || 0)}${'🐾'.repeat(Number(mgRank.leaf) || 0)}`;
-    mgEl.textContent = `${icons || '尚未成长'} · ${fmt(mg.totalTokens || 0)} tok`;
+    mgEl.textContent = `${icons || t('panel.noGrowth')} · ${fmt(mg.totalTokens || 0)} tok`;
   }
   const activeTravel = $('travel-active');
   if (activeTravel) activeTravel.textContent = travel.active
-    ? `${travel.active.mode === 'wander' ? '🐾 闲逛' : '🧳 项目旅行'} · ${travel.active.project || ''} · ${travel.active.mission || ''}`
-    : '当前没有旅行';
+    ? `${travel.active.mode === 'wander' ? t('panel.wanderMode') : t('panel.travelMode')} · ${travel.active.project || ''} · ${travel.active.mission || ''}`
+    : t('panel.noTravel');
   const postcardEl = $('travel-postcard');
   if (postcardEl) {
     const card = Array.isArray(travel.postcards) ? travel.postcards[0] : null;
@@ -688,7 +688,7 @@ function refreshSessionProviderOptions(sessions) {
   if (!select) return;
   const providers = [...new Set(sessions.map(sessionProviderId))].sort();
   const previous = sessionProviderFilter;
-  select.innerHTML = '<option value="">全部 Provider</option>' + providers
+  select.innerHTML = '<option value="">' + t('panel.allProviders') + '</option>' + providers
     .map((id) => `<option value="${escapeHtml(id)}">${escapeHtml((PROVIDER_META[id] && PROVIDER_META[id].label) || id)}</option>`)
     .join('');
   if (providers.includes(previous)) select.value = previous;
@@ -722,10 +722,10 @@ function renderSessList(sessions) {
   });
   const count = $('sess-count');
   if (count) count.textContent = filtered.length === latestSessions.length
-    ? `${latestSessions.length} 个`
-    : `${filtered.length}/${latestSessions.length} 个`;
+    ? t('panel.sessCountFull', { total: latestSessions.length })
+    : t('panel.sessCountFiltered', { filtered: filtered.length, total: latestSessions.length });
   if (!filtered.length) {
-    el.innerHTML = `<div class="empty">${latestSessions.length ? '没有匹配的会话' : '暂无活跃会话'}</div>`;
+    el.innerHTML = `<div class="empty">${latestSessions.length ? t('panel.noMatch') : t('panel.noActive')}</div>`;
     return;
   }
   el.innerHTML = filtered
@@ -830,10 +830,10 @@ function renderTodos(todos, proj) {
 }
 
 const BG_META = {
-  running: { label: '该跑', cls: 'st-working' },
-  suspect: { label: '可疑', cls: 'st-waiting' },
-  unregistered: { label: '疑似僵尸', cls: 'st-waiting' },
-  ended: { label: '已结束', cls: 'st-idle' },
+  running: { key: 'bg.running', cls: 'st-working' },
+  suspect: { key: 'bg.suspect', cls: 'st-waiting' },
+  unregistered: { key: 'bg.unregistered', cls: 'st-waiting' },
+  ended: { key: 'bg.ended', cls: 'st-idle' },
 };
 function ageStr(sec) {
   if (sec == null) return '';
@@ -854,7 +854,7 @@ function renderBg(bg) {
   const items = (bg.items || []).filter((x) => x.alive);
   if (block) block.style.display = items.length ? '' : 'none';
   const head = $('bg-head');
-  if (head) head.textContent = t('panel.bgHead') ? t('panel.bgHead', {running: bg.running || 0, zombie: bg.zombie || 0}) : `后台任务 ✅${bg.running || 0} · 🧟${bg.zombie || 0}`;
+  if (head) head.textContent = t('panel.bgHead', {running: bg.running || 0, zombie: bg.zombie || 0});
   if (!items.length) {
     el.innerHTML = `<div class="empty">${t('panel.bgClean')}</div>`;
     return;
@@ -864,7 +864,7 @@ function renderBg(bg) {
       const m = BG_META[it.status] || BG_META.ended;
       const ic = it.status === 'running' ? '✅' : it.status === 'ended' ? '⚪' : '🧟';
       const purpose = it.purpose ? escapeHtml(it.purpose) : escapeHtml(String(it.cmd).slice(0, 48));
-      return `<div class="row sess"><span class="badge ${m.cls}">${ic}${m.label}</span><span class="sess-proj">${purpose}</span><span class="sess-op">${ageStr(it.ageSec)} · ${it.stop ? escapeHtml(it.stop) : ''}</span></div>`;
+      return `<div class="row sess"><span class="badge ${m.cls}">${ic}${t(m.key)}</span><span class="sess-proj">${purpose}</span><span class="sess-op">${ageStr(it.ageSec)} · ${it.stop ? escapeHtml(it.stop) : ''}</span></div>`;
     })
     .join('');
 }
@@ -1056,7 +1056,7 @@ async function diagnoseProvider(provider) {
         <button type="button" class="diag-close" data-diag-action="cancel" title="${escapeHtml(t('diag.close'))}">✕</button>
       </div>
       <div class="diag-loading">${escapeHtml(t('diag.running'))}</div>
-      <div class="diag-hint" style="font-size:9px;color:#8c6a5a;margin-top:4px;">${escapeHtml(currentLang === 'en' ? 'Click ✕ to hide result and stop background task' : currentLang === 'ja' ? '✕で結果を非表示にしバックグラウンド停止' : '点 ✕ 隐藏结果并停止后台任务')}</div>`;
+      <div class="diag-hint" style="font-size:9px;color:#8c6a5a;margin-top:4px;">${escapeHtml(t('diag.cancelHint'))}</div>`;
   }
   try {
     const result = await window.pet.diagnoseAgent(provider);
@@ -1162,7 +1162,7 @@ function formatPriceTime(value) {
   if (!value) return '';
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return '';
-  return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return date.toLocaleString(LOCALES[config.lang] || 'zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 function renderPriceInfo(message) {
@@ -1228,7 +1228,7 @@ function renderPriceInfo(message) {
     if (!exact) {
       const option = document.createElement('option');
       option.value = String(refreshHours);
-      option.textContent = `每 ${refreshHours} 小时`;
+      option.textContent = t('price.everyNHours', { hours: refreshHours });
       interval.appendChild(option);
     }
     interval.value = String(refreshHours);
@@ -1295,7 +1295,7 @@ document.addEventListener('DOMContentLoaded', () => {
     priceRefresh.disabled = true;
     priceRefresh.textContent = t('panel.refreshing');
     window.pet.refreshModelPrices().then(renderPriceInfo).catch((error) => {
-      renderPriceInfo({ ...(latestPriceInfo || {}), state: 'error', inProgress: false, lastError: String(error || '刷新失败') });
+      renderPriceInfo({ ...(latestPriceInfo || {}), state: 'error', inProgress: false, lastError: String(error || t('price.refreshFailed')) });
     });
   });
   // R11 backport: rebuild usage costs with current price catalog
@@ -1308,11 +1308,11 @@ document.addEventListener('DOMContentLoaded', () => {
       priceRebuild.textContent = t('panel.rebuildCost');
       const delta = Number(result.delta) || 0;
       const sign = delta >= 0 ? '+' : '';
-      priceRebuild.title = `重算完成：${result.eventCount} 个事件，${sign}$${delta.toFixed(4)}`;
+      priceRebuild.title = t('price.rebuildDone', { count: result.eventCount, delta: `${sign}$${delta.toFixed(4)}` });
     }).catch((error) => {
       priceRebuild.disabled = false;
       priceRebuild.textContent = t('panel.rebuildCost');
-      priceRebuild.title = '重算失败：' + String(error || '未知错误');
+      priceRebuild.title = t('price.rebuildFailed', { error: String(error || t('price.unknownError')) });
     });
   });
   const savePriceAuto = () => {
@@ -1460,11 +1460,8 @@ if (window.pet.onDiagnosticProgress) {
     if (el) {
       const loading = el.querySelector('.diag-loading');
       if (loading) {
-        const phaseText = ev.phase === 'starting' ? (currentLang === 'en' ? 'Starting...' : currentLang === 'ja' ? '開始中...' : '启动中...')
-          : ev.phase === 'version' ? (currentLang === 'en' ? 'Checking version...' : currentLang === 'ja' ? 'バージョン確認中...' : '检查版本中...')
-          : ev.phase === 'doctor' ? (currentLang === 'en' ? 'Running doctor...' : currentLang === 'ja' ? 'doctor実行中...' : '运行诊断中...')
-          : ev.phase === 'auth' ? (currentLang === 'en' ? 'Checking auth...' : currentLang === 'ja' ? '認証確認中...' : '检查认证中...')
-          : (currentLang === 'en' ? 'Checking...' : currentLang === 'ja' ? '確認中...' : '检查中...');
+        const PHASE_KEYS = { starting: 'diag.phase.starting', version: 'diag.phase.version', doctor: 'diag.phase.doctor', auth: 'diag.phase.auth' };
+        const phaseText = t(PHASE_KEYS[ev.phase] || 'diag.phase.checking');
         loading.textContent = phaseText;
       }
     }
