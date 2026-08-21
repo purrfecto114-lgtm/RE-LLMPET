@@ -21,15 +21,10 @@ let skin = 'mascot';
 function applyLanguage(next) {
   currentLang = i18n ? i18n.setLang(next) : 'zh';
   document.documentElement.lang = LOCALES[currentLang] || 'zh-CN';
-  document.querySelectorAll('[data-i18n]').forEach((node) => {
-    node.textContent = t(node.dataset.i18n);
-  });
-  document.querySelectorAll('[data-i18n-title]').forEach((node) => {
-    node.title = t(node.dataset.i18nTitle);
-  });
-  document.querySelectorAll('[data-i18n-placeholder]').forEach((node) => {
-    node.placeholder = t(node.dataset.i18nPlaceholder);
-  });
+  document.querySelectorAll('[data-i18n]').forEach((n) => { n.textContent = t(n.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-title]').forEach((n) => { n.title = t(n.dataset.i18nTitle); });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach((n) => { n.placeholder = t(n.dataset.i18nPlaceholder); });
+  document.querySelectorAll('[data-i18n-aria-label]').forEach((n) => { n.setAttribute('aria-label', t(n.dataset.i18nAriaLabel)); });
   updateProviderUI();
   if (sessListOpen) { slTitle.textContent = t('sess.title'); renderSessList(); }
 }

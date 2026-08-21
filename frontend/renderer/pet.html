@@ -97,7 +97,7 @@
       <div id="chip" class="chip">
         <span id="chip-cost">$0.000</span>
         <span class="chip-sep">·</span>
-        <span id="chip-window" title="近5小时消耗">5h $0.000</span>
+        <span id="chip-window" title="近5小时消耗" data-i18n-title="pet.html.chipWindow">5h $0.000</span>
       </div>
 
       <!-- 多 Provider 模式名牌：R35.1 — 不再常驻显示「名称 +N」。
@@ -111,11 +111,11 @@
            「新开」或 primaryAction 且有多个 enabled Provider 时弹出，
            让用户明确选择目标，不再静默启动数组第一项。
            单个 Provider 时直接启动，不弹层。 -->
-      <div id="provider-chooser" class="provider-chooser hidden" role="dialog" aria-modal="true" aria-label="选择 Provider">
+      <div id="provider-chooser" class="provider-chooser hidden" role="dialog" aria-modal="true" aria-label="选择 Provider" data-i18n-aria-label="pet.html.providerChooserAria">
         <div class="pc-card">
           <div class="pc-head">
             <span class="pc-title" data-i18n="provider.choose">选择 Provider</span>
-            <button type="button" class="pc-close" id="pc-close" aria-label="关闭">✕</button>
+            <button type="button" class="pc-close" id="pc-close" aria-label="关闭" data-i18n-aria-label="pet.html.closeAria">✕</button>
           </div>
           <div class="pc-list" id="pc-list"></div>
         </div>

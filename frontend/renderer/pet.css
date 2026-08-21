@@ -1271,3 +1271,104 @@ body.skin-cat #cat { display: flex; }
   outline-offset: 2px;
   border-radius: 6px;
 }
+
+/* ====================================================================
+   v0.5.69: pet.css animation enhancement + dark mode + a11y
+   - Dark mode support for pet window
+   - Thinking dots animation (3-dot bounce)
+   - Provider tag glow on active
+   - Smooth sprite transition polish
+   ==================================================================== */
+@media (prefers-color-scheme: dark) {
+  :root { color-scheme: dark; }
+  #ask, #notepad, #session-list {
+    background: rgba(42,31,26,.92);
+    color: rgba(255,255,255,.85);
+    border-color: rgba(255,255,255,.1);
+  }
+  .ask-q { color: rgba(255,255,255,.9); }
+  .ask-proj { color: #ffb495; }
+  .ao-option {
+    background: rgba(255,255,255,.05);
+    border-color: rgba(255,255,255,.1);
+  }
+  .ao-option:hover {
+    background: rgba(217,119,87,.15);
+  }
+  .sl-row { border-color: rgba(255,255,255,.06); }
+  .sl-row:hover { background: rgba(255,255,255,.04); }
+  #chip-window, #chip-tokens {
+    background: rgba(255,255,255,.06);
+    color: rgba(255,255,255,.7);
+  }
+  .think-label { color: rgba(255,255,255,.6); }
+}
+
+/* Thinking dots animation (3-dot bounce) */
+.think-dots {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 2px;
+}
+.think-dots span {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: thinkDot 1.2s ease-in-out infinite;
+}
+.think-dots span:nth-child(2) { animation-delay: 0.15s; }
+.think-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes thinkDot {
+  0%, 60%, 100% { transform: translateY(0); opacity: .4; }
+  30% { transform: translateY(-3px); opacity: 1; }
+}
+
+/* Provider tag glow when active */
+.agent-tag.active {
+  box-shadow: 0 0 0 2px rgba(217,119,87,.3), 0 0 8px rgba(217,119,87,.2);
+  animation: tagGlow 2s ease-in-out infinite;
+}
+@keyframes tagGlow {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(217,119,87,.3), 0 0 8px rgba(217,119,87,.2); }
+  50% { box-shadow: 0 0 0 2px rgba(217,119,87,.5), 0 0 12px rgba(217,119,87,.35); }
+}
+
+/* Smooth sprite fade transition (enhances fadeSwapImg) */
+#mascot img, #cat img {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+#mascot:hover img, #cat:hover img {
+  transform: scale(1.02);
+}
+
+/* Idle breathing enhancement (subtle scale) */
+#stage.breathing {
+  animation: breatheEnhanced 3.5s ease-in-out infinite;
+}
+@keyframes breatheEnhanced {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.015); }
+}
+
+/* Attention bounce (enhanced) */
+#stage.attention {
+  animation: attnEnhanced 0.8s ease-in-out infinite;
+}
+@keyframes attnEnhanced {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-3px) rotate(-1deg); }
+  75% { transform: translateY(-3px) rotate(1deg); }
+}
+
+/* Error shake (enhanced with red flash) */
+#stage.error-state {
+  animation: errShakeEnhanced 0.4s ease-in-out 3;
+}
+@keyframes errShakeEnhanced {
+  0%, 100% { transform: translateX(0); filter: none; }
+  20% { transform: translateX(-4px); filter: hue-rotate(-20deg); }
+  40% { transform: translateX(4px); filter: hue-rotate(-20deg); }
+  60% { transform: translateX(-3px); filter: hue-rotate(-15deg); }
+  80% { transform: translateX(3px); filter: hue-rotate(-15deg); }
+}

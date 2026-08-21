@@ -496,6 +496,9 @@
     'pet.emotion.loved': '🥰 谢谢夸奖！',
     'pet.emotion.sad': '😢 别生气…',
     'pet.emotion.default': '✨ 收到！',
+    'pet.html.chipWindow': '近5小时消耗',
+    'pet.html.providerChooserAria': '选择 Provider',
+    'pet.html.closeAria': '关闭',
     // B5 (2026-08-21): i18n for previously-hardcoded panel.js strings
     'panel.noGrowth': '尚未成长',
     'panel.wanderMode': '🐾 闲逛',
@@ -1003,6 +1006,9 @@
     'pet.emotion.loved': '🥰 Thanks!',
     'pet.emotion.sad': '😢 Sorry…',
     'pet.emotion.default': '✨ Got it!',
+    'pet.html.chipWindow': 'Last 5h cost',
+    'pet.html.providerChooserAria': 'Choose Provider',
+    'pet.html.closeAria': 'Close',
     // B5 (2026-08-21): i18n for previously-hardcoded panel.js strings
     'panel.noGrowth': 'No growth yet',
     'panel.wanderMode': '🐾 Wander',
@@ -1510,6 +1516,9 @@
     'pet.emotion.loved': '🥰 ありがとう！',
     'pet.emotion.sad': '😢 ごめん…',
     'pet.emotion.default': '✨ 了解！',
+    'pet.html.chipWindow': '直近5h消費',
+    'pet.html.providerChooserAria': 'プロバイダー選択',
+    'pet.html.closeAria': '閉じる',
     // B5 (2026-08-21): i18n for previously-hardcoded panel.js strings
     'panel.noGrowth': 'まだ成長してない',
     'panel.wanderMode': '🐾 散歩',
