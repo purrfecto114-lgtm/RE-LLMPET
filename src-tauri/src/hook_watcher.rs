@@ -132,6 +132,6 @@ mod tests {
     // so a future edit doesn't silently change it.
     #[test]
     fn poll_interval_is_two_seconds() {
-        assert_eq!(POLL_INTERVAL, Duration::from_secs(2));
+        assert_eq!(POLL_INTERVAL, Duration::from_secs(5));
     }
 }

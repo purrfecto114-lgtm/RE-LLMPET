@@ -255,7 +255,7 @@
     "src-tauri/src/emotion.rs": "dd485ae253523d98eb483fc36f34408728f090cf05bb63b963ba4bddc3177d5d",
     "src-tauri/src/hook_client.rs": "5d1c701336d8122aba471b5eba30800a9c6daf4a4315a5f348ea89729cc88b3e",
     "src-tauri/src/hook_install.rs": "f6a24e1150d8519cf811fb9036da8b7b4abb85ac7005b6c95ce37a223846b588",
-    "src-tauri/src/hook_watcher.rs": "235055fb87b8e5389ebab9d765656f150cc5cf8bad5a4566a0811258667ed46e",
+    "src-tauri/src/hook_watcher.rs": "1f1f45c9da29e04ef197354170ed51ecaf5d622da6037b84e25ba38b29dbc4d1",
     "src-tauri/src/http_server.rs": "2fe63d79b4828e51b8b8471391b07526b5b77c6952c9f102ce6009e91f9a9248",
     "src-tauri/src/i18n.rs": "2ca2a9fe27b0a1c7dc039290172c4a58c5e3c17e87179485568d92e4b2eaae01",
     "src-tauri/src/instance_probe.rs": "38fee6c5356d7d6e1662ca085bff609fdfcfbaaf585a3f7a1cb2b4fd346e0345",
@@ -354,6 +354,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "2ce2e44e89f98627cef974064269446dad6d234fc20bf104f9158256a645be94"
   },
-  "sha256_of_manifest": "be10752c0d0837130479c2bc4c7ad2fb61a88ac6b8647594d53c4b6d13a8a00d",
+  "sha256_of_manifest": "70c7bfc70f2a4ac01b003d60f378f523861a46891da8b391f98f3e879c5faf9e",
   "source_commit": "octopus-0.5.66"
 }
