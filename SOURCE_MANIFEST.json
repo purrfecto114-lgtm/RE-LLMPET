@@ -182,7 +182,7 @@
     "scripts/verify-release-assets.js": "343140b49e0b7ba0beb4c0b17ea05600471b0990536d924f0c3f652e517598c8",
     "scripts/verify-rewrite.sh": "507fb986127e8a85e8e54d9e416490ebd62e1824d7d8a1ceb802cddf57324f29",
     "scripts/windows-cli-diagnostics.ps1": "c0f7a23898129fbb63e94226d6ca99253a275f468cfd2a27dad9872090e110e0",
-    "src-tauri/Cargo.lock": "3a603eb8840cfa0897095b401f0511bb3e8b81a663087fe071bdb74f92972db9",
+    "src-tauri/Cargo.lock": "73c1e8b7d2e86f07309f62e2eea76ac3d4cfd7f03c653470e0b0d7e492c3130f",
     "src-tauri/Cargo.toml": "9bf5556f22e171d181382c8520eea86c39a4c42f346508d9214711f115e76dd3",
     "src-tauri/build.rs": "efeb9b5c29f4e8017286780a7a7a44d07a39e0f717a2b9d12afa03012db5a451",
     "src-tauri/capabilities/panel.json": "9cc9a9857331a4eca451be42ad8120f22f219bd81b8c34d47ef604ecd7fe7876",
@@ -354,6 +354,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "2ce2e44e89f98627cef974064269446dad6d234fc20bf104f9158256a645be94"
   },
-  "sha256_of_manifest": "560ec294e62e9de396fdfa6c73cc8ae4e1e6f917b9a62fda7f1f179b511b199d",
+  "sha256_of_manifest": "be10752c0d0837130479c2bc4c7ad2fb61a88ac6b8647594d53c4b6d13a8a00d",
   "source_commit": "octopus-0.5.66"
 }
