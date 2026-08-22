@@ -375,11 +375,34 @@ mod tests {
         fs::create_dir_all(&session_dir).unwrap();
         let header = json!({"type":"session","id":"sub1","origin":"subagent","cwd":"/tmp"});
         fs::write(session_dir.join("session.jsonl"), header.to_string()).unwrap();
+        // Verify probe_session filters out the subagent session.
+        let probed = probe_session(&session_dir);
+        assert!(
+            probed.is_none(),
+            "probe_session must filter subagent header, got: {:?}",
+            probed
+        );
+        // Verify read_header_line + is_subagent_header chain.
+        let log_path = session_dir.join("session.jsonl");
+        let header = read_header_line(&log_path);
+        assert!(header.is_some(), "read_header_line should parse the header");
+        let header = header.unwrap();
+        assert_eq!(
+            header.get("origin").and_then(Value::as_str),
+            Some("subagent"),
+            "header origin should be 'subagent', got: {:?}",
+            header
+        );
+        assert!(
+            is_subagent_header(&header),
+            "is_subagent_header must return true for origin=subagent"
+        );
+        // Now verify snapshot_from_dir returns 0 sessions.
         let (sessions, _) = snapshot_from_dir(&sessions_root);
         let arr = sessions
             .map(|s| s.as_array().map(|a| a.len()).unwrap_or(0))
             .unwrap_or(0);
-        assert_eq!(arr, 0, "subagent sessions must be filtered");
+        assert_eq!(arr, 0, "subagent sessions must be filtered, got {}", arr);
         let _ = fs::remove_dir_all(&tmp);
     }
 }
