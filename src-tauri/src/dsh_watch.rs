@@ -297,9 +297,20 @@ mod tests {
 
     #[test]
     fn snapshot_enumerates_uncompressed_sessions() {
-        let tmp = std::env::temp_dir().join(format!("octopus-dsh-test-{}", std::process::id()));
+        // Use a unique temp dir per-test to avoid global-cache aliasing.
+        // Call snapshot_from_dir directly to bypass DSH_HOME env (unsafe in
+        // concurrent tests on Rust 1.98+).
+        let tmp = std::env::temp_dir().join(format!(
+            "octopus-dsh-test-enumerate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let _ = fs::remove_dir_all(&tmp);
-        let session_dir = tmp.join("sessions").join("--tmp-test--").join("abc123");
+        let sessions_root = tmp.join("sessions");
+        let session_dir = sessions_root.join("--tmp-test--").join("abc123");
         fs::create_dir_all(&session_dir).unwrap();
         let header = json!({
             "type": "session",
@@ -309,11 +320,10 @@ mod tests {
             "version": 0,
         });
         fs::write(session_dir.join("session.jsonl"), header.to_string()).unwrap();
-        std::env::set_var("DSH_HOME", &tmp);
-        let (sessions, summary) = snapshot(Path::new("/tmp"));
+        let (sessions, summary) = snapshot_from_dir(&sessions_root);
         let sessions = sessions.expect("sessions should be present");
         let arr = sessions.as_array().expect("sessions should be array");
-        assert_eq!(arr.len(), 1);
+        assert_eq!(arr.len(), 1, "expected 1 session, got {}", arr.len());
         assert_eq!(arr[0].get("id").and_then(Value::as_str), Some("abc123"));
         assert_eq!(
             summary
@@ -321,25 +331,30 @@ mod tests {
                 .and_then(|s| s.get("installed").and_then(Value::as_bool)),
             Some(true)
         );
-        std::env::remove_var("DSH_HOME");
         let _ = fs::remove_dir_all(&tmp);
     }
 
     #[test]
     fn snapshot_filters_subagent_headers() {
-        let tmp = std::env::temp_dir().join(format!("octopus-dsh-subagent-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!(
+            "octopus-dsh-subagent-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let _ = fs::remove_dir_all(&tmp);
-        let session_dir = tmp.join("sessions").join("sub-agent-1");
+        let sessions_root = tmp.join("sessions");
+        let session_dir = sessions_root.join("sub-agent-1");
         fs::create_dir_all(&session_dir).unwrap();
         let header = json!({"type":"session","id":"sub1","origin":"subagent","cwd":"/tmp"});
         fs::write(session_dir.join("session.jsonl"), header.to_string()).unwrap();
-        std::env::set_var("DSH_HOME", &tmp);
-        let (sessions, _) = snapshot(Path::new("/tmp"));
+        let (sessions, _) = snapshot_from_dir(&sessions_root);
         let arr = sessions
             .map(|s| s.as_array().map(|a| a.len()).unwrap_or(0))
             .unwrap_or(0);
         assert_eq!(arr, 0, "subagent sessions must be filtered");
-        std::env::remove_var("DSH_HOME");
         let _ = fs::remove_dir_all(&tmp);
     }
 }
