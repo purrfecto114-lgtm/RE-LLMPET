@@ -60,11 +60,6 @@
 
       <!-- 按工具动作时头顶飘出的道具 emoji -->
       <div id="prop" class="prop"></div>
-      <!-- 表情包：选择后固定出现在桌宠右侧，并同步播放配置的语音包 -->
-      <div id="meme-player" class="meme-player hidden" aria-live="polite">
-        <img id="meme-image" alt="" draggable="false" />
-        <div id="meme-caption" class="meme-caption"></div>
-      </div>
       <!-- 召唤 subagent 时弹出的小分身 -->
       <div id="sidekick" class="sidekick">🐙</div>
 
@@ -113,10 +108,6 @@
           <span class="sl-close" id="sl-close" data-i18n-title="sess.close" title="关闭">✕</span>
         </div>
         <div id="sl-session-view">
-          <div id="sl-loot" class="sl-loot hidden" aria-live="polite">
-            <span class="sl-loot-mark">⇢</span>
-            <span id="sl-loot-text"></span>
-          </div>
           <div class="sl-tools">
             <input id="sl-search" type="search" data-i18n-ph="sess.search" placeholder="搜索会话…" autocomplete="off" />
             <div id="sl-filters" class="sl-filters" role="group" data-i18n-aria="sess.filters">
@@ -133,15 +124,9 @@
             <button id="sl-new" data-i18n="sess.newClaude">🚀 新开 Claude</button>
             <button id="sl-new-codex" class="hidden" data-i18n="sess.newCodex">🛰️ 新开 Codex</button>
             <button id="sl-new-dsh" class="hidden" data-i18n="sess.newDsh">🌊 新开 dsh</button>
-            <button id="sl-travel-inbox" data-i18n="travel.inboxEntry" data-i18n-title="travel.inboxTitle" title="查看专属旅行会话、来信和明信片">📮 旅行</button>
             <button id="sl-archive" data-i18n="sess.archiveLibrary">📚 档案</button>
             <button id="sl-panel" data-i18n="sess.panel">📊 详情</button>
           </div>
-        </div>
-        <div id="sl-meme-view" class="sl-meme-view hidden">
-          <div id="sl-meme-session" class="sl-meme-session"></div>
-          <div id="sl-meme-grid" class="sl-meme-grid"></div>
-          <div id="sl-meme-status" class="sl-meme-status"></div>
         </div>
         <div id="sl-takeover-view" class="sl-takeover-view hidden">
           <div id="sl-takeover-session" class="sl-takeover-session"></div>
@@ -158,68 +143,6 @@
           </div>
           <div class="sl-takeover-safety" data-i18n="takeover.safety">源会话不会被关闭；若它仍在工作，请留意并行修改。</div>
           <div id="sl-takeover-status" class="sl-takeover-status" aria-live="polite"></div>
-        </div>
-        <div id="sl-travel-view" class="sl-travel-view hidden">
-          <div id="sl-travel-session" class="sl-travel-session"></div>
-          <div class="sl-travel-ranks">
-            <div class="sl-travel-rank">
-              <div>
-                <span class="sl-travel-rank-label" data-i18n="travel.rankTitle">旅行等级</span>
-                <strong id="sl-travel-rank-icons">新手旅宠</strong>
-              </div>
-              <span id="sl-travel-rank-meta"></span>
-            </div>
-            <div class="sl-travel-rank machine">
-              <div>
-                <span class="sl-travel-rank-label" data-i18n="travel.machineRankTitle">本机陪伴等级</span>
-                <strong id="sl-machine-rank-icons">刚刚开机</strong>
-              </div>
-              <span id="sl-machine-rank-meta"></span>
-            </div>
-          </div>
-          <div class="sl-travel-section-head">
-            <strong data-i18n="travel.mailboxesTitle">专属旅行信箱</strong>
-            <span data-i18n="travel.mailboxesHint">授权和旅途会话会一直留在这里</span>
-          </div>
-          <div id="sl-travel-mailboxes" class="sl-travel-mailboxes"></div>
-          <button id="sl-wander" class="sl-travel-wander" data-i18n="travel.wanderEntry" data-i18n-title="travel.wanderTitle" title="打开可见 CLI，让猫猫随机去真实世界逛三站">🐱 闲逛</button>
-          <div id="sl-travel-setup" class="sl-travel-setup">
-            <div id="sl-travel-templates" class="sl-travel-templates"></div>
-            <label class="sl-travel-label" for="sl-travel-mission" data-i18n="travel.mission">这次想让它探索什么？</label>
-            <textarea id="sl-travel-mission" maxlength="1600" data-i18n-ph="travel.missionPlaceholder" placeholder="写下一个明确的探索任务…"></textarea>
-            <div class="sl-travel-safety" data-i18n="travel.readonly">🔒 独立只读旅行：不会改文件，也不会写进当前会话</div>
-            <button id="sl-travel-start" class="sl-travel-primary" data-i18n="travel.start">出发</button>
-          </div>
-          <div id="sl-travel-active" class="sl-travel-active hidden">
-            <div class="sl-travel-orbit">🧳<span>···</span>🗺️</div>
-            <div id="sl-travel-active-status"></div>
-            <div id="sl-travel-active-mission"></div>
-            <button id="sl-travel-cancel" data-i18n="travel.cancel">叫它回来</button>
-          </div>
-          <div class="sl-travel-library">
-            <aside class="sl-travel-album">
-              <div class="sl-travel-section-head sl-travel-history-head">
-                <strong data-i18n="travel.postcardAlbum">明信片册</strong>
-                <span data-i18n="travel.postcardAlbumHint">每一次归来都保存在这里</span>
-              </div>
-              <div id="sl-travel-history" class="sl-travel-history"></div>
-            </aside>
-            <div id="sl-travel-postcard" class="sl-travel-postcard hidden">
-              <div class="sl-travel-postcard-head">
-                <div>
-                  <div class="sl-travel-postcard-title" data-i18n="travel.postcard">旅行明信片</div>
-                  <div id="sl-travel-postcard-meta"></div>
-                </div>
-                <div class="sl-travel-postcard-nav">
-                  <button id="sl-travel-stop-prev" data-i18n-title="travel.prevStop" title="上一站">‹</button>
-                  <span id="sl-travel-stop-page"></span>
-                  <button id="sl-travel-stop-next" data-i18n-title="travel.nextStop" title="下一站">›</button>
-                </div>
-              </div>
-              <div id="sl-travel-stop-track" class="sl-travel-stop-track"></div>
-            </div>
-          </div>
-          <div id="sl-travel-status" class="sl-travel-status"></div>
         </div>
       </div>
 
