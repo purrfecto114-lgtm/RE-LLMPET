@@ -220,6 +220,18 @@ fn clear_cache() {
     *guard = CacheEntry::default();
 }
 
+/// Test-only mutex: forces the 3 dsh_watch tests to run serially. The global
+/// OnceLock cache in snapshot_from_dir cannot be safely shared across
+/// concurrent tests (test A's fill races with test B's clear+fill, causing
+/// stale reads). Holding this lock for the entire test body serializes them.
+#[cfg(test)]
+static TEST_SERIAL_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
+fn test_serial() -> std::sync::MutexGuard<'static, ()> {
+    TEST_SERIAL_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn snapshot_from_dir(dir: &Path) -> (Option<Value>, Option<Value>) {
     // If the dir doesn't exist, treat as not-installed (matches sessions_dir()
     // semantics). This also lets snapshot_from_dir be called directly with a
@@ -289,6 +301,7 @@ mod tests {
 
     #[test]
     fn snapshot_returns_none_when_dsh_absent() {
+        let _serial = test_serial();
         clear_cache();
         // snapshot() reads DSH_HOME; with no env var and no ~/.dsh, it returns
         // the not-installed summary. We test the not-installed path directly
@@ -308,6 +321,7 @@ mod tests {
 
     #[test]
     fn snapshot_enumerates_uncompressed_sessions() {
+        let _serial = test_serial();
         clear_cache();
         // Use a unique temp dir per-test to avoid global-cache aliasing.
         // Call snapshot_from_dir directly to bypass DSH_HOME env (unsafe in
@@ -360,6 +374,7 @@ mod tests {
 
     #[test]
     fn snapshot_filters_subagent_headers() {
+        let _serial = test_serial();
         clear_cache();
         let tmp = std::env::temp_dir().join(format!(
             "octopus-dsh-subagent-{}-{}",
