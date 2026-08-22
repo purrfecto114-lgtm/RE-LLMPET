@@ -119,3 +119,13 @@ assert(!bridge.includes('installReLlmpetBridge'));
 assert(!/\[re-llmpet\]/.test(bridge), 'new bridge logs must use Octopus branding');
 
 console.log('maintainability-boundary-smoke: ok');
+
+// R-M6 (v0.5.79, upstream 3449283): pet drift fix — clearDragGesture must null
+// `g` before releasePointerCapture, pointermove must check buttons & 1 === 0,
+// and pointerdown must cancelActiveDrag first. Guards against pet drift after
+// a lost pointerup on transparent windows.
+assert(pet.includes('clearDragGesture'), 'pet.js must define clearDragGesture (R-M6 drift fix)');
+assert(pet.includes('cancelActiveDrag'), 'pet.js must define cancelActiveDrag (R-M6 stale-gesture cleanup)');
+assert(pet.includes('(e.buttons & 1) === 0'), 'pet.js pointermove must check buttons & 1 === 0 (R-M6 stale-capture guard)');
+assert(!pet.includes('function finishGesture'), 'pet.js must not retain old finishGesture (renamed to clearDragGesture)');
+

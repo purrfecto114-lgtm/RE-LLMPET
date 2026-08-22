@@ -124,7 +124,6 @@ const CAT_ASSET_FILES = Array.from(new Set([
   ...Object.values(CAT_POOLS).flat(),
 ]));
 const catAssetCache = new Map();
-// R30: lazy-load cat assets only when cat skin is selected (was ~2.4MB startup waste).
 function preloadCatAssets() {
   for (const file of CAT_ASSET_FILES) {
     const image = new Image();
@@ -202,7 +201,6 @@ const sesslist = document.getElementById('sesslist');
 const slRows = document.getElementById('sl-rows');
 const slSub = document.getElementById('sl-sub');
 const slTitle = document.getElementById('sl-title');
-// R44 0.5.44: search + filter state for pet HUD session list
 const slSearch = document.getElementById('sl-search');
 let slQuery = '';
 let slFilter = 'all'; // 'all' | 'claude' | 'codex' | 'attention' | 'archived'
@@ -236,7 +234,6 @@ const mouseIgnoreController = window.OctoLatestValue.createLatestValueController
 });
 let lastUiBusy = null;
 function syncUiBusy(force = false) {
-  // R35.2 (2026-07-31): added providerChooserOpen to the busy union.
   // The 0.5.12 carpet audit (P0-1 证据A) flagged that the chooser was
   // not in this list, so Rust's native click-through guard and the
   // territory/blur branches didn't know the chooser was open — risking
@@ -402,7 +399,6 @@ function clearGeometryBusy(myRevision) {
   // After the busy window closes, re-measure and re-emit visual bounds so
   // the native hit-test region snaps to the final size.
   requestAnimationFrame(reportPetVisualBounds);
-  // R35.1: if openRadial() was deferred during the busy window, open it
   // exactly once now. The flag is cleared here and in closeRadial/blur/
   // drag-start so a stale intent can't reopen the HUD after dismissal.
   if (pendingRadialOpen) {
@@ -1004,7 +1000,6 @@ function visibleSessions() {
   return (curSessions || [])
     .filter(isVisibleSession)
     .filter((s) => {
-      // R44 0.5.44: apply search query
       if (slQuery) {
         const q = slQuery.toLowerCase();
         const project = (s.project || '').toLowerCase();
@@ -1029,7 +1024,6 @@ function visibleSessions() {
       return true;
     })
     .sort((a, b) => {
-      // R44 0.5.44: pinned sessions first
       const ap = pinnedSet.has(a.sessionId) ? 0 : 1;
       const bp = pinnedSet.has(b.sessionId) ? 0 : 1;
       if (ap !== bp) return ap - bp;
@@ -1069,7 +1063,6 @@ function renderSessList() {
       ? `<span class="sl-ctx ${ctxClass(s.contextPercent)}">${s.contextPercent}%</span>` : '';
     const providerId = s.providerId || s.provider;
     const provIcon = PROVIDER_ICONS[providerId] || '•';
-    // R44 0.5.44: pin/archive action buttons (shown on hover)
     const isPinned = pinnedSet.has(s.sessionId);
     const isArchived = archivedSet.has(s.sessionId);
     const prefDisabled = pendingSessionPrefs.has(s.sessionId) ? ' disabled' : '';
@@ -1519,7 +1512,6 @@ window.pet.onEvent((ev) => {
       SOUND.greet();
       break;
     case 'choose-provider': {
-      // R35.1: primary_action emits this when >1 provider enabled & no
       // active session. Open chooser so user explicitly picks (P0-5 fix).
       // P4-2 (R3): only show chooser on the pet matching ev.provider.
       if (currentPetAgent() === (ev.provider || 'claude')) {
@@ -1592,7 +1584,6 @@ window.pet.onEvent((ev) => {
     // CodeWhale terminal or presses Ctrl+C instead of clicking the pet bubble.
     case 'cancel': {
       if (ev.permId) {
-        // R30 (2026-07-31): capture the choice BEFORE filtering it out.
         // The old code did filter() then find() on the filtered array,
         // which always returned undefined — making the cancel handler
         // a no-op and cancelled choices re-appeared from stale snapshots.
@@ -1657,7 +1648,6 @@ function fmtCost(cost) {
   return sym + display.toFixed(1);
 }
 
-// R40.1 (audit P0-3): the backend stamps each stats payload with a
 // monotonic `__revision` (see commands.rs::do_emit_stats and
 // http_server.rs). The 0.5.19 plugin generated revisions but the
 // frontend never checked them, so a late-arriving revision-41
@@ -1678,7 +1668,6 @@ function acceptStatsRevision(s) {
 function applyStats(s) {
   if (!s) return;
   s = statsForThisPet(s);
-  // R40.1: reject stale-revision snapshots to prevent UI regression.
   if (!acceptStatsRevision(s)) return;
   lastStats = s;
   const today = s.today || {}, w5h = s.window5h || {}; // R1-A#1: defensive reads
@@ -1782,7 +1771,6 @@ function renderSessions(sessions) {
 
 let activeProviders = [];
 let availableProviders = ['claude', 'codewhale', 'codex', 'opencode', 'dsh'];
-// R35.2 (2026-07-31): latestProviderStatuses — the per-provider install
 // status map, sourced from config_view()'s `providers.statuses` (NOT
 // from stats(), which the 0.5.12 carpet audit P0-1 证据C confirmed does
 // not include a `providers` field). The chooser reads this to show
@@ -1791,7 +1779,6 @@ let availableProviders = ['claude', 'codewhale', 'codex', 'opencode', 'dsh'];
 // provider showed as "pending/off" even when hooks were installed.
 let latestProviderStatuses = {};
 
-// R40.5 (audit P0-2): Unified config snapshot application. Both the
 // onConfig event handler and the getConfig() bootstrap path MUST call
 // this function. The previous code only applied providers.active/statuses
 // in the onConfig path, so if the pet:config event arrived before the
@@ -1805,7 +1792,6 @@ function applyConfigSnapshot(cfg) {
   territorySupported = !!cfg.territorySupported;
   const effectiveSkin = PET_AGENT === 'codex' && petMode === 'duo' ? cfg.skinCodex : cfg.skin;
   if (effectiveSkin) applySkin(effectiveSkin);
-  // R40.5: providers.active + statuses applied in BOTH paths
   if (cfg.providers && Array.isArray(cfg.providers.active)) {
     activeProviders = cfg.providers.active;
   }
@@ -1815,7 +1801,6 @@ function applyConfigSnapshot(cfg) {
   if (cfg.providers && cfg.providers.statuses && typeof cfg.providers.statuses === 'object') {
     latestProviderStatuses = cfg.providers.statuses;
   }
-  // R40.5: always update UI after applying providers (was only in onConfig)
   updateProviderUI();
   // Currency config — persist across restarts
   if (cfg.currency === 'USD' || cfg.currency === 'CNY') {
@@ -1824,7 +1809,6 @@ function applyConfigSnapshot(cfg) {
   if (Number.isFinite(cfg.fxRate) && cfg.fxRate > 0) {
     currentFxRate = cfg.fxRate;
   }
-  // R44 0.5.44: load pinned/archived sessions from config
   if (Array.isArray(cfg.pinnedSessions)) {
     pinnedSet = new Set(cfg.pinnedSessions);
   }
@@ -1869,7 +1853,6 @@ function updateProviderUI() {
   if (tpClaude) tpClaude.textContent = currentLang === 'en'
     ? `💬 Launch ${label}`
     : currentLang === 'ja' ? `💬 ${label} を起動` : `💬 唤起 ${label}`;
-  // R35.1 (2026-07-31): the agent-tag NO LONGER displays「名称 +N」.
   // The 0.5.11 deep-recheck P0-5 flagged this as conflating "enabled
   // providers" with "active provider" and silently launching the first
   // array item. The tag is now always hidden; provider selection goes
@@ -1910,7 +1893,6 @@ function chooseProviderAndLaunch() {
   openProviderChooser();
 }
 
-// R35.2 (2026-07-31): launchProviderChecked — awaits the launch IPC and
 // surfaces failures via toast + rlog. The 0.5.12 carpet audit P0-1 证据D
 // flagged that the old code used fire-and-forget launchAgent (send),
 // so a failed launch left the user with no feedback. We use
@@ -1935,13 +1917,11 @@ function launchProviderChecked(provider) {
 function openProviderChooser() {
   if (!providerChooserEl || !providerChooserList) return;
   if (providerChooserOpen) return;
-  // R35.2 (2026-07-31): mutual exclusion — close other overlays before
   // opening the chooser. The 0.5.12 carpet audit P0-1 证据E noted the
   // chooser lacked strict mutual exclusion with radial/sesslist/todo/ask.
   if (radialOpen) closeRadial();
   if (sessListOpen) closeSessList();
   if (todoPopOpen) closeTodoPop();
-  // R35.2: read provider statuses from latestProviderStatuses (sourced
   // from config_view() via onConfig), NOT from lastStats. The 0.5.12
   // carpet audit P0-1 证据C confirmed Runtime::stats() does NOT include
   // a `providers` field, so the old code always showed all providers as
@@ -1971,7 +1951,6 @@ function openProviderChooser() {
   providerChooserOpen = true;
   setRequestedPetSize(520, Math.max(420, 210 + choices.length * 48));
   syncUiBusy();
-  // R35.2 (2026-07-31): focus the first item for keyboard accessibility.
   // The audit P0-1 证据E flagged the missing focus management. We move
   // focus to the first provider button so arrow-key/Enter navigation
   // works and screen readers announce the dialog. Full focus trap is R36.
@@ -2007,7 +1986,6 @@ if (providerChooserEl) {
       e.stopPropagation();
       const provider = btn.dataset.provider;
       if (!provider) return;
-      // R35.2 (2026-07-31): await the launch BEFORE closing the chooser.
       // The 0.5.12 carpet audit P0-1 证据D flagged that the old code
       // closed the chooser first, then fire-and-forget launched — so a
       // failed launch left no UI to retry from. Now we disable the
@@ -2065,14 +2043,12 @@ window.addEventListener('keydown', (e) => {
     showBubble(t('help.shortcuts'), 5000);
   }
 });
-// R35.1: blur closes the chooser too (consistent with radial/sesslist).
 
 function applySkin(s) {
   skin = ['pixel', 'mascot', 'cat'].includes(s) ? s : 'mascot';
   document.body.classList.toggle('skin-pixel', skin === 'pixel');
   document.body.classList.toggle('skin-mascot', skin === 'mascot');
   document.body.classList.toggle('skin-cat', skin === 'cat');
-  // R30: lazy-load cat assets when switching to cat skin
   if (skin === 'cat' && catAssetCache.size === 0) {
     preloadCatAssets();
   }
@@ -2082,9 +2058,7 @@ function applySkin(s) {
   requestAnimationFrame(reportPetVisualBounds);
 }
 
-// R35.1: hit-test selector excludes animated skin elements (#pixel/#mascot/#cat)
 // — their transforms shift the click-through boundary during state animations.
-// R35.2: added #provider-chooser (0.5.12 carpet audit P0-1 证据B).
 // R22 (2026-08-10): added #re-llmpet-toast — persistent error toast's ✕ button
 // was in the click-through zone and impossible to dismiss.
 const INTERACTIVE_HIT_SEL = '#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#provider-chooser,#re-llmpet-toast';
@@ -2161,8 +2135,10 @@ function commitWindowMove() {
 }
 
 function attachDrag(el) {
-  const finishGesture = (gesture, allowClick) => {
-    if (!gesture) return;
+  // R-M6: null `g` before releasePointerCapture (Chromium may emit
+  // lostpointercapture synchronously, finishing a newer gesture twice).
+  const clearDragGesture = (gesture, allowClick) => {
+    if (!gesture) return false;
     if (g === gesture) g = null;
     try { gesture.el.releasePointerCapture(gesture.pid); } catch {}
     gesture.el.classList.remove('dragging');
@@ -2175,12 +2151,18 @@ function attachDrag(el) {
       if (radialOpen) closeRadial();
       else toggleSessList();
     }
+    return true;
+  };
+  // Clean any leaked gesture from a missed pointerup before starting anew.
+  const cancelActiveDrag = (allowClick) => {
+    if (g) clearDragGesture(g, allowClick);
   };
 
   el.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
-    // R35.1: a drag start cancels any pending radial open — the user has
+    // R-M6: cancel leaked gesture (transparent windows lose pointerup).
+    cancelActiveDrag(false);
     // switched intent from "click to open HUD" to "drag the pet".
     pendingRadialOpen = false;
     setMouseIgnore(false);
@@ -2201,6 +2183,12 @@ function attachDrag(el) {
   el.addEventListener('pointermove', (e) => {
     const gesture = g;
     if (!gesture || gesture.pid !== e.pointerId) return;
+    // R-M6: buttons=0 on a move = stale capture after lost pointerup; clean
+    // it instead of drifting toward the cursor.
+    if (Number.isFinite(e.buttons) && (e.buttons & 1) === 0) {
+      clearDragGesture(gesture, false);
+      return;
+    }
     gesture.cx = e.screenX;
     gesture.cy = e.screenY;
     const dx = gesture.cx - gesture.sx;
@@ -2217,10 +2205,10 @@ function attachDrag(el) {
   el.addEventListener('pointerup', (e) => {
     const gesture = g;
     if (!gesture || gesture.pid !== e.pointerId) return;
-    finishGesture(gesture, true);
+    clearDragGesture(gesture, true);
   });
-  el.addEventListener('pointercancel', () => finishGesture(g, false));
-  el.addEventListener('lostpointercapture', () => { if (g) finishGesture(g, false); });
+  el.addEventListener('pointercancel', () => clearDragGesture(g, false));
+  el.addEventListener('lostpointercapture', () => { if (g) clearDragGesture(g, false); });
   el.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     toggleRadial();
@@ -2257,7 +2245,6 @@ document.getElementById('tp-close').addEventListener('click', (e) => { e.stopPro
 
 // 会话列表 HUD：关闭 + 底部操作
 document.getElementById('sl-close').addEventListener('click', (e) => { e.stopPropagation(); closeSessList(); });
-// R44 0.5.44: search input + filter buttons
 if (slSearch) {
   slSearch.addEventListener('input', (e) => {
     slQuery = e.target.value.trim();
@@ -2404,7 +2391,6 @@ function updateRadialBadge() {
   });
 }
 
-// R35.1 (2026-07-31): a SINGLE pending radial intent flag, replacing the
 // recursive `setTimeout(openRadial, 260)` that could queue multiple
 // delayed opens on repeated clicks. The 0.5.11 deep-recheck (P0-1 #2)
 // noted that the old code had no retry count or pending token, so 5
@@ -2419,7 +2405,6 @@ function updateRadialBadge() {
 let pendingRadialOpen = false;
 
 function openRadial() {
-  // R35.1: if a geometry transaction is in flight, record a SINGLE
   // pending intent and return. The settle callback in markGeometryBusy()
   // will open the radial exactly once when the resize completes. No
   // recursive timer, no queue.
@@ -2436,7 +2421,6 @@ function openRadial() {
   bubble.classList.add('hidden');
 }
 function closeRadial() {
-  // R35.1: clear any pending radial intent so a deferred open can't fire
   // after the user (or blur) dismissed the radial.
   pendingRadialOpen = false;
   radial.classList.add('hidden');
@@ -2448,7 +2432,6 @@ function toggleRadial() {
 }
 // 点遮罩空白处关闭
 radial.addEventListener('click', () => closeRadial());
-// R35.1: blur must also clear the pending intent — otherwise a window
 // that loses focus mid-resize would reopen the radial when it regains
 // focus and the busy timer settles.
 function dismissTransientUi(reason = 'blur') {
