@@ -31,7 +31,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::model::home_dir;
 
@@ -249,6 +249,7 @@ pub fn snapshot(_app_dir: &Path) -> (Option<Value>, Option<Value>) {
     result
 }
 
+#[allow(dead_code)]
 pub fn is_present() -> bool {
     sessions_dir()
         .map(|d| {

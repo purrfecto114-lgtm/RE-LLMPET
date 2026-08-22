@@ -1258,14 +1258,14 @@ fn agent_spec(provider: &str) -> Result<AgentSpec, String> {
         }),
         "opencode" => Ok(AgentSpec {
             id: "opencode",
-            title: "OpenCode".into(),
-            command: "opencode".into(),
+            title: "OpenCode",
+            command: "opencode",
             companion: None,
         }),
         "dsh" => Ok(AgentSpec {
             id: "dsh",
-            title: "dsh".into(),
-            command: "dsh".into(),
+            title: "dsh",
+            command: "dsh",
             companion: None,
         }),
         _ => Err(format!("unsupported agent provider: {provider}")),
