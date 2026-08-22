@@ -128,4 +128,14 @@ assert(pet.includes('clearDragGesture'), 'pet.js must define clearDragGesture (R
 assert(pet.includes('cancelActiveDrag'), 'pet.js must define cancelActiveDrag (R-M6 stale-gesture cleanup)');
 assert(pet.includes('(e.buttons & 1) === 0'), 'pet.js pointermove must check buttons & 1 === 0 (R-M6 stale-capture guard)');
 assert(!pet.includes('function finishGesture'), 'pet.js must not retain old finishGesture (renamed to clearDragGesture)');
+// R-M5 (v0.5.80, upstream 1e27203): anchor tool props beside pet. The old
+// CSS used bottom:104px/left:15% which drifted on window resize / edge anchor.
+// alignToolProp() reads the pet's bounding rect and places the prop next to
+// its temple, clamped to viewport.
+assert(pet.includes('function alignToolProp'), 'pet.js must define alignToolProp (R-M5 prop anchor)');
+assert(pet.includes('requestAnimationFrame(alignToolProp)'), 'pet.js must call alignToolProp after playAction (R-M5)');
+assert(pet.includes('curSkinEl'), 'pet.js must use curSkinEl for prop positioning (R-M5)');
+const petCss = read('frontend/renderer/pet.css');
+assert(!petCss.includes('.prop {\n  position: absolute;\n  bottom: 104px'), 'pet.css .prop must not use bottom:104px (R-M5 moved to top:0/left:0)');
+assert(petCss.includes('.prop {\n  position: absolute;\n  top: 0;\n  left: 0;'), 'pet.css .prop must use top:0/left:0 (R-M5 JS-driven positioning)');
 

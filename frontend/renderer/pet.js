@@ -256,7 +256,6 @@ const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 // Round 7: route permission decisions to the correct IPC channel based on provider.
 // Claude permissions → 'permission-decide', CodeWhale → 'cw-permission-decide'.
 const routeDecision = (choice, behavior) => {
-  // R32 (2026-07-31): CodeWhale batch authorization uses a different IPC.
   // The behavior object carries __cw_batch='session'|'tool' as a marker.
   if (behavior && behavior.__cw_batch) {
     return window.pet.decideCwPermissionBatch(choice.permId, behavior.__cw_batch);
@@ -266,7 +265,6 @@ const routeDecision = (choice, behavior) => {
   }
   return window.pet.decidePermission(choice.permId, behavior);
 };
-// R32 (2026-07-31): wrapper that turns the old fire-and-forget decidePermission
 // pattern into await-then-finishChoice. The IPC must succeed BEFORE we remove
 // the choice card — otherwise an IPC failure leaves the user thinking they
 // answered while the agent is still blocked waiting.
@@ -317,9 +315,7 @@ const petSizeController = window.OctoLatestValue.createLatestValueController({
     rlog('resize', 'set size failed: ' + String(error && error.message || error || 'unknown'));
   },
 });
-// R36 (2026-07-31): geometry revision/ack — replaces the fixed 260ms timer
 // as the PRIMARY clear mechanism for geometryBusy. The 0.5.12 carpet audit
-// P1-1 flagged that 260ms is a guess: slow machines / cross-monitor / high
 // DPI may exceed it (HUD opens before resize settles), fast machines waste
 // time waiting. Now we register a window-scoped onResized listener that
 // fires when the OS actually applied the resize. When the reported size
@@ -339,12 +335,10 @@ let geometryBusyTimer = 0;
 let petRendererDisposed = false;
 function markGeometryBusy(expectedSize) {
   geometryBusy = true;
-  // R36: store the expected size so onResized can confirm it matched.
   expectedPetSize = expectedSize || null;
   geometryRevision += 1;
   const myRevision = geometryRevision;
   if (geometryBusyTimer) clearTimeout(geometryBusyTimer);
-  // R36: register a one-shot onResized listener for this revision.
   // If a previous listener exists (overlapping resize), unlisten it first.
   if (geometryAckUnlisten) {
     try { geometryAckUnlisten(); } catch {}
@@ -391,7 +385,6 @@ function clearGeometryBusy(myRevision) {
   geometryBusy = false;
   geometryBusyTimer = 0;
   expectedPetSize = null;
-  // R36: unlisten the onResized listener — we got our ack (or timed out).
   if (geometryAckUnlisten) {
     try { geometryAckUnlisten(); } catch {}
     geometryAckUnlisten = null;
@@ -646,7 +639,6 @@ function elicNextOrSubmit(c) {
   if (q && q.question) elic.answers[q.question] = val;
   else elic.answers[c.question || '_'] = val;
   if (elic.qIdx < (qs.length || 1) - 1) { elic.qIdx++; renderElicitation(c); return; }
-  // R32 (2026-07-31): await IPC before removing the choice card.
   submitDecision(c, { type: 'elicitation-submit', answers: { ...elic.answers } }, t('pet.ask.submitted'));
 }
 
@@ -701,7 +693,6 @@ function renderPlan(c) {
   reject.className = 'ask-opt act deny';
   reject.innerHTML = `<span class="ask-ot"><span class="ask-ol">${t('pet.ask.reject')}</span></span>`;
   reject.addEventListener('click', () => {
-    // R32 (2026-07-31): await IPC before removing the choice card.
     submitDecision(c, { type: 'plan-feedback', feedback: (askText.value || '').trim() }, t('pet.ask.rejected'));
   });
   askOpts.appendChild(reject);
@@ -727,7 +718,6 @@ function finishChoice(choice, bubbleMsg) {
 function submitPerm(key, choice, label) {
   const msg = key === 'allow' ? t('pet.perm.allowed') : key === 'deny' ? t('pet.perm.denied') : t('pet.perm.remembered');
   // W11/W24: CodeWhale batch authorization keys.
-  // R32 (2026-07-31): all paths now go through submitDecision() so the IPC
   // is awaited and the choice card is only removed on actual success.
   if (key === 'cw-allow-session') {
     submitDecision(choice, { __cw_batch: 'session' }, t('pet.perm.batchSession'));
@@ -740,7 +730,6 @@ function submitPerm(key, choice, label) {
   submitDecision(choice, key, msg);
 }
 // Go to Terminal：去会话终端自己答（授权/elicitation 都回 deny，让 CC 在终端重问）
-// R32 (2026-07-31): focusSession is fire-and-forget (open terminal is best-
 // effort), but the deny decision MUST be awaited — otherwise an IPC failure
 // would leave the agent thinking we denied, while the user is in the terminal
 // re-answering, causing double-submit confusion.
@@ -898,7 +887,6 @@ function buildActCard(c) {
 }
 
 // 授权：回 CC 决策
-// R32 (2026-07-31): await IPC before marking answered — the todo popup card
 // stays interactive (the popup itself doesn't close on success, but if IPC
 // fails the choice must remain answerable).
 function popPerm(choice, key) {
@@ -1273,6 +1261,7 @@ function playAction(toolName, icon) {
     void propEl.offsetWidth; // 重启动画
     const pm = PROP_MOTION[act];
     propEl.className = 'prop on' + (pm ? ' ' + pm : '');
+    requestAnimationFrame(alignToolProp);
   }
   if (act === 'summon') {
     sidekickEl.classList.remove('on');
@@ -1285,8 +1274,30 @@ function playAction(toolName, icon) {
 function clearAction() {
   for (const el of stateEls) el.classList.remove(...ACT_CLASSES);
   propEl.classList.remove('on');
-  // 具体 tool 动作结束后，仍在干活 → 回落到「持续忙碌」基线，别安静下来
   if (state === 'working') for (const el of stateEls) el.classList.add('act-work');
+}
+// R-M5: anchor prop beside pet (old bottom:104px CSS drifted on resize).
+function alignToolProp() {
+  if (!propEl || !propEl.classList.contains('on')) return;
+  const petEl = curSkinEl();
+  if (!petEl) return;
+  const rect = petEl.getBoundingClientRect();
+  const vw = Math.max(1, window.innerWidth || 320);
+  const vh = Math.max(1, window.innerHeight || 340);
+  const size = Math.max(24, Number(propEl.offsetWidth) || Number(propEl.offsetHeight) || 28);
+  const gap = 5, pad = 4;
+  const leftRoom = rect.left - pad;
+  const rightRoom = vw - rect.right - pad;
+  const needed = size + gap;
+  let side = 'left';
+  if (leftRoom < needed && rightRoom > leftRoom) side = 'right';
+  const rawX = side === 'left' ? rect.left - gap - size : rect.right + gap;
+  const rawY = rect.top + Math.min(24, Math.max(5, rect.height * 0.18));
+  const cx = Math.max(pad, Math.min(rawX, vw - size - pad));
+  const cy = Math.max(pad, Math.min(rawY, vh - size - pad));
+  propEl.style.left = `${Math.round(cx)}px`;
+  propEl.style.top = `${Math.round(cy)}px`;
+  propEl.dataset.side = side;
 }
 
 // 短暂状态：happy/error/greet…，到点后由 applyStats 接管。
@@ -1513,7 +1524,6 @@ window.pet.onEvent((ev) => {
       break;
     case 'choose-provider': {
       // active session. Open chooser so user explicitly picks (P0-5 fix).
-      // P4-2 (R3): only show chooser on the pet matching ev.provider.
       if (currentPetAgent() === (ev.provider || 'claude')) {
         openProviderChooser();
       }
@@ -1608,9 +1618,7 @@ window.pet.onEvent((ev) => {
       }
       break;
     }
-    // R13: handle 'state' kind events (from OpenCode session.status, CodeWhale mode_change, etc.)
     // These provide immediate state transitions without waiting for the next stats snapshot.
-    // R22 (2026-08-10): allow high-priority sticky states (waiting, needsinput,
     // error, attention) to break through the transient suppression window.
     // Previously, a turn-done transient (1.8s) would block the subsequent
     // attention state event from CodeWhale turn_end, leaving the pet stuck
@@ -1698,7 +1706,6 @@ function applyStats(s) {
   //   waiting > 短暂态 > error(8) > needsinput/notification(7) > sweeping(6)
   //   > attention(5) > juggling(4) > working(3) > thinking(2) > idle(1) > sleeping(0)
   // 之前 working 排在 needsinput 前面，多会话时「等你回复」被干活态彻底盖住。
-  // R22 (2026-08-10): added attentionCount branch. CodeWhale turn_end and
   // OpenCode session.idle set state="attention" — without this branch the
   // pet appeared stuck in idle/sleeping while a session was actively waiting.
   if (s.waitingCount > 0) {
@@ -2059,7 +2066,6 @@ function applySkin(s) {
 }
 
 // — their transforms shift the click-through boundary during state animations.
-// R22 (2026-08-10): added #re-llmpet-toast — persistent error toast's ✕ button
 // was in the click-through zone and impossible to dismiss.
 const INTERACTIVE_HIT_SEL = '#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#provider-chooser,#re-llmpet-toast';
 
@@ -2081,7 +2087,6 @@ function reportPetVisualBounds() {
   } catch {}
 }
 
-// R22: expose reportPetVisualBounds globally so toast.js can call it when a
 // toast appears or disappears, keeping the click-through region in sync.
 window.reportPetVisualBounds = reportPetVisualBounds;
 
@@ -2326,7 +2331,6 @@ function toggleCurrency() {
 
 function buildRadial() {
   radial.innerHTML = '';
-  // R35 (2026-07-31): read the STABLE #pet-anchor rect instead of the
   // visible skin element's rect. The skin element (e.g. #mascot.happy)
   // may be mid-animation (happyJump translates -22px, attn rotates ±4deg,
   // bob translates ±7px). Reading its rect mid-frame would place the
@@ -2347,7 +2351,6 @@ function buildRadial() {
     const a = ((startA + (endA - startA) * (n === 1 ? 0.5 : i / (n - 1))) * Math.PI) / 180;
     const x = cx + radius * Math.cos(a);
     const y = cy + radius * Math.sin(a);
-    // R22: clamp to stay within the window bounds (items are 46px, centered)
     const clampedX = Math.max(23, Math.min(sr.width - 23, x));
     const clampedY = Math.max(23, Math.min(sr.height - 23, y));
     const b = document.createElement('div');
@@ -2486,6 +2489,7 @@ setMouseIgnore(true);
 syncUiBusy(true);
 window.addEventListener('resize', () => {
   requestAnimationFrame(reportPetVisualBounds);
+  requestAnimationFrame(alignToolProp);
 });
 const visualBoundsObserver = typeof ResizeObserver === 'function'
   ? new ResizeObserver(() => requestAnimationFrame(reportPetVisualBounds))
