@@ -5,15 +5,13 @@
 //      English UI, and nothing crashes to tell you;
 //   2. placeholder drift — a translation that drops {project} or {pct} renders
 //      a sentence with a hole in it, again without an error.
-// Also checks that every t('...') key used in the source actually exists, and
-// that the meme catalog really carries localized copy rather than a zh echo.
+// Also checks that every t('...') key used in the source actually exists.
 
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const i18n = require('../shared/i18n');
 const config = require('../backend/config');
-const { loadCatalog, publicCatalog, getMeme } = require('../backend/meme-catalog');
 
 const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -104,45 +102,6 @@ assert.strictEqual(i18n.getLang(), 'zh', 'an unknown language must fall back to 
 
 // ── 6. config accepts exactly the supported languages ────────────────────────
 assert.strictEqual(config.DEFAULTS.lang, 'zh');
-
-// ── 7. meme catalog is localized, prompt included ────────────────────────────
-const catalog = loadCatalog();
-for (const item of catalog.items) {
-  for (const lang of ['en', 'ja']) {
-    const tr = item.i18n[lang];
-    assert(tr, `${item.id}: missing ${lang} translation`);
-    for (const field of ['label', 'description', 'reactionLabel', 'promptText']) {
-      assert(tr[field], `${item.id}: ${lang}.${field} is empty`);
-    }
-    const localized = getMeme(item.id, lang);
-    assert.strictEqual(localized.label, tr.label);
-    assert.strictEqual(localized.reaction.label, tr.reactionLabel);
-    assert.strictEqual(localized.prompt.text, tr.promptText);
-    assert.notStrictEqual(localized.prompt.text, item.prompt.text, `${item.id}: ${lang} prompt must not be the zh prompt`);
-    // The meme has to survive as a meme: no CJK left in the English copy.
-    if (lang === 'en') {
-      assert(!/[一-鿿぀-ヿ]/.test(tr.label + tr.description + tr.promptText),
-        `${item.id}: English copy still contains CJK`);
-    }
-  }
-  // zh stays the untouched base
-  assert.strictEqual(getMeme(item.id).prompt.text, item.prompt.text);
-  assert.strictEqual(getMeme(item.id, 'zh').label, item.label);
-}
-
-// The renderer catalog must stay prompt-free in every language.
-for (const lang of i18n.LANGS) {
-  const pub = JSON.stringify(publicCatalog(lang));
-  for (const item of catalog.items) {
-    assert(!pub.includes(item.prompt.text), `${lang} renderer catalog leaks the zh prompt`);
-    const tr = item.i18n[lang];
-    if (tr && tr.promptText) assert(!pub.includes(tr.promptText), `${lang} renderer catalog leaks the ${lang} prompt`);
-  }
-  assert.strictEqual(publicCatalog(lang).items[0].label, lang === 'zh' ? catalog.items[0].label : catalog.items[0].i18n[lang].label);
-}
-
-// An unknown language degrades to the zh base rather than blanking the card.
-assert.strictEqual(getMeme(catalog.items[0].id, 'de').label, catalog.items[0].label);
 
 i18n.setLang('zh');
 console.log('i18n checks passed');

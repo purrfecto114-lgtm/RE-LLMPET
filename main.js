@@ -27,16 +27,11 @@ const { createServer } = require('./backend/server');
 const adapter = require('./backend/adapter');
 const hooks = require('./backend/hooks');
 const { focusSession } = require('./backend/focus');
-const { createTerritory, DEFAULT_RIVALS } = require('./backend/territory');
 const { launchClaude, launchCodex, launchDsh, ensureDshWeb, launchExecutable, findCli } = require('./backend/launch');
 const { createAgentStartup } = require('./backend/agent-startup');
 const { createCodexWatch } = require('./backend/codex-watch');
 const { createDshWatch } = require('./backend/dsh-watch');
 const { createCodexMetering } = require('./backend/codex-metering');
-const { createTravelManager } = require('./backend/travel');
-const { machineGrowth } = require('./backend/growth');
-const { publicCatalog, getMeme, watchCatalog } = require('./backend/meme-catalog');
-const { createCommandDispatcher, routeForSession } = require('./backend/command-dispatch');
 const { createSessionTakeover } = require('./backend/session-handoff');
 const { createSessionArchive } = require('./backend/session-archive');
 const { createProgramRegistry } = require('./backend/program-registry');
@@ -57,8 +52,6 @@ const BASE_W = 320, BASE_H = 340, TALL_H = 560, BIG_W = 440, BIG_H = 600;
 const DSH_WEB_URL = process.env.LLMPET_DSH_WEB || 'http://127.0.0.1:3080';
 
 let petWin = null;      // 主宠窗口：single 模式监控全部；duo 模式代表 Claude
-let petWinCodex = null; // 双宠模式里的 Codex 宠（single 模式为 null）
-let petWinDsh = null;   // dsh（DeepSeek Harness）宠，独立开关（关掉时为 null）
 let panelWin = null;
 let archiveWin = null;
 let panelH = 0; // 面板当前自适应高度（防抖用）
@@ -69,25 +62,15 @@ let pricingSync = null;
 let permissions = null;
 let server = null;
 let stopWatcher = null;
-let territory = null;
 let codexWatch = null;  // Codex rollout 只读监听器
 let codexMetering = null; // Codex rollout 累计 token 台账（与状态 watcher 解耦）
 let dshWatch = null;    // DeepSeek Harness 会话日志只读监听器
-let travelManager = null; // 独立只读旅行任务 + 明信片/成长台账
-let commandDispatcher = null;
 let sessionTakeover = null;
 let sessionArchive = null;
 let programRegistry = null;
 let programSkillManager = null;
 let runtimeMonitor = null;
 let agentStartup = null;
-let stopMemeWatcher = null;
-let petGuided = false; // 领地模式在带宠物走位:期间不把程序性移动当成用户拖拽持久化
-let petFrameGuided = false; // CoreGraphics 逐帧拖动期间的同步跟随
-// 巡视拖拽期间主宠强制穿透，renderer 不得抢回鼠标（uiBusy / visualRect /
-// 渲染端期望的穿透状态 mouseIgnoring 都已并入下面按窗口的 petState）
-let territoryClickThrough = false;
-
 // 每个宠物窗口自己的交互状态（webContents.id → 状态）。双宠模式下气泡定高、
 // 命中穿透、visualRect、「用户交互中」都是各管各的，混用会互相打架。
 const petState = new Map(); // id → { agent, win, customSize, visualRect, uiBusy }
@@ -125,9 +108,6 @@ function frontendConfig(agent = 'all') {
     petPosition: positionByAgent[agent] || (clone ? null : c.petPosition),
     muted: c.muted,
     permHook: c.permHook,
-    territory: c.territory,
-    // 巡视（领地模式）只由主宠负责，分身菜单里不显示
-    territorySupported: process.platform === 'darwin' && !clone,
     lootSupported: process.platform === 'darwin' && !clone,
     agent,
     petMode: c.petMode,
@@ -276,7 +256,6 @@ function makePetWindow(agent) {
   // 注意读 st.agent 而非闭包 agent：单宠⇄双宠切换时主宠原地重载、身份会变
   win.on('moved', () => {
     if (st.customSize) return; // only persist the resting position
-    if (win === petWin && (petGuided || petFrameGuided)) return; // 领地走位不算用户拖拽
     if (win.isDestroyed()) return;
     const b = win.getBounds();
     const at = { x: b.x, y: b.y };
@@ -382,317 +361,6 @@ function closeArchive() {
   archiveWin = null;
 }
 
-// ── 领地模式(territory) ─────────────────────────────────────────────────────
-// 宠物窗口平滑走位原语(驱逐战专用)。petGuided 挡住 moved 持久化;结束后延迟
-// 一拍再放开 —— macOS 的 moved 事件可能晚于最后一次 setBounds 才派发。
-let petGuideRefs = 0;
-function tweenPetTo(x, y, ms) {
-  return new Promise((resolve) => {
-    if (!petWin || petWin.isDestroyed()) return resolve();
-    const from = petWin.getBounds();
-    const dur = Math.max(80, ms || 800);
-    const t0 = Date.now();
-    petGuided = true;
-    petGuideRefs++;
-    const step = setInterval(() => {
-      if (!petWin || petWin.isDestroyed()) return finish();
-      const t = Math.min(1, (Date.now() - t0) / dur);
-      const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // easeInOutQuad
-      // 宽高取当前值:走位途中气泡可能 fitPopup 改窗口尺寸,别跟它打架
-      const b = petWin.getBounds();
-      petWin.setBounds({
-        x: Math.round(from.x + (x - from.x) * e),
-        y: Math.round(from.y + (y - from.y) * e),
-        width: b.width, height: b.height,
-      });
-      if (t >= 1) finish();
-    }, 16);
-    function finish() {
-      clearInterval(step);
-      setTimeout(() => { if (--petGuideRefs <= 0) { petGuideRefs = 0; petGuided = false; } }, 300);
-      resolve();
-    }
-  });
-}
-
-function getTerritoryPetBounds() {
-  // 退出瞬间被 episode 调到时不能抛异常(shouldAbort 随后就会让它撤退)
-  if (!petWin || petWin.isDestroyed()) return { x: 0, y: 0, width: 0, height: 0 };
-  const win = petWin.getBounds();
-  const rect = primaryVisualRect();
-  if (!rect) return win;
-  return {
-    x: win.x + rect.x,
-    y: win.y + rect.y,
-    width: rect.width,
-    height: rect.height,
-  };
-}
-
-function tweenTerritoryPetTo(x, y, ms) {
-  // territory 的 x/y 表示「可见身体」左上角；真正移动的是透明窗口。
-  // 掠夺接近会同时冒气泡、打开会话面板，透明窗口尺寸与可见身体在窗口内
-  // 的 rect.x/rect.y 会在补间途中改变。旧实现只在起点换算一次偏移，导致
-  // 窗口本身向左走、猫主体却被扩展后的布局锚到右边。每一帧都按最新
-  // visualRect 反算窗口原点，才能让用户看到的身体沿同一条轨迹移动。
-  return new Promise((resolve) => {
-    if (!petWin || petWin.isDestroyed()) return resolve();
-    const from = getTerritoryPetBounds();
-    const dur = Math.max(80, ms || 800);
-    const t0 = Date.now();
-    petGuided = true;
-    petGuideRefs++;
-    const step = setInterval(() => {
-      if (!petWin || petWin.isDestroyed()) return finish();
-      const t = Math.min(1, (Date.now() - t0) / dur);
-      const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-      const visibleX = Math.round(from.x + (x - from.x) * e);
-      const visibleY = Math.round(from.y + (y - from.y) * e);
-      const rect = primaryVisualRect();
-      const b = petWin.getBounds();
-      petWin.setBounds({
-        x: visibleX - (rect ? rect.x : 0),
-        y: visibleY - (rect ? rect.y : 0),
-        width: b.width,
-        height: b.height,
-      });
-      if (t >= 1) finish();
-    }, 16);
-    function finish() {
-      clearInterval(step);
-      setTimeout(() => { if (--petGuideRefs <= 0) { petGuideRefs = 0; petGuided = false; } }, 300);
-      resolve();
-    }
-  });
-}
-
-function bootTerritory() {
-  if (process.platform !== 'darwin') return;
-  territory = createTerritory({
-    isEnabled: () => !!config.get().territory,
-    rivalNames: () => [...DEFAULT_RIVALS, ...(config.get().territoryRivals || [])],
-    excludePids: () => [process.pid],
-    // 注意:不能拿 customSize 当「用户在交互」—— 气泡的 fitPopup 也会设它,
-    // 发现入侵者时自己冒的气泡就把驱逐战吓停了。用渲染端上报的 uiBusy
-    // （双宠模式任一只宠开着面板/菜单都算交互中）。
-    canScan: () => !!(petWin && !petWin.isDestroyed() && petWin.isVisible() && !anyUiBusy()),
-    // 用户来正事了(面板/菜单开着/有待授权)→ 立刻停手回家
-    shouldAbort: () => !(petWin && !petWin.isDestroyed() && petWin.isVisible()) || anyUiBusy()
-      || !!(permissions && permissions.getPending().length > 0),
-    // 掠夺自己会打开会话面板，不能把演出产生的 uiBusy 反过来当成用户打断。
-    shouldAbortLoot: () => !(petWin && !petWin.isDestroyed() && petWin.isVisible())
-      || !!(permissions && permissions.getPending().length > 0),
-    getPetBounds: getTerritoryPetBounds,
-    tweenPetTo: tweenTerritoryPetTo,
-    setPetFrame: (x, y) => {
-      if (!petWin || petWin.isDestroyed()) return;
-      petFrameGuided = true;
-      const b = petWin.getBounds();
-      const rect = primaryVisualRect();
-      petWin.setBounds({
-        x: Math.round(x - (rect ? rect.x : 0)),
-        y: Math.round(y - (rect ? rect.y : 0)),
-        width: b.width, height: b.height,
-      });
-    },
-    endPetFrames: () => { setTimeout(() => { petFrameGuided = false; }, 300); },
-    setPetClickThrough: (on) => {
-      if (!petWin || petWin.isDestroyed()) return;
-      // 巡视移动对手时，最高层的自己必须完全穿透，避免遮住目标与软件指针。
-      // 结束后也先恢复为透明区穿透；renderer 收到 forwarded mousemove 后会
-      // 只在真实宠物内容上重新接管。不能设 false，否则整块透明窗会挡住 Codex 输入。
-      try {
-        territoryClickThrough = !!on;
-        // 结束时恢复主宠 renderer 期望的穿透状态；拿不到状态就保持穿透(安全侧)
-        const st = primaryPetState();
-        petWin.setIgnoreMouseEvents(territoryClickThrough || !st || st.mouseIgnoring, { forward: true });
-        if (on) {
-          // Electron 的 click-through 与最高层命中更新并非同一原子操作。
-          // 拖拽期间短暂降到普通层，确保 ChatGPT 的 layer-3 overlay 真正接到事件；
-          // 独立巡视指针仍在 screen-saver 层，动作结束马上恢复猫爪在上。
-          petWin.setAlwaysOnTop(false);
-        } else {
-          petWin.setAlwaysOnTop(true, 'screen-saver');
-          petWin.moveTop();
-        }
-      } catch {}
-    },
-    // 猫爪在上定律:对手在场就抬到 screen-saver 层并 moveTop(不抢焦点);
-    // 对手走光了降回 floating,不长期骑在系统 UI 头上。
-    assertTop: () => {
-      if (!petWin || petWin.isDestroyed()) return;
-      try { petWin.setAlwaysOnTop(true, 'screen-saver'); petWin.moveTop(); } catch {}
-    },
-    relaxTop: () => {
-      if (!petWin || petWin.isDestroyed()) return;
-      try { petWin.setAlwaysOnTop(true, 'floating'); } catch {}
-    },
-    getWorkArea: (rect) => screen.getDisplayMatching({
-      x: Math.round(rect.x), y: Math.round(rect.y),
-      width: Math.max(1, Math.round(rect.w || 1)),
-      height: Math.max(1, Math.round(rect.h || 1)),
-    }).workArea,
-    emit: (ev) => {
-      // 只在某条真实 Session 的入场事件发生时持久化它。未找到桌宠、
-      // native 预检失败或还没轮到的历史会话，都不能被伪装成已掠夺。
-      if (ev && ev.kind === 'loot' && ev.phase === 'sessionCaptured' && ev.session) {
-        captureCodexSessions([ev.session]);
-      }
-      sendPet('pet:event', ev);
-    },
-  });
-  territory.start();
-}
-
-let lastPermDialogAt = 0; // 引导框节流:授权缓存未刷新时也不能反复骚扰
-let axGrantWatchTimer = null; // 引导用户去设置后轮询复检授权,到位即自动开跑
-const AX_SETTINGS_URL =
-  'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility';
-
-function isAxTrusted() {
-  if (process.platform !== 'darwin') return false;
-  try { return systemPreferences.isTrustedAccessibilityClient(false); } catch { return false; }
-}
-
-// 引导用户点开「辅助功能」设置后,不再让他「退出重开」——轮询复检,一旦授权到位
-// 就自动巡视一次并给出成功反馈。限时 90s / 已授权即停,避免常驻定时器。
-function startAxGrantWatch() {
-  if (axGrantWatchTimer) return;
-  const deadline = Date.now() + 90 * 1000;
-  axGrantWatchTimer = setInterval(() => {
-    if (isAxTrusted()) {
-      clearInterval(axGrantWatchTimer);
-      axGrantWatchTimer = null;
-      log('territory', 'accessibility granted — auto patrol');
-      sendPet('pet:event', { kind: 'territory', phase: 'granted', ts: Date.now() });
-      if (territory) territory.runNow().catch((e) => log('territory', 'post-grant scan failed:', e.message));
-    } else if (Date.now() > deadline) {
-      clearInterval(axGrantWatchTimer);
-      axGrantWatchTimer = null;
-    }
-  }, 1500);
-  if (axGrantWatchTimer.unref) axGrantWatchTimer.unref();
-}
-
-function ensureTerritoryPermission() {
-  if (process.platform !== 'darwin') return false;
-  const trusted = isAxTrusted();
-  log('territory', `accessibility preflight trusted=${trusted}`);
-  if (trusted) return true;
-  if (Date.now() - lastPermDialogAt <= 15 * 60 * 1000) return false;
-  lastPermDialogAt = Date.now();
-  // prompt=true 让系统把本 app 加入「辅助功能」列表(即便还没勾选),用户到设置里
-  // 才有可勾的条目。
-  try { systemPreferences.isTrustedAccessibilityClient(true); } catch {}
-  dialog.showMessageBox({
-    type: 'info',
-    message: t('dlg.axTitle'),
-    detail: t('dlg.axBody') + t('dlg.axHint'),
-    buttons: [t('dlg.axOpen'), t('dlg.later')],
-    defaultId: 0,
-    cancelId: 1,
-  }).then(({ response }) => {
-    if (response === 0) {
-      shell.openExternal(AX_SETTINGS_URL).catch(() => {});
-      startAxGrantWatch();
-    }
-  }).catch(() => {});
-  return false;
-}
-
-function runTerritoryNow() {
-  if (process.platform !== 'darwin' || !territory) return;
-  // 没权限也照跑:定律①(进程检测+抬层级)不需要辅助功能,只有推窗需要。
-  // 权限提醒以实际 osascript/AX 操作结果为准，不能捕获点击瞬间的旧值并在
-  // 用户中途完成授权后仍强制冒 noperm。
-  const trustedBefore = ensureTerritoryPermission();
-  territory.runNow()
-    .then((result) => {
-      let trustedAfter = false;
-      try { trustedAfter = systemPreferences.isTrustedAccessibilityClient(false); } catch {}
-      log('territory', `manual patrol result=${result} trustedBefore=${trustedBefore} trustedAfter=${trustedAfter}`);
-    })
-    .catch((e) => log('territory', 'manual scan failed:', e.message));
-}
-
-function recentCodexSessions(limit = 3) {
-  if (!core) return [];
-  const stats = buildStats('all');
-  return (stats.sessions || [])
-    .filter((session) => session && session.agent === 'codex'
-      && !session.headless && session.sessionRole !== 'travel')
-    .sort((a, b) => {
-      const updated = (b.updatedAt || 0) - (a.updatedAt || 0);
-      return updated || (a.idleMs || 0) - (b.idleMs || 0);
-    })
-    .slice(0, Math.max(0, limit))
-    .map((session) => ({ ...session }));
-}
-
-function captureCodexSessions(sessions) {
-  const captured = (Array.isArray(sessions) ? sessions : []).slice(0, 12);
-  const ids = captured
-    .map((session) => String(session && session.sessionId || ''))
-    .filter(Boolean);
-  if (!ids.length) return;
-  const current = config.get();
-  const now = Date.now();
-  const expiresAt = now + 30 * 60 * 1000;
-  const snapshots = captured.map((session) => ({
-    sessionId: String(session.sessionId || ''),
-    project: session.project || '',
-    cwd: session.cwd || '',
-    agent: 'codex',
-    state: session.state || 'idle',
-    badge: session.badge || '',
-    op: session.op || '',
-    reason: session.reason || '',
-    contextPercent: session.contextPercent,
-    idleMs: session.idleMs,
-    updatedAt: session.updatedAt,
-    capturedAt: now,
-    expiresAt,
-  }));
-  config.save({
-    // 不永久篡改用户的手动置顶；使用单独的结构化快照在普通列表顶部保留 30 分钟。
-    lootCapturedSessions: [
-      ...snapshots,
-      ...(current.lootCapturedSessions || [])
-        .filter((session) => session.expiresAt > now && !ids.includes(String(session.sessionId))),
-    ],
-    archivedSessions: (current.archivedSessions || []).filter((id) => !ids.includes(String(id))),
-  });
-  broadcastConfig();
-}
-
-function runLootNow() {
-  if (process.platform !== 'darwin' || !territory) return;
-  ensureTerritoryPermission();
-  // watcher 的常驻列表只保留活跃会话；掠夺要在 native ready 之前每秒
-  // 拿一条真实历史，因此点击时只读补齐最近 12 条作为有界队列。
-  if (codexWatch && typeof codexWatch.seedRecent === 'function') codexWatch.seedRecent(12);
-  const sessions = recentCodexSessions(12);
-  // 传递的是真实 Codex 会话，不复制假条目；真正捕获到目标桌宠后，
-  // capture 事件才会解除归档并置顶，渲染端逐条“吸入”。
-  territory.runLoot(sessions)
-    .then((result) => log('loot', `manual loot result=${result} sessions=${sessions.length}`))
-    .catch((e) => log('loot', 'manual loot failed:', e.message));
-}
-
-function applyTerritory(on) {
-  config.save({ territory: !!on });
-  if (on && process.platform === 'darwin') {
-    ensureTerritoryPermission();
-    // 开启后立刻巡逻一次，不让用户等到下一个轮询周期(定律①无需权限)。
-    if (territory) territory.runNow().catch((e) => log('territory', 'initial scan failed:', e.message));
-  } else if (!on && territory && territory.dominating) {
-    // 关闭后立刻执行一次 disabled tick，把窗口层级恢复为 floating。
-    territory.tick().catch(() => {});
-  }
-  broadcastConfig();
-  refreshTrayMenu();
-}
-
 // Block any navigation / new-window to external content (hardening).
 function hardenWindow(win) {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -755,17 +423,7 @@ function filterSnapshot(snap, agent, excludes = []) {
 }
 
 function buildStats(agent = 'all', snapshot = null, excludes = []) {
-  if (travelManager && core) {
-    for (const session of core.sessions.values()) {
-      travelManager.decorateSession(session, adapter.agentOf(session));
-    }
-  }
   const rawSnapshot = snapshot || core.buildSnapshot();
-  if (travelManager && rawSnapshot && Array.isArray(rawSnapshot.sessions)) {
-    for (const session of rawSnapshot.sessions) {
-      travelManager.decorateSession(session, adapter.agentOf(session));
-    }
-  }
   const snap = filterSnapshot(rawSnapshot, agent, excludes);
   const meter = metering ? metering.getStats() : null;
   const codexUsage = codexMetering ? codexMetering.getStats() : null;
@@ -783,10 +441,6 @@ function buildStats(agent = 'all', snapshot = null, excludes = []) {
     usageProvider: agent,
     runtime: runtimeMonitor ? runtimeMonitor.snapshot() : null,
   });
-  // Travel sessions are already present in the Claude/Codex ledgers, so the
-  // machine total is the two provider lifetimes only—never travel + providers.
-  stats.machineGrowth = machineGrowth(meter, codexUsage);
-  stats.travel = travelManager ? travelManager.publicState(i18n.getLang()) : null;
   return stats;
 }
 
@@ -829,54 +483,15 @@ function broadcastConfig() {
   sendPanel('panel:config', frontendConfig('all'));
 }
 
-function startMemeWatcher() {
-  if (stopMemeWatcher) return;
-  stopMemeWatcher = watchCatalog({
-    onChange: (catalog) => {
-      log('meme', `resources hot-reloaded revision=${catalog.revision}`);
-      for (const st of petStates()) {
-        sendWin(st.win, 'pet:meme-catalog-changed', { revision: catalog.revision });
-      }
-    },
-    onError: (err) => log('meme', `resource reload rejected; keeping last good catalog: ${err.message}`),
-  });
-  log('meme', 'resource watcher started');
-}
-
 // ── backend wiring ────────────────────────────────────────────────────────────
 function bootBackend() {
   core = createCore({
     onActivity: (act) => {
-      const claimedByTravel = travelManager && travelManager.observeActivity({
-        ...act,
-        agent: adapter.agentOf(act.session),
-      });
-      if (claimedByTravel) return;
       for (const ev of adapter.activityToEvents(act)) { recordOp(ev); sendPetEvent(ev); }
     },
     onDirty: scheduleEmit,
   });
   core.startStaleCleanup();
-  travelManager = createTravelManager({
-    onChange: (event) => {
-      const tripAgent = event && event.trip && event.trip.agent;
-      for (const st of petStates()) {
-        if (!tripAgent || st.agent === 'all' || st.agent === tripAgent) {
-          sendWin(st.win, 'pet:travel', event);
-        }
-      }
-      scheduleEmit();
-    },
-  });
-  commandDispatcher = createCommandDispatcher({
-    copyText: (text) => clipboard.writeText(text),
-    focusSession,
-    openCodexThread: (sessionId) => shell.openExternal(`codex://threads/${encodeURIComponent(sessionId)}`),
-    // Claude's web hand-off uses /code/, but Claude Desktop 1.24012 opens that
-    // route in an empty auxiliary "Code" window. Local desktop sessions live in
-    // the main Epitaxy view; this route focuses its real prompt editor.
-    openClaudeThread: (sessionId) => shell.openExternal(`claude://claude.ai/epitaxy/${encodeURIComponent(sessionId)}`),
-  });
   sessionTakeover = createSessionTakeover();
   sessionArchive = createSessionArchive({
     getSettings: () => config.get().sessionArchive,
@@ -976,16 +591,6 @@ function bootBackend() {
     shouldDrop: () => false,
     onAdded: (entry) => {
       let lite = (() => { const s = core.getSession(entry.sessionId); return s ? toEntryLite(s) : null; })();
-      if (lite && travelManager) travelManager.decorateSession(lite, adapter.agentOf(lite));
-      const travel = !!(travelManager && travelManager.claimsSession(entry.sessionId));
-      if (!lite && travel) {
-        lite = {
-          id: entry.sessionId,
-          agentId: 'claude-code',
-          sessionRole: 'travel',
-          travelAgent: 'claude',
-        };
-      }
       let choice, kind, reason;
       if (entry.isElicitation) {
         choice = adapter.buildElicitationChoice(
@@ -1003,7 +608,6 @@ function bootBackend() {
             toolName: entry.toolName,
             toolInput: entry.toolInput,
             suggestions: entry.suggestions,
-            travel,
           },
           lite,
         );
@@ -1232,9 +836,6 @@ function registerIpc() {
     config.save({ pinnedSessions, archivedSessions });
     broadcastConfig();
   });
-  ipcMain.on('territory-run-now', runTerritoryNow);
-  ipcMain.on('loot-codex-pet', runLootNow);
-  ipcMain.on('territory-toggle-auto', () => applyTerritory(!config.get().territory));
 
   ipcMain.on('quit-app', () => app.quit());
   // 双宠模式：收起自己这只（独立事件——另一只和 app 都不受影响）；
@@ -1262,12 +863,6 @@ function registerIpc() {
   });
 
   ipcMain.on('permission-decide', (_e, permId, behavior) => {
-    if (behavior === 'travel:always-web') {
-      const pending = permissions.getPending().find((entry) => entry.id === permId);
-      if (pending && travelManager) travelManager.trustWebForSession(pending.sessionId);
-      permissions.decide(permId, 'allow');
-      return;
-    }
     permissions.decide(permId, behavior);
   });
   ipcMain.on('focus-session', (_e, sessionId) => {
@@ -1320,115 +915,6 @@ function registerIpc() {
         `ok=${!!result.ok} mode=${result.mode || '-'} code=${result.code || '-'}`,
     );
     return result;
-  });
-  ipcMain.handle('meme-catalog', () => publicCatalog(i18n.getLang()));
-  ipcMain.handle('travel-get', () => (
-    travelManager ? travelManager.publicState(i18n.getLang()) : null
-  ));
-  ipcMain.handle('travel-postcards', () => (
-    travelManager ? travelManager.publicPostcards(30) : []
-  ));
-  ipcMain.handle('travel-start', async (e, sessionId, templateId, mission) => {
-    if (!travelManager || !core || typeof sessionId !== 'string') {
-      return { ok: false, code: 'not-ready' };
-    }
-    const session = core.getSession(sessionId);
-    if (!session || session.headless || session.ended || !session.cwd) {
-      return { ok: false, code: 'invalid-target', state: travelManager.publicState(i18n.getLang()) };
-    }
-    const senderState = stateOfSender(e.sender);
-    const agent = adapter.agentOf(session);
-    if (agent !== 'claude' && agent !== 'codex') {
-      return { ok: false, code: 'invalid-target', state: travelManager.publicState(i18n.getLang()) };
-    }
-    if (!senderState || (senderState.agent !== 'all' && senderState.agent !== agent)) {
-      return { ok: false, code: 'foreign-target', state: travelManager.publicState(i18n.getLang()) };
-    }
-    return travelManager.start({
-      agent,
-      cwd: session.cwd,
-      project: session.sessionTitle || path.basename(session.cwd) || String(session.id).slice(-6),
-      templateId,
-      mission,
-      locale: i18n.getLang(),
-    });
-  });
-  ipcMain.handle('travel-wander', async (e) => {
-    if (!travelManager) return { ok: false, code: 'not-ready' };
-    const senderState = stateOfSender(e.sender);
-    if (!senderState) return { ok: false, code: 'foreign-target' };
-
-    // Free wander never receives a session, cwd, project name, or transcript.
-    // A split pet uses its own provider. A combined pet alternates between the
-    // locally installed providers, independently of every monitored session.
-    let agent = senderState.agent;
-    if (agent === 'all') {
-      const history = travelManager.publicState(i18n.getLang()).history || [];
-      const lastWander = history.find((trip) => trip && trip.mode === 'wander');
-      const order = lastWander && lastWander.agent === 'claude'
-        ? ['codex', 'claude']
-        : ['claude', 'codex'];
-      agent = order.find((name) => {
-        const cli = findCli(name);
-        return path.isAbsolute(cli) && fs.existsSync(cli);
-      }) || null;
-    }
-    if (!agent) return { ok: false, code: 'not-ready' };
-    return travelManager.start({
-      agent,
-      mode: 'wander',
-      templateId: 'free-roam',
-      locale: i18n.getLang(),
-    });
-  });
-  ipcMain.handle('travel-cancel', (e) => {
-    if (!travelManager) return { ok: false, code: 'not-ready' };
-    const current = travelManager.publicState(i18n.getLang()).active;
-    const senderState = stateOfSender(e.sender);
-    if (
-      current &&
-      senderState &&
-      senderState.agent !== 'all' &&
-      senderState.agent !== current.agent
-    ) {
-      return { ok: false, code: 'foreign-target', state: travelManager.publicState(i18n.getLang()) };
-    }
-    return travelManager.cancel();
-  });
-  ipcMain.handle('meme-trigger', async (e, sessionId, memeId) => {
-    // The prompt itself is localized too: an English UI that fires a Chinese
-    // prompt would drag the whole session into Chinese.
-    const meme = getMeme(memeId, i18n.getLang());
-    if (!meme) return { ok: false, submitted: false, message: t('meme.unknown') };
-    const session = typeof sessionId === 'string' && core ? core.getSession(sessionId) : null;
-    if (!session || session.headless || session.ended || session.state === 'sleeping') {
-      return { ok: false, submitted: false, message: t('meme.targetOffline') };
-    }
-    const senderState = stateOfSender(e.sender);
-    if (!senderState || (senderState.agent !== 'all' && adapter.agentOf(session) !== senderState.agent)) {
-      return { ok: false, submitted: false, message: t('meme.targetForeign') };
-    }
-    const publicMeme = publicCatalog(i18n.getLang()).items.find((item) => item.id === meme.id);
-    sendWin(senderState.win, 'pet:meme', {
-      ...publicMeme,
-      sessionId: session.id,
-      project: session.sessionTitle || path.basename(session.cwd || '') || String(session.id).slice(-6),
-      ts: Date.now(),
-    });
-    if (!commandDispatcher) return { ok: false, submitted: false, message: t('meme.noDispatcher') };
-    const result = await commandDispatcher.dispatch(session, meme.prompt.text);
-    log(
-      'meme',
-      `${meme.id} → ${String(session.id).slice(-6)} agent=${adapter.agentOf(session)} ` +
-        `route=${result.route || '-'} submitted=${!!result.submitted} inputSent=${!!result.inputSent} ` +
-        `detail=${result.message || '-'}`,
-    );
-    return {
-      ...result,
-      memeId: meme.id,
-      sessionId: session.id,
-      routeInfo: routeForSession(session),
-    };
   });
 
   // Left-click primary action for the NON-pending case (pending is decided in
@@ -1499,10 +985,7 @@ function registerIpc() {
     const st = stateOfSender(e.sender);
     const w = st && st.win && !st.win.isDestroyed() ? st.win : null;
     if (!w) return;
-    st.mouseIgnoring = !!ignore; // 记录 renderer 期望的穿透状态(巡视结束后恢复用)
-    // 巡视拖拽期间主宠强制穿透：renderer 只能更新“结束后想要的状态”，
-    // 不能把最高层章鱼重新变成可点击并挡住目标。Codex 分身不受巡视约束。
-    if (territoryClickThrough && w === petWin) return;
+    st.mouseIgnoring = !!ignore; // 记录 renderer 期望的穿透状态
     try { w.setIgnoreMouseEvents(!!ignore, { forward: true }); } catch {}
   });
 
@@ -1686,11 +1169,6 @@ function refreshTrayMenu() {
       { label: t('shape.panel'), type: 'radio', checked: mode === 'panel', click: () => applyMode('panel') },
       { label: t('shape.menubar'), type: 'radio', checked: mode === 'menubar', click: () => applyMode('menubar') },
     ] },
-    ...(process.platform === 'darwin' ? [
-      { label: t('tray.patrol'), type: 'checkbox', checked: !!cfg.territory,
-        click: () => applyTerritory(!config.get().territory) },
-      { label: t('tray.patrolNow'), click: runTerritoryNow },
-    ] : []),
     { label: muted ? t('tray.unmute') : t('tray.mute'), click: () => { config.save({ muted: !muted }); broadcastConfig(); refreshTrayMenu(); } },
     { type: 'separator' },
     { label: t('tray.launchClaude'), click: () => launchClaude({}).catch(() => {}) },
@@ -1795,8 +1273,6 @@ if (!gotTheLock) {
       onResult: (result) => log('startup', `${result.agent}: ${result.status}${result.message ? ` (${result.message})` : ''}`),
     });
     createPetWindows();
-    startMemeWatcher();
-    bootTerritory();
     try { buildTray(); } catch (e) { log('main', 'tray unavailable:', e.message); }
     // Let the pet and tray become responsive first; startup failures are
     // isolated and never block LLMPET's own ready path.
@@ -1811,14 +1287,11 @@ if (!gotTheLock) {
 app.on('window-all-closed', () => { /* tray app: stay alive */ });
 
 app.on('before-quit', () => {
-  try { if (territory) territory.stop(); } catch {}
-  try { if (travelManager) travelManager.shutdown(); } catch {}
   try { if (sessionArchive) sessionArchive.stop(); } catch {}
   try { if (programRegistry) programRegistry.stop(); } catch {}
   try { if (runtimeMonitor) runtimeMonitor.stop(); } catch {}
   try { if (codexWatch) codexWatch.stop(); } catch {}
   try { if (dshWatch) dshWatch.stop(); } catch {}
-  try { if (stopMemeWatcher) stopMemeWatcher(); } catch {}
   try { if (stopWatcher) stopWatcher(); } catch {}
   try { if (permissions) permissions.cleanup(); } catch {}
   try { if (server) server.stop(); } catch {}
