@@ -6,9 +6,6 @@ contextBridge.exposeInMainWorld('pet', {
   // 主进程 -> 渲染进程
   onEvent: (cb) => ipcRenderer.on('pet:event', (_e, data) => cb(data)),
   onStats: (cb) => ipcRenderer.on('pet:stats', (_e, data) => cb(data)),
-  onMeme: (cb) => ipcRenderer.on('pet:meme', (_e, data) => cb(data)),
-  onTravel: (cb) => ipcRenderer.on('pet:travel', (_e, data) => cb(data)),
-  onMemeCatalogChanged: (cb) => ipcRenderer.on('pet:meme-catalog-changed', (_e, data) => cb(data)),
   onPanelStats: (cb) => ipcRenderer.on('panel:stats', (_e, data) => cb(data)),
   onConfig: (cb) => {
     ipcRenderer.on('pet:config', (_e, data) => cb(data));
@@ -46,12 +43,7 @@ contextBridge.exposeInMainWorld('pet', {
   setSkin: (s) => ipcRenderer.send('set-skin', s),
   toggleMute: () => ipcRenderer.send('toggle-mute'),
   setSessionPrefs: (pinned, archived) => ipcRenderer.send('set-session-prefs', pinned, archived),
-  territoryRunNow: () => ipcRenderer.send('territory-run-now'),
-  lootCodexPet: () => ipcRenderer.send('loot-codex-pet'),
-  territoryToggleAuto: () => ipcRenderer.send('territory-toggle-auto'),
   quit: () => ipcRenderer.send('quit-app'),
-  // 双宠模式：只收起自己这只宠（独立事件，另一只和 app 不受影响）
-  closePet: () => ipcRenderer.send('close-pet'),
   // 手动拖动窗口
   getWinPos: () => ipcRenderer.invoke('get-win-pos'),
   getWindowMetrics: () => ipcRenderer.invoke('get-window-metrics'),
@@ -68,13 +60,6 @@ contextBridge.exposeInMainWorld('pet', {
   copySessionId: (sessionId) => ipcRenderer.invoke('copy-session-id', sessionId),
   // 会话接管：同代理走官方 resume/fork，跨代理由主进程生成脱敏交接包后新开 CLI。
   takeOverSession: (sessionId, targetAgent) => ipcRenderer.invoke('session-takeover', sessionId, targetAgent),
-  getMemeCatalog: () => ipcRenderer.invoke('meme-catalog'),
-  triggerMeme: (sessionId, memeId) => ipcRenderer.invoke('meme-trigger', sessionId, memeId),
-  getTravel: () => ipcRenderer.invoke('travel-get'),
-  getTravelPostcards: () => ipcRenderer.invoke('travel-postcards'),
-  startTravel: (sessionId, templateId, mission) => ipcRenderer.invoke('travel-start', sessionId, templateId, mission),
-  wanderTravel: () => ipcRenderer.invoke('travel-wander'),
-  cancelTravel: () => ipcRenderer.invoke('travel-cancel'),
   // 左键主操作（非待处理情形）：由后端决定聚焦会话 / 开面板 / 新开 CLI
   primaryAction: () => ipcRenderer.send('primary-action'),
   // 透明空白处点击穿透：渲染端命中测试后切换（true=穿透，鼠标事件仍转发回来）

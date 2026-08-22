@@ -838,12 +838,6 @@ function registerIpc() {
   });
 
   ipcMain.on('quit-app', () => app.quit());
-  // 双宠模式：收起自己这只（独立事件——另一只和 app 都不受影响）；
-  // 托盘「显示桌宠」或勾选「Codex 桌宠」随时找回来。
-  ipcMain.on('close-pet', (e) => {
-    const st = stateOfSender(e.sender);
-    if (st && st.win && !st.win.isDestroyed()) st.win.close();
-  });
 
   ipcMain.on('launch-claude', () => {
     launchClaude({}).then((r) => {
