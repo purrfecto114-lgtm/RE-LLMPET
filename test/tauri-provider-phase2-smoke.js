@@ -20,14 +20,14 @@ const panel = read('frontend/renderer/panel.js');
 const pet = read('frontend/renderer/pet.js');
 const bridge = read('frontend/renderer/tauri-bridge.js');
 
-for (const id of ['claude', 'codewhale', 'codex', 'opencode']) {
+for (const id of ['claude', 'codewhale', 'codex', 'opencode', 'dsh']) {
   assert(installer.includes(`"${id}"`), `provider missing in native installer: ${id}`);
   assert(panel.includes(`${id}:`), `provider missing in renderer metadata: ${id}`);
 }
 for (const [id, label] of Object.entries({ claude: 'Claude', codewhale: 'CodeWhale', codex: 'Codex', opencode: 'OpenCode' })) {
   assert(pet.includes(`${id}: '${label}'`), `pet provider label missing: ${id}`);
 }
-for (const id of ['claude', 'codewhale', 'codex', 'opencode']) {
+for (const id of ['claude', 'codewhale', 'codex', 'opencode', 'dsh']) {
   assert(pet.includes(`${id}:`), `pet provider icon missing: ${id}`);
   assert(panel.includes(`${id}:`), `panel provider cost/status metadata missing: ${id}`);
 }

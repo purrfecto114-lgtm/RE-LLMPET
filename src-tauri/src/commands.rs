@@ -354,7 +354,7 @@ pub fn uninstall_hooks(
     provider: String,
 ) -> Result<Value, String> {
     let provider = provider.trim().to_lowercase();
-    let all_providers = ["claude", "codewhale", "codex", "opencode"];
+    let all_providers = ["claude", "codewhale", "codex", "opencode", "dsh"];
 
     // Helper: run the cleanup pipeline for one provider and return its
     // JSON result object. Used by both single-provider and bulk paths.
@@ -1258,8 +1258,14 @@ fn agent_spec(provider: &str) -> Result<AgentSpec, String> {
         }),
         "opencode" => Ok(AgentSpec {
             id: "opencode",
-            title: "OpenCode",
-            command: "opencode",
+            title: "OpenCode".into(),
+            command: "opencode".into(),
+            companion: None,
+        }),
+        "dsh" => Ok(AgentSpec {
+            id: "dsh",
+            title: "dsh".into(),
+            command: "dsh".into(),
             companion: None,
         }),
         _ => Err(format!("unsupported agent provider: {provider}")),
@@ -2762,6 +2768,24 @@ fn diagnose_agent_sync(provider: String, control: &DiagnosticControl) -> Result<
     if spec.id == "opencode" && probe_succeeded(&auth) && !opencode_auth_has_entries(&auth) {
         warnings.push("OpenCode reports 0 stored credentials; environment variables or project .env files may still supply credentials".into());
     }
+    if spec.id == "dsh" {
+        let (_dsh_sessions, dsh_summary) = crate::dsh_watch::snapshot(&crate::model::home_dir());
+        if let Some(summary) = dsh_summary {
+            let installed = summary
+                .get("installed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let count = summary
+                .get("sessionCount")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            if !installed {
+                warnings.push("dsh sessions directory not found; install dsh or set $DSH_HOME to enable read-only monitoring".into());
+            } else if count == 0 {
+                warnings.push("dsh is installed but has no sessions yet; start a dsh session to populate the HUD".into());
+            }
+        }
+    }
     let terminal = {
         #[cfg(windows)]
         {
@@ -2958,7 +2982,7 @@ pub fn launch_agent_gui(provider: String) -> Result<(), String> {
                 launch_agent(provider)
             }
         }
-        "codewhale" | "opencode" => launch_agent(provider),
+        "codewhale" | "opencode" | "dsh" => launch_agent(provider),
         _ => Err(format!("unsupported agent provider: {provider}")),
     }
 }

@@ -259,6 +259,7 @@ fn provider_config_path(id: &str) -> PathBuf {
         "codewhale" => codewhale_config_path(),
         "codex" => home_dir().join(".codex").join("hooks.json"),
         "opencode" => opencode_plugin_path(),
+        "dsh" => home_dir().join(".dsh").join("sessions"),
         _ => PathBuf::new(),
     }
 }
@@ -514,6 +515,10 @@ fn hook_presence(id: &str) -> HookPresence {
                 OPENCODE_MARKER_LEGACY,
             )
         }
+        "dsh" => match home_dir().join(".dsh").join("sessions").metadata() {
+            Ok(m) if m.is_dir() => HookPresence::Present,
+            _ => HookPresence::Missing,
+        },
         _ => HookPresence::Missing,
     }
 }
@@ -875,6 +880,10 @@ fn provider_capabilities(id: &str) -> (&'static str, Value) {
         "opencode" => (
             "observe-native",
             json!({"lifecycle":true,"permissionBubble":false,"metering":"pending","trustReview":false,"bypassWarning":"Permission decisions stay in OpenCode native UI"}),
+        ),
+        "dsh" => (
+            "observe-native",
+            json!({"lifecycle":true,"permissionBubble":false,"metering":"pending","trustReview":false,"bypassWarning":"dsh authorization is answered in its own TUI; pet only mirrors waiting state"}),
         ),
         _ => ("none", json!({})),
     }

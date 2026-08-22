@@ -1,6 +1,6 @@
 # Octopus — Tauri 2 desktop pet
 
-`0.5.44` is a Tauri 2 / Rust migration candidate reconciled against the current official LLMPET upstream and the earlier four-provider fork. The active runtime contains the Tauri frontend, Rust core, resources, tests and release gates; Electron main/preload/Node runtime code is not part of the execution path.
+`0.5.44` is a Tauri 2 / Rust migration candidate reconciled against the current official LLMPET upstream and the earlier five-provider fork. The active runtime contains the Tauri frontend, Rust core, resources, tests and release gates; Electron main/preload/Node runtime code is not part of the execution path.
 
 
 Security-sensitive launches are fixed allowlists, `pet` and `panel` have separate Tauri capabilities, the CSP is restrictive, and the local HTTP surface is loopback-only. Windows replacement paths use backup-and-rollback semantics.

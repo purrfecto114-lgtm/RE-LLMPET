@@ -204,6 +204,7 @@ function currentPetAgent() {
     launchClaude: () => send('launch_agent', { provider: 'claude' }),
     launchCodeWhale: () => send('launch_agent', { provider: 'codewhale' }),
     launchCodex: () => send('launch_agent', { provider: 'codex' }),
+    launchDsh: () => send('launch_agent', { provider: 'dsh' }),
     launchOpenCode: () => send('launch_agent', { provider: 'opencode' }),
     diagnoseAgent: (provider) => call('diagnose_agent', { provider }),
     // R35.2 (2026-07-31): cancel_diagnostic — kills the currently-running

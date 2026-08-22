@@ -59,6 +59,7 @@ pub const TRAY_LABELS: &[(&str, &str, &str, &str)] = &[
     ("tray.launchCodewhale","🐳 唤起 CodeWhale",                 "🐳 Launch CodeWhale",                    "🐳 CodeWhale を起動"),
     ("tray.launchCodex",    "🛰️ 唤起 Codex",                     "🛰️ Launch Codex",                        "🛰️ Codex を起動"),
     ("tray.launchOpencode", "🔌 唤起 OpenCode",                    "🔌 Launch OpenCode",                       "🔌 OpenCode を起動"),
+    ("tray.launchDsh",     "🌊 唤起 dsh",                       "🌊 Launch dsh",                           "🌊 dsh を起動"),
     ("skin.mascot",         "章鱼",                                "Octopus",                                 "タコ"),
     ("skin.pixel",          "像素怪兽",                            "Pixel monster",                           "ドット怪獣"),
     ("skin.cat",            "月薪喵",                              "Payday Cat",                              "給料ニャン"),

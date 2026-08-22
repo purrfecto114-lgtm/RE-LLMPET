@@ -471,6 +471,7 @@ const PCOST_META = {
   codewhale: { icon: '🐋', label: 'CodeWhale' },
   codex: { icon: '💻', label: 'Codex CLI' },
   opencode: { icon: '🧩', label: 'OpenCode' },
+        dsh: { icon: '🌊', label: 'dsh' },
 };
 // R15 (2026-07-30): Codex today + lifetime tokens rendering.
 // Mirrors the upstream Electron panel.js renderCodexUsage. Hidden when

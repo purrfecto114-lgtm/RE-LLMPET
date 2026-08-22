@@ -169,6 +169,15 @@
       "args": [
         "--version"
       ]
+    },
+    {
+      "id": "dsh",
+      "command": "dsh",
+      "args": [
+        "--version"
+      ],
+      "installKind": "read-only-watch",
+      "configPath": "~/.dsh/sessions"
     }
   ],
   "upstream": {

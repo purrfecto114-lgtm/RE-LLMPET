@@ -3,6 +3,7 @@ mod codex_rollout;
 mod commands;
 mod diagnostic_control;
 mod diagnostic_io;
+mod dsh_watch;
 mod emotion;
 pub mod hook_client;
 mod hook_install;
@@ -369,11 +370,19 @@ fn build_tray_menu<R: tauri::Runtime>(
         true,
         None::<&str>,
     )?;
+    let launch_dsh = MenuItem::with_id(
+        app,
+        "launch_dsh",
+        i18n::tray_label(lang, "tray.launchDsh"),
+        true,
+        None::<&str>,
+    )?;
     let launch_menu = SubmenuBuilder::new(app, i18n::tray_label(lang, "tray.launchAgent"))
         .item(&launch_claude)
         .item(&launch_cw)
         .item(&launch_codex)
         .item(&launch_opencode)
+        .item(&launch_dsh)
         .build()?;
 
     // R12 (2026-07-30): language submenu (radio-like via CheckMenuItem;
@@ -713,6 +722,9 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             }
             "launch_opencode" => {
                 let _ = launch_agent("opencode".into());
+            }
+            "launch_dsh" => {
+                let _ = launch_agent("dsh".into());
             }
             // R12 (2026-07-30): tray-driven config switches. Each branch
             // mirrors the corresponding #[tauri::command] in commands.rs:

@@ -13,7 +13,7 @@ const pass = [];
 function check(name, condition) {
   (condition ? pass : failures).push(name);
 }
-check('four provider ids remain allowlisted', ['claude', 'codewhale', 'codex', 'opencode'].every(id => commands.includes(`"${id}" => Ok(AgentSpec`)));
+check('five provider ids remain allowlisted', ['claude', 'codewhale', 'codex', 'opencode', 'dsh'].every(id => commands.includes(`"${id}" => Ok(AgentSpec`)));
 check('unknown provider is rejected', commands.includes('unsupported agent provider'));
 check('unknown provider no longer silently falls back to claude', !commands.includes('_ => "claude"'));
 check('CodeWhale companion is warned (not hard-failed) for v0.9.5+ forward-compat', commands.includes('MISSING_COMPANION_BINARY') && commands.includes('codewhale-tui'));

@@ -9,7 +9,7 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const commands = read('src-tauri/src/commands.rs');
 const platform = read('src-tauri/src/platform.rs');
 
-for (const provider of ['claude', 'codewhale', 'codex', 'opencode']) {
+for (const provider of ['claude', 'codewhale', 'codex', 'opencode', 'dsh']) {
   assert(commands.includes(`"${provider}"`), `provider allow-list should include ${provider}`);
 }
 assert(
