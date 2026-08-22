@@ -202,7 +202,7 @@ fn enumerate_sessions(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-pub fn snapshot(app_dir: &Path) -> (Option<Value>, Option<Value>) {
+pub fn snapshot(_app_dir: &Path) -> (Option<Value>, Option<Value>) {
     let dir = match sessions_dir() {
         Some(d) => d,
         None => return (None, Some(json!({"installed": false, "sessionCount": 0}))),
