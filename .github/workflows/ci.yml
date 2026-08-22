@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # 冒烟测试只依赖 Node 内置模块 + 仓库内文件（不 require electron），
+      # 所以无需 npm install —— 直接跑，快且不受 electron 二进制下载影响。
+      - name: Smoke + renderer tests
+        run: npm test
