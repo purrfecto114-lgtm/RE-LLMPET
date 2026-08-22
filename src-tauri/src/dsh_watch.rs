@@ -228,7 +228,7 @@ fn snapshot_from_dir(dir: &Path) -> (Option<Value>, Option<Value>) {
         }
     }
 
-    let session_dirs = enumerate_sessions(&dir);
+    let session_dirs = enumerate_sessions(dir);
     let mut sessions = Vec::with_capacity(session_dirs.len());
     let mut oldest: Option<u64> = None;
     for sd in &session_dirs {
