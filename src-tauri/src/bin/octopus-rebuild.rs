@@ -14,13 +14,13 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-/// Resolve the app data directory: ~/.re-llmpet (matches model::home_dir()
-/// + APP_DIR_NAME in the lib, but standalone so this bin doesn't depend on
+/// Resolve the app data directory: ~/.re-llmpet (matches the lib's
+/// home_dir + APP_DIR_NAME, but standalone so this bin doesn't depend on
 /// private lib internals).
 fn app_dir() -> PathBuf {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| dirs_fallback());
+        .unwrap_or_else(dirs_fallback);
     home.join(".re-llmpet")
 }
 
