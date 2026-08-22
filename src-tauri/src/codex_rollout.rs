@@ -688,6 +688,7 @@ fn is_leap_year(year: u64) -> bool {
 ///
 /// Returns a HashMap<session_id, title>. Empty if the file is missing,
 /// too large, or unparseable.
+#[allow(dead_code)] // reserved for R-H3 unified session archive
 pub fn read_codex_session_titles() -> HashMap<String, String> {
     use crate::model::home_dir;
     let path = home_dir().join(".codex").join("session_index.jsonl");
@@ -696,6 +697,7 @@ pub fn read_codex_session_titles() -> HashMap<String, String> {
 
 /// Same as read_codex_session_titles but reads from a specific path. Used
 /// by tests to avoid touching the real ~/.codex directory.
+#[allow(dead_code)] // reserved for R-H3 unified session archive
 fn read_codex_session_titles_at(path: &Path) -> HashMap<String, String> {
     let metadata = match fs::metadata(path) {
         Ok(m) => m,

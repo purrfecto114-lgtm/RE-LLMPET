@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "generatedAt": "2026-08-04T12:45:35.000Z",
-  "assetCount": 35,
-  "byteIdenticalCount": 35,
+  "assetCount": 48,
+  "byteIdenticalCount": 48,
   "optimizationApplied": false,
   "visualSnapshotGate": "requires compiled GUI on each OS before any conversion",
   "assets": [
@@ -703,6 +703,266 @@
         "width": 36,
         "height": 36,
         "frames": null
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "whale/CREDITS.md",
+      "archived": {
+        "bytes": 2403,
+        "sha256": "c1be736ca77d2caa0af9eb0a16e5b33181099ad63b52729a1606b0113e87c8de",
+        "format": "md",
+        "width": null,
+        "height": null,
+        "frames": null
+      },
+      "delivered": {
+        "bytes": 2403,
+        "sha256": "c1be736ca77d2caa0af9eb0a16e5b33181099ad63b52729a1606b0113e87c8de",
+        "format": "md",
+        "width": null,
+        "height": null,
+        "frames": null
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "whale/whale-attention.gif",
+      "archived": {
+        "bytes": 265863,
+        "sha256": "f08297a22af878880932159a6106ed91f43bbb9acff26833b875fbcfdc73efa9",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 1424
+      },
+      "delivered": {
+        "bytes": 265863,
+        "sha256": "f08297a22af878880932159a6106ed91f43bbb9acff26833b875fbcfdc73efa9",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 1424
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "whale/whale-error.gif",
+      "archived": {
+        "bytes": 133635,
+        "sha256": "1ceda9b21ca6cc8ac2344b89e37683d0b080873243e09e115a6cbd96ff163573",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 526
+      },
+      "delivered": {
+        "bytes": 133635,
+        "sha256": "1ceda9b21ca6cc8ac2344b89e37683d0b080873243e09e115a6cbd96ff163573",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 526
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "whale/whale-idle.gif",
+      "archived": {
+        "bytes": 231635,
+        "sha256": "03864f16d7d6499a834731d90ebaf4927ee6e294eefb32510a05be5ea967b683",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 805
+      },
+      "delivered": {
+        "bytes": 231635,
+        "sha256": "03864f16d7d6499a834731d90ebaf4927ee6e294eefb32510a05be5ea967b683",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 805
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "whale/whale-juggling.gif",
+      "archived": {
+        "bytes": 189580,
+        "sha256": "1590beab597d90438c8d94b0feb5396eea432b4363707ed3585f97dcf6a46787",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 802
+      },
+      "delivered": {
+        "bytes": 189580,
+        "sha256": "1590beab597d90438c8d94b0feb5396eea432b4363707ed3585f97dcf6a46787",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 802
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "whale/whale-loafing.gif",
+      "archived": {
+        "bytes": 274320,
+        "sha256": "332cfe098f6a09d681b71cc7708ad5ea68eed4c64be90a237da4ba7090d098fa",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 878
+      },
+      "delivered": {
+        "bytes": 274320,
+        "sha256": "332cfe098f6a09d681b71cc7708ad5ea68eed4c64be90a237da4ba7090d098fa",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 878
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "whale/whale-needsinput.gif",
+      "archived": {
+        "bytes": 297137,
+        "sha256": "ff3cd90f8b48203bbfb787109d045ff4e849f656f7e706b8d4edc0324de27eee",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 1426
+      },
+      "delivered": {
+        "bytes": 297137,
+        "sha256": "ff3cd90f8b48203bbfb787109d045ff4e849f656f7e706b8d4edc0324de27eee",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 1426
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "whale/whale-sad.gif",
+      "archived": {
+        "bytes": 210142,
+        "sha256": "0aa8c8227c8540b68931b71a864c48b05c533b608c6e83e0bb42a536820136ca",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 920
+      },
+      "delivered": {
+        "bytes": 210142,
+        "sha256": "0aa8c8227c8540b68931b71a864c48b05c533b608c6e83e0bb42a536820136ca",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 920
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "whale/whale-sweeping.gif",
+      "archived": {
+        "bytes": 223012,
+        "sha256": "aab01d99a06052491f447122cf1e801f55d3d07763654ed6db416260d342e9a7",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 837
+      },
+      "delivered": {
+        "bytes": 223012,
+        "sha256": "aab01d99a06052491f447122cf1e801f55d3d07763654ed6db416260d342e9a7",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 837
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "whale/whale-talking.gif",
+      "archived": {
+        "bytes": 271384,
+        "sha256": "b125b31ac166f15371c89a615af65cd518a957d3c5899e10358a82f0b6d66820",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 787
+      },
+      "delivered": {
+        "bytes": 271384,
+        "sha256": "b125b31ac166f15371c89a615af65cd518a957d3c5899e10358a82f0b6d66820",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 787
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "whale/whale-thinking.gif",
+      "archived": {
+        "bytes": 152033,
+        "sha256": "aeab8461d861db3b82b4d67c2e528a25177119a201daec12a8095debc662e1d1",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 547
+      },
+      "delivered": {
+        "bytes": 152033,
+        "sha256": "aeab8461d861db3b82b4d67c2e528a25177119a201daec12a8095debc662e1d1",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 547
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "whale/whale-waiting.gif",
+      "archived": {
+        "bytes": 243558,
+        "sha256": "df390ad9bab2a4961f3128e7be01d9bb24017c63e07101faa7e5cde5969c6017",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 1122
+      },
+      "delivered": {
+        "bytes": 243558,
+        "sha256": "df390ad9bab2a4961f3128e7be01d9bb24017c63e07101faa7e5cde5969c6017",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 1122
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "whale/whale-working.gif",
+      "archived": {
+        "bytes": 157626,
+        "sha256": "f4234943563723d803f9534f10b0bb97e8ebc8e6e42be24429e81f29c9bb6946",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 671
+      },
+      "delivered": {
+        "bytes": 157626,
+        "sha256": "f4234943563723d803f9534f10b0bb97e8ebc8e6e42be24429e81f29c9bb6946",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 671
       },
       "byteIdentical": true
     }

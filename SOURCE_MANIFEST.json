@@ -145,7 +145,7 @@
     "package-lock.json": "0979a28731791730b83d3794225960f381275b53caf27b161daf80b977b0e9e0",
     "package.json": "02581a1a1df789760c25cc28fba604ed387ad43c420905c34acc5b1e5df983a2",
     "protocol-baseline.json": "4c2aa214d63265d918d52a86b41f45c3f60e9528b4d145e6fff78f8f05f812c0",
-    "reports/asset-visual-baseline.json": "be1ac817aa0912805f91a4aacf2892fe54316b2fac5bc80640731aa6a0462004",
+    "reports/asset-visual-baseline.json": "c7a7f21ed60b9e354e898f4d9553b9fc21af1bd724f1f4dfbfb3786e0ec95fc2",
     "reports/followup-drag-terminal-ui-file-diff-2026-07-28.txt": "60364894f73ee5f8943f430f90a4dc68f3c2868e58cc6698db8247a039271f46",
     "reports/followup-drag-terminal-ui-validation-2026-07-28.json": "460c609e69e86a091405540c8a601543d5bd89e7d8188616aa9ea9f89fe27548",
     "reports/r4-full-merge-file-diff.json": "ff7b53bc6777e6768adb06584f2388b78e6fc4f172744efa4ca6128be3558abd",
@@ -262,7 +262,7 @@
     "src-tauri/src/bin/octopus-rebuild.rs": "f6116e347bce77ee22f8928349abd526e8ea569fbe1590c76fb79ccda7eef00a",
     "src-tauri/src/bin/re-llmpet-hook.rs": "02b6304e3c1bb9e2b59437e4890ecf8ad45a7a29259cbfc14a571fbb3a339036",
     "src-tauri/src/codex_pricing.rs": "4a29d8a816e113dc1b7ffade5375da7ee25712d019fdba6ee200e62c0e07a61d",
-    "src-tauri/src/codex_rollout.rs": "45d4c22b8ac7b9e711df97fd5f7857e6a49fae799fb886b21f34ac845679b071",
+    "src-tauri/src/codex_rollout.rs": "1e0379446461a72da13aaedbddd38091d6d3b9258b8b34f8045e384c3e93cf11",
     "src-tauri/src/commands.rs": "2f0eb0c4e280faf7176fc861316bfef87aefb61e655b26b2b27c95f266f2ad98",
     "src-tauri/src/diagnostic_control.rs": "74431753f44208e0a85e757d9dabeaca91f062e3cc1d23490b652b1289787750",
     "src-tauri/src/diagnostic_io.rs": "0e6a4d42d3a9bd2bffc3506551131d68770af22ccbc5331154fb63888339f33f",
@@ -369,6 +369,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "2ce2e44e89f98627cef974064269446dad6d234fc20bf104f9158256a645be94"
   },
-  "sha256_of_manifest": "003ac46585474ef904f26a01671ca5012ea1ccecb3e794a94bf89f357659f8ff",
+  "sha256_of_manifest": "6ed4463fff54ef3d169305b2d6121f64cefbd0c9a2ef77be122d2902b59b488c",
   "source_commit": "octopus-0.5.81"
 }
