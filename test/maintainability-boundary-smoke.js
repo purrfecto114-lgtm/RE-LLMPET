@@ -138,4 +138,21 @@ assert(pet.includes('curSkinEl'), 'pet.js must use curSkinEl for prop positionin
 const petCss = read('frontend/renderer/pet.css');
 assert(!petCss.includes('.prop {\n  position: absolute;\n  bottom: 104px'), 'pet.css .prop must not use bottom:104px (R-M5 moved to top:0/left:0)');
 assert(petCss.includes('.prop {\n  position: absolute;\n  top: 0;\n  left: 0;'), 'pet.css .prop must use top:0/left:0 (R-M5 JS-driven positioning)');
+// R-M4 (v0.5.81, upstream 3c78c14): whale skin. 4th skin alongside
+// mascot/pixel/cat. GIF-based like cat.
+assert(pet.includes("'whale'") && pet.includes('function updateWhale'), 'pet.js must define whale skin (R-M4)');
+assert(pet.includes("['pixel', 'mascot', 'cat', 'whale']"), 'pet.js applySkin must accept whale (R-M4)');
+assert(pet.includes('curSkinEl = () =>') && pet.includes("skin === 'whale' ? whale"), 'pet.js curSkinEl must handle whale (R-M4)');
+assert(petHtml.includes('id="whale"') && petHtml.includes('whale-img'), 'pet.html must have whale element (R-M4)');
+const modelRs = read('src-tauri/src/model.rs');
+assert(modelRs.includes('"mascot" | "pixel" | "cat" | "whale"'), 'model.rs must validate whale skin (R-M4)');
+// R-M1 (v0.5.81, upstream codex-session-index.js): read ~/.codex/session_index.jsonl
+const codexRollout = read('src-tauri/src/codex_rollout.rs');
+assert(codexRollout.includes('pub fn read_codex_session_titles'), 'codex_rollout.rs must export read_codex_session_titles (R-M1)');
+assert(codexRollout.includes('session_index.jsonl'), 'codex_rollout.rs must reference session_index.jsonl (R-M1)');
+// R-M7 (v0.5.81, upstream meter-rebuild.js): CLI binary for usage rebuild
+const cargoToml = read('src-tauri/Cargo.toml');
+assert(cargoToml.includes('octopus-rebuild'), 'Cargo.toml must define octopus-rebuild bin (R-M7)');
+const rebuildBin = read('src-tauri/src/bin/octopus-rebuild.rs');
+assert(rebuildBin.includes('fn main()'), 'octopus-rebuild.rs must be a valid bin (R-M7)');
 

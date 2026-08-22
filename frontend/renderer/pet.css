@@ -1427,3 +1427,11 @@ body.skin-cat #cat { display: flex; }
   60% { transform: translateX(-3px); filter: hue-rotate(-15deg); }
   80% { transform: translateX(3px); filter: hue-rotate(-15deg); }
 }
+
+/* R-M4: whale skin (upstream 3c78c14) */
+.whale { display: none; }
+.whale img { width: 96px; height: 96px; image-rendering: auto; }
+body.skin-whale .whale { display: block; }
+body.skin-whale #pixel,
+body.skin-whale #mascot,
+body.skin-whale #cat { display: none; }

@@ -125,13 +125,16 @@ impl AppConfig {
         if !matches!(self.mode.as_str(), "pet" | "panel" | "menubar" | "hidePet") {
             self.mode = "pet".into();
         }
-        if !matches!(self.skin.as_str(), "mascot" | "pixel" | "cat") {
+        if !matches!(self.skin.as_str(), "mascot" | "pixel" | "cat" | "whale") {
             self.skin = "mascot".into();
         }
         if !matches!(self.pet_mode.as_str(), "single" | "duo") {
             self.pet_mode = "single".into();
         }
-        if !matches!(self.skin_codex.as_str(), "mascot" | "pixel" | "cat") {
+        if !matches!(
+            self.skin_codex.as_str(),
+            "mascot" | "pixel" | "cat" | "whale"
+        ) {
             self.skin_codex = "pixel".into();
         }
         if !self.budget5h.is_finite() || self.budget5h < 0.0 {

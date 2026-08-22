@@ -680,6 +680,64 @@ fn is_leap_year(year: u64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
+/// R-M1 (upstream codex-session-index.js): read ~/.codex/session_index.jsonl
+/// to get the stable thread title for each Codex session id. The rollout
+/// JSONL only contains prompts, so deriving a title from it makes renamed
+/// desktop tasks look missing. session_index.jsonl is the small local
+/// read-only mapping Codex uses for those stable titles.
+///
+/// Returns a HashMap<session_id, title>. Empty if the file is missing,
+/// too large, or unparseable.
+pub fn read_codex_session_titles() -> HashMap<String, String> {
+    use crate::model::home_dir;
+    let path = home_dir().join(".codex").join("session_index.jsonl");
+    read_codex_session_titles_at(&path)
+}
+
+/// Same as read_codex_session_titles but reads from a specific path. Used
+/// by tests to avoid touching the real ~/.codex directory.
+fn read_codex_session_titles_at(path: &Path) -> HashMap<String, String> {
+    let metadata = match fs::metadata(path) {
+        Ok(m) => m,
+        Err(_) => return HashMap::new(),
+    };
+    if !metadata.is_file() || metadata.len() > 32 * 1024 * 1024 {
+        return HashMap::new();
+    }
+    let file = match fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return HashMap::new(),
+    };
+    let reader = BufReader::new(file);
+    let mut titles = HashMap::new();
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        let row: Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let id = row
+            .get("id")
+            .or_else(|| row.get("session_id"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        let title = row
+            .get("thread_name")
+            .or_else(|| row.get("title"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        if !id.is_empty() && !title.is_empty() {
+            titles.insert(id.to_string(), title.to_string());
+        }
+    }
+    titles
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

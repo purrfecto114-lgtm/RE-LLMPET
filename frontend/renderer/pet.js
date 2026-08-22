@@ -17,6 +17,7 @@ const t = (key, vars) => i18n ? i18n.t(key, vars) : key;
 const LOCALES = { zh: 'zh-CN', en: 'en-US', ja: 'ja-JP' };
 let currentLang = 'zh';
 let skin = 'mascot';
+if (whale) whale.style.display = 'none'; // R-M4: whale hidden until skin='whale'
 
 function applyLanguage(next) {
   currentLang = i18n ? i18n.setLang(next) : 'zh';
@@ -34,6 +35,7 @@ const pixel = document.getElementById('pixel');
 const mascot = document.getElementById('mascot');
 const mascotImg = document.getElementById('mascot-img');
 const cat = document.getElementById('cat'), petAnchor = document.getElementById('pet-anchor');
+const whale = document.getElementById('whale');
 
 const MASCOT_EYES = {
   working: 'mascot-work.png', // 干活：对着笔记本敲代码 + 咖啡（整幅工作场景）
@@ -162,6 +164,14 @@ function updateCat(s) {
     poolRot = null;
     poolIdx++; // 下次进入轮换态直接是下一张
   }
+}
+// R-M4: whale skin (upstream 3c78c14). GIF-based like cat.
+function updateWhale(s) {
+  const img = document.getElementById('whale-img');
+  if (!img || skin !== 'whale') return;
+  const key = `whale-${s}.gif`;
+  if (img.src.endsWith(key)) return;
+  img.src = `../assets/whale/${key}`;
 }
 const bubble = document.getElementById('bubble');
 const bubbleText = document.getElementById('bubble-text');
@@ -1244,6 +1254,7 @@ function setState(s) {
   // 之前「s!=='waiting' 就 hideAsk」会在聚合态变 working/thinking 时把 needsinput 的面板闪掉。
   if (skin === 'mascot') updateMascotEyes(s);
   if (skin === 'cat') updateCat(s);
+  if (skin === 'whale') updateWhale(s);
   requestAnimationFrame(reportPetVisualBounds);
 }
 
@@ -1430,7 +1441,7 @@ function scheduleIdleAction() {
 }
 scheduleIdleAction();
 
-const curSkinEl = () => (skin === 'pixel' ? pixel : skin === 'cat' ? cat : mascot);
+const curSkinEl = () => (skin === 'pixel' ? pixel : skin === 'cat' ? cat : skin === 'whale' ? whale : mascot);
 
 // ---------- 事件 ----------
 window.pet.onEvent((ev) => {
@@ -2043,7 +2054,7 @@ window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     if (k === 'p') { e.preventDefault(); try { window.pet.openPanel(); } catch {} }
     else if (k === 'm') { e.preventDefault(); try { window.pet.setPetMode(petMode === 'single' ? 'duo' : 'single'); } catch {} }
-    else if (k === 's') { e.preventDefault(); applySkin(skin === 'mascot' ? 'cat' : skin === 'cat' ? 'pixel' : 'mascot'); }
+    else if (k === 's') { e.preventDefault(); applySkin(skin === 'mascot' ? 'cat' : skin === 'cat' ? 'pixel' : skin === 'pixel' ? 'whale' : 'mascot'); }
   } else if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
     // v0.5.73: ? shows shortcuts help
     e.preventDefault();
@@ -2052,15 +2063,15 @@ window.addEventListener('keydown', (e) => {
 });
 
 function applySkin(s) {
-  skin = ['pixel', 'mascot', 'cat'].includes(s) ? s : 'mascot';
+  skin = ['pixel', 'mascot', 'cat', 'whale'].includes(s) ? s : 'mascot';
   document.body.classList.toggle('skin-pixel', skin === 'pixel');
   document.body.classList.toggle('skin-mascot', skin === 'mascot');
   document.body.classList.toggle('skin-cat', skin === 'cat');
-  if (skin === 'cat' && catAssetCache.size === 0) {
-    preloadCatAssets();
-  }
+  document.body.classList.toggle('skin-whale', skin === 'whale');
+  if (skin === 'cat' && catAssetCache.size === 0) preloadCatAssets();
   if (skin === 'mascot') updateMascotEyes(state);
   if (skin === 'cat') updateCat(state);
+  if (skin === 'whale') updateWhale(state);
   else if (poolRot) { clearInterval(poolRot); poolRot = null; }
   requestAnimationFrame(reportPetVisualBounds);
 }
@@ -2311,7 +2322,7 @@ const MENU = [
 ];
 
 function toggleSkin() {
-  const order = ['mascot', 'pixel', 'cat'];
+  const order = ['mascot', 'pixel', 'cat', 'whale'];
   const next = order[(order.indexOf(skin) + 1) % order.length];
   applySkin(next);
   void configWrites.request('skin', next, (value) => window.pet.setSkin(value));

@@ -25,6 +25,7 @@
     'tray.codexPet': '🛰️ Codex 桌宠',
     'tray.settings': '⚙️ 设置',
     'tray.skin': '　形象',
+    'tray.skinWhale': '　形象（鲸鱼）',
     'tray.skinClaude': '　形象（Claude 宠）',
     'tray.skinCodex': '　形象（Codex 宠）',
     'tray.shape': '　形态',
