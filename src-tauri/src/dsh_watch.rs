@@ -210,6 +210,16 @@ pub fn snapshot(_app_dir: &Path) -> (Option<Value>, Option<Value>) {
     snapshot_from_dir(&dir)
 }
 
+/// Clear the global snapshot cache. Test-only: concurrent tests share a
+/// OnceLock cache and can see stale entries from sibling tests that probed
+/// different dirs. Calling this at the start of each test ensures a clean
+/// read. Not needed in production (snapshot is called from a single poller).
+#[cfg(test)]
+fn clear_cache() {
+    let mut guard = cache().lock().unwrap_or_else(|e| e.into_inner());
+    *guard = CacheEntry::default();
+}
+
 fn snapshot_from_dir(dir: &Path) -> (Option<Value>, Option<Value>) {
     // If the dir doesn't exist, treat as not-installed (matches sessions_dir()
     // semantics). This also lets snapshot_from_dir be called directly with a
@@ -279,6 +289,7 @@ mod tests {
 
     #[test]
     fn snapshot_returns_none_when_dsh_absent() {
+        clear_cache();
         // snapshot() reads DSH_HOME; with no env var and no ~/.dsh, it returns
         // the not-installed summary. We test the not-installed path directly
         // via snapshot_from_dir on a nonexistent dir.
@@ -297,6 +308,7 @@ mod tests {
 
     #[test]
     fn snapshot_enumerates_uncompressed_sessions() {
+        clear_cache();
         // Use a unique temp dir per-test to avoid global-cache aliasing.
         // Call snapshot_from_dir directly to bypass DSH_HOME env (unsafe in
         // concurrent tests on Rust 1.98+).
@@ -322,6 +334,16 @@ mod tests {
             "version": 0,
         });
         fs::write(session_dir.join("session.jsonl"), header.to_string()).unwrap();
+        // Verify probe_session works on the session dir directly.
+        let probed = probe_session(&session_dir);
+        assert!(probed.is_some(), "probe_session should find the session");
+        assert_eq!(
+            probed
+                .as_ref()
+                .and_then(|v| v.get("id").and_then(Value::as_str)),
+            Some("abc123")
+        );
+        // Now verify snapshot_from_dir enumerates it.
         let (sessions, summary) = snapshot_from_dir(&sessions_root);
         let sessions = sessions.expect("sessions should be present");
         let arr = sessions.as_array().expect("sessions should be array");
@@ -338,6 +360,7 @@ mod tests {
 
     #[test]
     fn snapshot_filters_subagent_headers() {
+        clear_cache();
         let tmp = std::env::temp_dir().join(format!(
             "octopus-dsh-subagent-{}-{}",
             std::process::id(),
