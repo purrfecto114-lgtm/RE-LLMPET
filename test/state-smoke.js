@@ -107,8 +107,8 @@ async function main() {
       lifetime: { cost: 999.999 },
       codexUsage: { today: { cost: 88, tokens: 12345 } },
     }));
-    check('DSH 独立宠只显示身份，不显示任何 Claude/Codex 美元值', () => {
-      assert.strictEqual(dsh.elements('chip-cost').textContent, 'DeepSeek Harness');
+    check('DSH 宠不显示任何 Claude/Codex 美元值', () => {
+      assert.strictEqual(dsh.elements('chip-cost').textContent, '—');
       assert(dsh.elements('chip-sep').classList.contains('hidden'));
       assert(dsh.elements('chip-window').classList.contains('hidden'));
       assert(!dsh.elements('chip-cost').textContent.includes('$'));

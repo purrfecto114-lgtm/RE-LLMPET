@@ -85,38 +85,18 @@ let statsTimer = null;
 let emitDebounce = null;
 const recentOps = []; // ring for the panel "操作流"; newest first, capped
 
-// 分身宠：被单独分出去的后端。主宠（'all'）要把它们从自己的快照里剔掉，
-// 否则同一个会话会在两只宠身上各显示一份。
-function splitAgents() {
-  const c = config.get();
-  const out = [];
-  if (c.petMode === 'duo') out.push('codex');
-  if (c.dshPet) out.push('dsh');
-  return out;
-}
-
 // ── frontend config shape ─────────────────────────────────────────────────────
-// agent: 'all'(单宠/面板) | 'claude' | 'codex' | 'dsh' —— 每只宠形象/位置各一套
-function frontendConfig(agent = 'all') {
+function frontendConfig() {
   const c = config.get();
-  const skinByAgent = { codex: c.skinCodex, dsh: c.skinDsh };
-  const positionByAgent = { codex: c.petPositionCodex, dsh: c.petPositionDsh };
-  const clone = agent === 'codex' || agent === 'dsh';
   return {
     mode: c.mode,
-    skin: skinByAgent[agent] || c.skin,
-    petPosition: positionByAgent[agent] || (clone ? null : c.petPosition),
+    skin: c.skin,
+    petPosition: c.petPosition,
     muted: c.muted,
     permHook: c.permHook,
-    lootSupported: process.platform === 'darwin' && !clone,
-    agent,
-    petMode: c.petMode,
-    dshPet: c.dshPet,
     lang: c.lang,
     pinnedSessions: c.pinnedSessions,
     archivedSessions: c.archivedSessions,
-    lootCapturedSessions: (c.lootCapturedSessions || [])
-      .filter((session) => session.expiresAt > Date.now()),
     sessionArchive: c.sessionArchive,
   };
 }
@@ -186,31 +166,20 @@ function applyPetSize(st, requestedAnchor) {
   }
 }
 
-// 分身开关：主宠始终在（single 模式盯全部后端；有分身时盯「剩下的」），
-// Codex 宠由 petMode='duo' 决定，dsh 宠由 dshPet 决定，两者互不影响。
 function createPetWindows() {
-  const duo = config.get().petMode === 'duo';
-  const dsh = config.get().dshPet === true;
-  petWin = makePetWindow(duo ? 'claude' : 'all');
-  petWinCodex = duo ? makePetWindow('codex') : null;
-  petWinDsh = dsh ? makePetWindow('dsh') : null;
-  log('main', `pet windows: ${[duo ? 'claude' : 'all', duo ? 'codex' : '', dsh ? 'dsh' : ''].filter(Boolean).join('+')}`);
+  petWin = makePetWindow('all');
+  log('main', 'pet windows: all');
 }
-
-// 分身宠默认落脚点：按出场次序依次往主宠左边错开，肩并肩不重叠
-const CLONE_SHIFT = { codex: 1, dsh: 2 };
 
 function makePetWindow(agent) {
   const c = config.get();
-  const savedByAgent = { codex: c.petPositionCodex, dsh: c.petPositionDsh };
-  const saved = savedByAgent[agent] || (CLONE_SHIFT[agent] ? null : c.petPosition);
+  const saved = c.petPosition;
   let x, y;
   if (saved) { x = saved.x; y = saved.y; }
   else {
     try {
       const wa = screen.getPrimaryDisplay().workArea;
-      const shift = (CLONE_SHIFT[agent] || 0) * (BASE_W + 36);
-      x = wa.x + wa.width - BASE_W - 24 - shift;
+      x = wa.x + wa.width - BASE_W - 24;
       y = wa.y + wa.height - BASE_H - 24;
     } catch {}
   }
@@ -249,23 +218,17 @@ function makePetWindow(agent) {
   win.on('closed', () => {
     petState.delete(wcId);
     if (petWin === win) petWin = null;
-    if (petWinCodex === win) petWinCodex = null;
-    if (petWinDsh === win) petWinDsh = null;
   });
 
-  // 注意读 st.agent 而非闭包 agent：单宠⇄双宠切换时主宠原地重载、身份会变
   win.on('moved', () => {
     if (st.customSize) return; // only persist the resting position
     if (win.isDestroyed()) return;
     const b = win.getBounds();
-    const at = { x: b.x, y: b.y };
-    if (st.agent === 'codex') config.save({ petPositionCodex: at });
-    else if (st.agent === 'dsh') config.save({ petPositionDsh: at });
-    else config.save({ petPosition: at });
+    config.save({ petPosition: { x: b.x, y: b.y } });
   });
   win.webContents.on('did-finish-load', () => {
-    sendWin(win, 'pet:config', frontendConfig(st.agent));
-    if (core) sendWin(win, 'pet:stats', petStats(st.agent));
+    sendWin(win, 'pet:config', frontendConfig());
+    if (core) sendWin(win, 'pet:stats', petStats());
   });
   return win;
 }
@@ -375,37 +338,20 @@ function sendWin(win, channel, payload) {
 }
 // 任一存活的宠物窗口：主宠被单独收起后，授权卡等重要消息兜底投递到还活着的那只
 function firstAlivePetWin() {
-  if (petWin && !petWin.isDestroyed()) return petWin;
-  if (petWinCodex && !petWinCodex.isDestroyed()) return petWinCodex;
-  if (petWinDsh && !petWinDsh.isDestroyed()) return petWinDsh;
-  return null;
+  return petWin && !petWin.isDestroyed() ? petWin : null;
 }
-// sendPet = 发给主宠（领地/授权等主宠专属通道沿用它）；主宠不在则兜底
+// sendPet = 发给主宠；主宠不在则兜底
 function sendPet(channel, payload) { sendWin(firstAlivePetWin(), channel, payload); }
 function sendPanel(channel, payload) { sendWin(panelWin, channel, payload); }
 function sendArchive(channel, payload) { sendWin(archiveWin, channel, payload); }
 
-// 事件按来源 agent 分流：分身宠在场就归它（不在了兜底主路），其余归主宠。
 function sendPetEvent(ev) {
-  const cloneWin = ev && ev.agent === 'codex' ? petWinCodex
-    : ev && ev.agent === 'dsh' ? petWinDsh
-    : null;
-  if (cloneWin && !cloneWin.isDestroyed()) {
-    sendWin(cloneWin, 'pet:event', ev);
-    return;
-  }
   sendPet('pet:event', ev);
 }
 
-// 按 agent 过滤会话快照（active/idleMs 在过滤后的集合里重算）。
-// 'all' 是主宠/面板：面板要全量，主宠要「减去已分身出去的后端」——差别由
-// excludes 决定，避免同一个会话在两只宠身上各显示一份。
-function filterSnapshot(snap, agent, excludes = []) {
-  if (agent === 'all' && !excludes.length) return snap;
-  const sessions = (snap.sessions || []).filter((e) => {
-    const a = adapter.agentOf(e);
-    return agent === 'all' ? !excludes.includes(a) : a === agent;
-  });
+function filterSnapshot(snap, agent) {
+  if (agent === 'all') return snap;
+  const sessions = (snap.sessions || []).filter((e) => adapter.agentOf(e) === agent);
   let active = null;
   for (const e of sessions) {
     if (e.headless) continue;
@@ -422,32 +368,27 @@ function filterSnapshot(snap, agent, excludes = []) {
   };
 }
 
-function buildStats(agent = 'all', snapshot = null, excludes = []) {
+function buildStats(snapshot = null) {
   const rawSnapshot = snapshot || core.buildSnapshot();
-  const snap = filterSnapshot(rawSnapshot, agent, excludes);
+  const snap = filterSnapshot(rawSnapshot, 'all');
   const meter = metering ? metering.getStats() : null;
   const codexUsage = codexMetering ? codexMetering.getStats() : null;
-  // 授权（HTTP 阻塞钩子）只存在于 Claude 路径；Codex / dsh 宠不认领
-  const pending = agent === 'codex' || agent === 'dsh' ? [] : permissions.getPending();
-  const ops = (agent === 'all'
-    ? recentOps.filter((o) => !excludes.includes(o.agent || 'claude'))
-    : recentOps.filter((o) => (o.agent || 'claude') === agent)).slice(0, 30);
+  const pending = permissions.getPending();
+  const ops = recentOps.slice(0, 30);
   const stats = adapter.buildPetStats(snap, pending, meter, {
     lastOps: ops,
     codexUsage,
     // Shared pet/panel/archive must combine both ledgers. Mapping `all` to
     // `claude` made the headline omit Codex while the Codex detail card still
     // showed its own cost, producing contradictory totals in the real UI.
-    usageProvider: agent,
+    usageProvider: 'all',
     runtime: runtimeMonitor ? runtimeMonitor.snapshot() : null,
   });
   return stats;
 }
 
-// 桌宠窗口要的快照：主宠（'all'）得减掉已经分身出去的后端；面板/档案馆用
-// buildStats('all') 拿全量，不走这里。
-function petStats(agent, snapshot = null) {
-  return buildStats(agent, snapshot, agent === 'all' ? splitAgents() : []);
+function petStats() {
+  return buildStats(core.buildSnapshot());
 }
 
 // Record operation/say events into the ring the panel renders as the op stream.
@@ -462,13 +403,8 @@ function recordOp(ev) {
 
 function emitStats() {
   if (!core) return;
-  const snapshot = core.buildSnapshot();
-  lastStats = buildStats('all', snapshot); // 面板/档案馆永远要全量
-  const splits = splitAgents();
-  for (const st of petStates()) {
-    const full = st.agent === 'all' && !splits.length;
-    sendWin(st.win, 'pet:stats', full ? lastStats : petStats(st.agent, snapshot));
-  }
+  lastStats = buildStats(core.buildSnapshot());
+  sendPet('pet:stats', lastStats);
   sendPanel('panel:stats', lastStats);
   sendArchive('workbench:stats', lastStats);
 }
@@ -479,8 +415,8 @@ function scheduleEmit() {
 }
 
 function broadcastConfig() {
-  for (const st of petStates()) sendWin(st.win, 'pet:config', frontendConfig(st.agent));
-  sendPanel('panel:config', frontendConfig('all'));
+  sendPet('pet:config', frontendConfig());
+  sendPanel('panel:config', frontendConfig());
 }
 
 // ── backend wiring ────────────────────────────────────────────────────────────
@@ -674,15 +610,8 @@ function registerIpc() {
     return petWin && !petWin.isDestroyed() ? petWin : null;
   };
 
-  ipcMain.handle('get-config', (e) => frontendConfig(senderAgent(e)));
-  ipcMain.handle('get-stats', (e) => {
-    // Do not return a stale cached price/token snapshot to a newly opened
-    // dashboard. buildStats is read-only and reflects the latest ledger scan.
-    // 桌宠窗口（stateOfSender 有值）走 petStats：主宠要减掉已分身的后端；
-    // 面板/档案馆不是桌宠窗口，拿全量。
-    const st = stateOfSender(e.sender);
-    return st ? petStats(st.agent) : buildStats('all');
-  });
+  ipcMain.handle('get-config', (e) => frontendConfig());
+  ipcMain.handle('get-stats', () => buildStats());
   ipcMain.handle('get-win-pos', (e) => {
     const win = senderPetWin(e);
     if (!win) return [0, 0];
@@ -826,11 +755,7 @@ function registerIpc() {
   });
 
   ipcMain.on('set-mode', (_e, mode) => applyMode(mode));
-  // 分身宠上切形象 → 存各自的皮肤位；其余（主宠/面板）→ 存主形象
-  ipcMain.on('set-skin', (e, skin) => {
-    const agent = senderAgent(e);
-    applySkin(skin, agent === 'codex' || agent === 'dsh' ? agent : null);
-  });
+  ipcMain.on('set-skin', (_e, skin) => { applySkin(skin); });
   ipcMain.on('toggle-mute', () => { config.save({ muted: !config.get().muted }); broadcastConfig(); refreshTrayMenu(); });
   ipcMain.on('set-session-prefs', (_e, pinnedSessions, archivedSessions) => {
     config.save({ pinnedSessions, archivedSessions });
@@ -917,19 +842,11 @@ function registerIpc() {
   //   • a focusable session exists  → focus the most relevant one
   //   • sessions exist but none focusable (no pid / closed / non-mac) → open panel
   //   • no sessions at all → launch a fresh CLI
-  ipcMain.on('primary-action', async (e) => {
-    const agent = senderAgent(e);
-    const splits = splitAgents();
-    const all = core
-      ? [...core.sessions.values()].filter((s) => {
-        const a = adapter.agentOf(s);
-        return agent === 'all' ? !splits.includes(a) : a === agent;
-      })
-      : [];
-    // 空场时各唤各的：Codex 宠拉 codex，dsh 宠拉 `dsh web`，其余拉 claude
+  ipcMain.on('primary-action', async () => {
+    const all = core ? [...core.sessions.values()] : [];
+    // 空场时唤起 Claude
     if (!all.length) {
-      const launcher = agent === 'codex' ? launchCodex : agent === 'dsh' ? launchDsh : launchClaude;
-      launcher({}).catch(() => {});
+      launchClaude({}).catch(() => {});
       return;
     }
     const focusables = all
@@ -1012,69 +929,15 @@ function applyMode(mode) {
   broadcastConfig();
   refreshTrayMenu();
 }
-function applySkin(skin, agent) {
-  if (agent === 'codex') config.save({ skinCodex: skin });
-  else if (agent === 'dsh') config.save({ skinDsh: skin });
-  else config.save({ skin });
+function applySkin(skin) {
+  config.save({ skin });
   broadcastConfig();
   refreshTrayMenu();
 }
 
-// 补齐当前设置应有的窗口（被单独收起的宠从托盘找回来）。主宠身份变化
-// (all⇄claude)时原地重载渲染器——不销毁窗口，位置不动、分身不闪。
+// 补齐当前设置应有的窗口（被收起的宠从托盘找回来）
 function ensurePetWindows() {
-  const duo = config.get().petMode === 'duo';
-  const primaryAgent = duo ? 'claude' : 'all';
-  if (!petWin || petWin.isDestroyed()) {
-    petWin = makePetWindow(primaryAgent);
-  } else {
-    const st = petState.get(petWin.webContents.id);
-    if (st && st.agent !== primaryAgent) {
-      st.agent = primaryAgent;
-      st.customSize = null; st.visualRect = null; st.uiBusy = false; st.mouseIgnoring = true;
-      petWin.loadFile(path.join(__dirname, 'renderer', 'pet.html'), { query: { agent: primaryAgent } });
-      applyPetSize(st);
-    }
-  }
-  if (duo) {
-    if (!petWinCodex || petWinCodex.isDestroyed()) petWinCodex = makePetWindow('codex');
-  } else if (petWinCodex) {
-    const gone = petWinCodex;
-    petWinCodex = null;
-    try { if (!gone.isDestroyed()) gone.destroy(); } catch {}
-  }
-  if (config.get().dshPet === true) {
-    if (!petWinDsh || petWinDsh.isDestroyed()) petWinDsh = makePetWindow('dsh');
-  } else if (petWinDsh) {
-    const gone = petWinDsh;
-    petWinDsh = null;
-    try { if (!gone.isDestroyed()) gone.destroy(); } catch {}
-  }
-}
-
-// 单宠 ⇄ 双宠切换（托盘复选「Codex 桌宠」）：勾选出现、取消隐藏
-function applyPetMode(petMode) {
-  if (config.get().petMode === petMode) return;
-  config.save({ petMode });
-  ensurePetWindows();
-  if (config.get().mode === 'menubar') { for (const st of petStates()) st.win.hide(); }
-  broadcastConfig();
-  refreshTrayMenu();
-  emitStats(); // 主宠的会话集合跟着变（分出去/收回来），立刻重推一次
-  log('main', `petMode → ${petMode}`);
-}
-
-// dsh 宠开关（托盘复选「dsh 桌宠」）：与 Codex 宠互不影响
-function applyDshPet(enabled) {
-  const want = enabled === true;
-  if (config.get().dshPet === want) return;
-  config.save({ dshPet: want });
-  ensurePetWindows();
-  if (config.get().mode === 'menubar') { for (const st of petStates()) st.win.hide(); }
-  broadcastConfig();
-  refreshTrayMenu();
-  emitStats();
-  log('main', `dshPet → ${want}`);
+  if (!petWin || petWin.isDestroyed()) petWin = makePetWindow('all');
 }
 // Language switch (tray → Settings → Language). Main-process copy is baked into
 // the strings the adapter already pushed, so a plain re-broadcast would leave
@@ -1109,22 +972,12 @@ function refreshTrayMenu() {
   const muted = cfg.muted;
   const skin = cfg.skin || 'mascot';
   const mode = cfg.mode || 'pet';
-  const petMode = cfg.petMode || 'single';
-  const skinCodex = cfg.skinCodex || 'cat';
-  const dshPet = cfg.dshPet === true;
-  const skinDsh = cfg.skinDsh || 'pixel';
   const lang = cfg.lang || 'zh';
   tray.setToolTip(t('tray.tooltip'));
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: t('tray.panel'), click: openPanel },
     { label: t('tray.archive'), click: openArchive },
     { label: t('tray.showPet'), click: () => { ensurePetWindows(); for (const st of petStates()) st.win.show(); } },
-    // 复选开关：勾上 = 双宠（Codex 分身出现），取消 = 单宠（一只盯全部后端）
-    { label: t('tray.codexPet'), type: 'checkbox', checked: petMode === 'duo',
-      click: () => applyPetMode(config.get().petMode === 'duo' ? 'single' : 'duo') },
-    // dsh（DeepSeek Harness）宠：独立开关，和 Codex 宠可同开
-    { label: t('tray.dshPet'), type: 'checkbox', checked: dshPet,
-      click: () => applyDshPet(config.get().dshPet !== true) },
     { type: 'separator' },
     { label: t('tray.settings'), enabled: false },
     { label: t('tray.language'), submenu: i18n.LANGS.map((code) => ({
@@ -1140,24 +993,12 @@ function refreshTrayMenu() {
       { type: 'separator' },
       { label: t('tray.agentStartupNow'), click: () => runAgentStartup() },
     ] },
-    { label: petMode === 'duo' || dshPet ? t('tray.skinClaude') : t('tray.skin'), submenu: [
+    { label: t('tray.skin'), submenu: [
       { label: t('skin.mascot'), type: 'radio', checked: skin === 'mascot', click: () => applySkin('mascot') },
       { label: t('skin.pixel'), type: 'radio', checked: skin === 'pixel', click: () => applySkin('pixel') },
       { label: t('skin.cat'), type: 'radio', checked: skin === 'cat', click: () => applySkin('cat') },
       { label: t('skin.whale'), type: 'radio', checked: skin === 'whale', click: () => applySkin('whale') },
     ] },
-    ...(petMode === 'duo' ? [{ label: t('tray.skinCodex'), submenu: [
-      { label: t('skin.mascot'), type: 'radio', checked: skinCodex === 'mascot', click: () => applySkin('mascot', 'codex') },
-      { label: t('skin.pixel'), type: 'radio', checked: skinCodex === 'pixel', click: () => applySkin('pixel', 'codex') },
-      { label: t('skin.cat'), type: 'radio', checked: skinCodex === 'cat', click: () => applySkin('cat', 'codex') },
-      { label: t('skin.whale'), type: 'radio', checked: skinCodex === 'whale', click: () => applySkin('whale', 'codex') },
-    ] }] : []),
-    ...(dshPet ? [{ label: t('tray.skinDsh'), submenu: [
-      { label: t('skin.mascot'), type: 'radio', checked: skinDsh === 'mascot', click: () => applySkin('mascot', 'dsh') },
-      { label: t('skin.pixel'), type: 'radio', checked: skinDsh === 'pixel', click: () => applySkin('pixel', 'dsh') },
-      { label: t('skin.cat'), type: 'radio', checked: skinDsh === 'cat', click: () => applySkin('cat', 'dsh') },
-      { label: t('skin.whale'), type: 'radio', checked: skinDsh === 'whale', click: () => applySkin('whale', 'dsh') },
-    ] }] : []),
     { label: t('tray.shape'), submenu: [
       { label: t('shape.pet'), type: 'radio', checked: mode === 'pet', click: () => applyMode('pet') },
       { label: t('shape.panel'), type: 'radio', checked: mode === 'panel', click: () => applyMode('panel') },

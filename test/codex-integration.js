@@ -18,9 +18,10 @@ assert(/require\('\.\/backend\/codex-watch'\)/.test(main), 'main process must lo
 assert(/codexWatch\s*=\s*createCodexWatch\(/.test(main), 'main process must create the Codex watcher');
 assert(/codexWatch\.start\(\)/.test(main), 'main process must start the Codex watcher');
 assert(/if \(codexWatch\) codexWatch\.stop\(\)/.test(main), 'app shutdown must stop the Codex watcher');
-assert(/function sendPetEvent\(ev\)/.test(main) && /ev\.agent === 'codex'/.test(main), 'Codex events must route to the Codex pet in duo mode');
-assert(/function createPetWindows\(\)/.test(main) && /makePetWindow\('codex'\)/.test(main), 'duo mode must create an independent Codex pet');
-assert(/petMode: 'single'/.test(config) && /skinCodex: 'cat'/.test(config), 'Codex pet settings must have safe defaults');
+assert(/function sendPetEvent\(ev\)/.test(main), 'Codex events must reach the pet window');
+assert(/function createPetWindows\(\)/.test(main) && /makePetWindow\('all'\)/.test(main), 'the single pet window must monitor every backend');
+assert(/skin: 'mascot'/.test(config), 'pet skin must have a safe default');
+assert(!/petMode|skinCodex|dshPet/.test(config), 'dual-pet config fields must be gone');
 assert(/launchCodex: \(\) => ipcRenderer\.send\('launch-codex'\)/.test(preload), 'renderer must be able to launch Codex');
 assert(!/closePet/.test(preload), 'dual-pet close channel must be gone');
 assert(/p\.name === 'request_user_input'/.test(read('backend/codex-watch.js')), 'Codex request_user_input function calls must be intercepted before generic tools');

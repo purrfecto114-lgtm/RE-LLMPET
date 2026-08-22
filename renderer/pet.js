@@ -5,8 +5,6 @@
 //   claude / codex / dsh  分身模式里各盯一个后端
 const AGENT = new URLSearchParams(location.search).get('agent') || 'all';
 const AGENT_NAME = { claude: 'Claude', codex: 'Codex', dsh: 'DeepSeek Harness', unknown: 'Agent' };
-const AGENT_LABEL = AGENT_NAME[AGENT] || '';
-// 会话行/名牌上的「谁」；未知后端保持中性，绝不误标 Claude。
 const agentName = (agent) => AGENT_NAME[agent] || 'Agent';
 // Capabilities are provider-owned, never inferred from a UUID, terminal, or
 // future provider name. dsh may be handed off as a readable source, but
@@ -1931,21 +1929,12 @@ function compactTokens(value) {
 function applyStats(s) {
   if (!s) return;
   lastStats = s;
-  if (s.billingAvailable === false || AGENT === 'dsh') {
-    chipCost.textContent = AGENT === 'dsh' ? 'DeepSeek Harness' : '—';
+  if (s.billingAvailable === false) {
+    chipCost.textContent = '—';
     chipWindow.textContent = '';
     chipWindow.title = '';
     chipSep.classList.add('hidden');
     chipWindow.classList.add('hidden');
-  } else if (AGENT === 'codex') {
-    const today = s.codexUsage && s.codexUsage.today;
-    chipCost.textContent = today && today.tokens
-      ? compactTokens(today.tokens) + ' tok'
-      : 'Codex';
-    chipWindow.textContent = today ? '$' + (today.cost || 0).toFixed(3) + ' API-eq' : '';
-    chipWindow.title = t('chip.codexTitle');
-    chipSep.classList.toggle('hidden', !today);
-    chipWindow.classList.toggle('hidden', !today);
   } else {
     chipCost.textContent = '$' + (s.today.cost || 0).toFixed(3);
     chipWindow.textContent = t('chip.lifetime', { cost: (s.lifetime.cost || 0).toFixed(3) });
@@ -2254,14 +2243,9 @@ slFilters.addEventListener('click', (e) => {
 const slNewBtn = document.getElementById('sl-new');
 const slNewCodexBtn = document.getElementById('sl-new-codex');
 const slNewDshBtn = document.getElementById('sl-new-dsh');
-// Rebind the key rather than the text: applyStaticI18n() re-reads data-i18n on
-// every language switch, so the Codex pet keeps its own label.
-if (AGENT === 'codex') slNewBtn.dataset.i18n = 'sess.newCodex';
-else if (AGENT === 'dsh') slNewBtn.dataset.i18n = 'sess.newDsh';
-else if (AGENT === 'all') {
-  if (slNewCodexBtn) slNewCodexBtn.classList.remove('hidden');
-  if (slNewDshBtn) slNewDshBtn.classList.remove('hidden');
-} // 单宠多后端：三个入口都能开
+// 单宠多后端：三个入口都能开
+if (slNewCodexBtn) slNewCodexBtn.classList.remove('hidden');
+if (slNewDshBtn) slNewDshBtn.classList.remove('hidden');
 slNewBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   window.pet.launchClaude();
@@ -2282,9 +2266,7 @@ todopop.querySelectorAll('.tp-ops button').forEach((b) => {
     const op = b.dataset.op;
     if (op === 'panel') window.pet.openPanel();
     else if (op === 'claude') {
-      if (AGENT === 'codex') window.pet.launchCodex();
-      else if (AGENT === 'dsh') window.pet.launchDsh();
-      else window.pet.launchClaude();
+      window.pet.launchClaude();
     }
     else if (op === 'log') window.pet.openLog();
     closeTodoPop();
@@ -2303,11 +2285,7 @@ const MENU = [
   { ic: 'zombie', labelKey: 'menu.background', badgeBg: true, act: () => window.pet.openPanel() },
   { ic: 'doc',    labelKey: 'menu.log', act: () => window.pet.openLog() },
   { ic: 'bell',   labelKey: 'menu.mute', act: () => window.pet.toggleMute() },
-  // 双宠模式下「退出」只收起自己这只（独立事件，另一只照常干活）；
-  // 整个 app 的退出走托盘。单宠模式保持原语义：退出 app。
-  AGENT === 'all'
-    ? { ic: 'power', labelKey: 'menu.quit', act: () => window.pet.quit() }
-    : { ic: 'power', labelKey: 'menu.collapse', act: () => window.pet.closePet() },
+  { ic: 'power',  labelKey: 'menu.quit', act: () => window.pet.quit() },
 ];
 
 function toggleSkin() {
@@ -2470,19 +2448,6 @@ window.addEventListener('blur', () => { if (radialOpen) closeRadial(); });
 
 // ---------- 初始化 ----------
 (async () => {
-  // 双宠模式：亮出名牌（谁盯 Claude、谁盯 Codex 一眼分清）
-  const agentTag = document.getElementById('agent-tag');
-  if (AGENT !== 'all' && agentTag) {
-    agentTag.innerHTML = `<span class="at-ic">${AGENT_ICONS[AGENT] || CLAUDE_ICON}</span><span>${AGENT_LABEL}</span>`;
-    agentTag.classList.add(AGENT);
-    agentTag.classList.remove('hidden');
-  }
-  // 记事本弹层的唤起按钮跟着 agent 走
-  if (AGENT === 'codex' || AGENT === 'dsh') {
-    const b = todopop.querySelector('.tp-ops button[data-op="claude"]');
-    // Rebind the key so applyStaticI18n() keeps relabelling it per backend.
-    if (b) b.dataset.i18n = AGENT === 'codex' ? 'tray.launchCodex' : 'tray.launchDsh';
-  }
   const cfg = await window.pet.getConfig();
   if (cfg) {
     muted = !!cfg.muted;
@@ -2499,13 +2464,7 @@ window.addEventListener('blur', () => { if (radialOpen) closeRadial(); });
   // 已先到时（lastStats 已有值）同样不能清。
   if (s) applyStats(s);
   else if (!lastStats) setState('idle');
-  showBubble(
-    AGENT === 'codex' ? t('bub.onlineCodex')
-      : AGENT === 'dsh' ? t('bub.onlineDsh')
-      : AGENT === 'claude' ? t('bub.onlineClaude')
-      : t('bub.online'),
-    3000,
-  );
+  showBubble(t('bub.online'), 3000);
   if (DEBUG_CONFETTI) setInterval(() => confetti(), 2500);
 })();
 
