@@ -300,8 +300,10 @@ mod tests {
         // Use a unique temp dir per-test to avoid global-cache aliasing.
         // Call snapshot_from_dir directly to bypass DSH_HOME env (unsafe in
         // concurrent tests on Rust 1.98+).
+        // Use flat layout (sessions/<id>/session.jsonl) to avoid windows path
+        // quirks with the nested --<cwd>-- bucket layout.
         let tmp = std::env::temp_dir().join(format!(
-            "octopus-dsh-test-enumerate-{}-{}",
+            "octopus-dsh-test-flat-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -310,7 +312,7 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&tmp);
         let sessions_root = tmp.join("sessions");
-        let session_dir = sessions_root.join("--tmp-test--").join("abc123");
+        let session_dir = sessions_root.join("abc123");
         fs::create_dir_all(&session_dir).unwrap();
         let header = json!({
             "type": "session",
