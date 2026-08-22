@@ -202,12 +202,23 @@ fn enumerate_sessions(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-pub fn snapshot(_app_dir: &Path) -> (Option<Value>, Option<Value>) {
+pub fn snapshot(app_dir: &Path) -> (Option<Value>, Option<Value>) {
     let dir = match sessions_dir() {
         Some(d) => d,
         None => return (None, Some(json!({"installed": false, "sessionCount": 0}))),
     };
-    let dir_mtime = fs::metadata(&dir).ok().and_then(|m| m.modified().ok());
+    snapshot_from_dir(&dir)
+}
+
+fn snapshot_from_dir(dir: &Path) -> (Option<Value>, Option<Value>) {
+    // If the dir doesn't exist, treat as not-installed (matches sessions_dir()
+    // semantics). This also lets snapshot_from_dir be called directly with a
+    // bogus path in tests without panicking.
+    let dir_meta = fs::metadata(dir);
+    if dir_meta.as_ref().map(|m| !m.is_dir()).unwrap_or(true) {
+        return (None, Some(json!({"installed": false, "sessionCount": 0})));
+    }
+    let dir_mtime = dir_meta.ok().and_then(|m| m.modified().ok());
 
     let now = now_ms();
     let mut guard = cache().lock().unwrap_or_else(|e| e.into_inner());
@@ -268,14 +279,20 @@ mod tests {
 
     #[test]
     fn snapshot_returns_none_when_dsh_absent() {
-        std::env::set_var("DSH_HOME", "/tmp/octopus-dsh-test-nonexistent");
-        let (sessions, summary) = snapshot(Path::new("/tmp"));
-        assert!(sessions.is_none());
+        // snapshot() reads DSH_HOME; with no env var and no ~/.dsh, it returns
+        // the not-installed summary. We test the not-installed path directly
+        // via snapshot_from_dir on a nonexistent dir.
+        let bogus = PathBuf::from("/tmp/octopus-dsh-bogus-nonexistent-12345");
+        let (sessions, summary) = snapshot_from_dir(&bogus);
+        // snapshot_from_dir on a missing dir returns (None, not-installed).
+        assert!(
+            sessions.is_none(),
+            "nonexistent dir should yield None sessions"
+        );
         assert_eq!(
             summary.and_then(|s| s.get("installed").and_then(Value::as_bool)),
             Some(false)
         );
-        std::env::remove_var("DSH_HOME");
     }
 
     #[test]
