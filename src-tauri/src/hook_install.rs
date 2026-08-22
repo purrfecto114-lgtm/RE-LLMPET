@@ -516,7 +516,7 @@ fn hook_presence(id: &str) -> HookPresence {
             )
         }
         "dsh" => match home_dir().join(".dsh").join("sessions").metadata() {
-            Ok(m) if m.is_dir() => HookPresence::Present,
+            Ok(m) if m.is_dir() => HookPresence::Current,
             _ => HookPresence::Missing,
         },
         _ => HookPresence::Missing,
