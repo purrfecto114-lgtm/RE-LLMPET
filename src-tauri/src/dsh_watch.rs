@@ -397,7 +397,9 @@ mod tests {
             is_subagent_header(&header),
             "is_subagent_header must return true for origin=subagent"
         );
-        // Now verify snapshot_from_dir returns 0 sessions.
+        // Clear cache again right before snapshot_from_dir (test1 may have
+        // filled it concurrently between our clear_cache() above and now).
+        clear_cache();
         let (sessions, _) = snapshot_from_dir(&sessions_root);
         let arr = sessions
             .map(|s| s.as_array().map(|a| a.len()).unwrap_or(0))
