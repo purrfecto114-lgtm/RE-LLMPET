@@ -53,7 +53,6 @@
 | Notification / Elicitation | `needsinput` |
 | PermissionRequest(阻塞 HTTP hook) | `waiting`(授权)/ `needsinput`(elicitation·方案评审) |
 | SessionEnd | 入睡序列 → `sleeping` |
-| 长时间无活动 | `roam` → 入睡序列 |
 
 ### 优先级(多会话时,主形象取最高的那个)
 `error 8 > notification 7 > sweeping 6 > attention 5 > carrying 4 = juggling 4 > working 3 > thinking 2 > idle 1 = roam 1 > sleeping 0`
@@ -116,9 +115,6 @@
 **`idle` — 待命**
 `Pose:` standing relaxed, calm soft smile, gently breathing, blinking — neutral resting default.
 
-**`roam` — 闲逛**
-`Pose:` strolling slowly mid-step, looking around curiously, relaxed wandering.
-
 **`yawning` — 困了**
 `Pose:` big yawn with mouth open, one tentacle rubbing an eye, droopy sleepy eyes.
 
@@ -160,7 +156,6 @@
 - 前端聚合梯子与本文件第 3 节优先级表一致:`waiting > 短暂态 > error > needsinput > sweeping > juggling > working > thinking > loafing > idle > sleeping`(见 `renderer/pet.js` applyStats)。
 - **loafing(摸鱼)**:adapter 合成态——工具结束(PostToolUse/SubagentStop)后 >5s 无事件的间隙。间隙里模型可能在推理/流式输出/事件丢失,不硬标注为「思考」;真思考走 UserPromptSubmit → thinking 事件通道。网络重试间隙由 transcript 巡检识别为 error,ESC 中断识别为 idle+中断徽标。
 - 状态机回归测试:`npm test`(`test/smoke.js` 后端链路 + `test/state-smoke.js` 渲染端,后者用 `test/dom-stub.js` 把真实 `pet.js` 跑在 Node 里)。
-- **领地模式(territory)**:`backend/territory.js` 发现别的桌宠 → 主进程编排「走过去把对方窗口顶到屏幕边上」;渲染端**全程复用现成情绪态**(spotted→`puzzled`、推挤→`excited`、victory→`happy`+彩带、defeat→`sad`、abort→静默清短暂态回落聚合态),不新增状态词、不需要新素材。事件走 `pet:event {kind:'territory', phase}`。物理拖拽前有输入空闲闸门(HIDIdleTime ≥2s),用户手上有活一律 abort 撤退,绝不抢鼠标。编排回归:`test/territory.js` [T6] 用注入的假 osascript/拖拽/空闲检测跑整场驱逐战。
 
 ---
 

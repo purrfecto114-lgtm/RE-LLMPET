@@ -18,11 +18,8 @@ The interface is available in **Simplified Chinese, English, and Japanese**. Swi
 - **Unified session workspace** — search and filter live or historical sessions, pin important work, archive noise, inspect context usage, and bring the selected terminal or desktop session forward.
 - **Cross-agent takeover** — hand work between Claude and Codex in either direction, or hand a dsh session to Claude or Codex; same-provider sessions use native resume or fork.
 - **Local session archive** — index user-owned sessions across all three providers, filter internal subagents, and optionally back up transcripts without overwriting an existing source during restore.
-- **Meme actions** — send a GIF + voice line to the pet and continue the selected session with the corresponding structured prompt.
-- **Travel Frog** — send the selected Claude or Codex pet on an isolated, read-only project expedition and receive a local postcard when it returns.
 - **Usage dashboard** — inspect real token trends, model breakdowns, Claude API-price-equivalent estimates, a local Codex token ledger, rate-limit windows, diagnostics, and live operations.
 - **Three skins** — Octopus 🐙, Pixel Monster 👾, and Salary Cat 🐱.
-- **Patrol mode on macOS** — LLMPET can detect supported rival desktop pets, stay above them, and attempt to push their windows to the nearest screen edge.
 
 LLMPET's state machine, metering, permission flow, process reconciliation, and desktop UI are implemented in this repository. Claude Code connects through its public hook system. Codex and DeepSeek Harness integrations are read-only: LLMPET tails their local session files and does not modify Agent configuration.
 
@@ -50,7 +47,6 @@ The packet is deliberately bounded, stored in a `0700` temporary directory as a 
 | <img src="assets/cat/cat-happy.gif" width="72" alt="Completed"> | 🎉 **Completed** | A turn has finished |
 | <img src="assets/cat/cat-error.gif" width="72" alt="Error"> | 💥 **Error** | A command or API request failed |
 | <img src="assets/cat/cat-loafing.gif" width="72" alt="Loafing"> | 🍦 **Loafing** | The previous step ended and nothing new is happening |
-| <img src="assets/cat/cat-roam.gif" width="72" alt="Traveling"> | 🧳 **Traveling** | A Travel Frog read-only expedition is in progress |
 | <img src="assets/cat/cat-sleeping.gif" width="72" alt="Sleeping"> | 😴 **Sleeping** | The session ended or has been inactive for a while |
 
 Salary Cat assets are credited to Douyin creator **@月薪喵**. See [`assets/cat/CREDITS.md`](assets/cat/CREDITS.md).
@@ -114,42 +110,6 @@ Those logs are **concatenated zstd frames** by default, and the Node runtime ins
 `turn/start` means thinking; once the turn's first `tool/call` lands it stays "working"; `turn/end` maps to celebration, interruption, or error by its reason; `approval/asked` shows "waiting for you" (answer it in dsh's own UI); `session/title` supplies the session name, and `assistant/message.usage` plus `request/context.contextWindow` give the context percentage. Subagent logs (`origin: 'subagent'`, `delegationDepth > 0`) are skipped entirely.
 
 Tick **🌊 dsh pet** in the tray to give dsh its own pet with a separate skin, position, and name tag — independent of the Codex pet toggle. Without it the main pet watches dsh too. "Go reply" opens the generic `dsh web` UI (`http://127.0.0.1:3080` by default, override with `LLMPET_DSH_WEB`); it cannot promise to focus one exact historical session. Harness can resume through `dsh --profile tui --resume <id>` only when that optional profile is installed, and the tested rc.6 machine had web/headless only, so LLMPET does not advertise dsh as a takeover target. A dsh session can still be handed off as a source to Claude or Codex. No cost ledger is built for dsh — it can front any provider, so LLMPET reports context only and never displays a made-up `$0` bill.
-
-## Travel Frog
-
-Click **🧳** beside a session to send that session's Claude Code or Codex agent on a separate expedition in the same project directory. Choose Project scout, Bug hunt, Idea trail, or write a custom mission.
-
-- **🐱 Wander** at the bottom of the session panel is deliberately unrelated to every session and project. Without asking the user for a destination, it randomly chooses a real-world route such as A faraway window, A living craft, or A strange corner of Earth, then opens a visible Claude or Codex CLI and completes at least three legs before returning.
-- Wander exposes only public web search and page reading. It has no file, shell, login, form, or upload capability. If the selected CLI presents its native web-access approval, the user can allow or deny it in the visible terminal; a denial is not bypassed and does not lead to a request for broader access. Each trip leaves from its own retained footprint under `~/.octopus/wander-home/trips/`; recent routes and memories help prevent repetitive outings.
-- One trip can run at a time. It is cancellable and limited to 30 minutes.
-- The returned postcard, status, and exact invocation usage stay in `~/.octopus/travel.json` with `0600` permissions.
-- Every 10,000 travel tokens earns one leaf; 4 leaves become a star, 4 stars a moon, and 4 moons a sun.
-- LLMPET never starts a trip automatically. Only pressing **Depart** sends the mission and relevant project context through the selected agent's CLI to Anthropic or OpenAI.
-
-## Meme actions
-
-Each meme is stored as structured data under:
-
-```text
-assets/memes/<meme-id>/
-  visual.gif
-  voice.mp3
-```
-
-The catalog keeps the label, description, playback behavior, pet reaction, prompt version, localized prompt, and source/licensing status together. GIF/MP3 formats and size limits are validated, while content hashes make resource replacements visible without restarting. See [`assets/memes/README.md`](assets/memes/README.md).
-
-The localized prompts are adapted to the culture of each language rather than translated word for word. For example, the Chinese “你这瓜保熟吗？” challenge becomes **“Source: trust me bro?”** in English because both jokes serve the same purpose: demanding proof instead of an unverified claim.
-
-## macOS patrol mode
-
-From the pet's context menu, choose **Patrol now**, or enable automatic patrol from the tray.
-
-1. **Paw stays on top:** when a supported rival pet is detected, LLMPET reasserts its topmost window level.
-2. **Push to the edge:** with Accessibility permission, LLMPET approaches the rival and attempts to move it to the nearest horizontal edge.
-
-The drag helper avoids acting while the user is actively using the mouse. Global input fallback is guarded by idle checks and restores mouse state on completion or failure.
-
-Patrol mode is currently macOS-only.
 
 ## Privacy and security
 

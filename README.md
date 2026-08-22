@@ -66,7 +66,6 @@ LLMPET 的状态机、计量、权限流、进程对账、会话归档和桌面 
 | <img src="assets/cat/cat-error.gif" width="72" alt="出错"> | 💥 **error 出错** | 执行失败 / API 报错（抱头崩溃大叫） |
 | <img src="assets/cat/cat-loafing.gif" width="72" alt="摸鱼"> <img src="assets/cat/cat-loafing-2.gif" width="72" alt="摸鱼2"> <img src="assets/cat/cat-loafing-3.gif" width="72" alt="摸鱼3"> | 🍦 **loafing 摸鱼** | 上一步干完、下一步还没来的间隙——摸鱼轮换：躺地刷手机 / 点外卖 / 奶瓶手机 |
 | <img src="assets/cat/cat-idle.gif" width="72" alt="待命"> | 🪑 **idle 待命** | 没有任务（转椅上冰淇淋+手机摸鱼） |
-| <img src="assets/cat/cat-roam.gif" width="72" alt="旅行"> | 🧳 **roam 旅行** | 青蛙旅行正在进行：独立 agent 只读探索项目（撒腿跑着玩） |
 | <img src="assets/cat/cat-sleeping.gif" width="72" alt="睡觉"> <img src="assets/cat/cat-sleeping-2.gif" width="72" alt="睡觉2"> | 😴 **sleeping 睡觉** | 会话结束 / 久无活动——睡姿轮换：被窝一坨 / 拔肚子毛当眼罩 |
 
 ---
@@ -124,20 +123,9 @@ dsh web / dsh --profile … ──写会话日志──► ~/.dsh/sessions/--项
 - **不装任何插件**：dsh 自带 Claude Code / Codex 两种 hook 桥接插件，但都得用户往自己的 profile 里装插件、改 `cordis.patch.yml`。为一只桌宠去改你的 agent 组合不值当——所以照 Codex 的路子读它自己的会话日志，零配置、卸载无残留。
 - **压缩日志也读得动**：dsh 的日志默认是 **zstd 分帧**（`session.jsonl.zstd`，一次落盘一帧），而 Electron 33 自带的 Node 20 没有 zstd API。桌宠自己扫帧边界、逐帧解压（内置纯 JS 解码器 [fzstd](https://github.com/101arrowz/fzstd)，MIT，见 `backend/vendor/`），末尾半帧留到下一轮。单个压缩帧有 32 MiB 的解码安全上限；超过时会记录并跳过该帧、继续后续日志，避免监听永久卡死。`compression: 'none'` 的纯文本 `session.jsonl` 同样支持。
 - 事件映射：`turn/start→思考`；首个 `tool/call` 之后整轮保持“干活中”；`turn/end completed→完成庆祝 + 💬`，`aborted/blocked→中断徽标`，`error→出错`；`approval/asked→等你回复`（授权仍在 dsh 自己的界面里答）；`compaction→打扫`；`session/title` 直接用它自己起的标题；`assistant/message.usage` 配 `request/context.contextWindow` 算上下文 %。`origin: 'subagent'` 与 `delegationDepth > 0` 的子 agent 线程整份跳过。
-- **第三只宠**（托盘 → **🌊 dsh 桌宠**）：勾上就多一只独立的 dsh 宠，形象 / 位置 / 名牌各一套，dsh 的事件只进它；不勾则由主宠一起盯。它和「🛰️ Codex 桌宠」是两个独立开关，四种组合都成立。
 - 运行时面板会把 `dsh web`、`--profile headless`、已安装的 `--profile tui`，以及 Node / `npx @deepseek-ai/dsh` 入口识别为 dsh agent。`dsh web` 是内置的通用 Web profile（默认 `http://127.0.0.1:3080`，改过端口用 `LLMPET_DSH_WEB` 覆盖），不是某一条历史会话的精确定位；会话列表的「去回复」只能打开这个通用入口，不能承诺跳回具体 session。TUI 可用 `dsh --profile tui --resume <id>` 恢复，但该 profile 需要本机先安装；只有 web / headless profile 的机器不能把 dsh 作为 LLMPET 接管目标。dsh 会话仍可作为**来源**交接给 Claude / Codex（生成本地交接单）。
 - **不做用量 / 计费**：dsh 可接任意模型供应商，本地日志没有可信的单价口径，所以只报上下文 %；**不会显示推测的价格、成本或账单**。
 - `LLMPET_NO_DSH=1` 关闭 dsh 监听；`LLMPET_DSH_DIR=<dir>` 指向假目录做开发验证；日志根目录跟随 `$DSH_HOME`（默认 `~/.dsh`）。
-
-### 🧳 青蛙旅行（只读探索）
-
-在会话列表点该会话右侧的 **🧳**，可让对应的 Claude Code / Codex 独自出去探索。它使用该会话的项目目录，但不会续写或污染原会话；可选择「项目侦察」「捉虫寻迹」「灵感散步」，也能写自定义任务。
-
-- 会话面板底部另有 **🐱 闲逛**：不绑定任何 session、不读取任何项目，也不要求用户输入。它会随机选择「远方开窗」「人间奇技」「地球怪角落」等真实世界路线，打开用户可见的 Claude / Codex CLI，至少走完三站后带回新见闻。
-- 闲逛只开放公开网页搜索和读取，不开放文件、Shell、登录、表单或上传能力。如果对应 CLI 弹出原生网页访问授权，可由用户在可见终端里亲自允许或拒绝；拒绝不会被绕过，也不会继续索要更大权限。每趟从 `~/.octopus/wander-home/trips/` 下自己的足迹目录出发；旅行小屋和结构化日志一直保留，最近走过的路线和记忆会用于减少重复。
-- 同一时间只允许一趟旅行，可随时取消；最长 30 分钟，结束后带回一张本地明信片。
-- 每次调用的真实 token 会单独累计：每 10,000 token 获得一片叶子，4 叶 = 1 星、4 星 = 1 月、4 月 = 1 日。
-- 旅行记录和成长值保存在权限为 `0600` 的 `~/.octopus/travel.json`。只有你主动点击「出发」时，任务和项目上下文才会由对应 CLI 发给 Claude 或 OpenAI；LLMPET 不会自动发起旅行。
 
 ---
 
@@ -171,19 +159,15 @@ npm start            # 启动桌宠（首次启动会注册 Claude Code 钩子�
 - **左键点桌宠** = 弹出**会话列表**（状态 + 会话名 + 上下文用量%）；可搜索、按 Claude / Codex / 待处理筛选、置顶或归档，点某行把对应终端 / 客户端调到前台。偏好写入 `~/.octopus/config.json`。
 - 会话面板底部的 **📚 档案** = 打开独立的**会话档案馆**，统一查看 Claude Code / Codex / dsh 在客户端、CLI 或 Harness 日志中留下的全部用户会话（子代理会话会被过滤），并可使用已支持 provider 的官方 resume，或生成本地交接单交给另一个代理接管。macOS 上 LLMPET 会保留一个 Dock 入口，点击即可重新显示或聚焦档案馆，不会创建第二个实例。
 - 档案馆的**定期本机备份默认关闭**。用户主动开启后，会增量备份 Claude、Codex 与 DSH 会话到 `~/.octopus/session-vault`；恢复只补回已经丢失的 transcript，绝不覆盖仍存在的源文件。它能应对 provider 重装或记录被删，但不是云同步，也不能防止整块硬盘损坏。
-- 会话右侧的 **🧳** = 打开青蛙旅行：让对应 agent 在该项目中执行一次独立、只读探索，回来后展示明信片并累计成长 token。
-- 会话面板底部的 **🐱 闲逛** = 打开可见 CLI，不带项目、不带任务和工具，让猫猫自己随便想想、聊聊。
 - **右键** = 泡泡菜单；**拖动** = 移动位置。等授权/等回复时会**自动**弹允许/拒绝气泡。
 - 托盘菜单可开详情面板、静音、唤起 Claude、打开日志、**卸载钩子**、退出。
 - 详情面板里可切皮肤 / 模式 / 设 5h 预算。
-- **🥊 领地模式**（macOS）：右键桌宠点“巡视”可立即扫描并执行一次；托盘可开启“自动巡逻”，开启后立即首巡、随后定时轮询（默认关）。两条定律：①**猫爪在上**——检测到别的桌面宠物（Desktop Goose / BongoCat / Shimeji 等）在跑，就把自己的窗口层级抬到最上，谁也不许压着咱（无需额外权限）；②**巡视行动**——发现对方窗口，小章鱼走过去把它一步步**顶到屏幕边上**。巡视需要**辅助功能**权限（移动别人的窗口）；没授权时「巡视」仍会执行猫爪在上，只是不推窗。对付 AXPosition 失效的透明窗桌宠时，会像 Computer Use 一样显示独立的橙色爪软件光标；底层兼容拖拽仍只在你**输入空闲 ≥2s** 时执行，期间隐藏系统光标，结束或异常都会补发 mouseUp 并把原光标复位，你手上有活时则静默撤退。自定义对手：`~/.octopus/config.json` 的 `territoryRivals` 数组加进程名关键词。
 
 ### 开发 / 验证开关
 - `OCTOPUS_NO_HOOKS=1 npm start` —— 启动但**不动** `~/.claude/settings.json`（只验证主进程 / 界面）。
 - `OCTOPUS_ALLOW_MULTI=1 npm start` —— 跳过多实例防护（默认：实例锁 + 启动探测到别的 LLMPET 实例就退出 + 存活期间守护 `runtime.json` 不被其他副本抢走）。
 - `OCTOPUS_NO_NET=1 npm start` —— **完全离线**：关掉唯一的外联请求（每 24h 拉一次 [LiteLLM 公开价目表](https://github.com/BerriAI/litellm)，只下载、不上传任何本地数据），花费改用内置估算单价。
 - `OCTOPUS_DEBUG=1 npm start` —— 开放 `GET /debug`（默认关闭，会暴露会话 cwd / 标题等，仅本机回环可访问）。
-- `OCTOPUS_TERRITORY_RIVALS=TextEdit OCTOPUS_TERRITORY_INTERVAL=4000 npm start` —— 领地模式调试：临时追加对手进程名（逗号分隔）/ 调巡逻间隔（ms），配合托盘开关做实机验证。
 - `npm test` —— 无头端到端冒烟测试（hook→server→core→adapter、权限持开→decide 字节级响应）。
 - 日志：`~/.octopus/octopus.log`。
 
@@ -240,7 +224,6 @@ backend/
   metering.js           计量 + 计费（transcript 扫描 + 定价 + 持久化）
   hooks.js              钩子生命周期（安装 + settings 监视器）
   focus.js              定位会话（mac 优先）
-  territory.js          领地模式（扫描别的桌宠 + 推窗驱逐战编排）
   config.js  log.js     配置持久化 / 日志
 shared/
   states.js             状态词表单一来源（主进程 / 渲染端 / 测试共用）
@@ -263,7 +246,6 @@ test/zstd.js            zstd 分帧读取（完整帧 / 半帧 / 坏数据）
 | **读 transcript** | 读取本机 `~/.claude` 下的会话记录 | 仅本地、仅 token 计数，不外传、不读正文 |
 | **focusSession** | 「去回复」在 macOS / Windows 生效 | Linux 需原生 helper，暂未实现；Windows 上 SetForegroundWindow 受系统前台锁限制，辅以 SwitchToThisWindow 兜底 |
 | **本地历史边界** | 删除 / 截断 transcript 或 rollout 后，本地台账无法代表账号完整历史 | 诊断区显示扫描状态；Claude 可从现存 transcript 重建，Codex 明确标为“本机留存历史” |
-| **表情包素材权利** | 部分用户提供的媒体尚无可核验授权链 | `catalog.json` 强制记录 `provenance`；未核清一律标 `unverified` / 禁止宣称可商用，规范见 `assets/memes/README.md` |
 
 ### 安全加固（已做）
 - HTTP 仅 `127.0.0.1` + loopback / Host / Origin 校验 + 每次启动随机令牌；body 上限（state 16KB / permission 1MB）；全字段规范化校验。
