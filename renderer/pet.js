@@ -9,13 +9,13 @@ const AGENT_LABEL = AGENT_NAME[AGENT] || '';
 // 会话行/名牌上的「谁」；未知后端保持中性，绝不误标 Claude。
 const agentName = (agent) => AGENT_NAME[agent] || 'Agent';
 // Capabilities are provider-owned, never inferred from a UUID, terminal, or
-// future provider name. dsh may be handed off as a readable source, but meme
-// dispatch and travel are only implemented for Claude/Codex. Unknown providers
+// future provider name. dsh may be handed off as a readable source, but
+// session-launch actions are only implemented for Claude/Codex. Unknown providers
 // fail closed on every mutating/session-launch action.
 const SESSION_ACTIONS = {
-  claude: { takeover: true, meme: true, travel: true },
-  codex: { takeover: true, meme: true, travel: true },
-  dsh: { takeover: true, meme: false, travel: false },
+  claude: { takeover: true },
+  codex: { takeover: true },
+  dsh: { takeover: false },
 };
 const sessionActionAllowed = (session, action) => !!(
   session && SESSION_ACTIONS[session.agent] && SESSION_ACTIONS[session.agent][action]
@@ -148,40 +148,11 @@ const memePack = () => MEME_PACKS[skin] || MEME_PACKS.cat;
 const POOL_ROTATE_MS = 60 * 1000;
 let poolIdx = 0;
 let poolRot = null;
-let memeWorkReaction = null;
-let memeWorkReactionTimer = null;
-let lootActionVisual = null;
-let lootActionDirection = 0;
-let lootActionTimer = null;
-function finishMemeWorkReaction(refresh = false) {
-  memeWorkReaction = null;
-  clearTimeout(memeWorkReactionTimer);
-  memeWorkReactionTimer = null;
-  // 高压工作姿态结束后，从当前真实状态的动画池随机接一张，避免每次
-  // 都机械地回到同一个默认动作。睡眠唤醒或测试时钟跨越期限后，
-  // activeMemeWorkVisual 的惰性到期路径也会走这里。
-  const pool = memePack().pools[state];
-  if (pool && pool.length) poolIdx = Math.floor(Math.random() * pool.length);
-  if (refresh && isMeme()) updateCat(state);
-}
-function activeMemeWorkVisual(s) {
-  if (!memeWorkReaction) return null;
-  if (perfNow() >= memeWorkReaction.until) {
-    finishMemeWorkReaction(false);
-    return null;
-  }
-  return memeWorkReaction.activeStates.has(s) ? memeWorkReaction.visualState : null;
-}
 function updateCat(s) {
   if (!catImg) return;
   const { dir, states, pools } = memePack();
-  const workVisual = activeMemeWorkVisual(s);
-  const pool = (workVisual || lootActionVisual) ? null : pools[s];
-  const f = lootActionVisual
-    ? (states[lootActionVisual] || states.attention)
-    : workVisual
-    ? (states[workVisual] || states.working)
-    : (pool ? pool[poolIdx % pool.length] : (states[s] || states.idle));
+  const pool = pools[s];
+  const f = (pool ? pool[poolIdx % pool.length] : (states[s] || states.idle));
   if (!catAssetMatches(dir + '/' + f)) catImg.src = '../assets/' + dir + '/' + f;
   if (pool) {
     if (!poolRot) {
@@ -208,96 +179,6 @@ function catAssetMatches(filename) {
   } catch {
     return String(catImg.getAttribute('src') || '').split(/[?#]/, 1)[0].endsWith(filename);
   }
-}
-function lootVisualNeedsMirror(visualState, direction) {
-  const targetDirection = Number(direction) === 1 ? 1 : -1;
-  // 这里的“方向”是猫主体位于画布哪一侧，而不是素材里的显示器朝哪边。
-  // attention 原图的猫在左、显示器在右；若把显示器方向当成猫的方向，
-  // 向左掠夺时就会错误镜像成“显示器靠 Codex、猫退到很远的右侧”。
-  // 三张掠夺动作的猫主体原生都在左侧，向右动作时才统一镜像。
-  const nativeDirection = -1;
-  return targetDirection !== nativeDirection;
-}
-function setLootActionVisual(visualState, direction) {
-  lootActionVisual = visualState;
-  lootActionDirection = Number(direction) === 1 ? 1 : -1;
-  cat.classList.toggle('loot-action-mirrored',
-    lootVisualNeedsMirror(visualState, lootActionDirection));
-  if (isMeme()) updateCat(state);
-}
-function startLootCaptureVisual(direction) {
-  clearTimeout(lootActionTimer);
-  lootActionTimer = null;
-  setLootActionVisual('attention', direction);
-}
-function startLootKick(direction) {
-  clearTimeout(lootActionTimer);
-  lootActionTimer = null;
-  setLootActionVisual('roam', direction);
-  // 同一张 GIF 连续触发时浏览器默认会沿用上次播放进度。加一次仅用于本轮
-  // 演出的查询串，确保蓄力从第一帧开始，后端按真实 helper 时序同步出脚。
-  if (isMeme() && catImg) {
-    const { dir, states } = memePack();
-    catImg.src = '../assets/' + dir + '/' + (states.roam || states.idle) + '?loot-kick=' + Date.now();
-  }
-}
-function startLootLookout(direction, durationMs = 6000) {
-  clearTimeout(lootActionTimer);
-  setLootActionVisual('lookout', direction);
-  lootActionTimer = setTimeout(() => {
-    lootActionTimer = null;
-    stopLootActionVisual();
-  }, durationMs);
-}
-function stopLootActionVisual() {
-  clearTimeout(lootActionTimer);
-  lootActionTimer = null;
-  lootActionVisual = null;
-  lootActionDirection = 0;
-  cat.classList.remove('loot-action-mirrored');
-  if (isMeme()) updateCat(state);
-}
-function clearMemeWorkReaction(refresh = true) {
-  const wasActive = !!memeWorkReaction;
-  memeWorkReaction = null;
-  clearTimeout(memeWorkReactionTimer);
-  memeWorkReactionTimer = null;
-  if (wasActive && refresh && isMeme()) updateCat(state);
-}
-function startMemeWorkReaction(work) {
-  clearMemeWorkReaction(false);
-  if (!work || !work.visualState || !Array.isArray(work.activeStates) || !work.activeStates.length) {
-    if (isMeme()) updateCat(state);
-    return false;
-  }
-  const durationMs = Math.max(1000, Math.min(120000, Number(work.durationMs) || 30000));
-  memeWorkReaction = {
-    visualState: work.visualState,
-    activeStates: new Set(work.activeStates),
-    until: perfNow() + durationMs,
-  };
-  if (isMeme()) updateCat(state);
-  memeWorkReactionTimer = setTimeout(() => {
-    if (!memeWorkReaction || perfNow() < memeWorkReaction.until) return;
-    finishMemeWorkReaction(true);
-  }, durationMs + 30);
-  return true;
-}
-function applyDeliveredMemeWorkReaction(meme, result) {
-  // inputSent means the native input path itself completed. submitted is the
-  // stronger, eventually-consistent transcript confirmation. The reaction
-  // should not disappear merely because transcript refresh lagged behind.
-  if (!result || (!result.submitted && !result.inputSent)) {
-    // playMeme starts the visual optimistically so it is continuous with the
-    // short meme reaction. An explicit delivery failure must roll that back.
-    clearMemeWorkReaction(true);
-    return false;
-  }
-  // Usually playMeme already started it. Do not restart the 30-second clock
-  // after transcript verification, otherwise slow confirmation lengthens the
-  // configured reaction unpredictably.
-  if (memeWorkReaction) return true;
-  return startMemeWorkReaction(meme && meme.reaction && meme.reaction.work);
 }
 const bubble = document.getElementById('bubble');
 const bubbleText = document.getElementById('bubble-text');
@@ -340,12 +221,6 @@ const slSub = document.getElementById('sl-sub');
 const slTitle = document.getElementById('sl-title');
 const slBack = document.getElementById('sl-back');
 const slSessionView = document.getElementById('sl-session-view');
-const slLoot = document.getElementById('sl-loot');
-const slLootText = document.getElementById('sl-loot-text');
-const slMemeView = document.getElementById('sl-meme-view');
-const slMemeSession = document.getElementById('sl-meme-session');
-const slMemeGrid = document.getElementById('sl-meme-grid');
-const slMemeStatus = document.getElementById('sl-meme-status');
 const slTakeoverView = document.getElementById('sl-takeover-view');
 const slTakeoverSession = document.getElementById('sl-takeover-session');
 const slTakeoverClaude = document.getElementById('sl-takeover-claude');
@@ -353,37 +228,9 @@ const slTakeoverCodex = document.getElementById('sl-takeover-codex');
 const slTakeoverClaudeMode = document.getElementById('sl-takeover-claude-mode');
 const slTakeoverCodexMode = document.getElementById('sl-takeover-codex-mode');
 const slTakeoverStatus = document.getElementById('sl-takeover-status');
-const slTravelView = document.getElementById('sl-travel-view');
-const slTravelSession = document.getElementById('sl-travel-session');
-const slTravelRankIcons = document.getElementById('sl-travel-rank-icons');
-const slTravelRankMeta = document.getElementById('sl-travel-rank-meta');
-const slMachineRankIcons = document.getElementById('sl-machine-rank-icons');
-const slMachineRankMeta = document.getElementById('sl-machine-rank-meta');
-const slTravelSetup = document.getElementById('sl-travel-setup');
-const slTravelTemplates = document.getElementById('sl-travel-templates');
-const slTravelMission = document.getElementById('sl-travel-mission');
-const slTravelStart = document.getElementById('sl-travel-start');
-const slTravelActive = document.getElementById('sl-travel-active');
-const slTravelActiveStatus = document.getElementById('sl-travel-active-status');
-const slTravelActiveMission = document.getElementById('sl-travel-active-mission');
-const slTravelCancel = document.getElementById('sl-travel-cancel');
-const slTravelPostcard = document.getElementById('sl-travel-postcard');
-const slTravelPostcardMeta = document.getElementById('sl-travel-postcard-meta');
-const slTravelStopTrack = document.getElementById('sl-travel-stop-track');
-const slTravelStopPrev = document.getElementById('sl-travel-stop-prev');
-const slTravelStopNext = document.getElementById('sl-travel-stop-next');
-const slTravelStopPage = document.getElementById('sl-travel-stop-page');
-const slTravelMailboxes = document.getElementById('sl-travel-mailboxes');
-const slTravelHistory = document.getElementById('sl-travel-history');
-const slTravelStatus = document.getElementById('sl-travel-status');
-const slWander = document.getElementById('sl-wander');
-const slTravelInbox = document.getElementById('sl-travel-inbox');
 const slSearch = document.getElementById('sl-search');
 const slFilters = document.getElementById('sl-filters');
 const slArchivedToggle = document.getElementById('sl-archived-toggle');
-const memePlayer = document.getElementById('meme-player');
-const memeImage = document.getElementById('meme-image');
-const memeCaption = document.getElementById('meme-caption');
 
 let askActive = false;
 let askQueue = []; // 当前所有待处理的选择/输入（每项含 project）
@@ -418,7 +265,6 @@ const choiceKey = (c) => (c && (c.sessionId || '') + '|' + (c.requestId || c.per
 // 避免固定大窗口留白 / 顶屏被下移。先扩到目标宽度再量高度：如果在基础
 // 320px 窄窗里先测，长文本会被过度换行，错误地把弹层撑到整屏高。
 const POPUP_W = 520;
-const TRAVEL_POPUP_W = 760;
 const POPUP_BOTTOM = 200;
 const ASK_VIEWPORT_MAX_H = 520;
 // 普通会话页永远只占三条 Session 的固定高度；更多内容只在列表内部滚动。
@@ -430,15 +276,9 @@ const SESSION_PANEL_H = 310;
 // 打开时会陷入“窗口不长高 -> 页面只剩半截”的测量死循环。给它一份稳定
 // 的完整面板高度，小屏幕由页面内部滚动兜底。
 const TAKEOVER_PANEL_H = 320;
-const MEME_WINDOW_W = 760;
-const MEME_WINDOW_H = 340;
-const MEME_MEDIA_W = 260;
-const MEME_GAP = 14;
-const MEME_EDGE_PAD = 10;
 const BASE_PET_FRAME_H = 340;
 const RESTING_FRAME_MAX_W = 360;
 const RESTING_FRAME_MAX_H = 360;
-let memeLayoutActive = false;
 let fitPopupSeq = 0;
 let lastPetSizeRequestSig = '';
 let edgeLayout = { vertical: 'above', horizontal: 'center' };
@@ -592,10 +432,6 @@ function popupFrameAlreadySettled(width, height, nextLayout) {
 function setRequestedPetSize(w, h, options = {}) {
   let width = Number(w) || 0;
   let height = Number(h) || 0;
-  if (memeLayoutActive) {
-    width = Math.max(width, MEME_WINDOW_W);
-    height = Math.max(height, MEME_WINDOW_H);
-  }
   const nextLayout = options.popup
     ? popupEdgeLayout(height, options.popupHeight)
     : restingEdgeLayout();
@@ -643,9 +479,7 @@ function fitPopup(el) {
     }
     const measure = () => {
       if (seq !== fitPopupSeq) return;
-      const popupW = el === sesslist && slTravelView && !slTravelView.classList.contains('hidden')
-        ? TRAVEL_POPUP_W
-        : POPUP_W;
+      const popupW = POPUP_W;
       // 关键：先临时去掉 max-height 再量，否则 scrollHeight 会被「当前小窗口算出的
       // max-height」钳住（鸡生蛋问题）→ 窗口永远只长一点点、列表只剩 1 行+滚动条。
       const prev = el.style.maxHeight;
@@ -657,9 +491,7 @@ function fitPopup(el) {
       setRequestedPetSize(popupW, winH, { popup: true, popupHeight: viewportH });
     };
 
-    const targetW = el === sesslist && slTravelView && !slTravelView.classList.contains('hidden')
-      ? TRAVEL_POPUP_W
-      : POPUP_W;
+    const targetW = POPUP_W;
     if (Math.abs((window.innerWidth || 0) - targetW) > 2) {
       // 第一拍只扩宽，第二拍在正确的横向排版下测真实高度。
       setRequestedPetSize(targetW, Math.max(340, window.innerHeight || 340), { popup: true });
@@ -675,8 +507,7 @@ function resetPetSize() {
   // Legitimate close paths clear their open flag before calling this function.
   if (sessListOpen || askActive || todoPopOpen) return false;
   fitPopupSeq++;
-  if (memeLayoutActive) setRequestedPetSize(MEME_WINDOW_W, MEME_WINDOW_H);
-  else setRequestedPetSize(0, 0);
+  setRequestedPetSize(0, 0);
   return true;
 }
 
@@ -697,7 +528,7 @@ function settleEdgeLayout() {
   // session list / question card / speech bubble was still open. The DOM kept
   // rendering, but Electron clipped it to that smaller transparent frame.
   if (surface) fitPopup(surface);
-  else setRequestedPetSize(memeLayoutActive ? MEME_WINDOW_W : 0, memeLayoutActive ? MEME_WINDOW_H : 0);
+  else setRequestedPetSize(0, 0);
   requestAnimationFrame(reportPetVisualBounds);
 }
 
@@ -830,7 +661,6 @@ function showAskPanel() {
   // Keep the choice queued; the next stats push after the user closes the list
   // will present it normally.
   if (sessListOpen) return;
-  askEl.classList.toggle('travel-letter', c.travel === true);
 
   const sess = c.sessionId ? ' · #' + String(c.sessionId).slice(-3) : '';
   const queue = askQueue.length > 1 ? `${askIdx + 1}/${askQueue.length} · ` : '';
@@ -1033,7 +863,7 @@ function elicBack(c) {
 // ② 授权：允许(绿)/拒绝(红) + 可选「始终允许」建议按钮(中性)
 function renderPerm(c) {
   clearAskBody();
-  askLabel.textContent = c.travel ? t('travel.letterLabel') : t('ask.needPerm');
+  askLabel.textContent = t('ask.needPerm');
   askQhead.textContent = c.header || '';
   askQ.textContent = c.question || t('ask.needPermQ');
   const opts = c.options || [];
@@ -1047,7 +877,6 @@ function renderPerm(c) {
     askOpts.appendChild(card);
   });
   askFoot.classList.add('hidden');
-  if (c.travel) askTerm.textContent = t('travel.openTerminal');
   askTerm.classList.remove('hidden');
 }
 
@@ -1216,14 +1045,13 @@ function renderTodoPop() {
 // 一张「需要你处理」卡片：问题 + 选项按钮(可点即答) + 自定义输入
 function buildActCard(c) {
   const card = document.createElement('div');
-  card.className = 'tp-act' + (c.travel ? ' travel-letter' : '');
-  const kindTag = c.travel ? t('travel.letterLabel')
-    : c.kind === 'perm' ? t('ask.kindPerm')
-      : c.kind === 'continue' ? t('ask.kindContinue')
-        : c.kind === 'plan' ? t('ask.kindPlan') : t('ask.kindChoice');
+  card.className = 'tp-act';
+  const kindTag = c.kind === 'perm' ? t('ask.kindPerm')
+    : c.kind === 'continue' ? t('ask.kindContinue')
+      : c.kind === 'plan' ? t('ask.kindPlan') : t('ask.kindChoice');
   const head = document.createElement('div');
   head.className = 'tp-act-proj';
-  head.textContent = `${c.travel ? '✉️' : '📂'} ${c.project || '?'} · ${kindTag}`;
+  head.textContent = `📂 ${c.project || '?'} · ${kindTag}`;
   card.appendChild(head);
   const q = document.createElement('div');
   q.className = 'tp-act-q';
@@ -1302,40 +1130,8 @@ let sessListOpen = false;
 let lastSessListRenderSig = '';
 let lastSessionDotsRenderSig = '';
 let stableSessionOrder = [];
-let memeCatalog = { schemaVersion: 2, items: [] };
-let memeTarget = null;
 let takeoverTarget = null;
-let memeTimer = null;
-let memeAudio = null;
-let memeCatalogRefreshTimer = null;
-let travelTarget = null;
-let travelData = null;
-let travelPostcards = [];
-let selectedPostcardId = null;
-let selectedPostcardStop = 0;
-let renderedPostcardKey = '';
-let lastTravelMailboxRenderSig = '';
-let lastTravelHistoryRenderSig = '';
-let lastTravelTemplatesRenderSig = '';
-let travelTemplateId = null;
-let travelMissionDirty = false;
-let lootCapture = null;
-let lootCaptureTimers = [];
-let lootPerformanceActive = false;
-let lootPerformanceTimer = null;
-let lootTargetClosed = false;
-let lootKeptSessions = [];
-let lootKeptExpiryTimer = null;
 
-function beginLootPerformance() {
-  clearTimeout(lootPerformanceTimer);
-  lootPerformanceActive = true;
-}
-
-function endLootPerformance(delay = 0) {
-  clearTimeout(lootPerformanceTimer);
-  lootPerformanceTimer = setTimeout(() => { lootPerformanceActive = false; }, delay);
-}
 // Claude 橙色 burst（小图标）
 const CLAUDE_ICON =
   '<svg viewBox="0 0 24 24" fill="#d97757"><path d="M12 1l2.2 6.3L20.5 5l-4 5.4 6.5 1.6-6.5 1.6 4 5.4-6.3-2.3L12 23l-2.2-6.3L3.5 19l4-5.4L1 12l6.5-1.6-4-5.4 6.3 2.3z"/></svg>';
@@ -1377,42 +1173,13 @@ const SESS_SORT = { waiting: 0, needsinput: 0, error: 1, working: 2, juggling: 2
 function ctxClass(p) { return p >= 90 ? 'high' : p >= 75 ? 'mid' : ''; }
 
 const sessionKey = (s) => String((s && (s.sessionId || s.id)) || '');
-function activeLootKeptSessions() {
-  const now = Date.now();
-  return lootKeptSessions.filter((session) => session && session.expiresAt > now);
-}
 function mergedOrdinarySessions() {
   const byId = new Map();
   for (const session of (curSessions || [])) {
     const key = sessionKey(session);
     if (key) byId.set(key, session);
   }
-  for (const kept of activeLootKeptSessions()) {
-    const key = sessionKey(kept);
-    if (!key) continue;
-    // 当前 watcher 数据优先；快照只负责在 watcher 暂时回收历史项时兜底，
-    // 并用 lootCapturedUntil 标记这 30 分钟的普通列表保留期。
-    byId.set(key, {
-      ...kept,
-      ...(byId.get(key) || {}),
-      lootCapturedUntil: kept.expiresAt,
-    });
-  }
   return [...byId.values()];
-}
-function scheduleLootKeptExpiry() {
-  clearTimeout(lootKeptExpiryTimer);
-  const active = activeLootKeptSessions();
-  const next = active.reduce((min, session) => Math.min(min, session.expiresAt), Infinity);
-  if (!Number.isFinite(next)) return;
-  lootKeptExpiryTimer = setTimeout(() => {
-    lootKeptSessions = activeLootKeptSessions();
-    if (sessListOpen && !lootCapture && !memeTarget && !takeoverTarget) {
-      renderSessList();
-      fitPopup(sesslist);
-    }
-    scheduleLootKeptExpiry();
-  }, Math.max(50, next - Date.now() + 20));
 }
 const isBaseVisibleSession = (s) => !!s && !s.headless && s.state !== 'sleeping';
 const isArchivedSession = (s) => archivedSessionIds.includes(sessionKey(s));
@@ -1427,12 +1194,7 @@ function sessionDotClass(s) {
 
 function visibleSessions() {
   return mergedOrdinarySessions()
-    // Dedicated travel sessions live in their own mailbox. They remain in the
-    // stats/permission model (so a letter cannot flash away), but do not count
-    // as ordinary project tasks.
-    .filter((s) => !!s && s.sessionRole !== 'travel')
-    .filter((s) => !s.headless && (s.lootCapturedUntil > Date.now()
-      || s.state !== 'sleeping' || (showArchived && isArchivedSession(s))))
+    .filter((s) => !s.headless && (s.state !== 'sleeping' || (showArchived && isArchivedSession(s))))
     .filter((s) => showArchived ? isArchivedSession(s) : !isArchivedSession(s))
     .filter((s) => {
       if (sessionFilter === 'attention') return ['waiting', 'needsinput', 'error'].includes(s.state);
@@ -1446,9 +1208,6 @@ function visibleSessions() {
         .some((v) => String(v || '').toLocaleLowerCase().includes(q));
     })
     .sort((a, b) => {
-      const lootA = a.lootCapturedUntil > Date.now() ? 0 : 1;
-      const lootB = b.lootCapturedUntil > Date.now() ? 0 : 1;
-      if (lootA !== lootB) return lootA - lootB;
       const pinA = pinnedSessionIds.includes(sessionKey(a)) ? 0 : 1;
       const pinB = pinnedSessionIds.includes(sessionKey(b)) ? 0 : 1;
       if (pinA !== pinB) return pinA - pinB;
@@ -1460,7 +1219,6 @@ function visibleSessions() {
 }
 
 function sessionsForList() {
-  if (lootCapture) return lootCapture.sessions;
   const list = visibleSessions();
   const byKey = new Map(list.map((session) => [sessionKey(session), session]));
   const ordered = [];
@@ -1483,89 +1241,6 @@ function resetSessionListOrder() {
   lastSessListRenderSig = '';
 }
 
-function clearLootTimers() {
-  for (const timer of lootCaptureTimers) clearTimeout(timer);
-  lootCaptureTimers = [];
-}
-
-function setLootBanner(key, vars) {
-  if (!slLoot || !slLootText) return;
-  slLoot.classList.remove('hidden');
-  slLootText.textContent = t(key, vars);
-}
-
-function startLootCapture(available = 0) {
-  clearLootTimers();
-  lootCapture = {
-    sessions: [],
-    available: Math.max(0, Number(available) || 0),
-    enteringSessionId: '',
-    ready: false,
-  };
-  sessionSearch = '';
-  sessionFilter = 'all';
-  showArchived = false;
-  if (slSearch) slSearch.value = '';
-  slFilters.querySelectorAll('button[data-filter]').forEach((button) => {
-    button.classList.toggle('active', button.dataset.filter === 'all');
-  });
-  openSessList();
-  slTitle.textContent = t('loot.panelTitle');
-  setLootBanner(lootCapture.available ? 'loot.capturing' : 'loot.noSessions', { n: lootCapture.available });
-  renderSessList();
-}
-
-function appendLootSession(session) {
-  if (!lootCapture || !session) return;
-  const key = sessionKey(session);
-  if (!key || lootCapture.sessions.some((item) => sessionKey(item) === key)) return;
-  lootCapture.sessions.push(session);
-  lootCapture.enteringSessionId = key;
-  setLootBanner('loot.progress', { done: lootCapture.sessions.length });
-  renderSessList();
-  // 掠夺开始时已经一次性固定了会话框高度；这里只滚动内容，绝不能再次
-  // resize BrowserWindow，否则可见桌宠会被每条 session 带着漂移。
-  requestAnimationFrame(() => {
-    if (lootCapture && slRows) slRows.scrollTop = slRows.scrollHeight;
-  });
-  SOUND.done();
-  // 只记录这次显式入场。掠夺期间普通 stats/config 刷新不再重建列表，
-  // 所以同一条动画不会被快照轮询反复从第一帧重启。
-  lootCaptureTimers.push(setTimeout(() => {
-    if (lootCapture && lootCapture.enteringSessionId === key) {
-      lootCapture.enteringSessionId = '';
-    }
-  }, 620));
-}
-
-function markLootCaptureWaiting() {
-  if (!lootCapture || lootCapture.ready) return;
-  setLootBanner(lootCapture.sessions.length ? 'loot.preparing' : 'loot.noSessions', {
-    done: lootCapture.sessions.length,
-  });
-}
-
-function revealLootReady(count) {
-  if (!lootCapture) return;
-  lootCapture.ready = true;
-  setLootBanner('loot.ready', { done: Number(count) || lootCapture.sessions.length });
-}
-
-function finishLootCapture(success) {
-  if (!lootCapture) return;
-  clearLootTimers();
-  lootCapture.enteringSessionId = '';
-  setLootBanner(success ? 'loot.captured' : 'loot.kept', { n: lootCapture.sessions.length });
-  renderSessList();
-  lootCaptureTimers.push(setTimeout(() => {
-    lootCapture = null;
-    if (slLoot) slLoot.classList.add('hidden');
-    slTitle.textContent = t('sess.title');
-    renderSessList();
-    fitPopup(sesslist);
-  }, success ? 1400 : 2200));
-}
-
 function createSessRow() {
   const row = document.createElement('div');
   row.className = 'sl-row';
@@ -1575,8 +1250,6 @@ function createSessRow() {
     '<div class="sl-main"><div class="sl-name"></div><div class="sl-meta-line"><div class="sl-meta"></div><button class="sl-session-id"></button></div></div>' +
     '<span class="sl-ctx hidden"></span>' +
     '<button class="sl-takeover-entry"></button>' +
-    '<button class="sl-meme-entry"></button>' +
-    '<button class="sl-travel-entry">🧳</button>' +
     '<span class="sl-actions">' +
     '<button class="sl-action pin">★</button>' +
     '<button class="sl-action archive">▣</button>' +
@@ -1589,8 +1262,6 @@ function createSessRow() {
     sessionId: row.querySelector('.sl-session-id'),
     context: row.querySelector('.sl-ctx'),
     takeover: row.querySelector('.sl-takeover-entry'),
-    meme: row.querySelector('.sl-meme-entry'),
-    travel: row.querySelector('.sl-travel-entry'),
     pin: row.querySelector('.sl-action.pin'),
     archive: row.querySelector('.sl-action.archive'),
   };
@@ -1611,14 +1282,6 @@ function createSessRow() {
   row._parts.takeover.addEventListener('click', (event) => {
     event.stopPropagation();
     openTakeoverPage(row._session);
-  });
-  row._parts.meme.addEventListener('click', (event) => {
-    event.stopPropagation();
-    openMemePage(row._session);
-  });
-  row._parts.travel.addEventListener('click', (event) => {
-    event.stopPropagation();
-    openTravelPage(row._session);
   });
   row._parts.pin.addEventListener('click', (event) => {
     event.stopPropagation();
@@ -1684,9 +1347,7 @@ function updateSessRow(row, session) {
   const pinned = pinnedSessionIds.includes(key);
   const archived = archivedSessionIds.includes(key);
   row.dataset.sessionKey = key;
-  row.className = 'sl-row' + (
-    lootCapture && key === lootCapture.enteringSessionId ? ' loot-enter' : ''
-  );
+  row.className = 'sl-row';
   parts.dot.className = `sl-dot ${sessionDotClass(session)}`;
   parts.icon.title = agentName(session.agent);
   const iconMarkup = agentIcon(session);
@@ -1704,12 +1365,7 @@ function updateSessRow(row, session) {
   }
   parts.takeover.title = t('takeover.entryTitle');
   parts.takeover.textContent = t('takeover.entry');
-  parts.meme.title = t('meme.entryTitle');
-  parts.meme.textContent = t('meme.entry');
   parts.takeover.classList.toggle('hidden', !sessionActionAllowed(session, 'takeover'));
-  parts.meme.classList.toggle('hidden', !sessionActionAllowed(session, 'meme'));
-  parts.travel.classList.toggle('hidden', !sessionActionAllowed(session, 'travel'));
-  parts.travel.title = t('travel.entryTitle');
   parts.pin.className = `sl-action pin${pinned ? ' active' : ''}`;
   parts.pin.title = t(pinned ? 'sess.unpin' : 'sess.pin');
   parts.archive.className = `sl-action archive${archived ? ' active' : ''}`;
@@ -1718,23 +1374,11 @@ function updateSessRow(row, session) {
 
 function renderSessList() {
   const list = sessionsForList();
-  const waitingLetters = (curSessions || []).filter((session) => (
-    session &&
-    session.sessionRole === 'travel' &&
-    session.choice &&
-    (session.state === 'waiting' || session.state === 'needsinput')
-  )).length;
   const renderSig = JSON.stringify({
     lang: window.OctoI18n.getLang(),
     search: sessionSearch,
     filter: sessionFilter,
     archived: showArchived,
-    waitingLetters,
-    loot: lootCapture && {
-      ready: lootCapture.ready,
-      enteringSessionId: lootCapture.enteringSessionId,
-      count: lootCapture.sessions.length,
-    },
     rows: list.map((s) => ({
       key: sessionKey(s),
       project: s.project,
@@ -1752,20 +1396,12 @@ function renderSessList() {
   if (renderSig === lastSessListRenderSig) return false;
   lastSessListRenderSig = renderSig;
   const previousScrollTop = slRows.scrollTop;
-  if (slTravelInbox) {
-    slTravelInbox.textContent = waitingLetters
-      ? `${t('travel.inboxEntry')} · ${waitingLetters}`
-      : t('travel.inboxEntry');
-    slTravelInbox.classList.toggle('has-letter', waitingLetters > 0);
-  }
-  slSub.textContent = lootCapture
-    ? t('loot.countStreaming', { done: lootCapture.sessions.length })
-    : (list.length ? t('sess.count', { n: list.length }) : '');
+  slSub.textContent = list.length ? t('sess.count', { n: list.length }) : '';
   if (!list.length) {
     slRows.innerHTML = '';
     const e = document.createElement('div');
     e.className = 'sl-empty';
-    e.textContent = lootCapture ? t('loot.waiting') : t('sess.empty');
+    e.textContent = t('sess.empty');
     slRows.appendChild(e);
     return true;
   }
@@ -1817,14 +1453,10 @@ function takeoverResultText(result, target) {
 
 function openTakeoverPage(session) {
   if (!sessionActionAllowed(session, 'takeover')) return false;
-  memeTarget = null;
-  travelTarget = null;
   takeoverTarget = session;
   sesslist.classList.remove('session-list-mode');
   sesslist.classList.add('takeover-mode');
   slSessionView.classList.add('hidden');
-  slMemeView.classList.add('hidden');
-  slTravelView.classList.add('hidden');
   slTakeoverView.classList.remove('hidden');
   slBack.classList.remove('hidden');
   slTitle.textContent = t('takeover.pickTitle');
@@ -1865,810 +1497,11 @@ async function runTakeover(target) {
   return true;
 }
 
-async function loadMemeCatalog() {
-  try {
-    const next = await window.pet.getMemeCatalog();
-    if (next && Array.isArray(next.items)) memeCatalog = next;
-  } catch (err) {
-    rlog('meme', 'catalog failed ' + (err && err.message ? err.message : err));
-  }
-  return memeCatalog;
-}
-
-function memeMediaUrl(meme, kind) {
-  if (!meme || !meme.media || typeof meme.media[kind] !== 'string') return '';
-  const base = `../assets/memes/${meme.media[kind]}`;
-  return meme.media.version ? `${base}?v=${encodeURIComponent(meme.media.version)}` : base;
-}
-
-function setMemeStatus(text, kind = '') {
-  slMemeStatus.textContent = text || '';
-  slMemeStatus.className = 'sl-meme-status' + (kind ? ' ' + kind : '');
-}
-
-async function openMemePage(session) {
-  if (!sessionActionAllowed(session, 'meme')) return false;
-  memeTarget = session;
-  takeoverTarget = null;
-  sesslist.classList.remove('session-list-mode');
-  sesslist.classList.remove('takeover-mode');
-  slSessionView.classList.add('hidden');
-  slTakeoverView.classList.add('hidden');
-  slMemeView.classList.remove('hidden');
-  slBack.classList.remove('hidden');
-  slTitle.textContent = t('meme.pickTitle');
-  slSub.textContent = '';
-  slMemeSession.textContent = `${agentName(session.agent)} · ${session.project}`;
-  slMemeGrid.innerHTML = '';
-  setMemeStatus(t('meme.loading'));
-  await loadMemeCatalog();
-  if (!memeTarget || memeTarget.sessionId !== session.sessionId) return;
-  slMemeGrid.innerHTML = '';
-  for (const meme of memeCatalog.items) {
-    const card = document.createElement('button');
-    card.className = 'sl-meme-card';
-    card.innerHTML =
-      `<img class="sl-meme-thumb" src="${esc(memeMediaUrl(meme, 'gif'))}" alt="">` +
-      `<span class="sl-meme-label">${esc(meme.label)}</span>` +
-      `<span class="sl-meme-desc">${esc(meme.description)}</span>`;
-    card.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      card.disabled = true;
-      setMemeStatus(t('meme.sending'));
-      const target = memeTarget;
-      closeSessList();
-      let result;
-      try {
-        result = await window.pet.triggerMeme(target.sessionId, meme.id);
-      } catch (err) {
-        result = { ok: false, submitted: false, message: err && err.message ? err.message : t('meme.failed') };
-      }
-      const workReactionStarted = applyDeliveredMemeWorkReaction(meme, result);
-      card.disabled = false;
-      if (result && result.ok) {
-        memeCaption.textContent = t(result.submitted ? 'meme.sent' : 'meme.copied', { label: meme.label });
-      } else {
-        memeCaption.textContent = (result && result.message) || t('meme.failed');
-        if (memePlayer.classList.contains('hidden')) showBubble(memeCaption.textContent, 3600, true);
-      }
-      rlog(
-        'meme',
-        `${meme.id} target=${String(target.sessionId || '').slice(-6)} ` +
-          `submitted=${!!(result && result.submitted)} inputSent=${!!(result && result.inputSent)} ` +
-          `workReaction=${workReactionStarted}`,
-      );
-    });
-    slMemeGrid.appendChild(card);
-  }
-  setMemeStatus(memeCatalog.items.length ? t('meme.hint') : t('meme.none'));
-  fitPopup(sesslist);
-  return true;
-}
-
-function travelBelongsToThisPet(trip) {
-  return !!trip && (AGENT === 'all' || AGENT === trip.agent);
-}
-
-function tokenRankText(rank, emptyKey = 'travel.rankEmpty') {
-  if (!rank || !rank.units) return t(emptyKey);
-  const parts = [];
-  if (rank.crown) parts.push(rank.crown > 3 ? `👑×${rank.crown}` : '👑'.repeat(rank.crown));
-  if (rank.sun) parts.push(rank.sun > 3 ? `☀️×${rank.sun}` : '☀️'.repeat(rank.sun));
-  if (rank.moon) parts.push('🌙'.repeat(rank.moon));
-  if (rank.star) parts.push('⭐'.repeat(rank.star));
-  // Keep the persisted property name `leaf` for compatibility, but render an
-  // amber paw instead of a green leaf.
-  if (rank.leaf) parts.push('🐾'.repeat(rank.leaf));
-  return parts.join(' ') || t(emptyKey);
-}
-
-function setTravelStatus(text, kind = '') {
-  slTravelStatus.textContent = text || '';
-  slTravelStatus.className = 'sl-travel-status' + (kind ? ' ' + kind : '');
-}
-
-function travelErrorText(code) {
-  if (code === 'busy') return t('travel.busy');
-  if (code === 'invalid-target' || code === 'foreign-target' || code === 'empty-mission') return t('travel.invalid');
-  return t('travel.notReady');
-}
-
-function travelMailboxSessions() {
-  return (curSessions || [])
-    .filter((session) => (
-      session &&
-      session.sessionRole === 'travel' &&
-      !session.headless &&
-      (AGENT === 'all' || session.travelAgent === AGENT || session.agent === AGENT)
-    ));
-}
-
-function renderTravelMailboxes() {
-  if (!slTravelMailboxes) return;
-  const sessions = travelMailboxSessions();
-  const agents = AGENT === 'all' ? ['claude', 'codex'] : (AGENT === 'dsh' ? [] : [AGENT]);
-  const active = travelData && travelData.active;
-  const renderSig = JSON.stringify({
-    lang: window.OctoI18n.getLang(),
-    agents,
-    active: active && {
-      agent: active.agent,
-      status: active.status,
-      minute: Math.max(0, Math.floor((Date.now() - Number(active.startedAt || Date.now())) / 60000)),
-    },
-    sessions: sessions.map((session) => ({
-      key: sessionKey(session),
-      agent: session.travelAgent || session.agent,
-      project: session.project,
-      state: session.state,
-      badge: session.badge,
-      choice: !!session.choice,
-    })),
-  });
-  if (renderSig === lastTravelMailboxRenderSig) return false;
-  lastTravelMailboxRenderSig = renderSig;
-  slTravelMailboxes.innerHTML = '';
-  for (const agent of agents) {
-    const session = sessions.find((item) => (item.travelAgent || item.agent) === agent) || null;
-    const hasLetter = !!(
-      session &&
-      session.choice &&
-      (session.state === 'waiting' || session.state === 'needsinput')
-    );
-    const active = travelData && travelData.active && travelData.active.agent === agent
-      ? travelData.active
-      : null;
-    let meta = t('travel.mailboxDormant');
-    if (hasLetter) meta = t('travel.mailboxWaiting');
-    else if (active) meta = active.status === 'departing'
-      ? t('travel.departing')
-      : t('travel.traveling', {
-        minutes: Math.max(0, Math.floor((Date.now() - Number(active.startedAt || Date.now())) / 60000)),
-      });
-    else if (session) {
-      if (session.badge === 'done') meta = t('sess.justDone');
-      else if (session.badge === 'interrupted') meta = t('sess.interrupted');
-      else meta = sessMeta(session.state) || session.state || t('travel.mailboxReady');
-    }
-
-    const row = document.createElement('div');
-    row.className = 'sl-travel-mailbox' + (hasLetter ? ' has-letter' : '') + (active ? ' active' : '');
-    row.innerHTML =
-      `<span class="sl-travel-mailbox-icon">${agent === 'codex' ? '🛰️' : '🐾'}</span>` +
-      `<div class="sl-travel-mailbox-main">` +
-      `<strong>${esc(t('travel.sessionName', { who: agent === 'codex' ? 'Codex' : 'Claude' }))}</strong>` +
-      `<span>${esc(meta)}</span></div>` +
-      (hasLetter
-        ? `<button class="sl-travel-letter-open">${esc(t('travel.replyLetter'))}</button>`
-        : session
-          ? `<button class="sl-travel-terminal-open">${esc(t('travel.openMailbox'))}</button>`
-          : `<span class="sl-travel-mailbox-new">${esc(t('travel.firstTripCreates'))}</span>`);
-    const letter = row.querySelector('.sl-travel-letter-open');
-    if (letter) {
-      letter.addEventListener('click', (event) => {
-        event.stopPropagation();
-        const choice = session && session.choice;
-        if (!choice) return;
-        closeSessList();
-        enqueueChoice(choice);
-      });
-    }
-    const terminal = row.querySelector('.sl-travel-terminal-open');
-    if (terminal) {
-      terminal.addEventListener('click', (event) => {
-        event.stopPropagation();
-        window.pet.focusSession(session.sessionId || '');
-        closeSessList();
-      });
-    }
-    slTravelMailboxes.appendChild(row);
-  }
-  return true;
-}
-
-const POSTCARD_ART = {
-  mountain: [
-    '                 /\\',
-    '            /\\  /  \\   /\\',
-    '       /\\  /  \\/ /\\ \\_/  \\',
-    '      /  \\/    _/  \\_      \\',
-    '  ___/^^^  \\___/^^^^^^\\__/^^^\\___',
-    '     \\       /\\      /       /',
-    '      \\_____/  \\____/\\______/',
-    '          /\\      /\\      /\\',
-    '         /__\\    /__\\    /__\\',
-    '          ||      ||      ||',
-    '             /\\_/\\',
-    '            ( o.o )  *',
-    '             > ^ <  /|\\',
-  ],
-  desert: [
-    '         .       *       .',
-    '             \\   |   /',
-    '          ----  ( )  ----',
-    '             /   |   \\',
-    '       _..--\'\'       \'\'--.._',
-    '   _.-\'                     `-._',
-    '.-\'       _..---.._            `-.',
-    '      _.-\'   (   ) `-._',
-    '  _.-\'    (       )    `-._',
-    '            /\\_/\\',
-    '       _   ( o.o )   _',
-    '    .-\'     > ^ <     `-.',
-  ],
-  coast: [
-    '             |\\',
-    '             | \\',
-    '          ___|__\\___',
-    '         /    []    \\',
-    '        /_____[]_____\\',
-    '           |  ||',
-    '       ____|__||____       .',
-    '  ~~~~/            \\~~~~~~~~',
-    ' ~~~~~   /\\_/\\       ~~~~~~~~',
-    '  ~~~   ( o.o )  __/\\__  ~~~~',
-    '         > ^ <  /______\\',
-    ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  ],
-  city: [
-    '       |[]|       .-.',
-    '   .---|[]|---.  |[]|   .----.',
-    '   |[] |  | []|  |  |   | [] |',
-    ' .-|[] |[]| []|--|[]|---| [] |-.',
-    ' | |   |  |   |  |  |   |    | |',
-    ' |_|___|__|___|__|__|___|____|_|',
-    '        \\   |   /',
-    '      ===\\==|==/===',
-    '          /\\_/\\',
-    '         ( o.o )',
-    '          > ^ <',
-  ],
-  forest: [
-    '       /\\        /\\       /\\',
-    '      /**\\   /\\ /**\\     /**\\',
-    '     /****\\ /**\\****\\ /\\****\\',
-    '       ||  /****\\ ||  /**\\ ||',
-    '   /\\  ||    ||   || /****\\||',
-    '  /**\\ ||    ||   ||   ||  ||',
-    ' /****\\||  .----. ||   ||  ||',
-    '   ||  || /      \\||   ||  ||',
-    '   ||    /\\_/\\    \\',
-    '        ( o.o )    |',
-    '         > ^ <    /',
-    '   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  ],
-  museum: [
-    '            /\\',
-    '           /  \\',
-    '      ____/____\\____',
-    '     /______________\\',
-    '       ||  ||  ||',
-    '       ||  ||  ||',
-    '       ||  ||  ||',
-    '    ___||__||__||___',
-    '   /________________\\',
-    '       /\\_/\\   []',
-    '      ( o.o ) /__\\',
-    '       > ^ <',
-  ],
-  craft: [
-    '      +-------------------+',
-    '      |# # # # # # # # # #|',
-    '      | # # # # # # # # # |',
-    '      |# # # # # # # # # #|',
-    '      +----+---------+----+',
-    '           |         |',
-    '        ___|_________|___',
-    '       /      /\\_/\\      \\',
-    '      |      ( o.o )      |',
-    '      |       > ^ <       |',
-    '       \\_________________/',
-  ],
-  generic: [
-    '          .-------------.',
-    '         /  .--.   *     \\',
-    '        /  /    \\    .    \\',
-    '       |  /  /\\  \\         |',
-    '       | /__/  \\__\\  /\\_/\\ |',
-    '       |             ( o.o )|',
-    '       |     .----.   > ^ < |',
-    '       |____/______\\_________|',
-    '          /  /  \\  \\',
-    '         /__/    \\__\\',
-    '       ~~~~~~~~~~~~~~~~~',
-  ],
-};
-
-const POSTCARD_ART_VARIANTS = {
-  desert: [
-    POSTCARD_ART.desert,
-    [
-      '          .--.       .--.',
-      '       .-(    ).   .(    )-.',
-      '      (___.__)__) (___.__)__)',
-      '          \\\\ | /     \\\\ | /',
-      '       _..-\\\\|/--..__\\\\|/--.._',
-      '   _.-\'      o       o       `-._',
-      '.-\'       o     o       o        `-.',
-      '       _..---.._   _..---.._',
-      '     .\'  /\\_/\\  `.\'         `.',
-      '    /   ( o.o )   \\\\   o      \\\\',
-      '   /     > ^ <     \\\\      o   \\\\',
-      '  `-----------------------------\'',
-    ],
-    [
-      '        _..---~~~~---.._',
-      '   _.-\'      .   .      `-._',
-      '.-\'_____( )_______( )_______`-.',
-      '          \\\\       /',
-      '           \\\\_.-._/',
-      '         .-\'  o o `-.',
-      '       _/  .-.___.-. \\\\_',
-      '      /___/  /   \\\\  \\\\___\\\\',
-      '         /__/     \\\\__\\\\',
-      '       /\\_/\\   _/\\_',
-      '      ( o.o ) /____\\\\',
-      '       > ^ <   ||||',
-    ],
-    [
-      '    Y   Y      Y       Y   Y',
-      '   \\\\|/ \\\\|/  .------.  \\\\|/ \\\\|/',
-      ' Y--*---*--/        \\\\--*---*--Y',
-      '   /|\\\\ /|\\\\|   .-.   |/|\\\\ /|\\\\',
-      '          |  (   )  |',
-      '   Y   Y  \\\\   `-\'  /  Y   Y',
-      '  \\\\|/ \\\\|/  `------\'  \\\\|/ \\\\|/',
-      '   *---*      /\\_/\\      *---*',
-      '  /|\\\\ /|\\\\    ( o.o )    /|\\\\ /|\\\\',
-      '              > ^ <',
-      '       _..--\'     `--.._',
-      '  _.-\'___________________`-._',
-    ],
-  ],
-};
-
-function postcardArtKey(words = '') {
-  const text = String(words || '').toLocaleLowerCase();
-  if (/(珠穆朗玛|珠峰|喜马拉雅|everest|himalaya|mountain|山峰|雪山|登山)/i.test(text)) {
-    return 'mountain';
-  }
-  if (/(纳米布|沙漠|沙丘|desert|dune|fairy circle|仙女圈|荒漠|白蚁|termite|linyji|皮尔巴拉|pilbara|spinifex|刺叶草)/i.test(text)) {
-    return 'desert';
-  }
-  if (/(海|岛|港|灯塔|coast|ocean|sea|island|harbour|harbor|lighthouse)/i.test(text)) {
-    return 'coast';
-  }
-  if (/(森林|树|生态|雨林|forest|woodland|jungle|tree)/i.test(text)) {
-    return 'forest';
-  }
-  if (/(博物馆|建筑|神殿|museum|gallery|temple|palace|遗址)/i.test(text)) {
-    return 'museum';
-  }
-  if (/(手艺|织|陶|工坊|craft|weav|potter|workshop|传统)/i.test(text)) {
-    return 'craft';
-  }
-  if (/(城市|小城|街|市场|city|town|street|market|社区)/i.test(text)) {
-    return 'city';
-  }
-  return '';
-}
-
-function mirrorPostcardArt(lines) {
-  const swap = { '/': '\\', '\\': '/', '(': ')', ')': '(', '<': '>', '>': '<', '[': ']', ']': '[' };
-  return lines.map((line) => [...line].reverse().map((char) => swap[char] || char).join(''));
-}
-
-function fallbackPostcardArt(trip, scene = '', index = 0) {
-  // A stop's own place name must win over broader trip context. Otherwise one
-  // Everest mention in a multi-stop trip turns every following card into a
-  // mountain postcard.
-  const tripWords = `${
-    trip && trip.project || ''
-  } ${
-    trip && trip.mission || ''
-  } ${
-    String(trip && trip.result || '').slice(0, 1600)
-  }`;
-  const key = postcardArtKey(scene) || postcardArtKey(tripWords) || 'generic';
-  const variantNumber = Math.abs(Number(index) || 0);
-  const variants = POSTCARD_ART_VARIANTS[key];
-  if (variants && variants.length) {
-    const lines = [...variants[variantNumber % variants.length]];
-    if (variantNumber >= variants.length && lines.length < 16) {
-      lines.unshift(variantNumber % 2 ? '      ·       *        .' : '   *        .       ·');
-    }
-    return lines.join('\n');
-  }
-  const base = POSTCARD_ART[key] || POSTCARD_ART.generic;
-  const lines = variantNumber % 2 ? mirrorPostcardArt(base) : [...base];
-  if (variantNumber >= 2 && lines.length < 16) {
-    lines.unshift(variantNumber % 3 === 2 ? '      .       *       .' : '   *       ·        .');
-  }
-  return lines.join('\n');
-}
-
-function usablePostcardArt(value) {
-  const lines = String(value || '').trim().split('\n');
-  if (lines.length < 8 || lines.length > 16) return false;
-  if (lines.some((line) => [...line].length > 48)) return false;
-  const ink = lines.join('').replace(/[\s\p{L}\p{N}]/gu, '');
-  return new Set(ink).size >= 5;
-}
-
-function postcardExcerpt(value) {
-  let source = String(value || '')
-    .replace(/\[([^\]]+)\]\((?:https?:\/\/)?[^)]+\)/g, '$1')
-    .replace(/^#{1,4}\s+[^\n]+\n*/gm, '')
-    .replace(/\n(?:核实(?:于|日期)?|公开资料|参考资料|Sources?|References?|確認資料|出典)[:：]?[^\n]*[\s\S]*$/i, '')
-    .replace(/^[*-]\s+/gm, '')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  const hanCount = (source.match(/[\u3040-\u30ff\u3400-\u9fff]/g) || []).length;
-  const limit = hanCount > source.length * 0.18 ? 300 : 620;
-  if (source.length <= limit) return source;
-  const chunks = source.match(/[^。！？.!?\n]+[。！？.!?]?|\n+/g) || [source];
-  let result = '';
-  for (const chunk of chunks) {
-    const candidate = result + chunk;
-    if (candidate.length > limit - 2) break;
-    result = candidate;
-  }
-  if (!result.trim()) result = source.slice(0, limit - 2);
-  return `${result.trim()}…`;
-}
-
-function postcardStopFromBlock(block, trip, index, prefix = '') {
-  const source = String(block || '').replace(/<!--\s*LLMPET_STOP\s*-->/ig, '').trim();
-  const heading = /^\s*#{1,4}\s+([^\n]+)/m.exec(source);
-  const firstLine = String((source.split(/\n+/)[0] || '')).replace(/^#{1,4}\s*/, '').trim();
-  const title = (heading && heading[1] || firstLine || t('travel.stopN', { n: index + 1 }))
-    .replace(/\s+/g, ' ')
-    .slice(0, 54);
-  const fenced = /```(?:text|ascii(?:-art)?)?[ \t]*\n([\s\S]*?)```/i.exec(source);
-  const candidateArt = fenced ? String(fenced[1] || '').trim() : '';
-  let text = source;
-  if (fenced) text = `${text.slice(0, fenced.index)}${text.slice(fenced.index + fenced[0].length)}`;
-  if (heading) text = text.replace(heading[0], '');
-  text = `${prefix ? `${prefix.trim()}\n\n` : ''}${text.trim()}`.trim();
-  return {
-    title,
-    art: usablePostcardArt(candidateArt)
-      ? candidateArt
-      : fallbackPostcardArt(trip, `${title}\n${text}`, index),
-    text: postcardExcerpt(text),
-  };
-}
-
-function splitLegacyTravelStops(source) {
-  // Older travel replies were prose, so a stop marker can sit inside a
-  // sentence ("可第三站…", "去了第四站…") instead of at a paragraph start.
-  // New replies use LLMPET_STOP and never depend on this compatibility path.
-  const marker = /第(?:[一二三四五六七八九十百]+|\d+)站|Stop\s+\d+|第\d+停留地/gim;
-  const found = [];
-  let match;
-  while ((match = marker.exec(source))) {
-    found.push(match.index);
-  }
-  if (found.length < 2) return null;
-  return {
-    prefix: source.slice(0, found[0]).trim(),
-    blocks: found.map((start, index) => source.slice(start, found[index + 1] || source.length).trim()),
-  };
-}
-
-function splitTravelPostcard(trip) {
-  const source = String((trip && (trip.result || trip.error)) || '').trim();
-  const marked = source.split(/<!--\s*LLMPET_STOP\s*-->/i).slice(1).map((part) => part.trim()).filter(Boolean);
-  let stops;
-  if (marked.length) {
-    stops = marked.map((block, index) => postcardStopFromBlock(block, trip, index));
-  } else {
-    const legacy = splitLegacyTravelStops(source);
-    stops = legacy
-      ? legacy.blocks.map((block, index) => (
-      postcardStopFromBlock(block, trip, index, index === 0 ? legacy.prefix : '')
-      ))
-      : [postcardStopFromBlock(source, trip, 0)];
-  }
-  const seen = new Set();
-  return stops.map((stop, index) => {
-    let art = stop.art;
-    let signature = String(art || '').replace(/\s+/g, '');
-    if (!signature || seen.has(signature)) {
-      art = fallbackPostcardArt(trip, `${stop.title}\n${stop.text}`, index);
-      signature = String(art || '').replace(/\s+/g, '');
-    }
-    let alternate = index + 1;
-    while (seen.has(signature) && alternate < index + 7) {
-      art = fallbackPostcardArt(trip, `${stop.title}\n${stop.text}`, alternate++);
-      signature = String(art || '').replace(/\s+/g, '');
-    }
-    seen.add(signature);
-    return { ...stop, art };
-  });
-}
-
-function updateTravelStopNav(stops) {
-  const count = Array.isArray(stops) ? stops.length : 0;
-  selectedPostcardStop = Math.max(0, Math.min(selectedPostcardStop, Math.max(0, count - 1)));
-  slTravelStopPage.textContent = count
-    ? t('travel.stopPage', { current: selectedPostcardStop + 1, total: count })
-    : '';
-  slTravelStopPrev.disabled = selectedPostcardStop <= 0;
-  slTravelStopNext.disabled = selectedPostcardStop >= count - 1;
-}
-
-function goTravelStop(index) {
-  const cards = slTravelStopTrack ? [...slTravelStopTrack.children] : [];
-  if (!cards.length) return;
-  selectedPostcardStop = Math.max(0, Math.min(Number(index) || 0, cards.length - 1));
-  cards.forEach((card, cardIndex) => {
-    card.classList.toggle('active', cardIndex === selectedPostcardStop);
-    card.setAttribute('aria-hidden', cardIndex === selectedPostcardStop ? 'false' : 'true');
-  });
-  updateTravelStopNav(cards);
-}
-
-function renderTravelPostcard(trip) {
-  const source = String((trip && (trip.result || trip.error)) || '');
-  const key = `${trip && trip.id || ''}|${source.length}|${source.slice(0, 48)}`;
-  if (key === renderedPostcardKey && slTravelStopTrack.children.length) {
-    updateTravelStopNav([...slTravelStopTrack.children]);
-    return;
-  }
-  renderedPostcardKey = key;
-  const stops = splitTravelPostcard(trip);
-  slTravelStopTrack.innerHTML = '';
-  for (let index = 0; index < stops.length; index++) {
-    const stop = stops[index];
-    const card = document.createElement('article');
-    card.className = 'sl-travel-stop-card';
-    card.dataset.stop = String(index);
-    card.innerHTML =
-      `<div class="sl-travel-stop-title">${esc(stop.title)}</div>` +
-      `<div class="sl-travel-postcard-body">` +
-      `<pre class="sl-travel-postcard-art">${esc(stop.art)}</pre>` +
-      `<div class="sl-travel-postcard-text">${esc(stop.text)}</div>` +
-      `</div>`;
-    slTravelStopTrack.appendChild(card);
-  }
-  selectedPostcardStop = 0;
-  updateTravelStopNav(stops);
-  goTravelStop(0);
-}
-
-function selectedTravelPostcard() {
-  const all = Array.isArray(travelPostcards) ? travelPostcards : [];
-  if (!all.length) {
-    const latest = travelData && travelData.latest;
-    return latest && latest.status === 'completed' && latest.result ? latest : null;
-  }
-  return all.find((trip) => trip.id === selectedPostcardId) || all[0];
-}
-
-function renderTravelHistory() {
-  if (!slTravelHistory) return;
-  const all = Array.isArray(travelPostcards) ? travelPostcards : [];
-  const renderSig = JSON.stringify({
-    lang: window.OctoI18n.getLang(),
-    selectedPostcardId,
-    trips: all.map((trip) => ({
-      id: trip.id,
-      agent: trip.agent,
-      project: trip.project,
-      status: trip.status,
-      tokens: trip.usage && trip.usage.tokens,
-    })),
-  });
-  if (renderSig === lastTravelHistoryRenderSig) return false;
-  lastTravelHistoryRenderSig = renderSig;
-  slTravelHistory.innerHTML = '';
-  if (!all.length) {
-    const empty = document.createElement('div');
-    empty.className = 'sl-travel-history-empty';
-    empty.textContent = t('travel.noPostcard');
-    slTravelHistory.appendChild(empty);
-    return;
-  }
-  if (!selectedPostcardId || !all.some((trip) => trip.id === selectedPostcardId)) {
-    selectedPostcardId = all[0].id;
-  }
-  for (const trip of all) {
-    const card = document.createElement('button');
-    const statusKey = trip.status === 'completed'
-      ? 'travel.completed'
-      : trip.status === 'cancelled' ? 'travel.cancelled' : 'travel.failed';
-    card.className = 'sl-travel-history-card' + (trip.id === selectedPostcardId ? ' active' : '');
-    card.innerHTML =
-      `<span>${trip.agent === 'codex' ? '🛰️' : '🐾'}</span>` +
-      `<div><strong>${esc(trip.project || t('travel.postcard'))}</strong>` +
-      `<small>${esc(t(statusKey))} · ${esc(compactTokens(trip.usage && trip.usage.tokens || 0))} token</small></div>`;
-    card.addEventListener('click', (event) => {
-      event.stopPropagation();
-      selectedPostcardId = trip.id;
-      selectedPostcardStop = 0;
-      renderedPostcardKey = '';
-      renderTravelPage();
-    });
-    slTravelHistory.appendChild(card);
-  }
-  return true;
-}
-
-function renderTravelTemplates() {
-  const available = (travelData && travelData.templates) || [];
-  if (!available.length) return;
-  if (!travelTemplateId || !available.some((item) => item.id === travelTemplateId)) {
-    travelTemplateId = available[0].id;
-  }
-  const renderSig = JSON.stringify({
-    lang: window.OctoI18n.getLang(),
-    selected: travelTemplateId,
-    templates: available.map((item) => ({
-      id: item.id,
-      label: item.label,
-      description: item.description,
-      mission: item.mission,
-    })),
-  });
-  if (renderSig === lastTravelTemplatesRenderSig) return false;
-  lastTravelTemplatesRenderSig = renderSig;
-  slTravelTemplates.innerHTML = '';
-  for (const item of available) {
-    const card = document.createElement('button');
-    card.className = 'sl-travel-template' + (item.id === travelTemplateId ? ' active' : '');
-    card.innerHTML = `<strong>${esc(item.label)}</strong><span>${esc(item.description)}</span>`;
-    card.addEventListener('click', (e) => {
-      e.stopPropagation();
-      travelTemplateId = item.id;
-      travelMissionDirty = false;
-      slTravelMission.value = item.mission || '';
-      renderTravelTemplates();
-    });
-    slTravelTemplates.appendChild(card);
-  }
-  if (!travelMissionDirty && !slTravelMission.value) {
-    const selected = available.find((item) => item.id === travelTemplateId) || available[0];
-    slTravelMission.value = selected.mission || '';
-  }
-  return true;
-}
-
-function renderTravelPage() {
-  if (!slTravelView || slTravelView.classList.contains('hidden')) return;
-  const data = travelData || { growth: {}, templates: [] };
-  const growth = data.growth || {};
-  const rank = growth.rank || {};
-  const active = data.active || null;
-  const shownTarget = active || travelTarget;
-
-  slTravelSession.textContent = shownTarget
-    ? `${agentName(shownTarget.agent)} · ${shownTarget.project || ''}`
-    : t('travel.inboxIntro');
-  slTravelRankIcons.textContent = tokenRankText(rank);
-  const remaining = Math.max(0, (Number(rank.nextTokens) || 10000) - (Number(rank.progressTokens) || 0));
-  slTravelRankMeta.textContent =
-    t('travel.rankTokens', { tokens: compactTokens(growth.totalTokens || 0), trips: growth.completed || 0 }) +
-    '\n' + t('travel.nextRank', { tokens: compactTokens(remaining) });
-
-  const machine = (lastStats && lastStats.machineGrowth) || {};
-  const machineRank = machine.rank || {};
-  const machineRemaining = Math.max(
-    0,
-    (Number(machineRank.nextTokens) || 10000000) - (Number(machineRank.progressTokens) || 0),
-  );
-  slMachineRankIcons.textContent = tokenRankText(machineRank, 'travel.machineRankEmpty');
-  slMachineRankMeta.textContent =
-    t('travel.machineRankTokens', {
-      tokens: compactTokens(machine.totalTokens || 0),
-      claude: compactTokens(machine.claudeTokens || 0),
-      codex: compactTokens(machine.codexTokens || 0),
-    }) +
-    '\n' + t('travel.nextMachineRank', { tokens: compactTokens(machineRemaining) });
-
-  renderTravelMailboxes();
-  if (slWander) {
-    slWander.disabled = !!active;
-    slWander.title = active ? t('travel.busy') : t('travel.wanderTitle');
-  }
-
-  if (active) {
-    slTravelSetup.classList.add('hidden');
-    slTravelActive.classList.remove('hidden');
-    const minutes = Math.max(0, Math.floor((Date.now() - Number(active.startedAt || Date.now())) / 60000));
-    slTravelActiveStatus.textContent = active.status === 'departing'
-      ? t('travel.departing')
-      : t('travel.traveling', { minutes });
-    slTravelActiveMission.textContent = active.mission || '';
-    slTravelCancel.classList.toggle('hidden', !travelBelongsToThisPet(active));
-    setTravelStatus(travelBelongsToThisPet(active) ? '' : t('travel.busy'));
-  } else if (travelTarget) {
-    slTravelSetup.classList.remove('hidden');
-    slTravelActive.classList.add('hidden');
-    renderTravelTemplates();
-  } else {
-    slTravelSetup.classList.add('hidden');
-    slTravelActive.classList.add('hidden');
-  }
-
-  renderTravelHistory();
-  const latest = selectedTravelPostcard();
-  if (latest && latest.status === 'completed' && latest.result) {
-    slTravelPostcard.classList.remove('hidden');
-    slTravelPostcardMeta.textContent =
-      `${t('travel.completed')} · ${compactTokens(latest.usage && latest.usage.tokens || 0)} token`;
-    renderTravelPostcard(latest);
-  } else {
-    slTravelPostcard.classList.add('hidden');
-    renderedPostcardKey = '';
-    if (slTravelStopTrack) slTravelStopTrack.innerHTML = '';
-  }
-  fitPopup(sesslist);
-}
-
-async function openTravelPage(session) {
-  // A null session opens the provider-neutral mailbox. A concrete unsupported
-  // provider must not reach travel setup or the startTravel IPC.
-  if (session && !sessionActionAllowed(session, 'travel')) return false;
-  travelTarget = session || null;
-  takeoverTarget = null;
-  sesslist.classList.remove('session-list-mode');
-  sesslist.classList.remove('takeover-mode');
-  travelMissionDirty = false;
-  travelTemplateId = null;
-  slSessionView.classList.add('hidden');
-  slMemeView.classList.add('hidden');
-  slTakeoverView.classList.add('hidden');
-  slTravelView.classList.remove('hidden');
-  slBack.classList.remove('hidden');
-  slTitle.textContent = session ? t('travel.pickTitle') : t('travel.inboxTitle');
-  slSub.textContent = '';
-  slTravelMission.value = '';
-  setTravelStatus('');
-  try {
-    const loaded = await Promise.all([
-      window.pet.getTravel(),
-      typeof window.pet.getTravelPostcards === 'function'
-        ? window.pet.getTravelPostcards()
-        : Promise.resolve([]),
-    ]);
-    travelData = loaded[0];
-    travelPostcards = Array.isArray(loaded[1]) ? loaded[1] : [];
-    if (
-      !travelPostcards.length &&
-      travelData &&
-      travelData.latest &&
-      travelData.latest.status === 'completed' &&
-      travelData.latest.result
-    ) {
-      travelPostcards = [travelData.latest];
-    }
-    selectedPostcardId = travelPostcards[0] ? travelPostcards[0].id : null;
-    selectedPostcardStop = 0;
-    renderedPostcardKey = '';
-  } catch {
-    travelData = null;
-    travelPostcards = [];
-    setTravelStatus(t('travel.notReady'), 'error');
-  }
-  renderTravelPage();
-  return true;
-}
-
-function openTravelInbox() {
-  return openTravelPage(null);
-}
-
 function showSessionPage() {
-  memeTarget = null;
   takeoverTarget = null;
-  travelTarget = null;
   sesslist.classList.remove('takeover-mode');
   sesslist.classList.add('session-list-mode');
-  slMemeView.classList.add('hidden');
   slTakeoverView.classList.add('hidden');
-  slTravelView.classList.add('hidden');
   slSessionView.classList.remove('hidden');
   slBack.classList.add('hidden');
   slTitle.textContent = t('sess.title');
@@ -2691,105 +1524,11 @@ function closeSessList(preserveSize = false) {
   if (!sessListOpen) return;
   sesslist.classList.add('hidden');
   sessListOpen = false;
-  memeTarget = null;
   takeoverTarget = null;
-  travelTarget = null;
   rlog('sesslist', 'close');
   if (!preserveSize) resetPetSize();
 }
 
-function alignMemePlayer() {
-  if (!memeLayoutActive || memePlayer.classList.contains('hidden')) return;
-  const petEl = curSkinEl();
-  if (!petEl) return;
-  const petRect = petEl.getBoundingClientRect();
-  const docEl = document.documentElement;
-  const viewportW = Math.max(1, window.innerWidth || (docEl && docEl.clientWidth) || MEME_WINDOW_W);
-  const viewportH = Math.max(1, window.innerHeight || (docEl && docEl.clientHeight) || MEME_WINDOW_H);
-  const naturalW = Number(memeImage.naturalWidth) || 16;
-  const naturalH = Number(memeImage.naturalHeight) || 9;
-  const availableRight = viewportW - petRect.right - MEME_GAP - MEME_EDGE_PAD;
-  const availableLeft = petRect.left - MEME_GAP - MEME_EDGE_PAD;
-  const preferred = currentMemePlacement === 'pet-left' ? 'left' : 'right';
-  let side = preferred;
-  if (side === 'right' && availableRight < 120 && availableLeft > availableRight) side = 'left';
-  if (side === 'left' && availableLeft < 120 && availableRight > availableLeft) side = 'right';
-  const available = Math.max(120, side === 'right' ? availableRight : availableLeft);
-  const mediaW = Math.min(MEME_MEDIA_W, available);
-  const mediaH = Math.min(180, mediaW * naturalH / naturalW);
-  let left = side === 'right'
-    ? petRect.right + MEME_GAP
-    : petRect.left - MEME_GAP - mediaW;
-  let top = petRect.top + (petRect.height - mediaH) / 2;
-  left = Math.max(MEME_EDGE_PAD, Math.min(left, viewportW - mediaW - MEME_EDGE_PAD));
-  // Caption sits below the image; reserve a small footer so it cannot be cut.
-  top = Math.max(MEME_EDGE_PAD, Math.min(top, viewportH - mediaH - 34));
-  memePlayer.style.left = `${Math.round(left)}px`;
-  memePlayer.style.top = `${Math.round(top)}px`;
-  memePlayer.style.width = `${Math.round(mediaW)}px`;
-  memePlayer.dataset.side = side;
-}
-
-function restoreSizeAfterMeme() {
-  if (askActive) fitPopup(askEl);
-  else if (sessListOpen) fitPopup(sesslist);
-  else if (todoPopOpen) fitPopup(todopop);
-  else if (!bubble.classList.contains('hidden')) fitPopup(bubble);
-  else resetPetSize();
-}
-
-let currentMemePlacement = 'pet-right';
-function playMeme(meme) {
-  if (!meme || !meme.media) return;
-  clearTimeout(memeTimer);
-  if (memeAudio) {
-    try { memeAudio.pause(); } catch {}
-    memeAudio = null;
-  }
-  memeLayoutActive = true;
-  currentMemePlacement = meme.media.placement === 'pet-left' ? 'pet-left' : 'pet-right';
-  memeImage.src = memeMediaUrl(meme, 'gif');
-  memeImage.alt = meme.label || t('meme.fallbackLabel');
-  memeCaption.textContent = `${meme.label || t('meme.fallbackLabel')} · ${meme.project || ''}`;
-  memePlayer.classList.remove('hidden');
-  setRequestedPetSize(MEME_WINDOW_W, MEME_WINDOW_H);
-  if (meme.reaction && meme.reaction.state) {
-    transient(meme.reaction.state, Number(meme.reaction.durationMs) || Number(meme.media.durationMs) || 3000);
-  }
-  // Start the longer work visual at the same instant as the meme response.
-  // The dispatch result later confirms it (submitted/inputSent) or cancels it
-  // on a real delivery failure, so there is no transcript-lag gap.
-  startMemeWorkReaction(meme.reaction && meme.reaction.work);
-  requestAnimationFrame(() => requestAnimationFrame(alignMemePlayer));
-  if (!muted && typeof window.Audio === 'function') {
-    try {
-      memeAudio = new window.Audio(memeMediaUrl(meme, 'audio'));
-      memeAudio.volume = 0.9;
-      const p = memeAudio.play();
-      if (p && typeof p.catch === 'function') p.catch(() => {});
-    } catch {}
-  }
-  memeTimer = setTimeout(() => {
-    memePlayer.classList.add('hidden');
-    memeImage.removeAttribute('src');
-    if (memeAudio) { try { memeAudio.pause(); } catch {} }
-    memeAudio = null;
-    memeLayoutActive = false;
-    restoreSizeAfterMeme();
-  }, Number(meme.media.durationMs) || 3000);
-}
-
-memeImage.addEventListener('load', alignMemePlayer);
-window.pet.onMeme(playMeme);
-if (typeof window.pet.onMemeCatalogChanged === 'function') {
-  window.pet.onMemeCatalogChanged(() => {
-    clearTimeout(memeCatalogRefreshTimer);
-    memeCatalogRefreshTimer = setTimeout(async () => {
-      await loadMemeCatalog();
-      if (sessListOpen && memeTarget) await openMemePage(memeTarget);
-    }, 80);
-  });
-}
 function toggleSessList() { sessListOpen ? closeSessList() : openSessList(); }
 
 // 工具 -> 干活动作；道具 emoji 的运动变体
@@ -3078,66 +1817,11 @@ scheduleIdleAction();
 
 const curSkinEl = () => (skin === 'pixel' ? pixel : isMeme() ? cat : mascot);
 
-window.pet.onTravel((event) => {
-  if (!event) return;
-  if (event.state) travelData = event.state;
-  if (
-    event.trip &&
-    event.type === 'completed' &&
-    event.trip.status === 'completed' &&
-    event.trip.result
-  ) {
-    travelPostcards = [
-      event.trip,
-      ...travelPostcards.filter((trip) => trip && trip.id !== event.trip.id),
-    ];
-    selectedPostcardId = event.trip.id;
-    selectedPostcardStop = 0;
-    renderedPostcardKey = '';
-  }
-  if (sessListOpen && !slTravelView.classList.contains('hidden')) renderTravelPage();
-  const trip = event.trip;
-  if (!travelBelongsToThisPet(trip)) return;
-  if (event.type === 'started') {
-    clearTransient();
-    setState('roam');
-    showBubble(t(trip.mode === 'wander' ? 'travel.bubWanderStart' : 'travel.bubStart'), 3600, true);
-  } else if (event.type === 'completed') {
-    transient('happy', 2600, t('travel.bubDone'), 4200);
-    confetti();
-    SOUND.bigDone();
-  } else if (event.type === 'cancelled') {
-    showBubble(t('travel.bubCancel'), 3000, true);
-    if (lastStats) applyStats(lastStats);
-  } else if (event.type === 'failed') {
-    transient('error', 2800, t('travel.bubFailed'), 4200);
-    SOUND.error();
-  }
-});
-
 // ---------- 事件 ----------
 window.pet.onEvent((ev) => {
   // 你正在答面板/打字时：新的待答任务只悄悄进队列(不抢面板)，其余动画/彩带/气泡/状态变化一律不打断
   if (isInteracting()) {
     if ((ev.kind === 'waiting' || ev.kind === 'needsinput') && ev.choice) enqueueChoice(ev.choice);
-    return;
-  }
-  // 旅行中的宠物不被其它普通 session 的动画瞬间拉回工位；真正需要用户
-  // 处理的 waiting / needsinput / error 仍会通过快照优先级接管。
-  if (
-    travelBelongsToThisPet(travelData && travelData.active) &&
-    ['operation', 'say', 'user-turn', 'turn-done', 'big-done', 'greet', 'longcmd'].includes(ev.kind)
-  ) return;
-  // 表情包刚下发时，紧随其后的 user-turn / operation 正是这条 Prompt 自己
-  // 产生的。不能让它们在几十毫秒内把配置好的「汗流浃背」应对盖成 thinking /
-  // working；错误、授权和需回复等高优先级事件仍继续穿透并接管。
-  if (memeLayoutActive && ['user-turn', 'operation', 'say', 'turn-done', 'big-done', 'greet', 'longcmd'].includes(ev.kind)) {
-    return;
-  }
-  // 掠夺是一段不可被普通会话事件插播的完整演出；否则正在运行的 Codex
-  // operation 会把“拿来吧你”和掠夺进度气泡瞬间盖掉。
-  if (lootPerformanceActive
-      && ['user-turn', 'operation', 'say', 'turn-done', 'big-done', 'greet', 'longcmd'].includes(ev.kind)) {
     return;
   }
   switch (ev.kind) {
@@ -3227,161 +1911,6 @@ window.pet.onEvent((ev) => {
     case 'longcmd':
       if (state !== 'waiting') showBubble(t('bub.slowCmd'), 3000);
       break;
-    case 'territory':
-      // 领地模式(main 的 territory 编排):发现别的桌宠 → 走过去顶到屏幕边上。
-      // 全程复用现成情绪态,窗口走位由主进程完成,这里只负责表情/气泡/音效。
-      switch (ev.phase) {
-        case 'spotted':
-          transient('puzzled', 2400, t('terr.spotted', { rival: ev.rival || t('terr.unknownRival') }), 2600);
-          SOUND.waiting();
-          break;
-        case 'march':
-          // 推挤最长十几秒,给个长时限的斗志表情,victory/defeat 到了自然接管
-          transient('excited', 16000, t('terr.shove'), 3200);
-          break;
-        case 'victory':
-          transient('happy', 2800, t('terr.won'), 3400);
-          confetti();
-          SOUND.bigDone();
-          break;
-        case 'defeat':
-          transient('sad', 3000, t('terr.stuck', { rival: ev.rival || t('terr.itPronoun') }), 3200);
-          SOUND.error();
-          break;
-        case 'partial':
-          transient('excited', 3200, t('terr.edge', { rival: ev.rival || t('terr.itPronoun') }), 3600);
-          SOUND.done();
-          break;
-        case 'ontop':
-          // 猫爪在上定律:发现别的桌宠进程,窗口层级已被主进程抬到最上
-          transient('excited', 2600, t('terr.onTop', { rival: ev.rival || t('terr.intruder') }), 3000);
-          SOUND.greet();
-          break;
-        case 'noperm':
-          showBubble(t('terr.noPerm'), 7000);
-          break;
-        case 'granted':
-          // 用户在设置里勾上「辅助功能」后主进程轮询到位，自动接着巡视——
-          // 给个明确的成功反馈，闭合"点开设置→授权→开跑"这条链。
-          transient('happy', 2800, t('terr.granted'), 3400);
-          SOUND.greet();
-          break;
-        case 'searching':
-          showBubble(t('terr.scanning'), 2400);
-          break;
-        case 'clear':
-          showBubble(t('terr.clear'), 2600);
-          break;
-        case 'busy':
-          showBubble(t('terr.busy'), 2600);
-          break;
-        case 'blocked':
-          // 面板/菜单还在收口时没有真正执行窗口扫描，不能误报“地盘安静”。
-          showBubble(t('terr.deferred'), 2800);
-          break;
-        case 'abort':
-          // 中途撤退(用户来了/弹层打开):静默收掉 march 的长斗志表情,
-          // 立刻回落到真实聚合态,不冒气泡打扰正事。
-          clearTransient();
-          if (lastStats) applyStats(lastStats);
-          break;
-      }
-      break;
-    case 'loot':
-      switch (ev.phase) {
-        case 'searching':
-          beginLootPerformance();
-          lootTargetClosed = false;
-          showBubble(t('loot.searching'), 2600);
-          break;
-        case 'approach':
-          transient('excited', 12000, t('loot.approach'), 3000);
-          SOUND.greet();
-          break;
-        case 'taunt':
-          transient('excited', 12000, t('loot.taunt'), 2200);
-          break;
-        case 'captureStart':
-          startLootCaptureVisual(ev.direction);
-          startLootCapture(ev.available);
-          break;
-        case 'sessionCaptured':
-          appendLootSession(ev.session);
-          break;
-        case 'captureWaiting':
-          markLootCaptureWaiting();
-          break;
-        case 'ready':
-          revealLootReady(ev.count);
-          break;
-        case 'kick':
-          startLootKick(ev.direction);
-          setLootBanner('loot.kicking');
-          showBubble(t('loot.kicking'), 2400);
-          break;
-        case 'push':
-          setLootBanner('loot.pushing');
-          showBubble(t('loot.pushing'), 3000);
-          break;
-        case 'targetClosed':
-          // 精确关闭动作已经成功：立即结束踢击 GIF，先切到眺望战果。
-          // 最终 closed 仍等复扫确认，不在这里提前庆祝成功。
-          lootTargetClosed = true;
-          startLootLookout(ev.direction, 3600);
-          setLootBanner('loot.targetClosed');
-          break;
-        case 'closed':
-          if (!lootTargetClosed) startLootLookout(ev.direction, 3600);
-          finishLootCapture(true);
-          transient('happy', 2400, t('loot.closed'), 2800);
-          confetti();
-          SOUND.bigDone();
-          endLootPerformance(1600);
-          break;
-        case 'notFound':
-          stopLootActionVisual();
-          showBubble(t('loot.notFound'), 3600);
-          SOUND.error();
-          endLootPerformance(3600);
-          break;
-        case 'pushFailed':
-          stopLootActionVisual();
-          finishLootCapture(false);
-          transient('sad', 3200, t('loot.pushFailed'), 3600);
-          SOUND.error();
-          endLootPerformance(3600);
-          break;
-        case 'closeFailed':
-          stopLootActionVisual();
-          finishLootCapture(false);
-          transient('puzzled', 3600, t('loot.closeFailed'), 4200);
-          SOUND.error();
-          endLootPerformance(4200);
-          break;
-        case 'failed':
-          stopLootActionVisual();
-          finishLootCapture(false);
-          transient('sad', 3000, t('loot.failed'), 3400);
-          SOUND.error();
-          endLootPerformance(3400);
-          break;
-        case 'busy':
-          showBubble(t('loot.busy'), 2800);
-          endLootPerformance(2800);
-          break;
-        case 'blocked':
-          showBubble(t('loot.blocked'), 3200);
-          endLootPerformance(3200);
-          break;
-        case 'abort':
-          stopLootActionVisual();
-          finishLootCapture(false);
-          clearTransient();
-          endLootPerformance();
-          if (lastStats) applyStats(lastStats);
-          break;
-      }
-      break;
   }
 });
 
@@ -3402,7 +1931,6 @@ function compactTokens(value) {
 function applyStats(s) {
   if (!s) return;
   lastStats = s;
-  if (s.travel) travelData = s.travel;
   if (s.billingAvailable === false || AGENT === 'dsh') {
     chipCost.textContent = AGENT === 'dsh' ? 'DeepSeek Harness' : '—';
     chipWindow.textContent = '';
@@ -3430,11 +1958,9 @@ function applyStats(s) {
   renderSessions(s.sessions || []);
   updateNotepad(s); // 记事本：行动清单 + 待办
   if (sessListOpen) {
-    if (!slTravelView.classList.contains('hidden')) renderTravelPage();
     // Sub-pages own their DOM while open. A stats push must not rebuild the
     // hidden session page or resize the window underneath the current page.
-    // Loot is likewise driven only by its explicit capture events.
-    else if (!memeTarget && !takeoverTarget && !lootCapture) {
+    if (!takeoverTarget) {
       renderSessList();
       fitPopup(sesslist);
     }
@@ -3460,8 +1986,6 @@ function applyStats(s) {
     setState('error'); // 有会话卡在 API 错误 → 瘫倒，直到该会话恢复或 oneshot 衰减
   } else if (s.needsinputCount > 0) {
     setState('needsinput');
-  } else if (travelBelongsToThisPet(travelData && travelData.active)) {
-    setState('roam');
   } else if (s.sweepingCount > 0) {
     setState('sweeping');
   } else if (s.jugglingCount > 0) {
@@ -3520,15 +2044,11 @@ function renderSessions(sessions) {
 window.pet.onConfig((cfg) => {
   if (!cfg) return;
   muted = !!cfg.muted;
-  territorySupported = !!cfg.territorySupported;
-  lootSupported = !!cfg.lootSupported;
   if (cfg.lang) applyLang(cfg.lang);
   if (cfg.skin) applySkin(cfg.skin);
   pinnedSessionIds = Array.isArray(cfg.pinnedSessions) ? cfg.pinnedSessions.slice() : [];
   archivedSessionIds = Array.isArray(cfg.archivedSessions) ? cfg.archivedSessions.slice() : [];
-  lootKeptSessions = Array.isArray(cfg.lootCapturedSessions) ? cfg.lootCapturedSessions.slice() : [];
-  scheduleLootKeptExpiry();
-  if (sessListOpen && !memeTarget && !takeoverTarget && !lootCapture) renderSessList();
+  if (sessListOpen && !takeoverTarget) renderSessList();
 });
 
 // Static markup carries its Chinese text inline (so the window is never blank
@@ -3556,14 +2076,10 @@ function applyLang(next) {
   lastTodoPopRenderSig = '';
   lastSessListRenderSig = '';
   lastSessionDotsRenderSig = '';
-  lastTravelMailboxRenderSig = '';
-  lastTravelHistoryRenderSig = '';
-  lastTravelTemplatesRenderSig = '';
   // Live views rebuild from the state we already hold; everything else refreshes
   // on the stats push the main process fires right after the switch.
   if (sessListOpen) {
-    if (memeTarget) openMemePage(memeTarget);
-    else if (takeoverTarget) openTakeoverPage(takeoverTarget);
+    if (takeoverTarget) openTakeoverPage(takeoverTarget);
     else renderSessList();
   }
   if (todoPopOpen) renderTodoPop();
@@ -3703,53 +2219,6 @@ document.getElementById('tp-close').addEventListener('click', (e) => { e.stopPro
 
 // 会话列表 HUD：关闭 + 底部操作（新开按钮按本窗口的 agent 分流）
 document.getElementById('sl-close').addEventListener('click', (e) => { e.stopPropagation(); closeSessList(); });
-slTravelMission.addEventListener('input', () => { travelMissionDirty = true; });
-slTravelMission.addEventListener('focus', () => window.pet.focusPet());
-slTravelMission.addEventListener('blur', () => window.pet.blurPet());
-slTravelStart.addEventListener('click', async (e) => {
-  e.stopPropagation();
-  if (!sessionActionAllowed(travelTarget, 'travel')) {
-    setTravelStatus(t('travel.invalid'), 'error');
-    return;
-  }
-  const mission = String(slTravelMission.value || '').trim();
-  if (!mission) {
-    setTravelStatus(t('travel.invalid'), 'error');
-    slTravelMission.focus();
-    return;
-  }
-  slTravelStart.disabled = true;
-  setTravelStatus(t('travel.departing'));
-  let result;
-  try {
-    result = await window.pet.startTravel(travelTarget.sessionId || '', travelTemplateId || '', mission);
-  } catch {
-    result = { ok: false, code: 'not-ready' };
-  }
-  slTravelStart.disabled = false;
-  if (result && result.state) travelData = result.state;
-  if (!result || !result.ok) setTravelStatus(travelErrorText(result && result.code), 'error');
-  else setTravelStatus('');
-  renderTravelPage();
-});
-slTravelCancel.addEventListener('click', async (e) => {
-  e.stopPropagation();
-  slTravelCancel.disabled = true;
-  let result;
-  try { result = await window.pet.cancelTravel(); } catch { result = { ok: false, code: 'not-ready' }; }
-  slTravelCancel.disabled = false;
-  if (result && result.state) travelData = result.state;
-  if (!result || !result.ok) setTravelStatus(travelErrorText(result && result.code), 'error');
-  renderTravelPage();
-});
-slTravelStopPrev.addEventListener('click', (e) => {
-  e.stopPropagation();
-  goTravelStop(selectedPostcardStop - 1);
-});
-slTravelStopNext.addEventListener('click', (e) => {
-  e.stopPropagation();
-  goTravelStop(selectedPostcardStop + 1);
-});
 if (slTakeoverClaude) slTakeoverClaude.addEventListener('click', (e) => {
   e.stopPropagation();
   runTakeover('claude');
@@ -3793,32 +2262,9 @@ else if (AGENT === 'all') {
   if (slNewCodexBtn) slNewCodexBtn.classList.remove('hidden');
   if (slNewDshBtn) slNewDshBtn.classList.remove('hidden');
 } // 单宠多后端：三个入口都能开
-if (AGENT === 'dsh' && slTravelInbox) slTravelInbox.classList.add('hidden');
-if (slTravelInbox) slTravelInbox.addEventListener('click', async (e) => {
-  e.stopPropagation();
-  await openTravelInbox();
-});
-if (slWander) slWander.addEventListener('click', async (e) => {
-  e.stopPropagation();
-  slWander.disabled = true;
-  slWander.textContent = t('travel.wanderDeparting');
-  let result;
-  try { result = await window.pet.wanderTravel(); } catch { result = { ok: false, code: 'not-ready' }; }
-  if (result && result.state) travelData = result.state;
-  slWander.textContent = t('travel.wanderEntry');
-  if (result && result.ok) {
-    closeSessList();
-    return;
-  }
-  slWander.disabled = !!(travelData && travelData.active);
-  slSub.textContent = travelErrorText(result && result.code);
-  fitPopup(sesslist);
-});
 slNewBtn.addEventListener('click', (e) => {
   e.stopPropagation();
-  if (AGENT === 'codex') window.pet.launchCodex();
-  else if (AGENT === 'dsh') window.pet.launchDsh();
-  else window.pet.launchClaude();
+  window.pet.launchClaude();
   closeSessList();
 });
 if (slNewCodexBtn) slNewCodexBtn.addEventListener('click', (e) => { e.stopPropagation(); window.pet.launchCodex(); closeSessList(); });
@@ -3846,8 +2292,6 @@ todopop.querySelectorAll('.tp-ops button').forEach((b) => {
 });
 
 // ---------- 泡泡菜单 ----------
-let territorySupported = false; // 由 pet:config 下发(仅 macOS true)
-let lootSupported = false;
 let radialOpenSeq = 0;
 let lastRadialMetrics = null;
 // labelKey (not label): buildRadial resolves it at render time, so the menu
@@ -3858,8 +2302,6 @@ const MENU = [
   { ic: 'hand',   labelKey: 'menu.pending', badge: true, act: () => window.pet.openPanel() },
   { ic: 'zombie', labelKey: 'menu.background', badgeBg: true, act: () => window.pet.openPanel() },
   { ic: 'doc',    labelKey: 'menu.log', act: () => window.pet.openLog() },
-  { ic: 'grab',   labelKey: 'menu.loot', when: () => lootSupported, act: () => window.pet.lootCodexPet() },
-  { ic: 'search', labelKey: 'menu.patrol', when: () => territorySupported, act: () => window.pet.territoryRunNow() },
   { ic: 'bell',   labelKey: 'menu.mute', act: () => window.pet.toggleMute() },
   // 双宠模式下「退出」只收起自己这只（独立事件，另一只照常干活）；
   // 整个 app 的退出走托盘。单宠模式保持原语义：退出 app。
@@ -4044,8 +2486,6 @@ window.addEventListener('blur', () => { if (radialOpen) closeRadial(); });
   const cfg = await window.pet.getConfig();
   if (cfg) {
     muted = !!cfg.muted;
-    territorySupported = !!cfg.territorySupported;
-    lootSupported = !!cfg.lootSupported;
     window.OctoI18n.setLang(cfg.lang || 'zh');
     applySkin(cfg.skin || 'mascot');
   }
@@ -4053,7 +2493,6 @@ window.addEventListener('blur', () => { if (radialOpen) closeRadial(); });
   // window rather than the visible pet) as soon as the real skin is known.
   requestAnimationFrame(settleEdgeLayout);
   applyStaticI18n();
-  await loadMemeCatalog();
   const s = await window.pet.getStats();
   // 有快照就按真实聚合态亮相；之前无条件 setState('idle') 会把刚算出的
   // working/waiting 盖掉，启动瞬间总是先闪一下空闲。getStats 落空但推送
@@ -4111,7 +2550,6 @@ setInterval(() => {
 // 常驻轮询只留一个低频兜底,不必每 500ms 强制一次 getBoundingClientRect 回流。
 window.addEventListener('resize', () => requestAnimationFrame(() => {
   reportPetVisualBounds();
-  alignMemePlayer();
   alignToolProp();
 }));
 setInterval(reportPetVisualBounds, 3000);

@@ -70,36 +70,30 @@ async function main() {
     const hidden = (action) => row._parts[action].classList.contains('hidden');
 
     update('claude');
-    check('Claude 显示接管/表情包/旅行', () => assert.deepStrictEqual(
-      ['takeover', 'meme', 'travel'].map(hidden), [false, false, false],
+    check('Claude 显示接管入口', () => assert.deepStrictEqual(
+      ['takeover'].map(hidden), [false],
     ));
     update('dsh');
-    check('DSH 只保留作为来源的接管入口', () => assert.deepStrictEqual(
-      ['takeover', 'meme', 'travel'].map(hidden), [false, true, true],
+    check('DSH 不显示任何动作入口', () => assert.deepStrictEqual(
+      ['takeover'].map(hidden), [true],
     ));
     update('unknown');
-    check('unknown 三个动作全部 fail-closed', () => assert.deepStrictEqual(
-      ['takeover', 'meme', 'travel'].map(hidden), [true, true, true],
+    check('unknown 的动作全部 fail-closed', () => assert.deepStrictEqual(
+      ['takeover'].map(hidden), [true],
     ));
     const blockedTakeover = vm.runInContext("openTakeoverPage({ agent: 'unknown' })", w.sandbox);
-    const blockedMeme = await vm.runInContext("openMemePage({ agent: 'unknown' })", w.sandbox);
-    const blockedTravel = await vm.runInContext("openTravelPage({ agent: 'unknown' })", w.sandbox);
     check('unknown 无法绕过隐藏状态直接打开动作页', () => assert.deepStrictEqual(
-      [blockedTakeover, blockedMeme, blockedTravel], [false, false, false],
+      [blockedTakeover], [false],
     ));
     vm.runInContext("takeoverTarget = { agent: 'unknown', sessionId: 'unknown-takeover' }", w.sandbox);
     const blockedTakeoverRun = await vm.runInContext("runTakeover('claude')", w.sandbox);
-    vm.runInContext("travelTarget = { agent: 'unknown', sessionId: 'unknown-travel' }", w.sandbox);
-    w.elements('sl-travel-mission').value = 'must not run';
-    await w.elements('sl-travel-start')._listeners.click[0]({ stopPropagation() {} });
-    check('unknown 即使污染内部 target 也不能触发 takeover/travel IPC', () => {
+    check('unknown 即使污染内部 target 也不能触发 takeover IPC', () => {
       assert.strictEqual(blockedTakeoverRun, false);
       assert.strictEqual(w.calls.some((call) => call[0] === 'takeOverSession'), false);
-      assert.strictEqual(w.calls.some((call) => call[0] === 'startTravel'), false);
     });
     update('codex');
-    check('row 复用回 Codex 后三个入口恢复，hidden 不残留', () => assert.deepStrictEqual(
-      ['takeover', 'meme', 'travel'].map(hidden), [false, false, false],
+    check('row 复用回 Codex 后入口恢复，hidden 不残留', () => assert.deepStrictEqual(
+      ['takeover'].map(hidden), [false],
     ));
 
     const dsh = loadRenderer(
@@ -402,34 +396,7 @@ async function main() {
     check('working > loafing', () => assert(w.elements('cat').classList.contains('working')));
   }
 
-  console.log('[R11] 青蛙旅行视觉层');
-  {
-    const w = world();
-    const activeTravel = {
-      active: {
-        id: 'trip-1', agent: 'claude', project: 'p', mission: '只读侦察',
-        status: 'traveling', startedAt: Date.now(),
-      },
-      latest: null,
-      growth: { totalTokens: 0, completed: 0, rank: {} },
-      templates: [],
-    };
-    w.handlers.stats(baseStats({ workingCount: 2, travel: activeTravel }));
-    check('旅行中覆盖普通 working，显示 roam 素材', () => {
-      assert(w.elements('cat').classList.contains('roam'));
-      assert(catSrc(w).endsWith('cat-roam.gif'));
-    });
-    w.handlers.stats(baseStats({ needsinputCount: 1, workingCount: 2, travel: activeTravel }));
-    check('待用户回复仍高于旅行视觉', () => assert(w.elements('cat').classList.contains('needsinput')));
-    w.handlers.travel({
-      type: 'completed',
-      trip: { id: 'trip-1', agent: 'claude', result: 'postcard', usage: { tokens: 10000 } },
-      state: { active: null, latest: null, growth: { totalTokens: 10000, completed: 1, rank: { leaf: 1 } }, templates: [] },
-    });
-    check('旅行归来进入 happy 庆祝', () => assert(w.elements('cat').classList.contains('happy')));
-  }
-
-  console.log('[R10b] 鲸鱼女仆皮肤状态与领地动画');
+  console.log('[R10b] 鲸鱼女仆皮肤状态');
   {
     const w = world();
     w.handlers.config({ skin: 'whale', muted: true });
@@ -437,50 +404,10 @@ async function main() {
     check('whale working 使用鲸鱼素材', () => {
       assert(catSrc(w).endsWith('/whale/whale-working.gif'));
     });
-    w.handlers.event({ kind: 'loot', phase: 'kick', direction: -1 });
-    check('whale 出脚重播不会串回月薪喵素材', () => {
-      assert(/\/whale\/whale-idle\.gif\?loot-kick=\d+$/.test(catSrc(w)));
-      assert(!catSrc(w).includes('/cat/'));
-    });
   }
 
-  console.log('[R12] 旅行授权使用稳定的来信卡片');
+  console.log('[R12] 后台授权快照与会话面板共存');
   {
-    const w = world();
-    w.handlers.stats(baseStats({
-      waitingCount: 1,
-      sessions: [{
-        sessionId: 'travel-mailbox',
-        agent: 'claude',
-        state: 'waiting',
-        reason: 'perm',
-        headless: false,
-        sessionRole: 'travel',
-        choice: {
-          kind: 'perm',
-          sessionId: 'travel-mailbox',
-          permId: 'travel-perm',
-          project: 'Claude 旅行信箱',
-          header: 'Claude 猫猫在路上',
-          question: '它想继续赶路，需要：联网搜索',
-          options: [
-            { label: '这次放行', key: 'allow' },
-            { label: '以后旅行联网都放行', key: 'travel:always-web' },
-            { label: '不去了', key: 'deny' },
-          ],
-          travel: true,
-        },
-      }],
-    }));
-    check('旅行来信保持在 ask 面板而不是闪退', () => {
-      assert(!w.elements('ask').classList.contains('hidden'));
-      assert(w.elements('ask').classList.contains('travel-letter'));
-      assert.strictEqual(w.elements('ask-label').textContent, '✉️ 旅行来信');
-    });
-    check('旅行来信提供专属终端入口', () => {
-      assert.strictEqual(w.elements('ask-term').textContent, '💬 去旅行终端看看');
-    });
-
     const w2 = world();
     w2.handlers.stats(baseStats({
       sessions: [{ sessionId: 'ordinary', agent: 'codex', project: '普通任务', state: 'idle', headless: false }],
@@ -508,141 +435,6 @@ async function main() {
     check('后台授权快照不会闪关用户打开的会话面板', () => {
       assert(!w2.elements('sesslist').classList.contains('hidden'));
       assert(w2.elements('ask').classList.contains('hidden'));
-    });
-  }
-
-  console.log('[R13] 旅行会话独立列表 + 字符画明信片');
-  {
-    const w = world();
-    w.window.pet.getTravel = () => Promise.resolve({
-      active: null,
-      latest: null,
-      growth: { totalTokens: 12000, completed: 1, rank: { units: 1, leaf: 1 } },
-      templates: [],
-    });
-    w.window.pet.getTravelPostcards = () => Promise.resolve([{
-      id: 'postcard-1',
-      agent: 'codex',
-      project: '地球怪角落',
-      status: 'completed',
-      result: [
-        '这趟我去了四个完全不同的地方。',
-        '',
-        '第一站｜珠穆朗玛峰',
-        '我沿着雪线走到很高的山脊，看见了很小的营地。',
-        '',
-        '第二站｜纳米布沙漠',
-        '我在沙丘之间找到了会出生也会消失的仙女圈。',
-        '',
-        '可第三站一挖到地下，是白蚁巢。',
-        '',
-        '偏偏一条线索又把我带去了第四站——澳大利亚皮尔巴拉。',
-      ].join('\n'),
-      usage: { tokens: 12000 },
-    }]);
-    w.handlers.stats(baseStats({
-      machineGrowth: {
-        totalTokens: 8970000000,
-        claudeTokens: 6980000000,
-        codexTokens: 1990000000,
-        rank: {
-          unitTokens: 10000000,
-          units: 897,
-          crown: 3,
-          sun: 2,
-          moon: 0,
-          star: 0,
-          leaf: 1,
-          progressTokens: 0,
-          nextTokens: 10000000,
-        },
-      },
-      sessions: [
-        { sessionId: 'ordinary', agent: 'claude', project: '普通任务', state: 'idle', headless: false },
-        {
-          sessionId: 'travel-mailbox',
-          agent: 'codex',
-          travelAgent: 'codex',
-          project: 'Codex 旅行信箱',
-          state: 'idle',
-          headless: false,
-          sessionRole: 'travel',
-        },
-      ],
-    }));
-    const cat = w.elements('cat');
-    cat.dispatch('pointerdown', { button: 0, pointerId: 1, screenX: 0, screenY: 0 });
-    cat.dispatch('pointerup', { pointerId: 1 });
-    check('普通任务列表不再混入旅行会话', () => {
-      assert.strictEqual(w.elements('sl-rows').children.length, 1);
-      const row = w.elements('sl-rows').children[0];
-      assert.strictEqual(row._parts.name.textContent, '普通任务');
-      assert(!row._parts.name.textContent.includes('旅行信箱'));
-    });
-    w.elements('sl-travel-inbox').dispatch('click', { stopPropagation() {} });
-    await sleep(20);
-    check('旅行信箱固定展示 Claude / Codex 两个专属位置', () => {
-      assert.strictEqual(w.elements('sl-travel-mailboxes').children.length, 2);
-    });
-    check('旅行等级与本机累计等级分开计算，且不使用绿色叶片', () => {
-      assert.strictEqual(w.elements('sl-travel-rank-icons').textContent, '🐾');
-      assert.strictEqual(w.elements('sl-machine-rank-icons').textContent, '👑👑👑 ☀️☀️ 🐾');
-      assert(w.elements('sl-machine-rank-meta').textContent.includes('8.97B'));
-      assert(w.elements('sl-machine-rank-meta').textContent.includes('Claude 6.98B / Codex 1.99B'));
-      assert(!w.elements('sl-travel-rank-icons').textContent.includes('🍃'));
-      assert(!w.elements('sl-machine-rank-icons').textContent.includes('🍃'));
-    });
-    check('旧旅行按站拆成单页卡片，并生成不同地点的字符画', () => {
-      const cards = w.elements('sl-travel-stop-track').children;
-      assert.strictEqual(cards.length, 4);
-      assert(cards[0].classList.contains('active'));
-      assert(!cards[1].classList.contains('active'));
-      assert(cards[0].innerHTML.includes('珠穆朗玛峰'));
-      assert(cards[0].innerHTML.includes('^^^'));
-      assert(cards[1].innerHTML.includes('纳米布沙漠'));
-      assert(cards[1].innerHTML.includes('--'));
-      assert(cards[2].innerHTML.includes('第三站'));
-      assert(cards[3].innerHTML.includes('第四站'));
-      assert.notStrictEqual(cards[0].innerHTML, cards[1].innerHTML);
-      const arts = cards.map((card) => {
-        const match = /<pre class="sl-travel-postcard-art">([\s\S]*?)<\/pre>/.exec(card.innerHTML);
-        return match ? match[1].replace(/\s+/g, '') : '';
-      });
-      assert.strictEqual(new Set(arts).size, 4);
-      assert(cards.every((card) => card.innerHTML.length < 2300));
-    });
-    check('左右按钮切换独立站点卡片', () => {
-      assert.strictEqual(w.elements('sl-travel-stop-page').textContent, '第 1/4 站');
-      w.elements('sl-travel-stop-next').dispatch('click', { stopPropagation() {} });
-      assert.strictEqual(w.elements('sl-travel-stop-page').textContent, '第 2/4 站');
-      const cards = w.elements('sl-travel-stop-track').children;
-      assert(!cards[0].classList.contains('active'));
-      assert(cards[1].classList.contains('active'));
-    });
-    w.handlers.travel({
-      type: 'failed',
-      trip: {
-        id: 'failed-trip',
-        agent: 'claude',
-        status: 'failed',
-        error: 'Visible wander closed before returning a message.',
-        usage: { tokens: 0 },
-      },
-      state: {
-        active: null,
-        latest: {
-          id: 'failed-trip',
-          agent: 'claude',
-          status: 'failed',
-          error: 'Visible wander closed before returning a message.',
-        },
-        growth: { totalTokens: 12000, completed: 1, failed: 1, rank: { leaf: 1 } },
-        templates: [],
-      },
-    });
-    check('失败或取消的旅行不被包装成明信片', () => {
-      assert.strictEqual(w.elements('sl-travel-history').children.length, 1);
-      assert(!w.elements('sl-travel-stop-track').innerHTML.includes('Visible wander closed'));
     });
   }
 
