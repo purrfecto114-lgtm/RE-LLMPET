@@ -344,55 +344,6 @@ return "missing"
 end tell`;
 }
 
-function travelCliPids(output, agent, providerSessionId) {
-  const target = agent === 'codex' ? 'codex' : agent === 'claude' ? 'claude' : '';
-  const sessionId = String(providerSessionId || '').trim();
-  if (!target || !sessionId) return [];
-  const fingerprint = target === 'codex'
-    ? /(?:^|\s)(?:\S*\/)?codex(?:\s|$)/i
-    : /(?:^|\s)(?:\S*\/)?claude(?:\s|$)|claude-code|@anthropic-ai/i;
-  const seen = new Set();
-  const result = [];
-  for (const line of String(output || '').split(/\r?\n/)) {
-    const match = /^\s*(\d+)\s+([\s\S]+)$/.exec(line);
-    if (!match) continue;
-    const pid = Number(match[1]);
-    const command = match[2];
-    const executable = command.trim().split(/\s+/)[0] || '';
-    if (
-      !Number.isInteger(pid) ||
-      pid <= 1 ||
-      pid === process.pid ||
-      /\.app\//i.test(executable) ||
-      !fingerprint.test(command) ||
-      !command.split(/\s+/).includes(sessionId) ||
-      seen.has(pid)
-    ) continue;
-    seen.add(pid);
-    result.push(pid);
-  }
-  return result;
-}
-
-function terminateTravelCliProcesses(opts = {}) {
-  const agent = opts.agent === 'codex' ? 'codex' : opts.agent === 'claude' ? 'claude' : '';
-  const providerSessionId = String(opts.providerSessionId || '').trim();
-  if (!agent || !providerSessionId) return Promise.resolve([]);
-  return new Promise((resolve) => {
-    execFile('ps', ['-ax', '-o', 'pid=,command='], { encoding: 'utf8', timeout: 3000 }, (error, stdout) => {
-      if (error) {
-        resolve([]);
-        return;
-      }
-      const pids = travelCliPids(stdout, agent, providerSessionId);
-      for (const pid of pids) {
-        try { process.kill(pid, 'SIGTERM'); } catch {}
-      }
-      resolve(pids);
-    });
-  });
-}
-
 function closeCliTerminal(opts = {}) {
   if (process.platform !== 'darwin') return Promise.resolve({ ok: true, status: 'unsupported' });
   const terminalTitle = cleanTerminalTitle(opts.terminalTitle);
@@ -405,19 +356,19 @@ function closeCliTerminal(opts = {}) {
   const attempts = Number.isInteger(opts.attempts) ? Math.max(1, opts.attempts) : 6;
   const intervalMs = Number.isFinite(opts.intervalMs) ? Math.max(25, opts.intervalMs) : 400;
 
-  return terminateTravelCliProcesses(opts).then((terminatedPids) => new Promise((resolve) => {
+  return new Promise((resolve) => {
     const attempt = (remaining) => {
       execFile('osascript', ['-e', script], { encoding: 'utf8', timeout: 3000 }, (error, stdout) => {
         const status = String(stdout || '').trim();
         if (!error && !status.startsWith('busy')) {
-          resolve({ ok: true, status: status || 'missing', terminatedPids });
+          resolve({ ok: true, status: status || 'missing', terminatedPids: [] });
           return;
         }
         if (remaining <= 1) {
           resolve({
             ok: false,
             status: status || 'busy',
-            terminatedPids,
+            terminatedPids: [],
             message: error && error.message || '',
           });
           return;
@@ -426,7 +377,7 @@ function closeCliTerminal(opts = {}) {
       });
     };
     setTimeout(() => attempt(attempts), intervalMs).unref?.();
-  }));
+  });
 }
 
 async function launchCli(name, opts = {}) {
@@ -541,7 +492,6 @@ module.exports = {
   launchExecutable,
   closeCliTerminal,
   closeMacTerminalScript,
-  travelCliPids,
   findClaude,
   findCli,
   cliInstalled,

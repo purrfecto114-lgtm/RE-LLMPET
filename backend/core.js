@@ -140,7 +140,6 @@ function createCore(options = {}) {
     setField(s, 'originator', f.originator);
     setField(s, 'model', f.model);
     setField(s, 'sessionRole', f.sessionRole);
-    setField(s, 'travelAgent', f.travelAgent);
     setField(s, 'backgroundTasksCount', Number(f.backgroundTasksCount) || 0);
     setField(s, 'sessionCronsCount', Number(f.sessionCronsCount) || 0);
     if (typeof f.stopHookActive === 'boolean') s.stopHookActive = f.stopHookActive;
@@ -314,7 +313,6 @@ function createCore(options = {}) {
       sessionTitle: s.sessionTitle || null,
       model: s.model || null,
       sessionRole: s.sessionRole || null,
-      travelAgent: s.travelAgent || null,
       contextUsage: s.contextUsage || null,
       assistantLastOutput: typeof s.assistantLastOutput === 'string' ? s.assistantLastOutput : null,
       assistantLastOutputTruncated: !!s.assistantLastOutputTruncated,
@@ -466,10 +464,6 @@ function createCore(options = {}) {
       const idle = now - (s.updatedAt || now);
       const sourceIdle = now - Math.max(s.updatedAt || 0, s.transcriptActiveAt || 0);
       const alive = s.sourcePid ? pidAlive(s.sourcePid) : null;
-      // Claude and Codex each own one durable LLMPET travel conversation.
-      // Its terminal is intentionally closed between outings, but the mailbox
-      // remains a first-class pet card and is resumed on the next departure.
-      const durableTravelSession = s.sessionRole === 'travel';
 
       // Oneshot decay backstop: error/attention/sweeping/carrying settle to idle
       // after their TTL if no further event arrives (StopFailure / /clear paths).
@@ -478,18 +472,18 @@ function createCore(options = {}) {
 
       // Ended session (SessionEnd → sleeping / clear → sweeping): retire after a while.
       if (s.state === 'sleeping' || s.ended) {
-        if (!durableTravelSession && idle > SESSION_STALE_MS) { sessions.delete(id); changed = true; }
+        if (idle > SESSION_STALE_MS) { sessions.delete(id); changed = true; }
         if (s.state === 'sleeping') continue;
       }
       // Terminal process is gone → remove after a short grace.
-      if (!durableTravelSession && alive === false && idle > DETACHED_REMOVE_MS) {
+      if (alive === false && idle > DETACHED_REMOVE_MS) {
         sessions.delete(id); changed = true; continue;
       }
       // No terminal info at all + source transcript silent very long → remove.
       // Codex Desktop has no terminal pid. A long task can keep appending rollout
       // rows that do not map to state transitions (token counts, world state,
       // sub-agent activity), so event-idle alone must not evict a live session.
-      if (!durableTravelSession && alive === null && sourceIdle > SESSION_STALE_MS) {
+      if (alive === null && sourceIdle > SESSION_STALE_MS) {
         sessions.delete(id); changed = true; continue;
       }
       // Stuck working/thinking → settle to idle, but KEEP it visible.

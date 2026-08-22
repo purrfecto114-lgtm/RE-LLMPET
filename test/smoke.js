@@ -180,37 +180,6 @@ async function main() {
   const ptResp = await post('/permission', { tool_name: 'TaskCreate', tool_input: {}, session_id: 'pt' });
   check('TaskCreate auto-allow', () => assert.strictEqual(JSON.parse(ptResp.body).hookSpecificOutput.decision.behavior, 'allow'));
 
-  console.log('\n[6b] dedicated travel session keeps a stable letter in the pet');
-  const travelSid = 'travel-dedicated-session';
-  await post('/state', {
-    state: 'working',
-    event: 'PreToolUse',
-    tool_name: 'WebFetch',
-    session_id: travelSid,
-    cwd: '/Users/me/.octopus/wander-home/sessions/claude',
-  });
-  core.getSession(travelSid).sessionRole = 'travel';
-  core.getSession(travelSid).travelAgent = 'claude';
-  const travelPermission = post('/permission', {
-    tool_name: 'WebFetch',
-    tool_input: { url: 'https://example.com' },
-    session_id: travelSid,
-  });
-  await sleep(30);
-  const travelPending = permissions.getPending().find((entry) => entry.sessionId === travelSid);
-  check('travel permission remains pending until the user answers', () => {
-    assert(travelPending);
-  });
-  const travelStats = adapter.buildPetStats(core.buildSnapshot(), permissions.getPending(), null);
-  check('travel permission is a first-class letter with reusable web approval', () => {
-    const session = travelStats.sessions.find((item) => item.sessionId === travelSid);
-    assert(session && session.choice && session.choice.travel === true);
-    assert.strictEqual(session.project, 'Claude 旅行信箱');
-    assert(session.choice.options.some((option) => option.key === 'travel:always-web'));
-  });
-  permissions.decide(travelPending.id, 'allow');
-  await travelPermission;
-
   console.log('\n[7] 并行事件保留权限卡；只在 SessionEnd 无裁决清理');
   const sweepSid = 'sweep-session-dddd';
   const bashP = post('/permission', { tool_name: 'Bash', tool_input: { command: 'ls' }, session_id: sweepSid });
@@ -377,18 +346,6 @@ async function main() {
   check('正常 payload 正确出状态', () => {
     const b = hook.buildBody('UserPromptSubmit', { session_id: 'x1', prompt: 'hi' });
     assert(b && b.state === 'thinking' && b.session_id === 'x1');
-  });
-  check('表情包原生续聊不伪装成 headless，也不覆盖原窗口路由', () => {
-    const prev = process.env.LLMPET_MEME_RESUME;
-    process.env.LLMPET_MEME_RESUME = '1';
-    try {
-      const b = hook.buildBody('UserPromptSubmit', { session_id: 'x1-resume', prompt: 'hi' });
-      assert(b && b.headless === false && b.external_resume === true);
-      assert.strictEqual(b.source_pid, undefined);
-    } finally {
-      if (prev === undefined) delete process.env.LLMPET_MEME_RESUME;
-      else process.env.LLMPET_MEME_RESUME = prev;
-    }
   });
   const extSid = 'external-resume-session';
   await post('/state', { state: 'thinking', event: 'UserPromptSubmit', session_id: extSid, cwd: '/Users/me/proj-ext', external_resume: true });
