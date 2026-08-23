@@ -10,7 +10,7 @@ const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const pkg = JSON.parse(read('package.json'));
 const lock = JSON.parse(read('package-lock.json'));
-const main = read('main.js');
+const main = read('main.js') + read(require('path').join('app', 'tray.js'));
 const mac = read('scripts/package-mac.sh');
 const readme = read('README.md');
 const publicFiles = [

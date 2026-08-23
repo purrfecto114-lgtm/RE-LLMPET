@@ -95,7 +95,8 @@ assert(/compactVerticalFrame\s*&&\s*next\.vertical\s*===\s*'below'/s.test(js)
 assert(/frameHeightExcess\s*=\s*Math\.max\(0,\s*snapshot\.windowRect\.height\s*-\s*BASE_PET_FRAME_H\)/s.test(js)
   && /snapshot\.petRect\.y\s*-\s*frameHeightExcess\s*\+\s*2/s.test(js),
   'closing a tall popup must compare the pet against its base-frame inset, not its expanded local y');
-const mainJs = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+const mainJs = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8')
+  + fs.readFileSync(path.join(__dirname, '..', 'app', 'tray.js'), 'utf8');
 assert(/id="sl-new-dsh"/.test(html) && /slNewDshBtn[\s\S]*launchDsh/.test(js),
   'the combined session panel must expose a working new-dsh action');
 assert(/\['claude', 'codex', 'dsh'\]\.includes\(agent\)/.test(mainJs),
