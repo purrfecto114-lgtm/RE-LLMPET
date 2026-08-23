@@ -6,7 +6,7 @@
 
 | 平台 | 从源码运行 | 备注 |
 | --- | --- | --- |
-| macOS Apple Silicon | 支持 | “巡视”功能仅 macOS 可用 |
+| macOS Apple Silicon | 支持 | |
 | Windows x64 | 支持 | 会话聚焦支持 Windows Terminal / cmd / VS Code 等 |
 | Linux | 未正式支持 | 当前没有完成窗口定位适配 |
 
@@ -137,10 +137,6 @@ npm run uninstall:hooks
 然后退出 LLMPET。`~/.octopus/` 是用户配置、用量历史和日志目录；只有在确认不再需要这些数据时才手动删除。
 
 ## 常见问题
-
-### “巡视”不能移动其他桌宠
-
-请在“系统设置 → 隐私与安全性 → 辅助功能”中允许当前启动 LLMPET 的 Electron 应用，然后重启 LLMPET。
 
 ### 桌宠没有显示会话
 

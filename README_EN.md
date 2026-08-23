@@ -14,7 +14,7 @@ The interface is available in **Simplified Chinese, English, and Japanese**. Swi
 
 - **Live agent state** — see thinking, working, parallel subagents, context cleanup, waiting, errors, completion, and idle time as pet animations.
 - **Claude Code approvals** — allow or deny a Claude Code permission request directly from the pet.
-- **Claude Code + Codex + DeepSeek Harness sessions** — the main pet can watch all three backends, while Codex and dsh can each use a separate pet with its own skin and position.
+- **Claude Code + Codex + DeepSeek Harness sessions** — the main pet watches all three backends.
 - **Unified session workspace** — search and filter live or historical sessions, pin important work, archive noise, inspect context usage, and bring the selected terminal or desktop session forward.
 - **Cross-agent takeover** — hand work between Claude and Codex in either direction, or hand a dsh session to Claude or Codex; same-provider sessions use native resume or fork.
 - **Local session archive** — index user-owned sessions across all three providers, filter internal subagents, and optionally back up transcripts without overwriting an existing source during restore.
@@ -120,7 +120,7 @@ Scheduled local backup is **off by default**. When the user explicitly enables i
 - The HTTP server binds only to `127.0.0.1`; write endpoints require a random per-run token in addition to loopback, Host, and browser-origin checks.
 - Session data, configuration, and usage history stay on the local machine.
 - Codex rollout access is read-only.
-- Background network access is limited to the optional daily LiteLLM pricing download. A Travel Frog run contacts Anthropic or OpenAI only after you explicitly press **Depart**; `OCTOPUS_NO_NET=1` disables LLMPET's pricing fetch, but does not override a CLI trip you explicitly start.
+- Background network access is limited to the optional daily LiteLLM pricing download. `OCTOPUS_NO_NET=1` disables LLMPET's pricing fetch, but does not override a CLI trip you explicitly start.
 - Electron runs with `contextIsolation` enabled and `nodeIntegration` disabled.
 - Claude hook installation is merge-safe, atomic, reversible, and backed up before uninstall.
 

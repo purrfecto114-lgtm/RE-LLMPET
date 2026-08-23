@@ -21,7 +21,7 @@ LLMPET 是一个**以桌宠为入口、本地优先的多 Agent 工作台**。�
 | **统一会话层** | 汇总 Claude Code、Codex、dsh 的实时会话与本机历史；支持搜索、筛选、置顶、归档和回到原窗口 |
 | **跨 Agent 接管** | Claude ↔ Codex 双向交接；dsh → Claude / Codex 单向交接；同代理使用原生 resume / fork |
 | **本机档案馆** | 统一索引三类 Agent 的用户会话，过滤内部 subagent；可选增量备份，恢复时不覆盖仍存在的源文件 |
-| **可控行动** | 一键处理 Claude 授权、发送表情包指令、发起只读项目旅行；所有主动任务都由用户明确触发 |
+| **可控行动** | 一键处理 Claude 授权；所有主动任务都由用户明确触发 |
 | **用量与诊断** | 展示上下文、额度窗口、真实 token 趋势、本机台账和可追溯的估算口径，不把本机数据冒充厂商账单 |
 
 ## 跨 Agent 接管怎么工作
@@ -150,7 +150,7 @@ xattr -cr /Applications/LLMPET.app
 > **升级兼容说明：** `~/.octopus`、`OCTOPUS_*` 环境变量和 `octopus-hook.js` 是早期版本留下的内部兼容标识，为避免丢失配置、用量历史、辅助功能授权或已安装 hooks，1.0.0 继续保留；产品名称和所有对外发布物统一使用 **LLMPET**。
 
 **前置条件**
-- macOS 或 Windows（状态显示、授权气泡、计量计费、「去回复」终端聚焦全都可用；「领地模式」目前仅 macOS）
+- macOS 或 Windows（状态显示、授权气泡、计量计费、「去回复」终端聚焦全都可用）
 - Node.js ≥ 18（含 npm）
 - 至少安装并使用过一个受支持的 agent：[Claude Code](https://claude.com/claude-code) 或 [OpenAI Codex](https://github.com/openai/codex)
 
@@ -188,9 +188,8 @@ npm start            # 启动桌宠（首次启动会注册 Claude Code 钩子�
 ### 界面语言（简体中文 / English / 日本語）
 托盘「⚙️ 设置 → 🌐 语言 / Language」即时切换，无需重启：托盘、桌宠气泡、会话列表、详情面板和表情包文案同时跟着变，选择存在 `~/.octopus/config.json` 的 `lang`（默认 `zh`）。
 
-英日版**不是逐字翻译**——桌宠的语气建立在中文梗上，直译过去梗就没了。所以每种语言取的是**功能对等的本地梗**，比如「你这瓜保熟吗？」（华强买瓜，逼你验货别糊弄）在英文里是 *"Source: trust me bro?"*，日文里是「それってあなたの感想ですよね？」。表情包下发给 Claude / Codex 的 Prompt 也跟着切语言，英文界面不会突然甩一段中文进会话。
+英日版**不是逐字翻译**——桌宠的语气建立在中文梗上，直译过去梗就没了。所以每种语言取的是**功能对等的本地梗**，比如「你这瓜保熟吗？」（华强买瓜，逼你验货别糊弄）在英文里是 *"Source: trust me bro?"*，日文里是「それってあなたの感想ですよね？」
 
-> 表情包的 GIF 素材本身带中文字幕（如月薪喵皮肤的「熬夜冠军」），换语言不会改图 —— 那要重做素材。
 
 ### 计量 / 计费
 - Claude 数据源：本机 `~/.claude/projects/**/*.jsonl`；Codex 数据源：本机 `~/.codex/sessions/**/*.jsonl`。计量只提取 token、模型、时间与单次 usage，均为增量只读扫描。
@@ -272,7 +271,7 @@ test/zstd.js            zstd 分帧读取（完整帧 / 半帧 / 坏数据）
 
 ## 未做 / 后续
 - 其它 agent（Gemini / Copilot…）尚未适配；当前支持 Claude Code 与 OpenAI Codex。
-- Linux 的会话定位（Windows 已支持）、Windows 领地模式、远程审批、自动更新：本项目暂未实现。
+- Linux 的会话定位（Windows 已支持）、远程审批、自动更新：本项目暂未实现。
 
 ---
 

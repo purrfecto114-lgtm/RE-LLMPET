@@ -6,7 +6,7 @@
 
 | プラットフォーム | ソースから起動 | 備考 |
 | --- | --- | --- |
-| macOS Apple Silicon | 対応 | パトロールモードは macOS のみ |
+| macOS Apple Silicon | 対応 | |
 | Windows x64 | 対応 | 一般的なターミナルのセッションフォーカスに対応 |
 | Linux | 正式対応していません | ウィンドウフォーカスは未実装 |
 
@@ -97,5 +97,4 @@ npm run uninstall:hooks
 
 ## トラブルシューティング
 
-- **パトロールで他のペットを動かせない：** Electron プロセスにアクセシビリティ権限を許可し、LLMPET を再起動してください。
 - **セッションが表示されない：** LLMPET 起動後に Claude Code / Codex の新しいセッションを開始し、`~/.octopus/octopus.log` を確認します。

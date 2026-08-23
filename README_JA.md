@@ -14,7 +14,7 @@ LLMPET は、**デスクトップペットを入口にした、ローカル優�
 
 - **agent の状態をリアルタイム表示** — 思考、作業、並列 subagent、コンテキスト整理、ユーザー待ち、エラー、完了、休憩をアニメーションで表現します。
 - **Claude Code の権限確認** — 許可 / 拒否をデスクトップペットから直接選べます。
-- **Claude Code + Codex + DeepSeek Harness の複数 Session** — 本体ペットで三つを監視し、Codex と dsh はそれぞれ独立したペットにも分けられます。
+- **Claude Code + Codex + DeepSeek Harness の複数 Session** — 本体ペットで三つを監視します。
 - **統合 Session ワークスペース** — ライブおよび履歴 Session の検索、Claude / Codex / DSH / 要対応フィルター、ピン留め、アーカイブ、コンテキスト使用率の確認、対象ウィンドウへの移動ができます。
 - **Agent 間の接管** — Claude と Codex の双方向引き継ぎ、および dsh から Claude / Codex への引き継ぎに対応します。同じ provider ではネイティブ resume / fork を使います。
 - **ローカル Session 保管庫** — 三つの provider にあるユーザー Session を索引化し、内部 subagent を除外します。任意のバックアップと、既存の元ファイルを上書きしない復元に対応します。

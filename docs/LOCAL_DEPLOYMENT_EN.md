@@ -6,7 +6,7 @@ This guide covers running and testing LLMPET from source and creating packages f
 
 | Platform | From source | Notes |
 | --- | --- | --- |
-| macOS Apple Silicon | Supported | Patrol mode is macOS-only |
+| macOS Apple Silicon | Supported | |
 | Windows x64 | Supported | Session focusing supports common terminals |
 | Linux | Not officially supported | Window focusing is not implemented |
 
@@ -97,5 +97,4 @@ Then quit LLMPET. Remove `~/.octopus/` only if you also want to delete configura
 
 ## Troubleshooting
 
-- **Patrol cannot move another pet:** grant the Electron process Accessibility permission and restart LLMPET.
 - **No sessions appear:** start a new Claude Code or Codex session after LLMPET, then inspect `~/.octopus/octopus.log`.
