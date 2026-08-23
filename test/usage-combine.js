@@ -117,8 +117,10 @@ const codex = {
 
 console.log('usage combine (Claude + Codex panel) checks passed');
 
-// Integration guard: main.js must not turn the shared `all` surface back into
-// Claude-only usage before handing it to combineUsage().
-const mainSource = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+// Integration guard: the stats assembly (main.js / app/stats.js) must not turn
+// the shared `all` surface back into Claude-only usage before handing it to
+// combineUsage().
+const mainSource = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8')
+  + fs.readFileSync(path.join(__dirname, '..', 'app', 'stats.js'), 'utf8');
 assert.ok(mainSource.includes("usageProvider: 'all'"), 'shared pet/panel passes provider=all through unchanged');
 assert.ok(!mainSource.includes("usageProvider: agent === 'codex' ? 'codex' : 'claude'"), 'all must never collapse to Claude');

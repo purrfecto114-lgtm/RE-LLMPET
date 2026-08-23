@@ -80,10 +80,7 @@ const primaryPetState = () => (petWin && !petWin.isDestroyed() ? petState.get(pe
 const anyUiBusy = () => petStates().some((s) => s.uiBusy);
 const primaryVisualRect = () => { const st = primaryPetState(); return st ? st.visualRect : null; };
 
-let lastStats = null;   // 全量快照（面板用；single 模式也是主宠的快照）
 let statsTimer = null;
-let emitDebounce = null;
-const recentOps = []; // ring for the panel "操作流"; newest first, capped
 
 // ── frontend config shape ─────────────────────────────────────────────────────
 function frontendConfig() {
@@ -256,7 +253,7 @@ function openPanel() {
   panelWin.loadFile(path.join(__dirname, 'renderer', 'panel.html'));
   panelWin.webContents.on('did-finish-load', () => {
     sendPanel('panel:config', frontendConfig());
-    if (lastStats) sendPanel('panel:stats', lastStats);
+    if (statsHub.lastStats) sendPanel('panel:stats', statsHub.lastStats);
     if (metering) sendPanel('panel:price', metering.priceInfo());
     // 首帧渲染 + setPanelHeight 已到位后再显示
     setTimeout(() => { try { if (panelWin && !panelWin.isDestroyed()) panelWin.show(); } catch {} }, 90);
@@ -309,7 +306,7 @@ function openArchive() {
     // Usage ledgers scan independently from the activity core. Always build a
     // fresh payload when the workbench opens; a cached startup snapshot may
     // still contain Codex 0 while rollout scanning has already advanced.
-    if (core) sendWin(archiveWin, 'workbench:stats', buildStats('all'));
+    if (core) sendWin(archiveWin, 'workbench:stats', buildStats());
     if (metering) sendWin(archiveWin, 'workbench:price', metering.priceInfo());
     setTimeout(() => {
       try { if (archiveWin && !archiveWin.isDestroyed()) { archiveWin.show(); archiveWin.focus(); } } catch {}
@@ -349,70 +346,16 @@ function sendPetEvent(ev) {
   sendPet('pet:event', ev);
 }
 
-function filterSnapshot(snap, agent) {
-  if (agent === 'all') return snap;
-  const sessions = (snap.sessions || []).filter((e) => adapter.agentOf(e) === agent);
-  let active = null;
-  for (const e of sessions) {
-    if (e.headless) continue;
-    if (!active || e.updatedAt > active.updatedAt) active = e;
-  }
-  return {
-    sessions,
-    active: active
-      ? { sessionId: active.id, project: active.cwd, model: active.model, lastActivity: active.updatedAt }
-      : null,
-    idleMs: active ? active.idleMs : null,
-    lastActivityTs: active ? active.updatedAt : 0,
-    ts: snap.ts,
-  };
-}
-
-function buildStats(snapshot = null) {
-  const rawSnapshot = snapshot || core.buildSnapshot();
-  const snap = filterSnapshot(rawSnapshot, 'all');
-  const meter = metering ? metering.getStats() : null;
-  const codexUsage = codexMetering ? codexMetering.getStats() : null;
-  const pending = permissions.getPending();
-  const ops = recentOps.slice(0, 30);
-  const stats = adapter.buildPetStats(snap, pending, meter, {
-    lastOps: ops,
-    codexUsage,
-    // Shared pet/panel/archive must combine both ledgers. Mapping `all` to
-    // `claude` made the headline omit Codex while the Codex detail card still
-    // showed its own cost, producing contradictory totals in the real UI.
-    usageProvider: 'all',
-    runtime: runtimeMonitor ? runtimeMonitor.snapshot() : null,
-  });
-  return stats;
-}
-
-function petStats() {
-  return buildStats(core.buildSnapshot());
-}
-
-// Record operation/say events into the ring the panel renders as the op stream.
-function recordOp(ev) {
-  if (ev.kind === 'operation') {
-    recentOps.unshift({ tool: ev.tool, icon: ev.icon, detail: ev.detail, file: ev.file || '', project: ev.project || '', agent: ev.agent || 'claude', ts: ev.ts });
-  } else if (ev.kind === 'say') {
-    recentOps.unshift({ tool: 'say', icon: '💬', detail: ev.text, file: '', project: ev.project || '', agent: ev.agent || 'claude', ts: ev.ts });
-  } else return;
-  if (recentOps.length > 50) recentOps.length = 50;
-}
-
-function emitStats() {
-  if (!core) return;
-  lastStats = buildStats(core.buildSnapshot());
-  sendPet('pet:stats', lastStats);
-  sendPanel('panel:stats', lastStats);
-  sendArchive('workbench:stats', lastStats);
-}
-
-function scheduleEmit() {
-  if (emitDebounce) return;
-  emitDebounce = setTimeout(() => { emitDebounce = null; emitStats(); }, 150);
-}
+const statsHub = require('./app/stats')({
+  adapter,
+  getCore: () => core,
+  getMetering: () => metering,
+  getCodexMetering: () => codexMetering,
+  getPermissions: () => permissions,
+  getRuntimeMonitor: () => runtimeMonitor,
+  sendPet, sendPanel, sendArchive,
+});
+const { filterSnapshot, buildStats, petStats, recordOp, emitStats, scheduleEmit } = statsHub;
 
 function broadcastConfig() {
   sendPet('pet:config', frontendConfig());
