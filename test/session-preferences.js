@@ -19,7 +19,7 @@ assert.strictEqual(sanitize({ skin: 'unknown-skin' }).skin, 'mascot',
 
 const root = path.join(__dirname, '..');
 const preload = fs.readFileSync(path.join(root, 'preload.js'), 'utf8');
-const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8') + fs.readFileSync(path.join(root, 'app', 'ipc.js'), 'utf8');
 const renderer = fs.readFileSync(path.join(root, 'renderer', 'pet.js'), 'utf8');
 const markup = fs.readFileSync(path.join(root, 'renderer', 'pet.html'), 'utf8');
 

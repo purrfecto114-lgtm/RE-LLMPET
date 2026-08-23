@@ -74,7 +74,8 @@ const {
   const html = fs.readFileSync(path.join(projectRoot, 'renderer', 'pet.html'), 'utf8');
   const renderer = fs.readFileSync(path.join(projectRoot, 'renderer', 'pet.js'), 'utf8');
   const preload = fs.readFileSync(path.join(projectRoot, 'preload.js'), 'utf8');
-  const main = fs.readFileSync(path.join(projectRoot, 'main.js'), 'utf8');
+  const main = fs.readFileSync(path.join(projectRoot, 'main.js'), 'utf8')
+    + fs.readFileSync(path.join(projectRoot, 'app', 'ipc.js'), 'utf8');
   assert(html.includes('id="sl-takeover-view"'));
   assert(renderer.includes("window.pet.takeOverSession(source.sessionId || '', target)"));
   assert(preload.includes("ipcRenderer.invoke('session-takeover', sessionId, targetAgent)"));
