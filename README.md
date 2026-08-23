@@ -129,6 +129,20 @@ dsh web / dsh --profile … ──写会话日志──► ~/.dsh/sessions/--项
 
 ---
 
+## 下载安装包（Releases）
+
+Windows 安装包与 zip 在 [Releases](../../releases) 页随每个 `v*` tag 自动发布。
+
+**macOS 未签名版说明**：当仓库未配置 Apple 签名 secrets 时，macOS 包为 adhoc 未签名构建（文件名带 `-unsigned`）。首次打开需**右键→打开**，或执行：
+
+```bash
+xattr -cr /Applications/LLMPET.app
+```
+
+配置 `APPLE_DEVELOPER_ID_P12_BASE64` 等 secrets 后，流水线自动切换为签名+公证构建。
+
+---
+
 ## 从源码安装与运行
 
 完整的源码部署、调试、权限与本地打包说明见 [《部署到用户本地》](docs/LOCAL_DEPLOYMENT.md)。
