@@ -95,71 +95,6 @@ function frontendConfig() {
   };
 }
 
-// ── window geometry ───────────────────────────────────────────────────────────
-// customSize is set by the renderer to fit an open popup exactly (dynamic
-// height), so a 1-row session list doesn't blow the window up to a fixed 600px.
-function targetSize(st) {
-  const cs = st && st.customSize;
-  if (cs) {
-    return { w: Math.min(900, Math.max(BASE_W, cs.w)), h: Math.max(BASE_H, cs.h) };
-  }
-  return { w: BASE_W, h: BASE_H };
-}
-
-function validPetAnchor(anchor) {
-  if (!anchor || typeof anchor !== 'object') return null;
-  const numeric = ['screenX', 'screenY', 'width', 'height', 'xOffset', 'yOffset'];
-  if (!numeric.every((key) => Number.isFinite(anchor[key]))) return null;
-  if (!(anchor.width > 0) || !(anchor.height > 0)) return null;
-  if (!['left', 'center', 'right'].includes(anchor.xAlign)) return null;
-  if (!['top', 'bottom'].includes(anchor.yAlign)) return null;
-  return anchor;
-}
-
-function anchoredPetOrigin(anchor, width, height) {
-  let localX;
-  if (anchor.xAlign === 'left') localX = anchor.xOffset;
-  else if (anchor.xAlign === 'right') localX = width - anchor.xOffset - anchor.width;
-  else localX = width / 2 + anchor.xOffset - anchor.width / 2;
-
-  const localY = anchor.yAlign === 'top'
-    ? anchor.yOffset
-    : height - anchor.yOffset - anchor.height;
-  return {
-    x: Math.round(anchor.screenX - localX),
-    y: Math.round(anchor.screenY - localY),
-  };
-}
-
-function applyPetSize(st, requestedAnchor) {
-  if (!st || !st.win || st.win.isDestroyed()) return;
-  const win = st.win;
-  const { w } = targetSize(st);
-  let { h } = targetSize(st);
-  const b = win.getBounds();
-  // Cap the window to the screen's work area so a tall popup can NEVER push the
-  // pet / footer buttons off-screen — the popup scrolls internally instead.
-  try {
-    const wa = screen.getDisplayMatching(b).workArea;
-    const width = Math.min(w, wa.width);
-    h = Math.min(h, wa.height);
-    const anchor = validPetAnchor(requestedAnchor);
-    const anchored = anchor ? anchoredPetOrigin(anchor, width, h) : null;
-    const cx = b.x + b.width / 2;
-    const bottom = b.y + b.height;
-    let x = anchored ? anchored.x : Math.round(cx - width / 2);
-    let y = anchored ? anchored.y : Math.round(bottom - h);
-    x = Math.min(Math.max(x, wa.x), wa.x + wa.width - width);
-    y = Math.min(Math.max(y, wa.y), wa.y + wa.height - h);
-    win.setBounds({ x, y, width, height: h });
-  } catch {
-    const anchor = validPetAnchor(requestedAnchor);
-    const anchored = anchor ? anchoredPetOrigin(anchor, w, h) : null;
-    const bottom = b.y + b.height;
-    win.setBounds({ x: anchored ? anchored.x : b.x, y: anchored ? anchored.y : Math.round(bottom - h), width: w, height: h });
-  }
-}
-
 // ── push helpers ──────────────────────────────────────────────────────────────
 function sendWin(win, channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -197,7 +132,7 @@ const windows = require('./app/windows')({
   sendWin, sendPanel,
   S,
 });
-const { hardenWindow, createPetWindows, openPanel, closePanel, openArchive, closeArchive } = windows;
+const { hardenWindow, createPetWindows, openPanel, closePanel, openArchive, closeArchive, applyPetSize } = windows;
 
 const trayMod = require('./app/tray')({
   Menu, Tray, nativeImage, path, APP_DIR,
