@@ -57,8 +57,9 @@ for (const id of ['startMemeWorkReaction','finishMemeWorkReaction','activeMemeWo
 }
 
 console.log('── F. 双宠标识符清零 ──');
+const MAIN_SOURCES = ['main.js', 'app/windows.js', 'app/tray.js', 'app/ipc.js'].map(R).join('\n');
 for (const id of ['petWinCodex','petWinDsh','splitAgents','CLONE_SHIFT','applyPetMode','applyDshPet','skinCodex','skinDsh','dshPet','petPositionCodex','petPositionDsh','petMode']) {
-  ok(!R('main.js').includes(id), 'main.js 无 ' + id);
+  ok(!MAIN_SOURCES.includes(id), 'main.js 无 ' + id);
   ok(!R('backend/config.js').includes(id), 'config.js 无 ' + id);
 }
 for (const id of ["AGENT === 'codex'","AGENT === 'dsh'","AGENT !== 'all'"]) {
@@ -71,7 +72,8 @@ for (const id of ['MEME_PACKS','updateCat','catAssetMatches','isMeme','CAT_STATE
 }
 
 console.log('── H. 保留 IPC 通道仍在 ──');
-const main = R('main.js');
+// R3 后通道注册分布在 main + app/* 模块中，联合扫描
+const main = ['main.js', 'app/windows.js', 'app/tray.js', 'app/ipc.js'].map(R).join('\n');
 for (const ch of ["'set-skin'","'set-mode'","'launch-claude'","'launch-codex'","'launch-dsh'","'focus-session'","'get-config'","'get-stats'","'ui-busy'","'pet-visual-bounds'"]) {
   ok(main.includes(ch), 'main.js 保留 ' + ch);
 }
