@@ -217,7 +217,8 @@ npm run uninstall:hooks
 ## 目录结构
 
 ```
-main.js                 Electron 主进程：窗口 / IPC / 托盘 / 启动编排
+main.js                 Electron 主进程启动编排（薄壳）
+app/                    主进程模块：windows / ipc / tray / stats
 preload.js              前后端唯一接口（contextBridge）
 renderer/  assets/      桌宠 + 面板的视觉与渲染
 hook/
