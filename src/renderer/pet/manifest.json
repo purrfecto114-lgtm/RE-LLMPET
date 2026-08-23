@@ -1,0 +1,14 @@
+{
+  "files": [
+    "00-boot.js",
+    "10-elements-skin.js",
+    "20-geometry-drag.js",
+    "30-ask-panel.js",
+    "40-todopop-notepad.js",
+    "50-sesslist.js",
+    "60-sesslist-pages-sound.js",
+    "70-events-switch.js",
+    "80-stats-state.js",
+    "90-radial-init.js"
+  ]
+}
