@@ -7,7 +7,7 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const pkg = JSON.parse(read('package.json'));
-const main = read('main.js');
+const main = read('main.js') + read(path.join('app', 'windows.js'));
 const preload = read('preload.js');
 const config = read('backend/config.js');
 const readme = read('README.md');

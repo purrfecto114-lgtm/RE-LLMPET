@@ -46,15 +46,13 @@ const t = i18n.t;
 i18n.setLang(config.get().lang);
 
 const PRELOAD = path.join(__dirname, 'preload.js');
+const APP_DIR = __dirname;
 const BASE_W = 320, BASE_H = 340, TALL_H = 560, BIG_W = 440, BIG_H = 600;
 // `dsh web` 的默认落点（apps/web 的 webserver 行：127.0.0.1:3080）。
 // 用户改过端口就用 LLMPET_DSH_WEB 覆盖。
 const DSH_WEB_URL = process.env.LLMPET_DSH_WEB || 'http://127.0.0.1:3080';
 
-let petWin = null;      // 主宠窗口：single 模式监控全部；duo 模式代表 Claude
-let panelWin = null;
-let archiveWin = null;
-let panelH = 0; // 面板当前自适应高度（防抖用）
+const S = { petWin: null, panelWin: null, archiveWin: null, panelH: 0 };
 let tray = null;
 let core = null;
 let metering = null;
@@ -76,7 +74,7 @@ let agentStartup = null;
 const petState = new Map(); // id → { agent, win, customSize, visualRect, uiBusy }
 const petStates = () => [...petState.values()].filter((s) => s.win && !s.win.isDestroyed());
 const stateOfSender = (sender) => petState.get(sender.id) || null;
-const primaryPetState = () => (petWin && !petWin.isDestroyed() ? petState.get(petWin.webContents.id) : null);
+const primaryPetState = () => (S.petWin && !S.petWin.isDestroyed() ? petState.get(S.petWin.webContents.id) : null);
 const anyUiBusy = () => petStates().some((s) => s.uiBusy);
 const primaryVisualRect = () => { const st = primaryPetState(); return st ? st.visualRect : null; };
 
@@ -163,184 +161,18 @@ function applyPetSize(st, requestedAnchor) {
   }
 }
 
-function createPetWindows() {
-  petWin = makePetWindow('all');
-  log('main', 'pet windows: all');
-}
-
-function makePetWindow(agent) {
-  const c = config.get();
-  const saved = c.petPosition;
-  let x, y;
-  if (saved) { x = saved.x; y = saved.y; }
-  else {
-    try {
-      const wa = screen.getPrimaryDisplay().workArea;
-      x = wa.x + wa.width - BASE_W - 24;
-      y = wa.y + wa.height - BASE_H - 24;
-    } catch {}
-  }
-
-  const win = new BrowserWindow({
-    width: BASE_W,
-    height: BASE_H,
-    x, y,
-    frame: false,
-    transparent: true,
-    hasShadow: false,
-    resizable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    fullscreenable: false,
-    webPreferences: {
-      preload: PRELOAD,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-      autoplayPolicy: 'no-user-gesture-required',
-    },
-  });
-  win.setAlwaysOnTop(true, 'floating');
-  try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch {}
-  hardenWindow(win);
-  // ?agent= 告诉渲染端自己盯谁（名牌/图标/唤起按钮/开场白都按它分流）
-  win.loadFile(path.join(__dirname, 'renderer', 'pet.html'), { query: { agent } });
-
-  // mouseIgnoring=true：透明窗启动即穿透，renderer 命中测试后再接管（pet.js 同款默认）
-  const st = { agent, win, customSize: null, visualRect: null, uiBusy: false, mouseIgnoring: true };
-  // 'closed' 之后绝不能再碰 win.webContents（抛 "Object has been destroyed"，主进程
-  // 未捕获直接崩）——id 在创建时取好。收起一只宠是独立事件，只清自己的状态。
-  const wcId = win.webContents.id;
-  petState.set(wcId, st);
-  win.on('closed', () => {
-    petState.delete(wcId);
-    if (petWin === win) petWin = null;
-  });
-
-  win.on('moved', () => {
-    if (st.customSize) return; // only persist the resting position
-    if (win.isDestroyed()) return;
-    const b = win.getBounds();
-    config.save({ petPosition: { x: b.x, y: b.y } });
-  });
-  win.webContents.on('did-finish-load', () => {
-    sendWin(win, 'pet:config', frontendConfig());
-    if (core) sendWin(win, 'pet:stats', petStats());
-  });
-  return win;
-}
-
-function openPanel() {
-  if (panelWin && !panelWin.isDestroyed()) { panelWin.show(); panelWin.focus(); return; }
-  panelH = 0; // 每次开面板重置自适应高度基准
-  panelWin = new BrowserWindow({
-    width: 560,
-    height: 720,
-    frame: false,
-    transparent: false,
-    resizable: true,
-    skipTaskbar: false,
-    show: false, // 先隐藏，首帧按内容定高后再显示，避免闪一下大窗口
-    backgroundColor: '#2c1f1a',
-    webPreferences: {
-      preload: PRELOAD,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
-  });
-  hardenWindow(panelWin);
-  panelWin.loadFile(path.join(__dirname, 'renderer', 'panel.html'));
-  panelWin.webContents.on('did-finish-load', () => {
-    sendPanel('panel:config', frontendConfig());
-    if (statsHub.lastStats) sendPanel('panel:stats', statsHub.lastStats);
-    if (metering) sendPanel('panel:price', metering.priceInfo());
-    // 首帧渲染 + setPanelHeight 已到位后再显示
-    setTimeout(() => { try { if (panelWin && !panelWin.isDestroyed()) panelWin.show(); } catch {} }, 90);
-  });
-  panelWin.on('closed', () => { panelWin = null; });
-}
-
-function closePanel() {
-  if (panelWin && !panelWin.isDestroyed()) panelWin.close();
-  panelWin = null;
-}
-
-// The archive renderer is now LLMPET's unified desktop workbench. Its session
-// manager keeps the archive contract; the other pages share live stats and the
-// local generated-program registry.
-function openArchive() {
-  if (process.platform === 'darwin' && app.dock) {
-    app.dock.show();
-    const dockIcon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'icon.icns'));
-    if (!dockIcon.isEmpty()) app.dock.setIcon(dockIcon);
-  }
-  if (archiveWin && !archiveWin.isDestroyed()) {
-    archiveWin.show();
-    archiveWin.focus();
-    if (sessionArchive) sessionArchive.refresh().catch((e) => log('archive', 'refresh failed:', e.message));
-    return;
-  }
-  archiveWin = new BrowserWindow({
-    width: 1220,
-    height: 790,
-    minWidth: 920,
-    minHeight: 620,
-    frame: false,
-    transparent: false,
-    resizable: true,
-    skipTaskbar: false,
-    show: false,
-    backgroundColor: '#18171d',
-    webPreferences: {
-      preload: PRELOAD,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
-  });
-  hardenWindow(archiveWin);
-  archiveWin.loadFile(path.join(__dirname, 'renderer', 'archive.html'));
-  archiveWin.webContents.on('did-finish-load', () => {
-    sendWin(archiveWin, 'archive:config', frontendConfig());
-    // Usage ledgers scan independently from the activity core. Always build a
-    // fresh payload when the workbench opens; a cached startup snapshot may
-    // still contain Codex 0 while rollout scanning has already advanced.
-    if (core) sendWin(archiveWin, 'workbench:stats', buildStats());
-    if (metering) sendWin(archiveWin, 'workbench:price', metering.priceInfo());
-    setTimeout(() => {
-      try { if (archiveWin && !archiveWin.isDestroyed()) { archiveWin.show(); archiveWin.focus(); } } catch {}
-    }, 50);
-    if (sessionArchive) sessionArchive.refresh().catch((e) => log('archive', 'refresh failed:', e.message));
-  });
-  archiveWin.on('closed', () => { archiveWin = null; });
-}
-
-function closeArchive() {
-  if (archiveWin && !archiveWin.isDestroyed()) archiveWin.close();
-  archiveWin = null;
-}
-
-// Block any navigation / new-window to external content (hardening).
-function hardenWindow(win) {
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith('file://')) e.preventDefault();
-  });
-}
-
 // ── push helpers ──────────────────────────────────────────────────────────────
 function sendWin(win, channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 // 任一存活的宠物窗口：主宠被单独收起后，授权卡等重要消息兜底投递到还活着的那只
 function firstAlivePetWin() {
-  return petWin && !petWin.isDestroyed() ? petWin : null;
+  return S.petWin && !S.petWin.isDestroyed() ? S.petWin : null;
 }
 // sendPet = 发给主宠；主宠不在则兜底
 function sendPet(channel, payload) { sendWin(firstAlivePetWin(), channel, payload); }
-function sendPanel(channel, payload) { sendWin(panelWin, channel, payload); }
-function sendArchive(channel, payload) { sendWin(archiveWin, channel, payload); }
+function sendPanel(channel, payload) { sendWin(S.panelWin, channel, payload); }
+function sendArchive(channel, payload) { sendWin(S.archiveWin, channel, payload); }
 
 function sendPetEvent(ev) {
   sendPet('pet:event', ev);
@@ -356,6 +188,18 @@ const statsHub = require('./app/stats')({
   sendPet, sendPanel, sendArchive,
 });
 const { filterSnapshot, buildStats, petStats, recordOp, emitStats, scheduleEmit } = statsHub;
+
+const windows = require('./app/windows')({
+  BrowserWindow, screen, nativeImage, app,
+  config, log, path, PRELOAD, APP_DIR, BASE_W, BASE_H,
+  petState,
+  core: () => core, metering: () => metering, sessionArchive: () => sessionArchive,
+  frontendConfig, statsHub,
+  sendWin, sendPanel,
+  S,
+});
+const { hardenWindow, createPetWindows, openPanel, closePanel, openArchive, closeArchive } = windows;
+
 
 function broadcastConfig() {
   sendPet('pet:config', frontendConfig());
@@ -550,7 +394,7 @@ function registerIpc() {
   const senderPetWin = (e) => {
     const st = stateOfSender(e.sender);
     if (st && st.win && !st.win.isDestroyed()) return st.win;
-    return petWin && !petWin.isDestroyed() ? petWin : null;
+    return S.petWin && !S.petWin.isDestroyed() ? S.petWin : null;
   };
 
   ipcMain.handle('get-config', (e) => frontendConfig());
@@ -688,13 +532,13 @@ function registerIpc() {
 
   // 详情面板按内容高度自适应：clamp 到屏幕工作区，阈值防抖避免每次 stats 都抖
   ipcMain.on('set-panel-height', (_e, h) => {
-    if (!panelWin || panelWin.isDestroyed() || !Number.isFinite(h)) return;
-    const b = panelWin.getBounds();
+    if (!S.panelWin || S.panelWin.isDestroyed() || !Number.isFinite(h)) return;
+    const b = S.panelWin.getBounds();
     const wa = screen.getDisplayMatching(b).workArea;
     const clamped = Math.max(320, Math.min(Math.round(h), wa.height - 24));
-    if (Math.abs(clamped - panelH) < 6) return;
-    panelH = clamped;
-    panelWin.setBounds({ x: b.x, y: b.y, width: b.width, height: clamped });
+    if (Math.abs(clamped - S.panelH) < 6) return;
+    S.panelH = clamped;
+    S.panelWin.setBounds({ x: b.x, y: b.y, width: b.width, height: clamped });
   });
 
   ipcMain.on('set-mode', (_e, mode) => applyMode(mode));
@@ -880,7 +724,7 @@ function applySkin(skin) {
 
 // 补齐当前设置应有的窗口（被收起的宠从托盘找回来）
 function ensurePetWindows() {
-  if (!petWin || petWin.isDestroyed()) petWin = makePetWindow('all');
+  if (!S.petWin || S.petWin.isDestroyed()) S.petWin = makePetWindow('all');
 }
 // Language switch (tray → Settings → Language). Main-process copy is baked into
 // the strings the adapter already pushed, so a plain re-broadcast would leave
