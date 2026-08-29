@@ -1,0 +1,710 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-04T12:45:35.000Z",
+  "assetCount": 35,
+  "byteIdenticalCount": 35,
+  "optimizationApplied": false,
+  "visualSnapshotGate": "requires compiled GUI on each OS before any conversion",
+  "assets": [
+    {
+      "path": "cat/cat-attention.gif",
+      "archived": {
+        "bytes": 244421,
+        "sha256": "5826360f96221cf586d8d9af8d4be91c27f7b3d05c9cbbe4b8c9defe0db27d60",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 1062
+      },
+      "delivered": {
+        "bytes": 244421,
+        "sha256": "5826360f96221cf586d8d9af8d4be91c27f7b3d05c9cbbe4b8c9defe0db27d60",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 1062
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-error.gif",
+      "archived": {
+        "bytes": 20623,
+        "sha256": "43b191f62c46e312a39233ab8d65c1b8f614154cb0fce5660768bfbe3e1a972f",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 117
+      },
+      "delivered": {
+        "bytes": 20623,
+        "sha256": "43b191f62c46e312a39233ab8d65c1b8f614154cb0fce5660768bfbe3e1a972f",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 117
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-greet.gif",
+      "archived": {
+        "bytes": 99853,
+        "sha256": "ca4bf567efef7f8bd0ca45bf0520c5edf02c0a9a19bb414f34738696946834a2",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 454
+      },
+      "delivered": {
+        "bytes": 99853,
+        "sha256": "ca4bf567efef7f8bd0ca45bf0520c5edf02c0a9a19bb414f34738696946834a2",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 454
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-happy.gif",
+      "archived": {
+        "bytes": 118667,
+        "sha256": "975a2e64daebe5cd766dc15b630c69443ffd5514504ef5bb1f8cbd363fbd89a2",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 523
+      },
+      "delivered": {
+        "bytes": 118667,
+        "sha256": "975a2e64daebe5cd766dc15b630c69443ffd5514504ef5bb1f8cbd363fbd89a2",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 523
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-idle.gif",
+      "archived": {
+        "bytes": 18611,
+        "sha256": "62591575c90cb8480805630c32c88a28eb3b8a7bcd4f4109ab9b920845a42269",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 85
+      },
+      "delivered": {
+        "bytes": 18611,
+        "sha256": "62591575c90cb8480805630c32c88a28eb3b8a7bcd4f4109ab9b920845a42269",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 85
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-juggling.gif",
+      "archived": {
+        "bytes": 35500,
+        "sha256": "4e5da67e505481bef90abfc4a6be98203a12156eb367c332ea20b06bf0492de6",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 137
+      },
+      "delivered": {
+        "bytes": 35500,
+        "sha256": "4e5da67e505481bef90abfc4a6be98203a12156eb367c332ea20b06bf0492de6",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 137
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-loafing-2.gif",
+      "archived": {
+        "bytes": 257405,
+        "sha256": "f98adb16f014d729da6d5c51c2885cb6c8943febbbd9af6d3a6a46c48af33c43",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 1103
+      },
+      "delivered": {
+        "bytes": 257405,
+        "sha256": "f98adb16f014d729da6d5c51c2885cb6c8943febbbd9af6d3a6a46c48af33c43",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 1103
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-loafing-3.gif",
+      "archived": {
+        "bytes": 29687,
+        "sha256": "926e0892ef174436e57339e4966b6e61b11cd78d6b44309b8588e9639ef7f4c1",
+        "format": "gif",
+        "width": 240,
+        "height": 240,
+        "frames": 141
+      },
+      "delivered": {
+        "bytes": 29687,
+        "sha256": "926e0892ef174436e57339e4966b6e61b11cd78d6b44309b8588e9639ef7f4c1",
+        "format": "gif",
+        "width": 240,
+        "height": 240,
+        "frames": 141
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-loafing.gif",
+      "archived": {
+        "bytes": 97297,
+        "sha256": "26895430f7e888a60daa3c5b54329ab11a03572560b2ca6f1715b0e64993dc0d",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 554
+      },
+      "delivered": {
+        "bytes": 97297,
+        "sha256": "26895430f7e888a60daa3c5b54329ab11a03572560b2ca6f1715b0e64993dc0d",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 554
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-needsinput.gif",
+      "archived": {
+        "bytes": 72515,
+        "sha256": "25b4cbc5b75cbe89efb6d8ca8e9900c72faf495a8d05aece1078524cda53680a",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 435
+      },
+      "delivered": {
+        "bytes": 72515,
+        "sha256": "25b4cbc5b75cbe89efb6d8ca8e9900c72faf495a8d05aece1078524cda53680a",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 435
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-roam.gif",
+      "archived": {
+        "bytes": 129151,
+        "sha256": "d551bbfc465dc953cdaa956a86b74b76b4bee21b42f65ab69d31c5c791a3d6dd",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 436
+      },
+      "delivered": {
+        "bytes": 129151,
+        "sha256": "d551bbfc465dc953cdaa956a86b74b76b4bee21b42f65ab69d31c5c791a3d6dd",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 436
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-sad.gif",
+      "archived": {
+        "bytes": 44008,
+        "sha256": "b423d8b5487f65994274887b04dbc597a67555be62b6ced321f29b1e2989b92c",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 182
+      },
+      "delivered": {
+        "bytes": 44008,
+        "sha256": "b423d8b5487f65994274887b04dbc597a67555be62b6ced321f29b1e2989b92c",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 182
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-sleeping-2.gif",
+      "archived": {
+        "bytes": 252538,
+        "sha256": "49780eceb55add4efc653ee4f86340fb938636700559fe7e2345026692c51369",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 876
+      },
+      "delivered": {
+        "bytes": 252538,
+        "sha256": "49780eceb55add4efc653ee4f86340fb938636700559fe7e2345026692c51369",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 876
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-sleeping.gif",
+      "archived": {
+        "bytes": 55734,
+        "sha256": "a1f6a96175acabc2c727a011e3dc4349dacf40c484d322ec1f1b6f489cce4bf8",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 258
+      },
+      "delivered": {
+        "bytes": 55734,
+        "sha256": "a1f6a96175acabc2c727a011e3dc4349dacf40c484d322ec1f1b6f489cce4bf8",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 258
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-sweeping.gif",
+      "archived": {
+        "bytes": 65477,
+        "sha256": "fd96209c3b596ea0eaec054ad6d08d7bcae46dbbfd2c543be9ff1cb3ccc6fbe9",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 258
+      },
+      "delivered": {
+        "bytes": 65477,
+        "sha256": "fd96209c3b596ea0eaec054ad6d08d7bcae46dbbfd2c543be9ff1cb3ccc6fbe9",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 258
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-talking.gif",
+      "archived": {
+        "bytes": 193211,
+        "sha256": "08b44f9b7f44be825a22552efb5636be6f901e43f0ced79ae64081073b45d5b2",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 549
+      },
+      "delivered": {
+        "bytes": 193211,
+        "sha256": "08b44f9b7f44be825a22552efb5636be6f901e43f0ced79ae64081073b45d5b2",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 549
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-thinking-2.gif",
+      "archived": {
+        "bytes": 122276,
+        "sha256": "b025fb6e1304d2f7f97111b8c55e65873900043bd5d9d136b66c7308f2cb6eca",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 484
+      },
+      "delivered": {
+        "bytes": 122276,
+        "sha256": "b025fb6e1304d2f7f97111b8c55e65873900043bd5d9d136b66c7308f2cb6eca",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 484
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-thinking.gif",
+      "archived": {
+        "bytes": 20860,
+        "sha256": "bb8511e209992e139df5388611d70021274d3251bf2a0274526b20b2999246d6",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 75
+      },
+      "delivered": {
+        "bytes": 20860,
+        "sha256": "bb8511e209992e139df5388611d70021274d3251bf2a0274526b20b2999246d6",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 75
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-waiting.gif",
+      "archived": {
+        "bytes": 58268,
+        "sha256": "80a6913ffe73ce0f81df324449f21f2b03e91e815bc3df0ff3f140639086d814",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 256
+      },
+      "delivered": {
+        "bytes": 58268,
+        "sha256": "80a6913ffe73ce0f81df324449f21f2b03e91e815bc3df0ff3f140639086d814",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 256
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-working-2.gif",
+      "archived": {
+        "bytes": 230552,
+        "sha256": "07f17e0a61f0bcec2907940e333c691012288e8fdca48faadf4861e73d5955ba",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 830
+      },
+      "delivered": {
+        "bytes": 230552,
+        "sha256": "07f17e0a61f0bcec2907940e333c691012288e8fdca48faadf4861e73d5955ba",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 830
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-working-3.gif",
+      "archived": {
+        "bytes": 49133,
+        "sha256": "ac8f60738959fbca9419bfd397ccc0c89a578fb3cba5b7acfe92e0094f331dee",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 217
+      },
+      "delivered": {
+        "bytes": 49133,
+        "sha256": "ac8f60738959fbca9419bfd397ccc0c89a578fb3cba5b7acfe92e0094f331dee",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 217
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-working-4.gif",
+      "archived": {
+        "bytes": 217706,
+        "sha256": "6897be5cda76ab35b8aff34bd7e032c4bab37dca780f58f203814b727f24ac0f",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 1066
+      },
+      "delivered": {
+        "bytes": 217706,
+        "sha256": "6897be5cda76ab35b8aff34bd7e032c4bab37dca780f58f203814b727f24ac0f",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 1066
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/cat-working.gif",
+      "archived": {
+        "bytes": 192539,
+        "sha256": "e4c10bc2bf59f55a17dfb839c36c39a276b1ed8cbe6a00e78c7dc219ea5bb7aa",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 524
+      },
+      "delivered": {
+        "bytes": 192539,
+        "sha256": "e4c10bc2bf59f55a17dfb839c36c39a276b1ed8cbe6a00e78c7dc219ea5bb7aa",
+        "format": "gif",
+        "width": 120,
+        "height": 120,
+        "frames": 524
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "cat/CREDITS.md",
+      "archived": {
+        "bytes": 2757,
+        "sha256": "70ab95083923bd817f22e936ce5176497b0933e0d932c41db2e6e0ebd82bf0c8",
+        "format": "md",
+        "width": null,
+        "height": null,
+        "frames": null
+      },
+      "delivered": {
+        "bytes": 2757,
+        "sha256": "70ab95083923bd817f22e936ce5176497b0933e0d932c41db2e6e0ebd82bf0c8",
+        "format": "md",
+        "width": null,
+        "height": null,
+        "frames": null
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "icon-256.png",
+      "archived": {
+        "bytes": 17094,
+        "sha256": "a1ceef3c0e6523162df360c089c069811469b95ae46cbf4bd3f86e0d4943af67",
+        "format": "png",
+        "width": 256,
+        "height": 256,
+        "frames": null
+      },
+      "delivered": {
+        "bytes": 17094,
+        "sha256": "a1ceef3c0e6523162df360c089c069811469b95ae46cbf4bd3f86e0d4943af67",
+        "format": "png",
+        "width": 256,
+        "height": 256,
+        "frames": null
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "icon.icns",
+      "archived": {
+        "bytes": 207343,
+        "sha256": "b1538aa59a1699621ac32cd471612842d4de8ff8a8e5dfdd4dd05bcc0e2128f5",
+        "format": "icns",
+        "width": null,
+        "height": null,
+        "frames": null
+      },
+      "delivered": {
+        "bytes": 207343,
+        "sha256": "b1538aa59a1699621ac32cd471612842d4de8ff8a8e5dfdd4dd05bcc0e2128f5",
+        "format": "icns",
+        "width": null,
+        "height": null,
+        "frames": null
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "mascot-happy.png",
+      "archived": {
+        "bytes": 68809,
+        "sha256": "77a705256ec8e16f1fa694eae6dc1e3d6b1ac2545e10d3dabd6b4f9eedcc8c36",
+        "format": "png",
+        "width": 841,
+        "height": 628,
+        "frames": null
+      },
+      "delivered": {
+        "bytes": 68809,
+        "sha256": "77a705256ec8e16f1fa694eae6dc1e3d6b1ac2545e10d3dabd6b4f9eedcc8c36",
+        "format": "png",
+        "width": 841,
+        "height": 628,
+        "frames": null
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "mascot-icon.png",
+      "archived": {
+        "bytes": 17094,
+        "sha256": "a1ceef3c0e6523162df360c089c069811469b95ae46cbf4bd3f86e0d4943af67",
+        "format": "png",
+        "width": 256,
+        "height": 256,
+        "frames": null
+      },
+      "delivered": {
+        "bytes": 17094,
+        "sha256": "a1ceef3c0e6523162df360c089c069811469b95ae46cbf4bd3f86e0d4943af67",
+        "format": "png",
+        "width": 256,
+        "height": 256,
+        "frames": null
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "mascot-sleep.png",
+      "archived": {
+        "bytes": 66059,
+        "sha256": "979d0c9575be5639ba7aff7e08f906da770251ad98108def66285cdea509227d",
+        "format": "png",
+        "width": 841,
+        "height": 628,
+        "frames": null
+      },
+      "delivered": {
+        "bytes": 66059,
+        "sha256": "979d0c9575be5639ba7aff7e08f906da770251ad98108def66285cdea509227d",
+        "format": "png",
+        "width": 841,
+        "height": 628,
+        "frames": null
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "mascot-think.png",
+      "archived": {
+        "bytes": 70249,
+        "sha256": "e20e151abe0aad5bcb5bfc56fccf34974ccdaee85c0e897a39182029a0a1e03b",
+        "format": "png",
+        "width": 841,
+        "height": 628,
+        "frames": null
+      },
+      "delivered": {
+        "bytes": 70249,
+        "sha256": "e20e151abe0aad5bcb5bfc56fccf34974ccdaee85c0e897a39182029a0a1e03b",
+        "format": "png",
+        "width": 841,
+        "height": 628,
+        "frames": null
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "mascot-wait.png",
+      "archived": {
+        "bytes": 73638,
+        "sha256": "8947155e37bd919d9cd873d3c0a33c4d04013d994f0e80094649be754dd0a39b",
+        "format": "png",
+        "width": 841,
+        "height": 628,
+        "frames": null
+      },
+      "delivered": {
+        "bytes": 73638,
+        "sha256": "8947155e37bd919d9cd873d3c0a33c4d04013d994f0e80094649be754dd0a39b",
+        "format": "png",
+        "width": 841,
+        "height": 628,
+        "frames": null
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "mascot-work.png",
+      "archived": {
+        "bytes": 268024,
+        "sha256": "5bdc67e7df1a1a2da4a91108340f08b681db1162b0ea52b6b93f15be9ae7cd4f",
+        "format": "png",
+        "width": 841,
+        "height": 628,
+        "frames": null
+      },
+      "delivered": {
+        "bytes": 268024,
+        "sha256": "5bdc67e7df1a1a2da4a91108340f08b681db1162b0ea52b6b93f15be9ae7cd4f",
+        "format": "png",
+        "width": 841,
+        "height": 628,
+        "frames": null
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "mascot.png",
+      "archived": {
+        "bytes": 70878,
+        "sha256": "f864a3056b4f9391bbd22d04584be0b1c784bc0a65c5c1cf9bd33a3e590c1e04",
+        "format": "png",
+        "width": 841,
+        "height": 628,
+        "frames": null
+      },
+      "delivered": {
+        "bytes": 70878,
+        "sha256": "f864a3056b4f9391bbd22d04584be0b1c784bc0a65c5c1cf9bd33a3e590c1e04",
+        "format": "png",
+        "width": 841,
+        "height": 628,
+        "frames": null
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "tray.png",
+      "archived": {
+        "bytes": 945,
+        "sha256": "767952bb98c6a82df31b9e15faadec9a12e51a2f89efeda72d9b9f3f19d5fc2c",
+        "format": "png",
+        "width": 18,
+        "height": 18,
+        "frames": null
+      },
+      "delivered": {
+        "bytes": 945,
+        "sha256": "767952bb98c6a82df31b9e15faadec9a12e51a2f89efeda72d9b9f3f19d5fc2c",
+        "format": "png",
+        "width": 18,
+        "height": 18,
+        "frames": null
+      },
+      "byteIdentical": true
+    },
+    {
+      "path": "tray@2x.png",
+      "archived": {
+        "bytes": 2210,
+        "sha256": "2a92f82b767603868c7ead3948c4f3a1e6439e48dd178caf165a3df90cb1c61e",
+        "format": "png",
+        "width": 36,
+        "height": 36,
+        "frames": null
+      },
+      "delivered": {
+        "bytes": 2210,
+        "sha256": "2a92f82b767603868c7ead3948c4f3a1e6439e48dd178caf165a3df90cb1c61e",
+        "format": "png",
+        "width": 36,
+        "height": 36,
+        "frames": null
+      },
+      "byteIdentical": true
+    }
+  ]
+}

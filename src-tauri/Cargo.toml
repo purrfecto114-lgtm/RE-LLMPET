@@ -1,0 +1,57 @@
+[package]
+name = "octopus"
+version = "0.5.62"
+description = "Low-overhead multi-agent desktop pet"
+authors = ["Octopus contributors"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.85"
+autobins = false
+
+[lib]
+name = "octopus_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "octopus"
+path = "src/main.rs"
+
+[[bin]]
+name = "octopus-hook"
+path = "src/bin/octopus-hook.rs"
+
+[build-dependencies]
+tauri-build = { version = "=2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "=2.11.5", features = ["tray-icon", "image-png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "=0.4.38", default-features = false, features = ["clock", "std"] }
+# R44 0.5.39 (roadmap v5 §5): SHA-256 for config drift detection.
+# Replaces the old size+mtime signature which could false-negative when
+# a tool rewrites the file with the same size in the same second.
+sha2 = "0.10"
+dirs = "5.0"
+zstd = "0.13"
+tokio = { version = "1", features = ["rt", "time", "fs", "io-util", "macros"] }
+tracing = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+# R35 (2026-07-31): Win32_Globalization adds GetOEMCP / GetACP / MultiByteToWideChar
+# so we can decode Windows subprocess stdout/stderr that is NOT UTF-8 (CP936
+# on Chinese Windows, CP437 on English OEM, CP1252 on Western ACP). Without
+# this, `String::from_utf8_lossy` would replace every non-ASCII byte with U+FFFD,
+# which the audit flagged as the second root cause of the CodeWhale/OpenCode
+# diagnostic "乱码" screenshot.
+windows-sys = { version = "0.61", features = ["Win32_Graphics_Dwm", "Win32_Foundation", "Win32_Globalization", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
+
+# R30 (2026-07-31): release profile for smaller, faster binaries.
+# Per audit roadmap §7 — official Tauri recommended configuration.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-panel-height"
+description = "Enables the set_panel_height command without any pre-configured scope."
+commands.allow = ["set_panel_height"]
+
+[[permission]]
+identifier = "deny-set-panel-height"
+description = "Denies the set_panel_height command without any pre-configured scope."
+commands.deny = ["set_panel_height"]

@@ -1,0 +1,93 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Octopus",
+  "version": "0.5.62",
+  "identifier": "io.github.purrfecto114.octopus",
+  "build": {
+    "frontendDist": "../frontend",
+    "removeUnusedCommands": true
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "pet",
+        "title": "Octopus",
+        "url": "renderer/pet.html?agent=claude",
+        "width": 320,
+        "height": 340,
+        "minWidth": 240,
+        "minHeight": 240,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false
+      },
+      {
+        "label": "pet-codex",
+        "title": "Octopus · Codex",
+        "url": "renderer/pet.html?agent=codex",
+        "width": 320,
+        "height": 340,
+        "minWidth": 240,
+        "minHeight": 240,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false
+      },
+      {
+        "label": "panel",
+        "title": "Octopus · 详情",
+        "url": "renderer/panel.html",
+        "width": 560,
+        "height": 720,
+        "minWidth": 420,
+        "minHeight": 320,
+        "decorations": false,
+        "transparent": false,
+        "shadow": false,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "resizable": true,
+        "visible": false,
+        "center": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'",
+      "capabilities": [
+        "pet",
+        "panel"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "category": "DeveloperTool",
+    "shortDescription": "Low-overhead desktop pet for coding agents",
+    "longDescription": "Octopus watches local coding-agent lifecycle events, permissions and sessions.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [],
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "nsis": {
+        "installerHooks": "./windows/installer-hooks.nsh"
+      }
+    }
+  }
+}

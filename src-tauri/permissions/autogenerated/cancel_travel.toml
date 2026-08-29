@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cancel-travel"
+description = "Enables the cancel_travel command without any pre-configured scope."
+commands.allow = ["cancel_travel"]
+
+[[permission]]
+identifier = "deny-cancel-travel"
+description = "Denies the cancel_travel command without any pre-configured scope."
+commands.deny = ["cancel_travel"]

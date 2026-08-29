@@ -1,0 +1,42 @@
+# R34 (2026-07-31): Force LF line endings on test fixtures so that the
+# reference-contract-smoke SHA256 assertions are stable across Windows /
+# macOS / Linux runners. Without this, Windows checkout converts
+# *.jsonl to CRLF, changing the byte content and breaking the SHA lock.
+#
+# This also future-proofs any other file whose hash is asserted in tests.
+
+# Default: let Git normalize text files to LF on checkout (autocrlf=false
+# + eol=lf is the safest policy for cross-platform repos).
+* text=auto eol=lf
+
+# Binary files — never normalize.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.zip binary
+*.tar.gz binary
+*.dmg binary
+*.exe binary
+*.deb binary
+*.AppImage binary
+*.msi binary
+*.pdb binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+
+# Test fixtures: hard-force LF (these are SHA-locked).
+test/fixtures/** text eol=lf
+
+# Shell scripts: always LF (CRLF breaks #! shebang on Linux/macOS).
+*.sh text eol=lf
+*.bash text eol=lf
+
+# PowerShell: CRLF is the Windows convention but LF also works; force LF
+# for cross-platform consistency.
+*.ps1 text eol=lf
+*.psm1 text eol=lf

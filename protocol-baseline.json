@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 2,
+  "updatedAt": "2026-08-01",
+  "sourceFork": {
+    "repository": "https://github.com/purrfecto114-lgtm/LLMPET",
+    "publishedTag": "v0.1.2-pre",
+    "tagCommit": "1a6617a",
+    "observedMainCommit": "86cbd9e",
+    "observedAt": "2026-07-27",
+    "verificationUrl": "https://github.com/purrfecto114-lgtm/LLMPET/commits/main/"
+  },
+  "localContracts": {
+    "claudeEvents": [
+      "SessionStart",
+      "SessionEnd",
+      "UserPromptSubmit",
+      "PostToolUse",
+      "PostToolUseFailure",
+      "Stop",
+      "StopFailure",
+      "SubagentStart",
+      "SubagentStop",
+      "PreCompact",
+      "PostCompact",
+      "Notification",
+      "Elicitation",
+      "ElicitationResult",
+      "PermissionDenied",
+      "TaskCreated",
+      "TaskCompleted",
+      "TeammateIdle",
+      "Setup",
+      "InstructionsLoaded",
+      "CwdChanged",
+      "WorktreeRemove",
+      "DirectoryAdded"
+    ],
+    "codewhaleEvents": [
+      "session_start",
+      "session_end",
+      "tool_call_before",
+      "tool_call_after",
+      "turn_end",
+      "on_error",
+      "mode_change",
+      "subagent_spawn",
+      "subagent_complete",
+      "message_submit"
+    ],
+    "codexEvents": [
+      "SessionStart",
+      "SessionEnd",
+      "UserPromptSubmit",
+      "PreToolUse",
+      "PostToolUse",
+      "PermissionRequest",
+      "Stop",
+      "SubagentStart",
+      "SubagentStop",
+      "PreCompact",
+      "PostCompact"
+    ],
+    "opencodeNeedles": [
+      "permission.asked",
+      "permission.replied",
+      "tool.execute.before",
+      "tool.execute.after",
+      "session.idle",
+      "session.error",
+      "session.created",
+      "session.compacted",
+      "session.deleted",
+      "session.status"
+    ],
+    "aiderNeedles": [
+      "notifications_command:",
+      "turn-end-only"
+    ]
+  },
+  "remoteContracts": [
+    {
+      "id": "source-fork-head-and-tag",
+      "url": "https://github.com/purrfecto114-lgtm/LLMPET/commits/main/",
+      "required": [
+        "86cbd9e",
+        "1a6617a"
+      ]
+    },
+    {
+      "id": "claude-hooks",
+      "url": "https://docs.anthropic.com/en/docs/claude-code/hooks",
+      "required": [
+        "PermissionDenied",
+        "TaskCreated",
+        "TaskCompleted",
+        "TeammateIdle",
+        "ElicitationResult"
+      ]
+    },
+    {
+      "id": "codewhale-hooks",
+      "url": "https://raw.githubusercontent.com/Hmbown/CodeWhale/main/docs/CONFIGURATION.md",
+      "required": [
+        "tool_call_before",
+        "turn_end",
+        "allow",
+        "deny",
+        "ask"
+      ]
+    },
+    {
+      "id": "codex-hooks",
+      "url": "https://developers.openai.com/codex/hooks",
+      "required": [
+        "PermissionRequest",
+        "hookSpecificOutput",
+        "/hooks"
+      ]
+    },
+    {
+      "id": "opencode-plugins",
+      "url": "https://opencode.ai/docs/plugins/",
+      "required": [
+        "permission.asked",
+        "tool.execute.before",
+        "session.idle"
+      ]
+    },
+    {
+      "id": "models-dev-catalog",
+      "url": "https://models.dev/api.json",
+      "required": [
+        "models",
+        "cost",
+        "input",
+        "output"
+      ]
+    },
+    {
+      "id": "upstream-parallel-permission-semantics",
+      "url": "https://github.com/myunwang/LLMPET/commit/4637a20cef1ae6207d3773f75edcfe3d231120d9",
+      "required": [
+        "preserve parallel permission cards",
+        "session+tool+input"
+      ]
+    }
+  ],
+  "cliVersionCommands": [
+    {
+      "id": "claude",
+      "command": "claude",
+      "args": [
+        "--version"
+      ]
+    },
+    {
+      "id": "codewhale",
+      "command": "codewhale",
+      "args": [
+        "--version"
+      ]
+    },
+    {
+      "id": "codex",
+      "command": "codex",
+      "args": [
+        "--version"
+      ]
+    },
+    {
+      "id": "opencode",
+      "command": "opencode",
+      "args": [
+        "--version"
+      ]
+    },
+    {
+      "id": "aider",
+      "command": "aider",
+      "args": [
+        "--version"
+      ]
+    }
+  ],
+  "upstream": {
+    "repository": "https://github.com/myunwang/LLMPET",
+    "observedMainCommit": "4637a20cef1ae6207d3773f75edcfe3d231120d9",
+    "observedCommitTitle": "fix: preserve parallel permission cards",
+    "observedAt": "2026-07-27",
+    "verificationUrl": "https://github.com/myunwang/LLMPET/commit/4637a20cef1ae6207d3773f75edcfe3d231120d9"
+  }
+}

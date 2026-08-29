@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-win-pos"
+description = "Enables the set_win_pos command without any pre-configured scope."
+commands.allow = ["set_win_pos"]
+
+[[permission]]
+identifier = "deny-set-win-pos"
+description = "Denies the set_win_pos command without any pre-configured scope."
+commands.deny = ["set_win_pos"]

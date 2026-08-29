@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-04T11:44:34.929Z",
+  "baselineUpdatedAt": "2026-08-01",
+  "sourceFork": {
+    "repository": "https://github.com/purrfecto114-lgtm/LLMPET",
+    "publishedTag": "v0.1.2-pre",
+    "tagCommit": "1a6617a",
+    "observedMainCommit": "86cbd9e",
+    "observedAt": "2026-07-27",
+    "verificationUrl": "https://github.com/purrfecto114-lgtm/LLMPET/commits/main/"
+  },
+  "local": [
+    {
+      "id": "claude-rust-events",
+      "ok": true,
+      "actual": [
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "Stop",
+        "StopFailure",
+        "SubagentStart",
+        "SubagentStop",
+        "PreCompact",
+        "PostCompact",
+        "Notification",
+        "Elicitation",
+        "ElicitationResult",
+        "PermissionDenied",
+        "TaskCreated",
+        "TaskCompleted",
+        "TeammateIdle",
+        "Setup",
+        "InstructionsLoaded",
+        "CwdChanged",
+        "WorktreeRemove",
+        "DirectoryAdded"
+      ],
+      "expected": [
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "Stop",
+        "StopFailure",
+        "SubagentStart",
+        "SubagentStop",
+        "PreCompact",
+        "PostCompact",
+        "Notification",
+        "Elicitation",
+        "ElicitationResult",
+        "PermissionDenied",
+        "TaskCreated",
+        "TaskCompleted",
+        "TeammateIdle",
+        "Setup",
+        "InstructionsLoaded",
+        "CwdChanged",
+        "WorktreeRemove",
+        "DirectoryAdded"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "orderChanged": false
+    },
+    {
+      "id": "claude-node-events",
+      "ok": true,
+      "actual": [
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "Stop",
+        "StopFailure",
+        "SubagentStart",
+        "SubagentStop",
+        "PreCompact",
+        "PostCompact",
+        "Notification",
+        "Elicitation",
+        "ElicitationResult",
+        "PermissionDenied",
+        "TaskCreated",
+        "TaskCompleted",
+        "TeammateIdle",
+        "Setup",
+        "InstructionsLoaded",
+        "CwdChanged",
+        "WorktreeRemove",
+        "DirectoryAdded"
+      ],
+      "expected": [
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "Stop",
+        "StopFailure",
+        "SubagentStart",
+        "SubagentStop",
+        "PreCompact",
+        "PostCompact",
+        "Notification",
+        "Elicitation",
+        "ElicitationResult",
+        "PermissionDenied",
+        "TaskCreated",
+        "TaskCompleted",
+        "TeammateIdle",
+        "Setup",
+        "InstructionsLoaded",
+        "CwdChanged",
+        "WorktreeRemove",
+        "DirectoryAdded"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "orderChanged": false
+    },
+    {
+      "id": "codewhale-events",
+      "ok": true,
+      "actual": [
+        "session_start",
+        "session_end",
+        "tool_call_before",
+        "tool_call_after",
+        "turn_end",
+        "on_error",
+        "mode_change",
+        "subagent_spawn",
+        "subagent_complete",
+        "message_submit"
+      ],
+      "expected": [
+        "session_start",
+        "session_end",
+        "tool_call_before",
+        "tool_call_after",
+        "turn_end",
+        "on_error",
+        "mode_change",
+        "subagent_spawn",
+        "subagent_complete",
+        "message_submit"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "orderChanged": false
+    },
+    {
+      "id": "codex-events",
+      "ok": true,
+      "actual": [
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "PermissionRequest",
+        "Stop",
+        "SubagentStart",
+        "SubagentStop",
+        "PreCompact",
+        "PostCompact"
+      ],
+      "expected": [
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "PermissionRequest",
+        "Stop",
+        "SubagentStart",
+        "SubagentStop",
+        "PreCompact",
+        "PostCompact"
+      ],
+      "missing": [],
+      "unexpected": [],
+      "orderChanged": false
+    },
+    {
+      "id": "opencode-contract",
+      "ok": true,
+      "missing": []
+    },
+    {
+      "id": "aider-contract",
+      "ok": true,
+      "missing": []
+    }
+  ],
+  "cliVersions": [
+    {
+      "id": "claude",
+      "installed": false,
+      "error": "ENOENT"
+    },
+    {
+      "id": "codewhale",
+      "installed": false,
+      "error": "ENOENT"
+    },
+    {
+      "id": "codex",
+      "installed": false,
+      "error": "ENOENT"
+    },
+    {
+      "id": "opencode",
+      "installed": false,
+      "error": "ENOENT"
+    },
+    {
+      "id": "aider",
+      "installed": false,
+      "error": "ENOENT"
+    }
+  ],
+  "remote": [],
+  "verdict": "local-contract-ok"
+}

@@ -1,0 +1,45 @@
+RE-LLMPET 0.5.1 audit changes
+Generated: 2026-07-28
+
+Summary: 8 added, 1 removed, 21 modified
+
+[ADDED]
+AUDIT_CHANGED_FILES_2026-07-28.txt
+AUDIT_REPORT_2026-07-28.md
+AUDIT_TODOLIST.md
+AUDIT_VALIDATION_2026-07-28.log
+src-tauri/capabilities/panel.json
+src-tauri/capabilities/pet.json
+test/release-supply-chain-smoke.js
+test/tauri-capability-boundary-smoke.js
+
+[REMOVED]
+src-tauri/capabilities/default.json
+
+[MODIFIED]
+.github/workflows/ci.yml
+.github/workflows/desktop-real-machine.yml
+.github/workflows/protocol-drift.yml
+.github/workflows/provider-real-cli.yml
+.github/workflows/release.yml
+CHANGELOG.md
+README.md
+SECURITY.md
+migration-todo.json
+package-lock.json
+package.json
+scripts/check-release-gates.js
+scripts/generate-sbom.js
+scripts/static-check.py
+src-tauri/build.rs
+src-tauri/src/hook_client.rs
+src-tauri/src/http_server.rs
+src-tauri/tauri.conf.json
+test/tauri-native-core-smoke.js
+test/tauri-phase4-cutover-smoke.js
+test/tauri-protocol-drift-smoke.js
+
+Notes:
+- reports/protocol-drift.json was restored after testing because the only test-generated change was generatedAt.
+- No .git directory existed in the uploaded archive; none was created or removed.
+- Rust binaries were not generated because Cargo/Rust is unavailable in the audit sandbox.

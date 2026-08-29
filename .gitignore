@@ -4,6 +4,7 @@ node_modules/
 # Build artifacts (the hand-assembled .app is 200M+; rebuild locally)
 dist/
 *.app/
+src-tauri/target/
 
 # Local runtime state (never lives in the repo, but guard anyway)
 .octopus/

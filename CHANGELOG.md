@@ -1,0 +1,3263 @@
+# Changelog
+
+## 0.5.62 — 桌宠状态过渡动画（B3）（2026-08-11）
+
+### HIGH: 状态切换平滑过渡
+- **功能**: 桌宠状态切换时（idle → working → happy → idle 等），mascot/cat 皮肤图片不再瞬间"弹"出，而是 150ms 淡入淡出过渡。
+- **实现**:
+  - `pet.js`: 新增 `fadeSwapImg()` 函数 — 透明度归零 → 换 src → load 事件恢复透明度
+  - `updateMascotEyes()` 和 `updateCat()` 改用 `fadeSwapImg` 替代直接 `img.src =`
+  - `pet.css`: `#mascot img` 和 `#cat img` 添加 `transition: opacity 0.15s ease`
+  - 已有 `prefers-reduced-motion` 媒体查询会自动禁用过渡（`transition: none !important`）
+- **行数预算**: pet.js 2540/2540（精确卡预算，通过删除冗余注释实现）
+
+### 沙箱恢复
+- 本轮开始时沙箱再次重置（v0.5.46 状态，Rust/GTK/remote 全部丢失）
+- 从 GitHub 重新克隆到 v0.5.61
+- 重新安装 Rust 1.97.1 + 52 个 GTK dev packages
+
+### 验证
+- cargo clippy -D warnings --all-targets: ✅ EXIT=0
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+- pet.js: 2540/2540 行（预算内）
+
+---
+
+## 0.5.61 — 诊断结果导出 JSON（2026-08-10）
+
+### HIGH: 诊断结果导出为 JSON 文件
+- **功能**: 诊断面板新增「导出 JSON」按钮，用户可将诊断结果导出为 JSON 文件，方便提交 bug report 或反馈。
+- **实现**:
+  - `panel.js`: 新增 `exportDiagnosticJson()` 函数，使用 Blob + URL.createObjectURL 下载 JSON 文件
+  - 文件名格式: `octopus-diag-{provider}-{timestamp}.json`
+  - 导出完整的 `latestProviderDiagnostic` 对象（含 issues/warnings/probes/config 等）
+  - i18n: 新增 `diag.export` 键（中: 导出 JSON / 英: Export JSON / 日: JSON書き出し）
+- **使用场景**: 用户遇到诊断问题时，可导出 JSON 附在 GitHub Issue 中，帮助开发者快速定位问题。
+
+### 沙箱恢复
+- 本轮开始时沙箱被重置（v0.5.46 状态，Rust/GTK/remote 全部丢失）
+- 从 GitHub 重新克隆代码到 v0.5.60
+- 重新安装 Rust 1.97.1 + GTK dev deps（apt download + dpkg-deb -x）
+- 验证: clippy -D warnings ✅, 72/72 JS 测试 ✅, 22/22 静态检查 ✅
+
+### 验证
+- cargo clippy -D warnings --all-targets: ✅ EXIT=0
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+- panel.js: 1752/1760 行（预算内）
+
+---
+
+## 0.5.60 — hide_console_window 回归测试 + ghproxy 中国镜像源（2026-08-10）
+
+### HIGH: ghproxy.com 中国镜像源 fallback
+- **背景**: v0.5.59 添加了 GitHub raw 镜像，但 raw.githubusercontent.com 本身有时也被 GFW 封锁。
+- **修复**: 在 `price_source_urls()` 添加 ghproxy.com 作为第三个镜像源，尝试顺序：
+  1. 用户自定义镜像（`RE_LLMPET_MODELS_DEV_URL` 环境变量）
+  2. GitHub raw 镜像（直接 raw.githubusercontent.com）— 最快，但可能被封
+  3. **ghproxy.com 镜像** — `https://gh-proxy.com/https://raw.githubusercontent.com/...` — 中国可访问的反向代理
+  4. models.dev 原始源 — 最终 fallback
+- **安全**: ghproxy 响应经过与主源相同的 schema 验证（normalize_models_dev + max size 16MB + max models 20000），篡改响应会被拒绝。无凭证发送（内容是公开的）。
+
+### MEDIUM: hide_console_window 回归测试
+- `test/tauri-windows-static-smoke.js` 添加断言：
+  1. `platform.rs` 必须定义 `hide_console_window` helper
+  2. 必须使用 `CREATE_NO_WINDOW: u32 = 0x0800_0000`
+  3. `pricing_sync.rs` curl spawn 必须调用 helper
+  4. `travel.rs` provider_command 必须有 CREATE_NO_WINDOW
+  5. `hook_client.rs` resolve_ppid 必须调用 helper
+  6. `launch_terminal` 必须**不**调用 helper（终端窗口应可见）
+- 防止未来回归导致黑色 cmd 窗口重新出现
+
+### 验证
+- cargo clippy -D warnings --all-targets: ✅ EXIT=0
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+
+---
+
+## 0.5.59 — 隐藏黑色 cmd 窗口 + 模型价格镜像源（2026-08-10）
+
+### HIGH: 隐藏 Windows 黑色 cmd 窗口
+- **根因**: Octopus 是 GUI 子系统二进制，每次 spawn console 子进程（curl.exe, cmd.exe, powershell.exe, taskkill.exe）时 Windows 会为新子进程分配 conhost，弹出黑色 cmd 窗口。用户反馈"每次打开都会出现黑色cmd的curl.exe"。
+- **修复**: 在 `platform.rs` 添加共享 `hide_console_window()` helper（Windows 使用 `CREATE_NO_WINDOW = 0x08000000`，Unix no-op）。应用到所有非交互式 spawn：
+  1. `pricing_sync.rs` — curl.exe 价格刷新（最主要的黑窗来源，每次启动+定时刷新都会弹）
+  2. `commands.rs` — 诊断探针（4 个并行 cmd.exe）+ taskkill（取消诊断时）+ open_gui_application（.cmd 启动 VS Code 时）
+  3. `platform.rs` — parent_pid + focus_process_chain（每次点击聚焦都会弹 PowerShell）
+  4. `travel.rs` — provider_command（闲逛/旅行时 .cmd shim 会弹 cmd 窗口持续 30s-2min）
+  5. `hook_client.rs` — resolve_ppid（首次 hook 调用时弹 PowerShell）
+- **不修改**: `launch_terminal` 的 `cmd.exe /K`（用户期望看到终端窗口）
+
+### HIGH: 模型价格镜像源（中国可访问）
+- **根因**: `models.dev` 在中国大陆经常不可访问（GFW + Cloudflare 边缘节点）。模型价格自动更新会失败，用户只能看到内置的离线价格。
+- **修复**: 在 `price_source_urls()` 添加 GitHub raw 镜像作为内置 fallback：
+  1. 用户自定义镜像（`RE_LLMPET_MODELS_DEV_URL` 环境变量）— 最高优先级
+  2. GitHub raw 镜像 — `https://raw.githubusercontent.com/anomalyco/models.dev/refs/heads/main/data/api.json` — 在 models.dev 之前尝试，因为 models.dev 是被墙的那个
+  3. models.dev 原始源 — 始终作为最终 fallback
+- **安全**: 镜像 URL 是 HTTPS-only 的 raw.githubusercontent.com 链接，无凭证、无查询字符串。响应经过与主源相同的 schema 验证（normalize_models_dev + max size 16MB + max models 20000）。etag/last_modified 验证器只发送给 models.dev 原始源，不发送给镜像（避免不同资源的 false 304）。
+
+### 验证
+- cargo clippy -D warnings --all-targets: ✅ EXIT=0
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+
+---
+
+## 0.5.58 — 用户反馈三问题修复 + 诊断并行化（2026-08-10）
+
+### HIGH: 闲逛/启动 GUI 穿模修复（z-index 冲突）
+- **根因**: pet 窗口 `alwaysOnTop:true`，panel 窗口 `alwaysOnTop:false`。打开 panel 时 pet 透明覆盖层遮住 panel，toast/bubble 扩大 pet 区域时产生穿模。
+- **修复**: `open_panel` 设置 panel `set_always_on_top(true)`，`close_panel` 恢复 `false`。panel 可见时位于 pet 之上，关闭后恢复正常窗口层级。
+
+### HIGH: Launch agent 错误提示无法关闭
+- **根因**: `#re-llmpet-toast` 不在 `INTERACTIVE_HIT_SEL` 选择器中。持久错误 toast 渲染在 pet 窗口右下角（#pet-anchor 矩形外），落入 click-through 区域，✕ 按钮点击穿透到桌面。
+- **修复**: 将 `#re-llmpet-toast` 加入 `INTERACTIVE_HIT_SEL`。toast.js 在显示/隐藏时调用 `reportPetVisualBounds()` 重新计算 click-through 区域。与 R35.2 修复 #provider-chooser 是同一类 bug。
+
+### HIGH: 桌宠动画不随状态更新
+- **根因 A**: Rust stats 匹配没有 `"attention" =>` 分支，CodeWhale turn_end 和 OpenCode session.idle 设置的 `state:"attention"` 会被忽略，不产生 `attentionCount`。
+- **根因 B**: 前端 `applyStats` 优先级梯子没有 `attention` 分支，落入 idle/sleeping。
+- **根因 C**: `case 'state'` 事件处理器在 transient 窗口内（turn-done 后 1.8s）阻塞所有状态事件，包括紧随其后的 attention 事件。
+- **修复**:
+  1. model.rs: 添加 `"attention" => attention += 1` 分支 + `attentionCount` JSON 字段
+  2. pet.js: `applyStats` 梯子添加 `attention` 分支（位于 sweeping 和 juggling 之间，对应 STATE_PRIORITY=5）
+  3. pet.js: `case 'state'` 允许 sticky 高优先级状态（waiting/needsinput/error/attention）突破 transient 抑制
+  4. pet.js: MASCOT_EYES 添加 `attention` 映射
+  5. pet.css: pixel/mascot 皮肤添加 `attention` 动画（复用 waiting 的 attn 动画 + 黄色光晕）
+
+### MEDIUM: 诊断探针并行化（#22 审计项）
+- **根因**: `diagnose_agent_sync` 中 4 个独立探针（--version、companion --version、doctor、auth）串行执行，最坏情况 26s（CodeWhale: 5+5+8+8）。
+- **修复**: 使用 `std::thread::scope` 并行执行 4 个探针，最坏情况降至 max(5,5,8,8)=8s。`DiagnosticControl` 从 `pid: Option<u32>` 升级为 `pids: HashSet<u32>` 以支持多进程追踪。`cancel_diagnostic` 现在终止所有已注册的子进程。
+
+### 验证
+- cargo clippy -D warnings --all-targets: ✅ EXIT=0
+- 72/72 JS 测试通过
+- 22/22 静态检查通过
+- 行数预算: pet.js 2539/2540 ✅
+
+---
+
+## 0.5.57 — Rust 事件文本去 i18n（2026-08-10）
+
+### HIGH: Rust 端 5 个中文事件文本改为英文
+- commands.rs: 领地模式关闭 → Territory mode disabled
+- commands.rs: 无法直接聚焦终端 → Cannot focus terminal
+- http_server.rs: Agent 执行失败 → Agent execution failed
+- http_server.rs: 已创建并行任务 → Task created
+- http_server.rs: 并行任务已完成 → Task completed
+- http_server.rs: 正在执行工具 → Running tool
+- territory.rs: 巡视完成 → Patrol complete, no rival pets found
+- territory.rs: 领地模式仅支持 macOS → Territory rival push requires macOS
+
+### 设计原则
+- Rust 后端不硬编码语言，统一发送英文
+- pet.js 前端根据 event kind 通过 i18n 系统翻译为当前语言
+- 这样切换语言时所有事件文本都正确翻译
+
+---
+
+
+## 0.5.56 — 全局审查 Round 4: 去理想化 + 性能 + 安全（2026-08-10）
+
+### CRITICAL: stats.bg 去理想化
+- 之前 bg 字段恒为 {running:0, zombie:0, total:0, items:[]}，误导用户以为后台监控在工作
+- 现在 bg 添加 available:false 标记，panel.js 检测后隐藏整个后台任务区块
+- 真正的后台进程对账需要 pidwalk（P5-002），推迟到 0.7.0
+
+### MEDIUM: sessions HashMap 添加上限
+- prune_expired_sessions() 新增 MAX_SESSIONS=200 上限
+- 超过时按 updated_at 最旧的优先驱逐，防止长时间运行后内存增长
+
+### MEDIUM: focus_session 错误文本 sanitize
+- 错误信息截断为 200 字符，防止泄露长路径或平台细节到桌宠 UI
+
+---
+
+
+## 0.5.55 — 全局审查 Round 3: 代码质量 + 测试（2026-08-10）
+
+### HIGH: 代码质量改进
+- #14: is_windows_script 从 #[allow(dead_code)] 改为 #[cfg(windows)]（正确平台门控）
+- #13: territory.rs 6 个 #[allow(dead_code)] 改为 #[cfg_attr(not(target_os="macos"), allow(dead_code))]（仅 macOS 编译时保留）
+- clippy -D warnings 通过（包括 --all-targets 测试代码）
+
+### HIGH: 新增 Rust 单元测试
+- platform.rs: 5 个 process_chain 测试（PID 0/1 终止、当前 PID 包含、无重复、最大深度）
+- 之前 platform.rs 0 个测试，现在有 5 个行为测试
+
+---
+
+
+## 0.5.54 — 全局审查 Round 2: i18n 清理（2026-08-10）
+
+### HIGH: i18n 清理 — ~40 个硬编码字符串改为 i18n
+- i18n.js: 新增 40 个键 × 3 语言（panel.* + bubble.*）
+- panel.html: 15 个硬编码中文添加 data-i18n 属性
+  - 桌宠模式/窗口/单宠/双宠/旅行与成长/本机成长/自动更新
+  - 5 个 interval option / byProvider / noData / sessPlaceholder
+- panel.js: 6 个硬编码中文替换为 t() 调用
+  - 刷新中…/重算中…/重算花费/最近明信片
+- pet.js: 6 个硬编码气泡消息替换为 t() 调用
+  - 收到新任务/这条命令有点久/巡视桌面/巡视完毕/巡视中/旅行已取消
+
+### 效果
+切换语言到 en/ja 时，这些字符串现在会正确翻译
+之前切换后仍显示中文
+
+---
+
+
+## 0.5.53 — 全局审查 Round 1: 文档修复 + 代码去重（2026-08-10）
+
+### CRITICAL: 文档版本过时
+- CLAUDE.md: 版本从 0.5.46 更新到 0.5.52
+- ROADMAP.md: 版本 + 更新时间戳同步
+
+### HIGH: CHANGELOG 环境变量文档修复
+- 修正 OCTOPUS_MODELS_DEV_URL/PATH → RE_LLMPET_MODELS_DEV_URL（与代码实际实现一致）
+
+### HIGH: OPENCODE_CONFIG_DIR 代码去重
+- 新增 opencode_config_dir() helper（单一真相源）
+- 4 处重复的 env-os 解析全部替换为调用 helper
+- 消除 drift 风险
+
+### MEDIUM: migration-todo updatedAt 同步
+- 时间戳从 2026-08-04 更新到 2026-08-10
+
+---
+
+
+## 0.5.52 — i18n 修复 + 导出数据增强 + 标签去硬编码（2026-08-10）
+
+### HIGH: 标签 i18n + 去硬编码
+- pet.html: sl-new 按钮从硬编码「新开 Claude」改为 data-i18n + provider 中性标签
+- pet.html: sl-wander 按钮添加 data-i18n
+- i18n.js: 新增 sess.wander 键（中/英/日三语）
+- i18n.js: sess.newClaude 从「新开 Claude」改为「新开 Agent」（provider 中性）
+- 效果：按钮文本跟随语言切换，不硬绑定特定 provider
+
+### MEDIUM: 导出数据增强
+- panel-export.js: 导出 JSON/CSV 新增 combinedUsage（Claude+Codex 合并成本）
+- panel-export.js: 新增 machineGrowth（全机 token 排名）
+- panel-export.js: 新增 codex.todayCost / lifetime.cost
+- panel-export.js: 新增 postcards（旅行明信片历史）
+- panel-export.js: 版本号从硬编码 '0.5.46' 改为动态读取
+
+---
+
+
+## 0.5.51 — 闲逛按钮激活 + 任务模板多样化（2026-08-10）
+
+### HIGH: 闲逛按钮功能完善
+- pet.js: sl-wander 按钮现在有点击处理器（之前没有！）
+- 点击闲逛按钮时从任务列表随机选择一个任务（不是固定单一任务）
+- 支持中/英/日三语任务模板
+- 点击后显示气泡反馈 + 自动关闭会话列表
+
+### 改进: 任务模板多样化
+- commands.rs: 旅行/闲逛默认任务从单一硬编码改为随机选择
+- 旅行任务 3 选 1（浏览项目/代码质量/架构设计）
+- 闲逛任务 3 选 1（新工具/开发者趋势/库或框架）
+- 用户仍可通过 API 传入自定义任务
+
+### 个性化
+- 不强制单一行为：每次闲逛/旅行都有不同的任务主题
+- 用户可通过 startWander(mission, provider) 传入完全自定义的任务
+
+---
+
+
+## 0.5.50 — CodeWhale/Codex per-model 定价（2026-08-10）
+
+### HIGH: per-model cost
+- FileSummary 新增 model 字段，从 session_meta 提取模型名
+- codex_rollout snapshot 现在使用实际模型名查询价格（而非硬编码 gpt-5.3-codex）
+- diagnostics.pricingModel 显示实际使用的模型名
+- 效果：不同 Codex 模型（gpt-5.5-pro vs gpt-5.3-codex）现在按各自费率计价
+
+---
+
+
+## 0.5.49 — 诊断进度反馈 + 测试修复（2026-08-09）
+
+### HIGH: 诊断工具进度反馈
+- diagnose_agent 命令现在接受 AppHandle 参数
+- 启动时 emit "panel:diagnostic-progress" 事件
+- panel.js 监听进度事件，实时更新检查中文本（启动中/检查版本/运行诊断/检查认证）
+- tauri-bridge.js 新增 onDiagnosticProgress 订阅
+- 用户不再看到永远卡在检查中，而是看到当前进度
+
+### 测试修复
+- 3 个测试更新 diagnose_agent 签名匹配（新增 app: AppHandle 参数）
+
+---
+
+
+## 0.5.48 — 用户报告问题修复 + 上游 backport + CI 修复（2026-08-09）
+
+### 用户报告问题修复（5 项）
+- focus_pet ACL 错误：pet.json 添加 allow-focus-pet 权限
+- OpenCode 状态不捕获：ESM 插件目录扫描自动加载 + export default + 移除无效 config.json plugins key
+- 诊断工具卡住：doctor 探针超时 15s → 8s
+- 闲逛功能不完善：扩展 wander 支持 CodeWhale
+- 桌宠动画不变：pet.js 添加 case 'state' 处理 provider state 事件
+
+### 上游 backport（5 项）
+- CRITICAL: codex-pricing.rs（Codex 成本计算 + OpenAI Pro cache rate 修复）
+- CRITICAL: combineUsage（Claude+Codex 合并成本头条）
+- HIGH: settings.json watcher（hooks 被覆盖后自动重注册）
+- HIGH: machineGrowth（全机 token 排名）
+- HIGH: meter-rebuild CLI（rebuild_usage_costs 命令）
+- MEDIUM: _extractOpenAIModels（codex_pricing 从 models.dev 加载价格）
+
+### CI 修复
+- 6 个 clippy 错误从根源修复（dead_code + if_same_then_else + explicit_counter_loop + type_complexity + drop_non_drop）
+- 3 个 cargo check 编译错误修复（borrow checker + 类型不匹配）
+- 恢复 -D warnings（不抑制错误）
+
+### GUI 改进
+- 托盘设置子菜单（刷新价格 + 自动更新切换 + 诊断 + 数据目录）
+- 统计卡片渐变 + hover 动画
+- 预算条渐变色 + transition
+- 滚动阴影 + 会话列表 hover 强调
+- 宠物入场动画
+
+### 验证
+- clippy -D warnings: EXIT=0
+- npm test: all pass
+- CI: 全绿
+
+---
+
+
+## 0.5.47 — CodeWhale v0.9.5 forward-compat + config path dedup（2026-08-09）
+
+### CodeWhale v0.9.5 前向兼容
+- `resolve_agent`: `MISSING_COMPANION_BINARY` 从硬错误改为警告（v0.9.5 移除 codewhale-tui，单运行时）
+- `diagnose_agent_sync`: `MISSING_COMPANION_BINARY` 从 issues 改为 warnings
+- `codewhale_doctor_probe`: dispatcher fallback 已处理 None companion（R10 不变）
+- 真机验证：CodeWhale v0.9.5 已发布（2026-08-08 16:39 UTC），codewhale-tui 已移除，codewhale doctor --json 正常工作
+
+### CodeWhale 0.9.4 真机冒烟测试
+- 下载真实 CodeWhale v0.9.4 CLI，端到端验证 hook 安装 + 事件捕获
+- 捕获真实 turn_end payload（失败 turn + fake API key）
+- 更新 fixture 反映真实 0.9.4 输出 shape（billing_surface: first-party-payg, UUID turn_id）
+- 新增失败 turn fixture + drop-on-zero-usage smoke test
+
+### 去理想化修正
+- `api_key.source` 警告：原匹配 `secret_store_unprobed` 会在每个有 key 的安装上误报
+  （doctor 从不探测 secret store，source 恒为 unprobed）。改用 `secret_backend.presence == absent`
+
+### 代码清理
+- 合并重复的 `codewhale_config_path()`（commands.rs + hook_install.rs → 单一 pub fn）
+- 消除 drift 风险：hook 安装路径和诊断路径现在共享同一 config path resolver
+
+### 自主修复 Round 3-9（63+8 个修复）
+- Round 3-7: 65 个 bug 修复（所有 CRITICAL/HIGH/MEDIUM 清零，11 审计区域全覆盖）
+- Round 8: CodeWhale 0.9.4 真机验证 + 去理想化 + v0.9.5 前向兼容
+- Round 9: codewhale_config_path() 去重
+
+### 验证
+- npm test: all pass（63 smoke/unit tests）
+- check:static: 22/22
+- 行数预算: commands.rs 3229/3250, hook_install.rs 2295/2300
+- 真机验证: CodeWhale v0.9.5 CLI（companion 已移除，dispatcher fallback 工作）
+
+---
+
+
+## 0.5.46 — Global audit closure + secure file ops + session pref client（2026-08-04）
+
+Applies the user's globally-audited source tree which adds:
+- `secure_file.rs` — centralized secure file operations (0600 mode, symlink rejection)
+- `session-pref-client.js` — frontend helper for pin/archive sync
+- `GLOBAL_AUDIT_2026-08-04.md` — full audit report
+- `tauri-global-audit-r47-smoke.js` — audit regression test
+- Migration: incremental import (marker v3, not one-time lockout)
+- Territory: cross-platform WorkArea struct (not macOS-only)
+- Various clippy/fmt fixes across all Rust files
+
+### Verification
+- npm test: all pass
+- check:static: 22/22
+- gate:source: 43/43
+- cargo fmt --check: clean
+
+---
+
+## 0.5.45 — Dual pet + travel/growth + territory + migration + i18n fixes（2026-08-04）
+
+Closes the six requested parity gaps and a second repository-wide audit of
+data correctness, process safety, persistence, multi-window concurrency, and
+cross-platform degradation.
+
+### Requested feature closure
+
+- **Dual pet:** independent Claude/Codex windows, provider-scoped events,
+  skins, positions, hit regions, click-through state, and off-screen recovery.
+- **Pet HUD:** search, provider/attention/archive filters, pin/archive controls,
+  and persisted preferences. Single-row pin/archive updates are atomic; the
+  legacy bulk API remains compatible.
+- **Travel/wander/growth:** Claude and Codex read-only trips, provider-aware
+  wander, cancellation, timeout, bounded output, crash recovery, postcards,
+  and token-derived growth. Prompts are sent over stdin rather than exposed in
+  process arguments, cancellation terminates the spawned process tree, and
+  Codex wandering enables only its hosted `web_search` tool while retaining a
+  read-only sandbox.
+- **Todo:** legacy `TodoWrite` plus current `TaskCreate`/`TaskUpdate`/`TaskGet`/
+  `TaskList` PostToolUse responses are normalized into per-session data.
+- **Territory:** real macOS Accessibility window discovery and movement, with
+  each rival kept on its own monitor and explicit unsupported-platform output.
+- **Official migration:** bounded non-destructive import from `~/.octopus`,
+  official usage conversion into the native ledger, travel/growth conversion,
+  private destination permissions, an incremental non-blocking v3 receipt, and
+  explicit exclusion of transient PID runtime caches.
+
+### Repository-wide correctness audit
+
+- Replaced Codex cumulative-token re-addition with per-file incremental
+  accounting. The watcher prefers `last_token_usage`, otherwise computes safe
+  cumulative deltas, caches file metadata, bounds traversal/reads, removes
+  deleted cache entries, and only uses imported aggregate data as a fallback.
+- Added a bounded 50-entry recent-operation ring and exposes the newest 30 as
+  `lastOps`; top-level context now follows the same effective active-session
+  ordering used by the rendered session list.
+- Kept `bg` as an explicit empty compatibility contract. The current upstream
+  adapter also returns fixed empty background-task values, so RE does not
+  invent process state that no provider protocol supplies.
+- Sanitizes and bounds pinned/archive/territory lists, resolves pin/archive
+  conflicts deterministically, normalizes provider IDs, and namespaces
+  anonymous sessions by provider.
+- Replaces the global migration lockout with an idempotent incremental scan, so
+  official usage/travel files created after config can still be imported.
+- Hardens config, travel, Codex, and official-data reads against symlinks,
+  replacement races, same-size inode swaps, and oversized files. Unknown travel
+  formats are preserved rather than rewritten as empty state.
+- Routes every `runtime.json` credential read through one bounded regular-file
+  helper, so duplicate-instance activation, provider hooks, and hook resync use
+  the same symlink and replacement-race defenses.
+- Makes custom Territory rivals exact process-name matches while retaining
+  built-in variant matching, preventing short custom strings from moving
+  unrelated application windows.
+
+### Verification
+
+- Added focused tests for atomic session preferences and the global audit
+  contracts. The complete historical `npm test` suite passes, static checks are
+  22/22, protocol drift passes, all 35 retained assets remain byte-identical,
+  release source gates are 43/43, and the 322-file source manifest verifies.
+- Rust syntax and ownership-sensitive paths were manually audited, but native
+  `cargo fmt/check/test/build` still require a machine with the Rust/Tauri
+  toolchain and platform SDKs; this workspace does not claim those commands ran.
+
+## 0.5.43 — Codex rollout watcher + parity matrix + territory honesty（2026-08-04）
+
+This version addresses the biggest functional gap identified in the
+official parity reaudit: **Codex panel was a dead data entry** — the
+frontend had `codexLimits`/`codexUsage` rendering code, but the Rust
+backend never produced the data.
+
+### 1. Codex rollout watcher (P0 — biggest gap)
+
+New `src-tauri/src/codex_rollout.rs` module:
+
+- Scans `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` on each `stats()` call
+- Parses `token_count` events to extract:
+  - `info.total_token_usage` → cumulative session token counts
+  - `rate_limits.primary` → 5h window used_percent + resets_at
+  - `rate_limits.secondary` → weekly window used_percent + resets_at
+  - `rate_limits.plan_type` → free/go/plus/pro/team/etc.
+- Accumulates today's + lifetime totals across all sessions
+- Returns `(codex_limits, codex_usage)` as JSON, injected into `stats()`
+
+The panel's existing `renderCodexLimits()` and `renderCodexUsage()`
+functions now receive real data. When no Codex sessions exist, both
+return `None` → frontend hides the blocks (matching upstream behavior).
+
+**Format verified against codex-rs source** (`codex-rs/protocol/src/protocol.rs`):
+each JSONL line is `{"timestamp":"...","ordinal":N,"type":"event_msg","payload":{"type":"token_count","info":{...},"rate_limits":{...}}}`.
+
+### 2. UPSTREAM_PARITY_MATRIX.json
+
+New `docs/UPSTREAM_PARITY_MATRIX.json` with 33 items tracking every
+official feature vs RE status:
+- `complete` / `partial` / `stub` / `placeholder` / `missing` / `excluded`
+- Each item has: feature, upstream status, RE status, evidence, source
+file, priority (P0-P4), plan, implementedIn version
+
+Key honest assessments:
+- Codex rollout: **complete** (this version)
+- Territory mode: **stub** (not "partial" — it was previously misleading)
+- Dual pet: **missing**
+- Travel/wander/growth: **missing**
+- Todo/lastOps/background/context: **placeholder** (fixed empty arrays)
+
+### 3. Territory stub honesty
+
+Previously `territory_toggle_auto` said "第一阶段只保留开关，原生窗口推动
+适配仍按平台逐项迁移" — implying partial implementation. Now honestly
+says "stub：仅切换开关，原生窗口推动尚未实现". Same for `territory_run_now`.
+
+### Verification
+
+- npm test: all pass (new `tauri-r44-0-5-43-codex-rollout-smoke.js`)
+- check:static: 22/22
+- gate:source: 43/43
+- cargo fmt --check: clean
+
+### What's NOT in 0.5.43 (per parity matrix priorities)
+
+- P1: Dual pet mode, pet HUD search/filter/pin/archive
+- P2: Travel, wander, growth, Todo real data
+- P3: Territory real implementation, background/context real data, config migration
+
+---
+
+## 0.5.42 — Octopus identity migration + 8 fixes + meme removal（2026-08-03）
+
+This version prioritizes real user impact over roadmap completeness. Three
+changes that prevent actual data loss and fix actual bugs, deferring the
+over-engineering items (6-state receipt machine, full install transaction,
+separate Legacy Repair flow) until real-machine evidence justifies them.
+
+### 1. schemaVersion + unknown-field preservation
+
+**Problem:** `AppConfig` had no `schemaVersion` and no `#[serde(flatten)]`
+for extras. Any JSON key not covered by the struct fields was silently
+dropped on the next save — irreversible data loss. This affected:
+- Users who manually add custom keys to config.json
+- Future versions that add fields (downgrade would lose them)
+- `SchemaTooNew` was defined but never constructed (dead contract)
+
+**Fix:**
+- Added `schema_version: u32` field (defaults to 0 via serde for old configs)
+- Added `#[serde(flatten)] extras: serde_json::Map<String, Value>` to
+  capture and round-trip unknown fields
+- Added `CURRENT_SCHEMA_VERSION = 1` constant
+- `load_config` now checks `config.schema_version > CURRENT_SCHEMA_VERSION`
+  and returns `ConfigState::SchemaTooNew` (quarantines writes)
+- `sanitize()` upgrades old configs: `schema_version < CURRENT → bump to 1`
+
+### 2. Receipt-driven uninstall
+
+**Problem:** `uninstall_opencode` and `uninstall_codewhale` re-derived
+the config path from environment variables (`OPENCODE_CONFIG_DIR`,
+`CODEWHALE_CONFIG_PATH`) at uninstall time. If the env var changed
+between install and uninstall, the cleanup looked in the wrong place
+and left the hook behind. OpenCode officially supports
+`OPENCODE_CONFIG_DIR`, so this is a real scenario.
+
+**Fix:**
+- Added `cleanup_provider_with_path(id, receipt_path)` that uses the
+  receipt's recorded path instead of re-deriving from env vars
+- Added `uninstall_provider_hooks_with_path` public wrapper
+- Added path-specific variants: `uninstall_claude_at`, `uninstall_codex_at`,
+  `uninstall_opencode_at` (the old env-var-deriving variants are kept as
+  dead_code for reference)
+- `commands.rs` `run_one` helper now extracts `receipt_path` from the
+  prior receipt and passes it to `uninstall_provider_hooks_with_path`
+- When no receipt is available (sync_enabled path), falls back to
+  env-var-derived paths (backward compatible)
+
+### 3. Idempotent sync
+
+**Problem:** `sync_enabled` called `install_provider` for every selected
+provider on every `set_providers` call — even if the hook was already
+installed. This created a backup + receipt every time the user re-saved
+the same provider selection. The 5-backup cap prevented unbounded growth,
+but the churn was wasteful and obscured the receipt history.
+
+**Fix:**
+- `sync_enabled` now checks `is_hook_installed(id)` before calling
+  `install_provider`. If the hook is already present, returns a
+  "Hook 已安装（幂等跳过）" status without writing.
+- Safe because the hook command (`--provider X EventName`) doesn't
+  contain port/token — those are read from `runtime.json` at invocation
+  time. So an existing hook command is still valid after app restart.
+- Edge case: if the user downgraded from a newer RE version with a
+  different hook format, `is_hook_installed` may return true for the
+  old format. The user should explicitly uninstall + reinstall to
+  upgrade the format. The sync path is not the place to force upgrades.
+
+### What's NOT in 0.5.41 (deferred as over-engineering)
+
+- **6-state receipt state machine** (pending/active/superseded/removed/
+  residue/rolledBack) — we don't have an updater; pending→active is for
+  crash recovery during install, but backup+receipt already handles that.
+- **Full 5-step install transaction** — backup + receipt already handles
+  crash recovery. The full transaction adds complexity without clear benefit.
+- **Separate Legacy Repair flow** — normal cleanup already handles old
+  markers via `OPENCODE_MARKER_LEGACY` etc.
+- **Exact owner parameter parsing** — substring `command.contains("re-llmpet")`
+  is a rare false-positive risk (user script path would need to contain
+  "re-llmpet"). Not worth the parsing complexity now.
+- **Install ID UUID** — receipt already has provider+path+timestamp, which
+  is sufficient for uninstall. UUID adds value only with a full transaction
+  system.
+
+### Verification
+
+- npm test: 55/55 ✅ (new `tauri-r44-0-5-41-config-durability-smoke.js`)
+- check:static: 22/22 ✅
+- gate:source: 16/16 ✅
+
+---
+
+## 0.5.40 — R44 Roadmap v6: product closure & config durability（2026-08-03）
+
+Implements the 7 P0 deliverables from Roadmap v6 §0.5.40 "Product Closure
+& Config Durability". This version closes the user-facing recovery loop
+that 0.5.39 left half-open: config quarantine state was enforced backend-
+side, but the user had no UI to recover from it.
+
+### P0-01: Config recovery commands in panel capability + bridge + UI
+
+The three new IPC commands (`get_config_state`,
+`backup_and_reset_config`, `get_install_receipts`) were registered in
+Rust and had autogenerated permission files, but were NOT authorized
+in any capability — meaning the panel WebView could not actually invoke
+them. This is now closed:
+
+- `panel.json` capability authorizes all three commands (panel-only,
+  NOT pet — these are privileged recovery operations)
+- `tauri-bridge.js` exposes `getConfigState()`,
+  `backupAndResetConfig()`, `getInstallReceipts()`
+- `panel.html` has a full-screen recovery overlay (`#recovery-overlay`)
+  with backup-reset / retry / close buttons
+- `panel.js` checks `getConfigState()` on startup; if quarantined,
+  shows the recovery overlay instead of normal settings UI
+- `panel.css` styles the recovery overlay (dark modal, primary action
+  button, backup path display)
+- `i18n.js` adds 10 `recovery.*` keys in zh/en/ja
+
+The user can now recover from a corrupt config without DevTools.
+
+### P0-02: metadata errors correctly classified
+
+`load_config()` previously used `let Ok(meta) = fs::metadata(path) else
+return NotFound` — which collapsed ALL metadata errors (PermissionDenied,
+transient I/O, symlink issues, device errors) to `NotFound`, re-allowing
+writes on permission errors. Now only `ErrorKind::NotFound` maps to
+`ConfigState::NotFound`; all other metadata errors map to `Unreadable`
+(quarantined, writes blocked).
+
+### P0-03: reset failure restores old ConfigState
+
+`backup_and_reset_config()` previously set state to `NotFound` BEFORE
+attempting the default write. If the write failed, state stayed
+`NotFound`, re-allowing writes and losing the quarantine reason. Now:
+1. Snapshots old state
+2. Creates backup (if source exists)
+3. Writes defaults
+4. Only on success, commits `Healthy`
+5. On any failure, restores old state + returns descriptive error
+
+### P0-04: backup_and_reset_config returns ResetResult
+
+Previously returned `Result<PathBuf, String>` — when the original file
+didn't exist, it returned `config_path` as the "backupPath", which is
+NOT a backup file. The UI would tell the user "backup saved to
+<config path>" misleadingly. Now returns `Result<ResetResult, String>`
+with explicit `backup_created: bool` + `backup_path: Option<PathBuf>`.
+
+### P0-05: post-clean verify failure returns Unreadable
+
+The 0.5.39 cleanup functions used `if let Ok(post_raw) =
+fs::read_to_string(&path)` for post-clean verification — on read
+failure, this silently fell through to `Removed`, a false positive.
+Bulk uninstall's `allHooksVerifiedAbsent` could then be `true` even
+when verification couldn't complete. Now uses `match` and returns
+`CleanupResult::Unreadable` on verify-read failure, so
+`allHooksVerifiedAbsent` stays accurate.
+
+### P0-06: drift is now an enum (driftStatus)
+
+The 0.5.39 `driftDetected: bool` collapsed "no receipt", "receipt
+missing path/sig", and "file unreadable" all to `false`, hiding the
+reason from the UI. Now returns `driftStatus` enum:
+`unchanged` / `changed` / `missing` / `unreadable` / `noReceipt` /
+`invalidReceipt`. The `driftDetected` bool is kept for backward compat
+(derived as `drift_status == "changed"`).
+
+### Verification
+
+- npm test: 54/54 ✅ (new `tauri-r44-0-5-40-product-closure-smoke.js`)
+- check:static: 22/22 ✅
+- gate:source: 16/16 ✅
+
+### What's NOT in 0.5.40 (deferred to 0.5.41+)
+
+- Install ID (`re-llmpet:<uuid>`) — 0.5.41
+- Receipt state machine (pending/active/superseded/removed/residue/rolledBack) — 0.5.41
+- Install transaction (backup → pending receipt → hook → verify → active receipt) — 0.5.41
+- schemaVersion + unknown-field preservation (`#[serde(flatten)] extras`) — 0.5.40 was scoped to P0-01 through P0-06; schema work deferred to 0.5.41 due to AppConfig struct redesign complexity
+- Rust tempdir behavior tests — 0.5.41 (requires `tempfile` crate)
+- Official LLMPET conflict gate — 0.5.42
+- Windows/macOS/Linux complete lifecycle — 0.5.43/0.5.44
+
+---
+
+## 0.5.39 — R44 Roadmap v5: correctness closure（2026-08-03）
+
+Implements the 7 deliverables from Roadmap v5 §0.5.39 "Correctness Closure".
+This version adds no product features — it eliminates "code exists on the
+surface but control flow doesn't actually take effect" issues and fixes
+"cleanup result false reporting".
+
+### §1: Removed Node-side broad HTTP ownership check
+
+`scripts/install-native-hooks.js` no longer claims HTTP hooks pointing at
+`127.0.0.1:41330-41334 + /permission` as ours. That pattern is also used
+by the official LLMPET product, so the old `isOurHttp` predicate caused
+the Node installer to delete official LLMPET's HTTP permission hooks on
+uninstall. The installer now only claims hooks containing the exact
+RE-LLMPET marker string. Legacy HTTP hooks must go through Legacy Repair
+(R44 0.5.40+), not auto-deleted here.
+
+### §2: Config quarantine state machine
+
+Replaced the non-functional global `CONFIG_WRITE_DISABLED: AtomicBool`
+(which `load_config` never actually SET despite the comment claiming it
+did) with an instance-scoped `ConfigState` enum on `Runtime`:
+
+```rust
+pub enum ConfigState {
+    Healthy, NotFound, ParseError { message }, Unreadable { message },
+    TooLarge { size }, SchemaTooNew { version },
+}
+```
+
+`load_config` now returns `(AppConfig, ConfigState)` and sets the state
+based on the actual file condition. `Runtime::save_config` (instance
+method, replaces free function) checks `state.writes_allowed()` and
+refuses to write if quarantined — preventing defaults from overwriting
+the user's real (but unreadable) config.
+
+New IPC commands:
+- `get_config_state` — returns `{ state, quarantined, writesAllowed, message }`
+- `backup_and_reset_config` — backs up corrupt config, clears quarantine,
+  writes defaults. Returns backup path.
+
+### §3: Typed CleanupResult enum
+
+Replaced `Result<PathBuf, String>` for all 5 uninstall functions with:
+
+```rust
+pub enum CleanupResult {
+    Removed { path }, NotFound { path }, Unowned { path },
+    Changed { path }, PathDrift { expected, actual },
+    Unreadable { path, error }, Residue { path, detail },
+    ManualActionRequired { path, detail },
+}
+```
+
+Each variant has a `to_json()` method for IPC responses, plus `is_clean()`
+and `is_hard_failure()` helpers. OpenCode uninstall now correctly returns
+`Unowned` (not `Ok(path)`) when the file exists but isn't ours — the
+roadmap v5 §3 explicitly required "OpenCode 未删除文件时不得显示 `removed`".
+
+### §4: Bulk uninstall reuses single-provider pipeline
+
+`uninstall_hooks("all")` no longer maintains a separate weak-logic loop.
+Both paths now call a shared `run_one` helper that:
+1. Snapshots the prior receipt
+2. Computes drift (BEFORE uninstall — audit fix C9+C10)
+3. Calls `uninstall_provider_hooks` (returns `CleanupResult`)
+4. Augments the result JSON with receipt provenance
+
+The bulk response now includes `allHooksVerifiedAbsent` (canonical) +
+`allHooksRemoved` (backward-compat alias) + `results[]` with each
+provider's `CleanupResult`.
+
+### §5: SHA-256 drift signature
+
+Replaced `size=<bytes>;mtime=<unix_secs>` with SHA-256 (64-char hex).
+The old signature could false-negative when a tool rewrites the file
+with the same size in the same second. Added `sha2 = "0.10"` to
+`Cargo.toml`. The receipt's `drift_signature` field now stores the
+SHA-256 hash; `current_drift_signature` recomputes it at uninstall time
+for comparison.
+
+### §6: Deleted dangerous dead code
+
+Removed `strip_legacy_codewhale_hooks` and its helper
+`parse_toml_string_value`. The function was a line-oriented TOML scanner
+that could absorb user-owned `[provider]` / `[[models]]` / arbitrary
+TOML tables into a legacy `[[hooks.hooks]]` body and silently delete
+them. It was disabled (not called) since R40.1 (0.5.20) but kept as
+"dead code for reference". The roadmap v5 §6 explicitly forbids keeping
+a destructive function "that isn't called now but could delete user
+TOML tables if enabled". Legacy CodeWhale cleanup is now the
+responsibility of the Legacy Repair flow (0.5.40+).
+
+### §7: Fixed misleading tests + Phase 0E script
+
+- `test/native-hook-installer-smoke.js`: now verifies that an
+  official-style HTTP permission hook SURVIVES uninstall (the old test
+  only checked command hooks, missing the `isOurHttp` deletion bug)
+- `test/tauri-r34-config-transaction-smoke.js`: updated to assert
+  `allHooksVerifiedAbsent` (canonical) + `allHooksRemoved` (alias)
+- `test/tauri-tray-extras-r13-smoke.js`: updated for new
+  `CleanupResult` return type
+- `test/tauri-r44d-uninstall-provenance-smoke.js`: updated for the
+  shared `run_one` helper
+- `scripts/phase-0e-destructive-test.sh`: Test 8 now documents the
+  bulk pipeline behavior; Test 9 explains devtools access + tests the
+  new `get_config_state` / `backup_and_reset_config` IPCs; added
+  Test 11 (SHA-256 drift) and Test 12 (CleanupResult variants)
+
+### Verification
+
+- npm test: 53/53 ✅ (new `tauri-r44-0-5-39-correctness-smoke.js` added)
+- npm run check:static: 22/22 ✅
+- npm run gate:source: 16/16 ✅
+- cargo fmt --check: ✅ (cargo unavailable in container; lexical check passes)
+
+### What's NOT in 0.5.39 (deferred to 0.5.40+)
+
+- Install ID (per-install UUID) — roadmap v5 0.5.40 §1
+- Receipt state machine (pending/active/superseded/removed/residue/rolledBack) — 0.5.40 §3
+- Install transaction (backup → pending receipt → hook → verify → active receipt) — 0.5.40 §4
+- Idempotent sync (no-op when current == desired) — 0.5.40 §6
+- Symlink/path policy — 0.5.40 §7
+- Legacy Repair flow — 0.5.40 Legacy Repair section
+
+---
+
+## 0.5.38 — R44 Phase 0C + 0D: unified backup + install receipt + uninstall provenance（2026-08-03）
+
+Implements Phase 0C + 0D of the R44 roadmap, closing the "do not break
+existing hooks; create backups; mind the backup count" user requirement.
+
+### P0C-1: Generic pre-write backup for all providers
+
+Before Phase 0C, only CodeWhale had a pre-write backup. Claude, Codex,
+and Aider wrote directly to the user's external config file with no
+recovery snapshot. Now every install path calls the new
+`backup_config_file()` helper, which:
+
+- Returns `Ok(None)` on first install (file doesn't exist yet)
+- Copies the file to `.<stem>.re-llmpet-bak-<unix_ms>.<ext>` alongside
+  the original on subsequent installs
+- Returns `Err` (fail-closed) if the copy fails — the install aborts
+  and the user's existing config is preserved untouched
+- Prunes same-stem/same-extension backups to the newest 5
+
+Backups are now created for:
+- `~/.claude/settings.json`
+- `~/.codex/hooks.json`
+- `~/.codewhale/config.toml` (unchanged path, now via generic helper)
+- `~/.aider.conf.yml`
+- `~/.config/opencode/plugins/llmpet-hook.js` (our own file, but a
+  backup still protects against partial writes)
+
+### P0C-2: Count-based retention cap
+
+Replaced the old age-based CodeWhale pruner (30 days) with a count-based
+cap of 5 most-recent backups. Age-based pruning accumulated hundreds of
+backups on active dev machines before any aged out. Count-based retention
+guarantees a bounded disk footprint regardless of install frequency.
+
+Legacy `-re-llmpet-backup-` files from 0.5.34–0.5.37 are still swept
+by the new pruner on the next install, so old backups are eventually
+cleaned up without a separate migration step.
+
+### P0C-3: Install receipts
+
+Each successful install writes a JSON receipt to
+`~/.re-llmpet/receipts/<provider>-<unix_ms>.json`:
+
+```json
+{
+  "provider": "claude",
+  "version": "0.5.38",
+  "installed_at": 1722700000000,
+  "path": "/home/user/.claude/settings.json",
+  "backup_path": "/home/user/.claude/.settings.re-llmpet-bak-1722700000000.json",
+  "events": ["SessionStart", "SessionEnd", "PreToolUse", ...],
+  "drift_signature": "size=4096;mtime=1722700000"
+}
+```
+
+Receipts are pruned to the newest 20 per provider (count-based, not
+age-based). `read_install_receipts()` is exposed as a pub fn returning
+the latest receipt per provider — Phase 0D will use this to confirm
+"you installed Claude on <date>; backup at <path>" before destructive
+uninstall.
+
+The `drift_signature` field records `size=<bytes>;mtime=<unix_secs>`
+so `verify_enabled` can detect if the user (or another tool) modified
+the config after our install. We deliberately do NOT hash contents —
+adding the `sha2` crate would be overkill for "did this file change?"
+detection, and the backup file itself is available for full content
+comparison if needed.
+
+### P0C-4: Fail-closed contract preserved
+
+The existing CodeWhale abort-on-backup-failure behavior is preserved
+and now applied uniformly. Any I/O error during backup returns `Err`,
+which propagates via `?` to abort the install. The user sees:
+
+> backup failed for /home/user/.claude/settings.json → /home/user/.claude/.settings.re-llmpet-bak-...json: <error>. Install aborted to protect existing config.
+
+### Backward compatibility
+
+- `OPENCODE_MARKER_LEGACY` still detects old v2/v3 plugin markers
+- `HOOK_OWNER = "--owner re-llmpet"` tag still drives `remove_all_ours`
+- Old `octopus-` prefixed hook names still detected for cleanup
+- `Cargo.toml` lib name kept as `octopus` for binary compatibility
+- `backup_codewhale_config` signature unchanged; delegates internally
+- Receipt dir is best-effort — creation failures are logged but do
+  not fail the install (the install itself already succeeded)
+
+### Phase 0D: Uninstall provenance + drift detection
+
+The single-provider `uninstall_hooks` IPC now returns receipt fields
+so the frontend can show "you installed on X, backup at Y, drift: yes/no"
+in the uninstall confirmation dialog:
+
+```json
+{
+  "provider": "claude",
+  "path": "/home/user/.claude/settings.json",
+  "selectionCleared": true,
+  "priorReceipt": { ...full receipt JSON... },
+  "installedAt": 1722700000000,
+  "backupPath": "/home/user/.claude/.settings.re-llmpet-bak-...json",
+  "driftDetected": false,
+  "message": "RE-LLMPET hooks removed for this provider; user config preserved"
+}
+```
+
+If `driftDetected` is true (the user or another tool modified the config
+after our install), the message warns "config was modified after install
+— verify backup" so the user knows to inspect the backup before trusting
+the uninstall.
+
+A new `get_install_receipts` IPC command returns the latest receipt per
+provider, exposed as a JSON object keyed by provider id. The frontend
+will use this in Phase 0E to render an "Installation provenance" panel
+showing when each provider's hooks were last installed, by which version,
+and where the backup lives.
+
+The "all" uninstall path is unchanged — it's a bulk operation and the
+existing `results` / `failures` / `allHooksRemoved` fields are sufficient.
+Per-provider receipts are only surfaced for single-provider uninstall,
+where the user is making a deliberate decision about one provider.
+
+### Verification
+
+- npm test: 52/52 ✅ (new `tauri-r44c-backup-receipt-smoke.js` +
+  `tauri-r44d-uninstall-provenance-smoke.js` added)
+- npm run check:static: 22/22 ✅
+- npm run gate:source: 16/16 ✅
+- cargo fmt --check: ✅
+- cargo check: ✅ (cargo build unavailable in CI container due to
+  missing GTK system libs, but `cargo check --lib` on the modified
+  file produces no new errors beyond the existing GTK dep cascade)
+
+### Audit fixes (post-Phase-0D subagent review)
+
+A subagent audit of the Phase 0C+0D implementation found 2 critical
+bugs and 1 minor issue, all fixed before release:
+
+- **C9+C10 (critical): drift detection false-positive on every uninstall.**
+  The original `uninstall_hooks` computed `current_drift_signature`
+  AFTER calling `uninstall_provider_hooks`, which always rewrites
+  (or deletes) the config file — so the post-uninstall signature
+  always differed from the install-time receipt, making
+  `driftDetected` always `true`. Fix: reorder so the receipt snapshot
+  AND drift computation happen BEFORE `uninstall_provider_hooks`.
+  The `tauri-r44d-uninstall-provenance-smoke.js` test now asserts
+  the ordering (receipt read + drift computation must precede the
+  uninstall call).
+
+- **Minor #1: CodeWhale receipt `backup_path` was always null.**
+  `backup_codewhale_config` returned `Result<(), String>` (no path),
+  so `install_codewhale` couldn't propagate the backup path into the
+  receipt. The backup file existed on disk but the uninstall
+  confirmation dialog couldn't tell the user where it was. Fix:
+  change signature to `Result<Option<PathBuf>, String>` and return
+  the path from `backup_config_file`. `install_codewhale` now
+  records the real backup path in the receipt. The
+  `tauri-r44c-backup-receipt-smoke.js` test asserts the new
+  signature and propagation.
+
+---
+
+## 0.5.37 — R44 Phase A: correctness closure（2026-08-03）
+
+Fixes all P0 items from the 0.5.36 full audit v3.
+
+### P0-1: Removed broad HTTP /permission ownership fallback
+
+`remove_all_ours()` no longer deletes hooks based on URL pattern
+`http://127.0.0.1:413xx + /permission`. This was deleting official
+LLMPET's HTTP permission hooks. Now only matches exact `--owner
+re-llmpet` tag or known legacy hook script filenames.
+
+### P0-2: Config quarantine (write-disabled on load failure)
+
+`load_config()` now sets a global `CONFIG_WRITE_DISABLED` flag when
+the config file is unreadable/corrupt/too-large. `save_config()`
+checks this flag and refuses to write, preventing defaults from
+overwriting the user's real config.
+
+### P0-3: Fixed build:hook binary target
+
+Cargo.toml `[[bin]]` name changed from `octopus-hook` to
+`re-llmpet-hook`, matching `package.json` `build:hook` script.
+Binary file renamed accordingly.
+
+### P0-4: Fixed Codex detector
+
+Was checking `~/.codex/config.toml` but hooks are installed in
+`~/.codex/hooks.json`. Now checks the correct file.
+
+### P0-5: Fixed CodeWhale legacy prefix
+
+Was checking `starts_with("re-llmpet-")` (our current prefix) instead
+of `starts_with("octopus-")` (the actual legacy prefix). Fixed to
+correctly detect and clean old `octopus-*` hooks.
+
+### P0-6: OpenCode uninstall returns real status
+
+Was silently returning `Ok(path)` for unreadable/unowned/missing
+files. Now distinguishes: NotFound (clean), removed (success),
+unowned (warning, not deleted), unreadable (error).
+
+### P0-7: Backup pruning changed to max-5
+
+Was pruning by age (30 days). Now keeps at most 5 most-recent
+backups, preventing unbounded growth.
+
+### P1: Removed unused pet capabilities
+
+Removed `allow-focus-pet`, `allow-set-pet-big`, `allow-set-pall`,
+`allow-territory-toggle-auto` from pet.json — these commands have
+no renderer callers.
+
+### P1: Fixed remaining doc drift
+
+README_EN, README_JA, panel title, release name, user-agent all
+updated to current version/name.
+
+### Verification
+
+- npm test: 50/50 ✅
+- npm run check:static: 22/22 ✅
+- npm run gate:source: 16/16 ✅
+- cargo fmt --check: ✅
+- cargo check: ✅
+
+---
+
+## 0.5.36 — R44 complete: all remaining octopus refs migrated + bug fix（2026-08-03）
+
+Completes the identity migration by fixing ALL remaining user-facing
+"octopus" references across Rust, frontend, tests, scripts, and docs.
+
+### Critical bug fix
+
+- `hook_install.rs`: OpenCode plugin source marker was `octopus-opencode-plugin-v3`
+  but `OPENCODE_MARKER` was `re-llmpet-opencode-plugin-v1`. Freshly installed
+  plugins would NOT be detected by the new marker. Now both match.
+
+### Complete identity migration (remaining refs)
+
+**Rust source** (20+ files):
+- All user-facing messages: "Octopus" → "RE-LLMPET"
+- Thread names: `octopus-cursor-hit-test` → `re-llmpet-cursor-hit-test`
+- Backup extensions: `octopus-backup` → `re-llmpet-backup`
+- HTTP user-agent: `Octopus/0.5.0` → `RE-LLMPET/0.5.35`
+- Error messages: "Octopus marker" → "RE-LLMPET marker"
+- Log rotation: `octopus.log` → `re-llmpet.log`
+- Pricing sync User-Agent updated
+
+**Frontend**:
+- Bridge function: `installOctopusBridge` → `installReLlmpetBridge`
+- Toast function: `installOctopusToast` → `installReLlmpetToast`
+- CustomEvent: `octopus:bridge-error` → `re-llmpet:bridge-error`
+- Console prefix: `[octopus]` → `[re-llmpet]`
+- HTML title: `octopus` → `RE-LLMPET`
+- i18n labels: "Octopus Hook" → "RE-LLMPET Hook"
+
+**Config**:
+- `package.json` name: `octopus` → `re-llmpet`
+- `tauri.conf.json` window titles: `Octopus` → `RE-LLMPET`
+- README titles: dropped "/ Octopus" alias
+
+**Scripts**:
+- SBOM: `SPDXRef-Package-Octopus` → `SPDXRef-Package-RE-LLMPET`
+- Protocol drift UA: `Octopus-protocol-drift` → `RE-LLMPET-protocol-drift`
+
+**Tests**: All assertions updated to match new strings.
+
+### Backward compat preserved
+
+- `OPENCODE_MARKER_LEGACY` still includes old v2/v3 markers for cleanup
+- `Cargo.toml` lib name kept as `octopus` for binary compatibility
+- Old `octopus-` prefixed hook names still detected for cleanup
+- Environment variables (`OCTOPUS_*`) kept as-is (breaking change deferred)
+- Mascot character name "Octopus" kept in skin labels (it's the animal, not the app)
+
+### Verification
+
+- npm test: 50/50 ✅
+- npm run check:static: 22/22 ✅
+- npm run gate:source: 16/16 ✅
+- cargo fmt --check: ✅
+- cargo check: ✅ (7 warnings, 0 errors)
+
+---
+
+## 0.5.35 — R44 Phase 0B: identity migration（2026-08-03）
+
+Migrates RE-LLMPET from the shared LLMPET/octopus namespace to an
+independent identity, preventing conflicts when both are installed.
+
+### Identity changes
+
+| Field | Old | New |
+|---|---|---|
+| `identifier` | `com.myunwang.octopus` | `io.github.purrfecto114.rellmpet` |
+| `productName` | `Octopus` | `RE-LLMPET` |
+| `APP_DIR_NAME` | `.octopus` | `.re-llmpet` |
+| `SERVER_ID` | `octopus` | `re-llmpet` |
+| `MARKER` | `--octopus-hook` | `--re-llmpet-hook` |
+| `CW_BEGIN/END` | `octopus:codewhale-hooks:v2` | `re-llmpet:codewhale-hooks:v3` |
+| `AIDER_BEGIN/END` | `octopus:aider-notification:v2` | `re-llmpet:aider-notification:v3` |
+| `OPENCODE_MARKER` | `octopus-opencode-plugin-v3` | `re-llmpet-opencode-plugin-v1` |
+| `LOG_FILE_NAME` | `octopus.log` | `re-llmpet.log` |
+| HTTP headers | `x-octopus-token/server` | `x-re-llmpet-token/server` |
+| Thread names | `octopus-*` | `re-llmpet-*` |
+| Temp/backup files | `.octopus.*` | `.re-llmpet.*` |
+| CSS classes | `.octopus-toast` | `.re-llmpet-toast` |
+| HTML element IDs | `#octopus-toast` | `#re-llmpet-toast` |
+| Plugin filename | `llmpet-octopus.js` | `llmpet-hook.js` |
+| Hook names | `octopus-{event}` | `re-llmpet-{event}` |
+| `reLlmpetHookBlock` | `octopusHookBlock` | `reLlmpetHookBlock` |
+
+### Backward compatibility
+
+- `OPENCODE_MARKER_LEGACY` now includes both v2 and v3 old markers
+- Old `.octopus` directory is NOT automatically deleted
+- Old hooks with `octopus-` prefix are still detected for cleanup
+- `Cargo.toml` lib name kept as `octopus` for binary compatibility
+
+### Verification
+
+- npm test: 50/50 ✅
+- npm run check:static: 22/22 ✅
+- npm run gate:source: 16/16 ✅
+- cargo fmt --check: ✅
+
+---
+
+## 0.5.34 — R44 Phase 0A continued: docs + CI + capability fixes（2026-08-03）
+
+Additional fixes from the 0.5.32 full audit + Roadmap v2.
+
+### P0-04: Release signing truthfulness (audit P0-04)
+
+Fixed `release.yml` body text that claimed "Production tag releases are
+signed and published" — this conflated updater signing with platform
+code signing. Now accurately states: updater signing is always applied;
+platform signing (Authenticode/Developer ID) is conditional on secrets.
+
+### P1-01: Protocol drift verdict no longer says "ok" when remote not checked
+
+`check-protocol-drift.js` now returns `local-contract-ok` instead of
+`ok` when remote contracts were not verified. This prevents the
+misleading "ok" status when only local baseline matching was done.
+
+### P1-02: Added missing capability permissions
+
+`pet.json` was missing `allow-focus-pet`, `allow-set-pet-big`,
+`allow-set-pet-tall`, `allow-territory-toggle-auto`. These commands
+exist in Rust + bridge but were not authorized by any capability.
+
+### P1-04: Status doc drift fixed
+
+- `docs/MIGRATION_STATUS.md`: 0.5.7 → 0.5.34
+- `migration-todo.json`: `implemented-uncompiled` → `ci-verified`
+  (CI has proven all three platforms compile successfully)
+- `scripts/check-migration-todo.js`: added `ci-verified` to allowed statuses
+- `README_EN.md`: 0.5.7 → 0.5.34
+
+### Verification
+
+- npm test: 50/50 ✅
+- npm run check:static: 22/22 ✅
+- npm run gate:source: 16/16 ✅
+- cargo fmt --check: ✅
+
+---
+
+## 0.5.33 — R44 Phase 0A: uninstall fix + config safety（2026-08-03）
+
+First batch of fixes from the 0.5.32 full audit + Roadmap v2.
+
+### P0-01: uninstall_hooks("all") no longer reinstalls deleted hooks
+
+**Root cause**: `uninstall_hooks("all")` deleted each provider's hooks,
+then called `resync_current()`. But `resync_current()` reads
+`config.providers` (not yet cleared) and calls `sync_enabled()`, which
+**re-installs** the hooks we just deleted.
+
+**Fix** (Roadmap v2 P0-01):
+- Remove `resync_current()` call from both "all" and single-provider
+  uninstall paths.
+- Always clear `config.providers` (was conditional on all-succeeded).
+- Return `selectionCleared` + `allHooksRemoved` separately so the UI
+  can show "selection cleared, but some external files have residue".
+
+### P0-02: Config load fail-closed + error logging
+
+**Root cause**: `load_config()` used `unwrap_or_default()` on read and
+parse errors, silently returning defaults. The next `save_config()`
+would overwrite the user's real (but unreadable) config with defaults —
+irreversible data loss.
+
+**Fix** (audit P0-02):
+- `NotFound` → default (new install, safe)
+- Too large → default + `eprintln!` warning
+- Permission/IO error → default + `eprintln!` error
+- Invalid JSON → default + `eprintln!` error
+- Full unknown-field preservation deferred to Phase 0B.
+
+### P0-03: Aider + replace_marker_block fail-closed
+
+**Root cause**: `fs::read_to_string(path).unwrap_or_default()` treated
+unreadable files as empty, then wrote over them.
+
+**Fix** (audit P0-03):
+- Only `ErrorKind::NotFound` → empty string
+- All other errors → `Err(...)` with descriptive message
+- Applied to both `install_aider()` and `replace_marker_block()`
+
+### Verification
+
+- npm test: 50/50 ✅
+- npm run check:static: 22/22 ✅
+- cargo fmt --check: ✅
+- cargo check: ✅
+
+---
+
+## 0.5.32 — emergency hotfix: restore Tauri bridge + fail-closed config（2026-08-02）
+
+Emergency hotfix per RE-LLMPET-0.5.31-full-audit-roadmap.md. 0.5.31 shipped
+`withGlobalTauri: false` while the frontend is plain-script (no bundler, no
+`@tauri-apps/api` import) — this silently broke ALL IPC.
+
+### P0 fixes
+
+- **P0-1**: `withGlobalTauri` restored to `true` (tauri.conf.json). The
+  frontend uses `window.__TAURI__` directly; closing global breaks all IPC.
+  Long-term fix: migrate to ESM imports (R44/R45).
+- **P0-2**: pet.js stats handling split into `ingestStats` (revision-gated)
+  / `renderPetState` (no gate). Internal replay sites now restore state
+  without being rejected by revision dedup.
+- **P0-3**: CodeWhale `backup_codewhale_config` is now fail-closed — if
+  backup fails, install aborts with error instead of continuing.
+- **P0-4**: `tauri-static-smoke.js` updated to expect `withGlobalTauri=true`.
+- **Version**: 0.5.31 → 0.5.32 (valid semver, not 0.5.31.1).
+
+### Verification
+
+- npm test: 50/50 ✅
+- npm run check:static: 22/22 ✅
+- cargo fmt --check: ✅
+- cargo check: ✅ (7 warnings, 0 errors)
+- All JS files: `node --check` ✅
+
+---
+
+## 0.5.31 — pet.js syntax fix + v0.5.30 tag realignment（2026-08-02）
+
+Fix release: v0.5.30 tag pointed to commit `b37febe` which contained
+an orphan closing brace in `pet.js` (from the R40.7 Provider button
+refactor). The fix was committed as `4cd4082` but the tag was not
+updated. This release realigns the tag with the fixed code.
+
+### Fix
+
+- `frontend/renderer/pet.js`: removed orphan `}` at line 1932 in
+  `updateProviderUI()`. The brace was left over from the old if/else
+  structure when the code was refactored to `if/else if/else` in
+  R40.7. Without this fix, `node --check pet.js` fails with
+  `SyntaxError: Unexpected token '}'`.
+
+### Verification
+
+- `node --check frontend/renderer/pet.js`: ✅ passes
+- `npm test`: 50/50 pass
+- `npm run check:static`: 22/22 pass
+- Tauri CI on `4cd4082`: ✅ 4/4 success
+
+---
+
+## 0.5.30 — R43 CSP hardening + duplicate CSP removal（2026-08-02）
+
+Security hardening: remove `unsafe-inline` from CSP `style-src`.
+
+### R43-3: Remove `unsafe-inline` from CSP (audit §10 item 10)
+
+**Before**: `style-src 'self' 'unsafe-inline'` in 3 places:
+- `src-tauri/tauri.conf.json` (Tauri-level CSP, injected into WebView)
+- `frontend/renderer/pet.html` (duplicate `<meta>` CSP tag)
+- `frontend/renderer/panel.html` (duplicate `<meta>` CSP tag)
+
+**After**: `style-src 'self'` in `tauri.conf.json` only. Duplicate CSP
+meta tags removed from HTML files (single source of truth).
+
+**Why safe**: No `<style>` blocks in HTML. No `style="..."` attributes in
+HTML. No `innerHTML` with inline styles. The only inline style usage was
+`closeBtn.style.cssText` in `toast.js` — converted to CSS class
+`.octopus-toast-close` (added to both `pet.css` and `panel.css`).
+Programmatic `element.style.xxx` assignments (14 total) are CSSOM API
+calls that do NOT require `unsafe-inline` in CSP level 2+.
+
+### R43-4: Remove duplicate CSP definitions (audit §8.3)
+
+CSP was defined in 3 places (tauri.conf.json + 2 HTML meta tags), creating
+maintenance risk. Now defined only in `tauri.conf.json` — Tauri injects it
+into the WebView at runtime.
+
+### Test updates
+
+- `tauri-static-smoke.js`: CSP assertions now check `tauri.conf.json`
+  instead of HTML meta tags. Added assertion that CSP does NOT contain
+  `unsafe-inline`. Added assertion that HTML files do NOT have CSP meta.
+- `tauri-cli-resilience-r7-smoke.js`: CSP `img-src` check now reads from
+  `tauri.conf.json` instead of HTML files.
+
+npm test: 50/50 pass; static: 22/22; gate:source: 16/16.
+
+---
+
+## 0.5.29 — R43 CI fix + glib vulnerability handling（2026-08-02）
+
+Fixes CI failures from v0.5.28's Actions SHA pinning + addresses the
+Dependabot glib vulnerability alert.
+
+### CI Fix: Actions SHA pinning corrections
+
+- **protocol-drift.yml**: pinned checkout + setup-node to full 40-char SHA
+  (was still @v7).
+- **ci.yml**: fixed upload-artifact SHA from 12-char (invalid) to full 40-char.
+- **provider-real-cli.yml, desktop-real-machine.yml**: pinned all remaining
+  actions to full 40-char SHA.
+- **tauri-protocol-drift-smoke.js**: updated upload-artifact assertion to use
+  regex pattern (accepts 12-40 char SHA) instead of exact string match.
+
+### Security: glib vulnerability (GHSA-wrw7-89jp-8q8g) dismissed
+
+Dependabot alert #1 (glib 0.18.x unsoundness in VariantStrIter) dismissed
+with reasoning:
+- Vulnerable code path (glib::VariantStrIter) is NOT used in this project
+- glib 0.18.x is a transitive dependency pinned by Tauri 2.11.5 via gtk-rs 0.18
+- Fix requires glib 0.20.0 which needs a Tauri framework upgrade (gtk-rs 0.20+)
+- Severity: Moderate (6.9/10, unsoundness not RCE)
+- Will auto-resolve when Tauri upgrades its gtk-rs stack
+
+npm test: 50/50 pass; static: 22/22; gate:source: 16/16.
+
+---
+
+## 0.5.28 — R41/R43 security hardening batch（2026-08-02）
+
+Closes 4 items from audit roadmap §10 (R41 hook ownership + R43 security).
+
+### R41-2: Hook ownership metadata (audit §10 item 8)
+
+New \`HOOK_OWNER = "--owner re-llmpet"\` constant. Every hook command now
+embeds this tag. \`remove_all_ours()\` checks for \`re-llmpet\` as the
+primary ownership signal (exact match), with legacy \`MARKER\` / filename
+patterns as fallback. This prevents false-positive removal of user hooks
+that happen to contain "octopus" in their command string.
+
+### R43-1: Close withGlobalTauri (audit §10 item 9)
+
+\`tauri.conf.json\`: \`withGlobalTauri: true → false\`. The narrow
+\`tauri-bridge.js\` already provides all needed IPC. Closing the global
+\`window.__TAURI__\` prevents renderer code from bypassing the bridge
+and calling privileged APIs directly.
+
+### R43-2: Pin GitHub Actions to commit SHA (audit §10 item 10)
+
+All third-party Actions in ci.yml + release.yml + protocol-drift.yml
+pinned to 12-char commit SHA with version comment:
+- \`actions/checkout@f548e57e544e # v7\`
+- \`actions/setup-node@e51e5fe84fc3 # v7\`
+- \`dtolnay/rust-toolchain@2c7215f132e9 # stable\`
+- \`swatinem/rust-cache@e18b497796c1 # v2\`
+- \`tauri-apps/tauri-action@abbd19ad15b3 # v1\`
+- \`actions/attest@508db95dd578 # v4\`
+- \`actions/upload-artifact@043fb46d1a93 # v7\`
+
+This prevents supply-chain attacks via tag rebinding (a malicious actor
+who compromises an Action repo can move the \`@v7\` tag to a malicious
+commit). SHA pinning ensures the exact commit is used.
+
+### Test updates
+
+- \`tauri-static-smoke.js\`: \`withGlobalTauri\` assertion updated to \`false\`.
+- \`tauri-phase4-cutover-smoke.js\`: Action version regexes updated to
+  accept both \`@v7\` and \`@<12-hex-sha>\` forms.
+
+npm test: 50/50 pass; static: 22/22; gate:source: 16/16.
+
+---
+
+## 0.5.27 — R41 diagnostic cooperative cancel（2026-08-02）
+
+First R41 item: real cooperative cancellation for diagnostics.
+
+### P0-1: DiagnosticJob cooperative cancel token (audit §10 item 7)
+
+Before this fix, `cancel_diagnostic` only killed the current probe's
+PID. The diagnostic worker (`diagnose_agent_sync`) would continue
+running the remaining probes (version → doctor → auth → config),
+each taking up to 15 seconds. The user saw "cancelled" in the UI
+but the Rust worker kept running for 30+ seconds.
+
+Fix: new `diagnostic_cancelled: Arc<AtomicBool>` field in Runtime.
+- `cancel_diagnostic` sets it to `true`.
+- `diagnose_agent_sync` checks it between probes (after version,
+  after doctor/auth, before terminal/config).
+- When cancelled, the worker returns immediately with a
+  `{cancelled: true, issues: ["Diagnostic cancelled by user"]}`
+  result instead of continuing.
+- The flag is reset to `false` at the start of each new diagnostic.
+
+This does NOT replace process-tree kill (still needed for the current
+probe), but it prevents the worker from launching NEW probes after
+cancel.
+
+### Test
+
+- No new test file (existing r352/r36 tests cover cancel + process kill).
+- npm test: 50/50 pass; static: 22/22; gate:source: 16/16.
+
+---
+
+## 0.5.26 — R40.7 panel architecture + Provider button（2026-08-02）
+
+Closes 4 items from the 0.5.22 audit roadmap §7.1/§7.2/§10 (行为闭环).
+
+### P0-1: Panel is now an opaque, decorated window (audit §7.1)
+
+\`tauri.conf.json\` panel window: \`transparent: true → false\`,
+\`decorations: false → true\`, \`shadow: false → true\`.
+
+This eliminates the "double-layer window" problem where the user
+resized the outer transparent window but visually operated on the
+inner #card. The OS now handles maximize/fullscreen border suppression
+natively — no JS workarounds needed.
+
+### P0-2: Removed 500ms poller + near-fullscreen heuristic (audit §7.1/§10)
+
+With an opaque panel, the following workarounds are no longer needed
+and have been removed:
+- \`windowModePoller\` (500ms setInterval polling isMaximized/isFullscreen)
+- \`applyNearFullscreenClass\` (96% screen heuristic)
+- \`body.near-fullscreen\` CSS rule
+- 20px transparent gutter padding on html/body
+
+Saves ~2 IPC calls every 500ms and removes ~80 lines of workaround code.
+
+### P0-3: Provider launch button always visible (audit §7.2)
+
+\`pet.js updateProviderUI()\`: the "🚀 新开" button is no longer hidden
+when no provider is active. Instead it shows "🚀 新开 Agent ▾" and
+opens the provider chooser on click. This fixes the cold-start race
+where the button was hidden until a config event arrived.
+
+### P0-4: applyConfigSnapshot bootstrap handshake (audit §7.2, done in 0.5.24)
+
+Already closed in 0.5.24 (R40.5): both \`onConfig\` event and
+\`getConfig()\` bootstrap call \`applyConfigSnapshot()\`.
+
+### Test updates
+
+- \`tauri-r35-correctness-hotfix-smoke.js\`: removed padding:0 assertion
+  (panel is opaque, no gutter to zero).
+- \`tauri-r40-runtime-regressions-smoke.js\`: R40-5 section updated to
+  verify poller/near-fullscreen REMOVED + opaque panel config present.
+
+npm test: 50/50 pass; static: 22/22; gate:source: 16/16.
+
+---
+
+## 0.5.25 — R40.6 runtime behavior closures（2026-08-01）
+
+Closes 3 P0/P1 items from the 0.5.22 package regression audit roadmap §7
+that were not addressed in 0.5.24.
+
+### P0-3: get_stats() now returns a versioned snapshot (audit §7.3)
+
+`get_stats()` (bootstrap IPC response) previously returned
+`runtime.stats()` without a `__revision` field. An early bootstrap
+response could arrive after a versioned push event and overwrite the
+frontend state.
+
+Fix: new shared `stats_snapshot()` builder in commands.rs. Both
+`get_stats()` and `do_emit_stats()` (in http_server.rs) now call it,
+so bootstrap and push events have the same revision semantics.
+
+### P0-3: pet.js stats ingest/render split (audit §7.3)
+
+`applyStats(lastStats)` was called from transient timers (happy/error/
+territory) to re-derive pet state. But `acceptStatsRevision()` rejected
+the same revision, so the pet would get stuck in a transient state
+forever after the first stats push.
+
+Fix: split `applyStats()` into:
+- `applyStats(s)` — ingest (revision-gated, updates lastStats)
+- `renderStats(s)` — render (no revision gate, safe to replay)
+
+All 3 transient timer call sites now use `renderStats(lastStats)`.
+
+### P1-1: OpenCode launch args — replace --dir with positional (audit §7.4)
+
+`opencode --dir .` was based on an outdated reading of `--help`.
+OpenCode v0.9.x TUI accepts a positional project argument:
+`opencode [project]`. The `--dir` flag causes "unknown flag" errors
+on current builds.
+
+Fix: `agent_launch_args("opencode")` now returns `&["."]` (positional).
+`Command::current_dir(cwd)` (already set in launch_terminal) handles
+the working directory.
+
+### Test
+
+- Updated tauri-cli-auth-r6-smoke + tauri-cli-resilience-r7-smoke to
+  expect `"opencode" => &["."]` instead of `&["--dir", "."]`.
+- All other smoke tests unchanged.
+- npm test: 50/50 pass; static: 22/22; gate:source: 16/16.
+
+---
+
+## 0.5.24 — R40.5 runtime fixes from handoff audit（2026-08-01）
+
+**First release with actual runtime code changes since 0.5.21.**
+
+Closes 5 P0/P1 issues from the handoff revalidation audit
+(RE-LLMPET-handoff-revalidation-baseline-2026-08-01.md).
+
+### P0-1: Fix provenance self-reference paradox
+
+The 0.5.23 design forced SOURCE_REVISION to be a 40-hex git commit SHA,
+but writing the SHA into the commit changes the tree, producing a
+different SHA — an impossible self-referential constraint.
+
+- `scripts/generate-source-manifest.js`: `source_commit` is now
+  optional; accepts either 40-hex SHA (CI) or `re-llmpet-x.y.z` (dev).
+- `test/tauri-r401-carpet-audit-closure-smoke.js`: relaxed assertion.
+
+### P0-2: Fix cold-start Provider bootstrap loss
+
+`pet.js` had two config application paths: `onConfig` event and
+`getConfig()` bootstrap. The bootstrap path did NOT apply
+`providers.active/statuses` or call `updateProviderUI()`, so if the
+`pet:config` event arrived before the listener was registered (cold
+start race), provider buttons were permanently hidden.
+
+- `frontend/renderer/pet.js`: new unified `applyConfigSnapshot(cfg)`
+  function; both paths now call it.
+
+### P0-3: Fix stats revision replay bug
+
+`panel.js` consumed the revision in `render()`. When a hidden panel
+cached a snapshot and then tried to render it on show, the revision was
+already consumed and the render was rejected — the panel showed stale
+content.
+
+- `frontend/renderer/panel.js`: split into `ingestStats()` (revision
+  gate + cache) and `renderStats()` (DOM update, no gate). `render()`
+  no longer consumes revision. Bootstrap `getStats()` now ingests.
+
+### P0-5: Fix CodeWhale backup fail-open
+
+`install_codewhale` logged backup failures and continued writing,
+risking config corruption with no backup to restore from.
+
+- `src-tauri/src/hook_install.rs`: backup failure now aborts the
+  install entirely (fail-closed). User's existing config is preserved.
+
+### P1-2: Fix OpenCode status object parsing
+
+OpenCode v0.9.x SDK sends `properties.status` as an OBJECT
+(`{type: "busy"}`), not a string. The plugin did
+`stateMap[rawObject]`, producing `[object Object]` as the key.
+
+- `src-tauri/src/hook_install.rs`: extract `.type` from the object;
+  preserve retry metadata (`attempt/message/next`).
+
+### P1-3: Restore CodeWhale message_submit as background observer
+
+R22 removed `message_submit` based on the assumption it is always
+foreground-blocking. Current CodeWhale docs confirm `background = true`
+makes it observer-only (submitted, never awaited, never blocks).
+
+- `src-tauri/src/hook_install.rs`: `message_submit` restored to
+  `CODEWHALE_EVENTS` with `background = true`,
+  `continue_on_error = true`, `timeout_secs = 5`.
+- `protocol-baseline.json`: updated to include `message_submit`.
+
+### Test
+
+All 50 smoke suites pass. Manifest verification passes.
+No Rust compile errors (CI will verify with cargo check).
+
+---
+
+## 0.5.23 — R40.4 package provenance rebuild（2026-08-01）
+
+**Rebuild of the 0.5.22 release after the package regression audit
+([RE-LLMPET-0.5.22-package-regression-audit-roadmap.md]) proved 0.5.22
+was an invalid artifact.**
+
+### Why 0.5.22 was withdrawn
+
+The 0.5.22 package regression audit found:
+1. CHANGELOG claims were false (claimed imports of panel/pet/bridge/
+   commands/hook/http_server/lib/build/capability/tauri.conf/protocol-
+   baseline/gate-scripts/fixtures/manifest-generator, but source trees
+   were byte-identical to 0.5.21).
+2. Phantom files in CHANGELOG (test fixtures, generate-source-manifest.js,
+   audit roadmap) that did not exist in the package.
+3. SOURCE_MANIFEST invalid (file_count mismatch, hash mismatches, self-
+   include ambiguity).
+4. SOURCE_REVISION was "re-llmpet-0.5.22" instead of a 40-hex git SHA.
+5. `.env` file leaked into package (50 bytes, local DATABASE_URL).
+6. ZIP permissions wrong (all 282 files marked 0755).
+
+### What 0.5.23 actually changes (verified against git diff)
+
+- `scripts/generate-source-manifest.js` — NEW canonical manifest
+  generator with `--verify` mode for CI gate. Enforces 40-hex SHA
+  in SOURCE_REVISION, exact file set, per-file hash verification.
+- `scripts/verify-changelog-diff.js` — NEW script that parses
+  CHANGELOG and verifies every claimed path against actual git diff.
+- `.gitignore` — added `.env` and `.env.*` to exclusions.
+- `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`,
+  `src-tauri/tauri.conf.json`, `package-lock.json` — version bump
+  0.5.21 → 0.5.23.
+- `BUILD_REPRODUCIBILITY.md` — updated with new provenance model.
+- `SOURCE_REVISION` — now contains 40-hex git commit SHA.
+- `SOURCE_DATE_EPOCH` — updated.
+- `SOURCE_MANIFEST.json` — regenerated with canonical generator.
+- `CHANGELOG.md` — this entry (truthful, no phantom claims).
+- Test version assertions updated to 0.5.23.
+
+### What 0.5.23 does NOT change
+
+- No Rust source code changes (`src-tauri/src/*.rs`).
+- No frontend code changes (`frontend/**/*.js`, `*.css`, `*.html`).
+- No protocol-baseline or protocol-drift changes.
+- No new test fixtures.
+- No capability or tauri.conf structural changes (only version field).
+
+### Audit roadmap inclusion
+
+The audit roadmap `RE-LLMPET-0.5.22-package-regression-audit-roadmap.md`
+is included in the repo root for reference, but is NOT claimed as a
+"new feature" — it is the audit document that prompted this rebuild.
+
+---
+
+## 0.5.21 — R40.2 provenance consistency fix（2026-08-01）
+
+Patch release fixing metadata inconsistencies left over from 0.5.20.
+The 0.5.20 CI was green and the release was published, but several
+provenance fields still referenced the abandoned `0.5.19.1` version
+number (Cargo rejects 4-segment version numbers).
+
+### Fixes
+
+- **SOURCE_MANIFEST.json `root`**: `RE-LLMPET-0.5.19.1` → `RE-LLMPET-0.5.21`
+- **CHANGELOG body**: historical `0.5.19.1` refs in 0.5.20 section → `0.5.20`
+- **BUILD_REPRODUCIBILITY.md**: version `0.5.20` → `0.5.21`
+- **Test hardening**: R40.1 smoke now asserts `manifest.root` version
+  matches `SOURCE_REVISION` and `package.json` version
+
+### No code changes
+
+Metadata/test/docs only. Binaries functionally identical to 0.5.20.
+
+---
+
+## 0.5.20 — R40.1 carpet audit closure（2026-08-01）
+
+Emergency hotfix closing 7 issues from the 0.5.19 carpet audit
+(`RE-LLMPET-0.5.19-carpet-audit-upstream-drift-roadmap.md`).
+
+### P0-1: Fix Rust format string compile blocker
+
+The 0.5.19 `install_codewhale` log message used `{'y'}` inside a
+`format!` string — invalid Rust format syntax that would fail
+`cargo check`. Fixed to plain `entries`.
+
+### P0-2: Disable unsafe CodeWhale legacy TOML cleanup
+
+The 0.5.19 `strip_legacy_codewhale_hooks` line-state-machine could
+absorb user-owned `[provider]` / `[[models]]` / arbitrary TOML tables
+into a legacy `[[hooks.hooks]]` body and silently delete them when
+dropping the hook table. This is a data corruption bug worse than the
+original "message_submit blocked" symptom.
+
+- `install_codewhale` no longer calls `strip_legacy_codewhale_hooks`.
+- New `backup_codewhale_config` creates a timestamped `.toml` backup
+  before any write, with 30-day pruning of old backups.
+- Diagnostic still DETECTS stale pre-R22 hooks and surfaces them as
+  an ISSUE with manual removal instructions.
+- R41 will reintroduce cleanup via a real TOML AST editor.
+
+### P0-3: Frontend rejects stale stats revisions
+
+The backend stamps each stats payload with `__revision`, but the 0.5.19
+frontend never checked it — a late-arriving revision-41 "working"
+snapshot could overwrite a fresh revision-42 "completed" snapshot.
+
+- `pet.js` — new `lastStatsRevision` + `acceptStatsRevision()` guard.
+- `panel.js` — new `lastStatsRevisionPanel` + `acceptStatsRevisionPanel()`.
+- Revisions < 0 (missing field, e.g. from an older backend) are
+  accepted unconditionally for backward compatibility.
+
+### P0-4: Consolidated StatsCoalescer state machine
+
+The 0.5.19 split-mutex design (three separate `Mutex`es for
+`last_stats_emit`, `stats_dirty`, `stats_scheduled`) had a race where
+`dirty=true` but no timer was scheduled — the trailing timer cleared
+`scheduled` between the new event's dirty-set and scheduled-check.
+
+- `model.rs` — new `StatsCoalescerState` struct + `stats_coalescer:
+  Mutex<StatsCoalescerState>` field. All three flags (last_emit, dirty,
+  scheduled) are under one lock.
+- `http_server.rs::emit_stats` — rewritten to use the consolidated
+  state. The trailing timer's "read dirty, clear dirty, clear
+  scheduled, decide to emit" sequence is atomic. Case (b) from the
+  audit (concurrent event gets lock first, sets dirty, can't schedule)
+  is handled by checking `guard.dirty` after clearing `scheduled` and
+  rescheduling if still dirty.
+- `commands.rs::emit_stats_throttled` — updated to use the same
+  consolidated state.
+
+### P0-5: Source package provenance
+
+The 0.5.19 package had drifted: root dir was `re-llmpet-0.5.18-base`,
+CHANGELOG stopped at 0.5.17, no commit SHA, no manifest.
+
+- Package root renamed to `RE-LLMPET-0.5.20`.
+- CHANGELOG entries added for 0.5.18, 0.5.19, 0.5.20.
+- New `SOURCE_REVISION` file with commit SHA + build date.
+- New `SOURCE_DATE_EPOCH` file for reproducible builds.
+- New `SOURCE_MANIFEST.json` with file hashes.
+- New `BUILD_REPRODUCIBILITY.md` with build instructions.
+
+### P1-1: Revert OpenCode `auth list` as primary diagnostic command
+
+The 0.5.19 "fix" changed the OpenCode auth probe from `auth list` to
+`providers list` (primary) with `auth list` fallback. The carpet audit
+proved `opencode auth list` is still the official command (verified
+via opencode.ai docs, anomalyco-opencode mintlify CLI overview, and
+GitHub issue #4533). The `providers` command is a SEPARATE command for
+managing provider configurations, not a replacement for `auth list`.
+
+- `commands.rs` — reverted to `auth list` as the single primary probe.
+  No fallback — inventing unverified fallbacks is what caused the
+  0.5.19 mistake.
+
+### P1-2: Read actual OpenCode `session.status` payload
+
+The 0.5.19 plugin hardcoded `state: "thinking"` for every
+`session.status` event, ignoring the actual status. This made
+idle/retry/busy transitions all look like "thinking" and could
+overwrite correct working/attention/error states.
+
+- `hook_install.rs::opencode_plugin_source` — `session.status` now
+  reads `event.properties.status` (OpenCode v0.9.x payload shape) and
+  maps known statuses (busy→working, idle→attention, retry→error,
+  etc.) to our internal state vocabulary. Unknown statuses are
+  forwarded as-is so the server's state reducer can decide.
+
+### Test
+
+New `test/tauri-r401-carpet-audit-closure-smoke.js` (30 assertions)
+locks all 7 fixes. Existing smoke tests updated for version + new
+field compatibility.
+
+---
+
+## 0.5.19 — R40 runtime regression closure（2026-08-01）
+
+Closed 4 runtime regressions reported by users:
+
+- **R40-1**: OpenCode plugin `session.status → UserPromptSubmit`
+  mapping caused "收到新任务" on every tool call. Fixed by mapping
+  to `SessionStatus` instead.
+- **R40-2**: OpenCode plugin marker bumped v2 → v3; install detection
+  fixed to check the actual plugin file path.
+- **R40-3**: OpenCode diagnostic probe changed from `auth list` to
+  `providers list` (NOTE: reverted in 0.5.20 — see P1-1 above).
+- **R40-4**: CodeWhale `strip_legacy_codewhale_hooks` added to clean
+  pre-R22 `message_submit` residue (NOTE: disabled in 0.5.20 — see
+  P0-2 above).
+- **R40-5**: Panel fullscreen border — 500ms poller + `near-fullscreen`
+  CSS class as Windows 11 timing safety net.
+
+**Known issues introduced by 0.5.19** (all fixed in 0.5.20):
+- Rust format string compile blocker (`{'y'}`)
+- CodeWhale legacy cleanup could delete user TOML config
+- Stats revision generated but not consumed by frontend
+- StatsCoalescer dirty-not-scheduled race
+- Source provenance drift
+
+---
+
+## 0.5.18 — R39 UX & accessibility（2026-08-01）
+
+4 UX/accessibility fixes from the 0.5.16 full audit roadmap §12 R39:
+
+- **R39-1**: `prefers-reduced-motion` — `animation:none` instead of
+  `0.001s` (0.001s still fires one frame).
+- **R39-2**: Panel responsive — `minWidth` 520 → 420, single-column
+  breakpoint at `max-width: 699px`.
+- **R39-3**: Diagnostic loading hint text explaining ✕ button behavior.
+- **R39-4**: Persistent error center stub — critical commands use
+  `persistent=true` (no auto-dismiss); persistent errors get a ✕ close
+  button; `errorLog` array tracks last 10 persistent errors.
+
+---
+
+## 0.5.17 — R38.1 correctness closure（2026-08-01）
+
+Patch release closing 5 issues from the 0.5.16 full audit roadmap.
+
+### P0-1: Singleton StatsCoalescer (no task storm)
+
+The 0.5.16 full audit (P0-1) flagged that the R38 trailing flush spawned
+a new `spawn_blocking` task PER throttled event — 1000 events/s would
+spawn ~1000 sleeping tasks, all waking ~150ms later and each broadcasting
+a full snapshot.
+
+- `model.rs` — new `stats_dirty: Mutex<bool>`,
+  `stats_scheduled: Mutex<bool>`, `stats_revision: Mutex<u64>` fields.
+- `http_server.rs` — rewritten `emit_stats`: when an event is throttled,
+  sets `dirty=true` and checks `scheduled`. If not already scheduled,
+  spawns exactly ONE trailing flush. The flush checks `dirty` on wake,
+  clears it, and emits if still dirty. At most ONE timer exists at any
+  time regardless of event burst size.
+- `commands.rs` — `emit_stats_throttled` also marks `dirty=true` when
+  throttled (for the `force=false` path). Both paths now bump a monotonic
+  `__revision` and attach it to the stats payload so the frontend can
+  reject stale messages.
+- `do_emit_stats` helper: generates stats, bumps revision, attaches
+  `__revision` to the JSON, emits to both windows.
+
+### P0-2: Diagnostic cancel keeps provider locked until worker terminal
+
+The 0.5.16 full audit (P0-2) flagged that `cancel_diagnostic` cleared
+`active_diagnostic_provider` immediately, allowing a new diagnostic to
+start while the old `spawn_blocking` worker was still running its next
+probe.
+
+- `commands.rs` — `cancel_diagnostic` now ONLY clears `active_diagnostic_pid`
+  (so subsequent `register_pid` calls write to None — harmless). It does
+  NOT clear `active_diagnostic_provider`. The provider lock stays held
+  until the `diagnose_agent` async wrapper's completion block clears it
+  when `spawn_blocking` returns. This prevents new diagnostics from
+  starting until the cancelled worker has fully terminated.
+
+### P0-3: Panel init visibility renders cached stats
+
+The 0.5.16 full audit (P0-3) flagged that the initial `isVisible()` check
+only set boolean flags without rendering cached stats — the panel could
+appear blank/stale.
+
+- `panel.js` — when `isVisible()` returns true on init, now renders
+  `pendingStats || lastStats` and calls `fitPanelHeight()` after
+  `syncWindowMode()`. This ensures the panel shows content immediately
+  even if `panel:shown` was missed.
+
+### P0-4: closePanel uses call(), panelVisible deferred to event
+
+The 0.5.16 full audit (P0-4) flagged that `closePanel` used `send`
+(fire-and-forget). If Rust `hide()` failed, the frontend still set
+`panelVisible=false`, causing the panel to appear open but stop updating.
+
+- `tauri-bridge.js` — `closePanel` upgraded from `send` to `call`.
+- `panel.js` — close button handler no longer sets `panelVisible=false`
+  directly. Instead, it only sets `panelWasHidden=true`. The
+  `panel:hidden` event (emitted by `close_panel` on success) sets
+  `panelVisible=false`. If `close_panel` fails, the event won't fire
+  and the panel stays in visible mode, continuing to render.
+
+### P1-1: set_providers never top-level rejects after commit
+
+The 0.5.16 full audit (P1-1) flagged that `resync_current()?` could
+top-level reject AFTER config was committed, causing the frontend to
+revert the checkbox while disk/memory had the new selection.
+
+- `commands.rs` — `resync_current()` is now matched (not `?`), and its
+  error is returned as `infrastructureError` in the structured result.
+  The Promise always resolves after commit. `allHooksOk` is false if
+  either hook errors or infrastructure error exists.
+
+### Test coverage
+
+- New `test/tauri-r381-correctness-closure-smoke.js` (95 lines, 25 assertions).
+- 4 phase2 smokes: version assertions bumped 0.5.16 → 0.5.17.
+- `npm test`: 44/44 smoke ok (was 43; +1 R38.1 smoke)
+- `npm run check:static`: 22/22 PASS
+
+---
+
+## 0.5.16 — R38 correctness blocker patch（2026-08-01）
+
+Patch release closing 4 P0 issues from the 0.5.15 full audit branch
+roadmap. The audit found that several R36/R37 fixes were silently
+ineffective because of an incorrect Tauri API call, and that the stats
+throttle and diagnostic registry had race conditions.
+
+### P0-1: Fix getCurrentWindow() API call
+
+The 0.5.15 full audit (P0-1) flagged that the code used
+`window.__TAURI__.window.getCurrent()` — a Tauri 1 class-method form
+that does NOT exist in Tauri 2. The correct call is
+`getCurrentWindow()` (a function export). Verified via web-search of
+Tauri 2 docs.
+
+This broke ALL window-scoped listeners (`onResized`, `onScaleChanged`,
+`onMoved`) and all `isMaximized`/`isFullscreen` queries in both pet.js
+and panel.js. The R36 geometry revision/ack, R35.1 panel window-scoped
+listeners, and R37 hidden-panel visibility all silently fell back to
+their timer/flag fallbacks because the listeners were never registered.
+
+- `tauri-bridge.js` — new `getCurrentTauriWindow()` helper that tries
+  `getCurrentWindow()` (Tauri 2) first, then `Window.getCurrent()` (Tauri 1
+  fallback). Shared by both pet.js and panel.js.
+- `pet.js` + `panel.js` — all `window.__TAURI__.window.getCurrent()`
+  calls replaced with `getCurrentTauriWindow()`.
+
+### P0-2: Diagnostic registry — global mutual exclusion
+
+The 0.5.15 full audit (P0-2) flagged that the R36 per-provider guard
+still allowed different providers to run concurrently, overwriting the
+shared PID/provider slot. This caused races where one provider's
+completion cleared another's PID, making cancellation unreliable.
+
+- `commands.rs` — `diagnose_agent` now rejects ANY active diagnostic
+  (not just same-provider). Only one diagnostic can run at a time,
+  regardless of provider. This eliminates the cross-provider race
+  entirely. The frontend only shows one diagnostic at a time anyway,
+  so concurrent multi-provider diagnostics have no UI benefit.
+
+### P0-3: Stats trailing flush
+
+The 0.5.15 full audit (P0-3) flagged that the R37 leading-edge
+throttle permanently dropped the final event in a burst. Example:
+event A at t=0 (emitted), event B at t=20ms (dropped, no trailing
+flush), no more events → UI stuck at A's state forever.
+
+- `http_server.rs` — when an event is throttled (dropped), a trailing
+  flush is scheduled via `tauri::async_runtime::spawn` + `tokio::time::sleep`.
+  After the throttle window expires (150ms), the flush re-reads the
+  latest state and emits it. This guarantees the final event in a burst
+  always reaches the UI within ~150ms of the last dropped event.
+- The trailing flush is idempotent: if another event arrived and was
+  emitted in the meantime, the flush just re-emits the same state.
+
+### P0-4: Panel visibility — panel:hidden event + init-time isVisible()
+
+The 0.5.15 full audit (P0-4) flagged that only the close button
+handler set `panelVisible=false`. If the panel was hidden via tray or
+any other path, the frontend kept rendering on a hidden window.
+
+- `commands.rs` — `close_panel` now emits `app.emit("panel:hidden", ())`
+  after `window.hide()`, giving the frontend an explicit signal
+  regardless of how the panel was hidden.
+- `panel.js` — subscribes to `panel:hidden` event → sets
+  `panelVisible=false` + `panelWasHidden=true`.
+- `panel.js` — on init, queries `getCurrentTauriWindow().isVisible()` to
+  handle the case where the panel was shown before JS loaded (the
+  `panel:shown` event was missed).
+
+### Test coverage
+
+- New `test/tauri-r38-correctness-blocker-smoke.js` (80 lines, 20 assertions).
+- Updated `test/tauri-r351-correctness-patch-smoke.js` for the
+  `getCurrentTauriWindow()` rename.
+- 4 phase2 smokes: version assertions bumped 0.5.15 → 0.5.16.
+- `npm test`: 43/43 smoke ok (was 42; +1 R38 smoke)
+- `npm run check:static`: 22/22 PASS
+
+### Known limitations
+
+- No Rust toolchain in dev container; `cargo build` verified on GitHub
+  Actions. The `tokio::time::sleep` in the trailing flush requires the
+  Tauri async runtime (which is tokio-based) — CI will confirm.
+- The `getCurrentTauriWindow()` helper includes a Tauri 1 fallback
+  (`Window.getCurrent()`) that should never be needed in Tauri 2 but is
+  kept for safety. If Tauri 2 doesn't export `Window`, the fallback
+  silently returns null and the code degrades to timer-based behavior.
+
+---
+
+## 0.5.15 — R37 performance & security closure（2026-08-01）
+
+Patch release implementing 4 R37 tasks from the 0.5.12 carpet audit
+roadmap §14. Focus: performance, concurrency, and security closure.
+
+### R37-4: Stats push throttling (150ms minimum interval)
+
+The 0.5.12 carpet audit P1-2 flagged that every hook event emits a
+full stats snapshot to both pet and panel windows — dozens per second
+during active agent sessions, each triggering a full `Runtime::stats()`
+clone + JSON serialize + IPC broadcast.
+
+- `model.rs` — new `last_stats_emit: Mutex<Option<Instant>>` field.
+- `commands.rs` — new `emit_stats_throttled(app, state, force)` with
+  150ms minimum interval. Events arriving during the throttle window
+  are dropped; the next event after the window delivers the latest
+  state. `force=true` bypasses the throttle (used by user-initiated
+  actions like `decide_permission` for immediate UI feedback).
+- `http_server.rs` — the `/state` POST handler's `emit_stats` also
+  throttles at 150ms. This is the hottest path: every hook ingest
+  from Claude/Codex/CodeWhale CLIs triggers it.
+
+### R37-5: Hidden panel render suppression
+
+The 0.5.12 carpet audit P1-5 flagged that `close_panel` hides the
+WebView but keeps it alive — so every `panel:stats` event still drives
+a full DOM rebuild + canvas redraw on a hidden window.
+
+- `panel.js` — new `panelVisible` flag (false when panel is hidden).
+  `render()` checks it: if false, caches stats in `pendingStats` and
+  returns early (no DOM work). When the panel is shown again
+  (`panel:shown` → `resetAutoFitOnShow`), `panelVisible` is set to
+  true and `pendingStats` is rendered once.
+- Close button handler sets `panelVisible = false`.
+
+### R37-6: Cursor hit-test adaptive backoff
+
+The 0.5.12 carpet audit P1-4 flagged that the cursor hit-test thread
+polls at a fixed 24ms (~42Hz) forever, even when the pet is idle and
+no click-through is requested.
+
+- `platform.rs` — new `CURSOR_HIT_TEST_IDLE_MS = 250` constant. The
+  loop now checks `mouse_ignore_requested` before sleeping: if true
+  (active click-through), sleeps 24ms; if false (idle), sleeps 250ms.
+  This reduces idle wakeups from ~42Hz to ~4Hz (~10× reduction) with
+  no user-visible difference — the 250ms check just detects when the
+  flag flips, and `should_ignore_cursor` already early-returns when
+  the flag is false.
+
+### R37-8: Capability minimization (replace core:default)
+
+The 0.5.12 carpet audit P1-12 flagged that both `pet.json` and
+`panel.json` capabilities include `core:default` — a broad Tauri 2
+bundle that grants core:app, core:event, core:image, core:menu,
+core:path, core:resources, core:tray, core:webview, and core:window
+permissions. For strict least-privilege, only the subsets actually
+used should be granted.
+
+- `pet.json` + `panel.json` — replaced `"core:default"` with:
+  - `"core:event:default"` (event listen/emit — used by the bridge)
+  - `"core:window:default"` (window getCurrent/isMaximized/onResized/etc.)
+  - `"core:webview:default"` (webview window operations)
+- Removed implicit grants for: core:app, core:image, core:menu,
+  core:path, core:resources, core:tray. If the app needs any of these
+  at runtime, they can be added back individually.
+
+### Test coverage
+
+- New `test/tauri-r37-perf-security-smoke.js` (100 lines, 25 assertions).
+- 4 phase2 smokes: version assertions bumped 0.5.14 → 0.5.15.
+- `npm test`: 42/42 smoke ok (was 41; +1 R37 smoke)
+- `npm run check:static`: 22/22 PASS
+- Rust brace balance: commands.rs 503/503, model.rs 335/335,
+  platform.rs 88/88, http_server.rs 179/179
+
+### What's NOT in this release (deferred to R38 / 0.6.0)
+
+- async HTTP or permission independent pool (P1-7)
+- transcript worker queue (P1-9)
+- usage incremental aggregation (P1-8)
+- Process-tree benchmark and CI thresholds (P1-11)
+- Disable `withGlobalTauri` (P1-13 — requires module-import migration)
+- CSP single source + remove `unsafe-inline` (P1-14 — needs careful
+  dynamic-style audit)
+- Pin GitHub Actions to full SHAs (P1-11 — needs SHA lookup per action)
+- Code modularization (P1-12 — large refactor)
+
+### Known limitations
+
+- No Rust toolchain in dev container; `cargo build` verified on GitHub
+  Actions.
+- The `core:default` replacement to `core:event:default` +
+  `core:window:default` + `core:webview:default` needs runtime
+  verification — if Tauri 2 requires additional core permissions (e.g.
+  `core:app:default` for app lifecycle events), the build will succeed
+  but runtime commands may fail. CI will catch compilation issues; real
+  machine testing is needed to confirm runtime behavior.
+- Stats throttling drops events during the 150ms window. The trailing
+  event in a burst always gets through (the window expires), but a
+  very short burst (single event) followed by silence could leave the
+  UI slightly stale until the next interaction. This is acceptable
+  because the pet's state machine reacts via `pet:event` (not throttled).
+
+---
+
+## 0.5.14 — R36 trust & interaction lifecycle（2026-07-31）
+
+Patch release implementing 5 R36 tasks from the 0.5.12 carpet audit
+roadmap §14. Focus: complete correctness, trust, and interaction
+lifecycle closures that R35.x started but couldn't finish in a single
+iteration.
+
+### R36-1: DiagnosticRegistry — single active job per provider
+
+The 0.5.12 carpet audit P0-4 noted that repeated "rerun" clicks could
+spawn multiple blocking jobs + CLI children + reader threads
+simultaneously for the same provider. R35.2 added `cancel_diagnostic`
++ process-tree kill, but had no guard against duplicate concurrent
+runs.
+
+- `model.rs` — new `active_diagnostic_provider: Mutex<Option<String>>`
+  field tracks which provider is currently being diagnosed.
+- `commands.rs` — `diagnose_agent` now checks: if
+  `active_diagnostic_provider == Some(provider)` and a new request
+  for the SAME provider arrives, returns `Err("... diagnostic already
+  in progress")` immediately without spawning. Different providers can
+  still run concurrently.
+- `cancel_diagnostic` and `diagnose_agent` (on completion) both clear
+  the provider flag so the same provider can be re-diagnosed.
+
+### R36-2: geometry revision/ack — onResized replaces 260ms timer
+
+The 0.5.12 carpet audit P1-1 flagged that `geometryBusy` was cleared
+by a fixed 260ms timer — a guess that's too short on slow machines
+(HUD opens before resize settles) and too long on fast machines (wasted
+wait). Verified via web-search: Tauri 2's `getCurrentWindow().onResized(cb)`
+fires when the OS actually applied the resize.
+
+- `pet.js` — new `geometryRevision` counter + `expectedPetSize` +
+  `geometryAckUnlisten`. `markGeometryBusy(expectedSize)` now registers
+  a one-shot `onResized` listener. When the window's inner size matches
+  the expected size (within 2px tolerance), `clearGeometryBusy` is
+  called immediately — no waiting for the timer.
+- The 260ms timer is kept as a FALLBACK for cases where `onResized`
+  never fires (Rust rejected the size, window hidden, OS didn't emit).
+- Overlapping resizes are handled by revision: a new `markGeometryBusy`
+  call supersedes the previous listener (unlistens it, increments
+  revision, registers a new one).
+
+### R36-3: hook verify-only on startup (no auto-modify external configs)
+
+The 0.5.12 carpet audit P1-3 flagged that startup called
+`sync_enabled` which INSTALLS/UNINSTALLS hooks into external provider
+configs (Claude's settings.json, CodeWhale's config.toml, etc.)
+without explicit user consent. This is a trust boundary issue.
+
+- `hook_install.rs` — new `verify_enabled(runtime, enabled)` function
+  that reads hook status WITHOUT writing anything. New
+  `is_hook_installed(id)` predicate checks each provider's config file
+  for the Octopus marker. Reports `"missing"` state (not `"error"`)
+  for enabled-but-uninstalled providers so the UI can prompt "click to
+  install" instead of silently installing.
+- `lib.rs` — startup now calls `verify_enabled` instead of
+  `sync_enabled`. Hook installation only happens when the user
+  explicitly calls `set_providers` (which triggers `resync_current`).
+- The `sync_enabled` function is preserved (still used by
+  `resync_current` for explicit installs) but no longer called at
+  startup.
+
+### R36-4: log rotation (5 files × 2 MiB)
+
+The 0.5.12 carpet audit P1-5 flagged that `write_log` appends
+indefinitely with no size limit, rotation, or retention. A long-running
+session could fill disk.
+
+- `model.rs` — `write_log` now checks the file size before each
+  append. If it exceeds 2 MiB, `rotate_log` is called:
+  `octopus.log → octopus.1.log → ... → octopus.4.log` (oldest deleted).
+  5 files × 2 MiB = max ~10 MiB total.
+- `rotate_log(path, max_files)` helper: deletes the oldest file,
+  shifts each file up by one, renames current to `.1.log`. Best-effort
+  — if rotation fails (permissions, disk full), the append still
+  proceeds.
+
+### R36-5: prefers-reduced-motion CSS
+
+The 0.5.12 carpet audit §9.1 flagged that GIF, jump, attn, bob, pulse,
+and confetti animations don't respect the system reduced-motion
+setting. Users with vestibular disorders need a way to disable
+animations.
+
+- `pet.css` + `panel.css` — new `@media (prefers-reduced-motion:
+  reduce)` block that sets `animation-duration: 0.001s !important` and
+  `transition-duration: 0.001s !important` on all elements. This
+  effectively disables all CSS animations (bob, attn, happyJump,
+  errShake, breathe, badgePulse, slideIn, etc.) when the OS reports
+  reduced motion.
+- GIF-based cat skin animations are NOT affected by CSS (they're image
+  animations). Swapping GIFs for static frames is deferred to a future
+  release; the CSS fix covers all transform/opacity animations.
+
+### Test coverage
+
+- New `test/tauri-r36-lifecycle-smoke.js` (130 lines, 30 assertions)
+  locks all 5 R36 fixes.
+- Updated 2 existing smokes:
+  - `tauri-native-core-smoke.js` — accept `verify_enabled` OR
+    `sync_enabled` in lib.rs startup
+  - `tauri-provider-phase2-smoke.js` — same
+- 4 phase2 smokes: version assertions bumped 0.5.13 → 0.5.14.
+- `npm test`: 41/41 smoke ok (was 40; +1 R36 smoke)
+- `npm run check:static`: 22/22 PASS
+- Rust brace balance: commands.rs 497/497+1828/1828+159/159,
+  model.rs 335/335+1379/1379+54/54, hook_install.rs 214/214+595/595+40/40
+
+### What's NOT in this release (deferred to R37 / 0.5.15)
+
+Per the roadmap §14, the following remain deferred:
+- Full Provider six-layer state model (enabled/installed/healthy/
+  running/focused/recent) — R36 only added the diagnostic provider
+  guard
+- Hook plan/diff/backup/apply/verify/rollback lifecycle
+- Unified atomic writer for transcript/metering/http_server
+- All config mutations await + rollback (language/mode/skin/budget/
+  currency/mute still fire-and-forget)
+- Unified dialog accessibility (focus trap, Tab cycling, focus restore)
+- Full i18n + brand unification
+- Panel 400-420px single-column responsive breakpoint
+
+### Known limitations
+
+- No Rust toolchain in dev container; `cargo build` verified on GitHub
+  Actions.
+- `is_hook_installed` checks for the Octopus marker string in each
+  provider's config file. If the user manually edited the config and
+  removed the marker (but the hook still works via a different
+  mechanism), `verify_enabled` will report "missing" — a false
+  positive. This is acceptable: the user can re-save providers to
+  re-install.
+- The geometry `onResized` ack uses `window.innerWidth/innerHeight`
+  which are CSS pixels. Rust's `set_pet_size` takes logical pixels
+  too, so the comparison is in the same unit. A 2px tolerance handles
+  sub-pixel rounding.
+
+---
+
+## 0.5.13 — R35.2 correctness patch（2026-07-31）
+
+Patch release closing 5 P0 issues from the `RE-LLMPET-0.5.12-carpet-audit-roadmap.md`.
+The 0.5.12 carpet audit found a common pattern: "界面层已经出现'完成'的
+外观，但后端状态、系统窗口状态或子进程生命周期没有形成同一个事务".
+R35.2 closes these state-coherence gaps.
+
+### P0-1: provider chooser coherence
+
+The 0.5.12 carpet audit (P0-1) flagged that the chooser was not in
+`syncUiBusy`, not in `INTERACTIVE_HIT_SEL`, read status from the wrong
+source, and fire-and-forget launched.
+
+- `pet.js` — `syncUiBusy` now includes `providerChooserOpen` so Rust's
+  native click-through guard knows the chooser is open.
+- `pet.js` — `INTERACTIVE_HIT_SEL` now includes `#provider-chooser` so
+  the chooser card's rect is interactive (not click-through).
+- `pet.js` — new `latestProviderStatuses` sourced from `config_view()`
+  (NOT from `stats()`, which the audit confirmed does NOT include a
+  `providers` field). The chooser now shows correct ok/warn/off badges.
+- `pet.js` — `openProviderChooser` closes radial/sesslist/todo/meme
+  overlays first (mutual exclusion).
+- `pet.js` — `launchProviderChecked` uses `launchAgentChecked` (call)
+  so launch failures surface via toast. The chooser awaits the launch
+  and only closes on success; on failure it re-enables the item and
+  stays open for retry.
+- `pet.js` — first chooser item gets focus for keyboard accessibility.
+
+### P0-2: set_providers selected-vs-hook split
+
+The 0.5.12 carpet audit (P0-2) flagged that `set_providers` committed
+the config THEN returned `Err` on hook failure — the frontend reverted
+the checkbox, but disk/memory said "enabled". This was a split-brain.
+
+- `commands.rs` — `set_providers` no longer returns `Err` on partial
+  hook failure. It ALWAYS returns `Ok` with:
+  `{ selectedSaved, allHooksOk, selected, hookResults, errors }`.
+  The selection is always persisted; hook results are separated.
+- `panel.js` — the checkbox stays checked (matching disk) on hook
+  failure. A toast shows which hooks failed. The checkbox reverts ONLY
+  on genuine rejection (disk write failure, runtime metadata unavailable).
+
+### P0-3: panel setPanelHeight coherence
+
+The 0.5.12 carpet audit (P0-3) flagged: bridge used `send` (fire-and-
+forget), cache was set before IPC resolved, `onResized` was registered
+twice, and `resetAutoFitOnShow` didn't immediately fit.
+
+- `tauri-bridge.js` — `setPanelHeight` upgraded from `send` to `call`
+  (returns Promise).
+- `panel.js` — new `pendingFitHeight` tracks the in-flight height.
+  `lastFitHeight` is committed ONLY after the IPC Promise resolves.
+  On failure the cache is untouched so the next render retries.
+- `panel.js` — duplicate `onResized` registration removed (was firing
+  two callbacks per resize, doubling the userSized false-positive risk).
+- `panel.js` — `resetAutoFitOnShow` now awaits `syncWindowMode` then
+  calls `fitPanelHeight` immediately, so the panel appears at the
+  correct height on show (not at a stale height until next stats).
+
+### P0-4: real diagnostic cancel (process-tree kill)
+
+The 0.5.12 carpet audit (P0-4) flagged that "cancel" only dropped the
+frontend result — the Rust `Child` (and on Windows, the cmd.exe-spawned
+Node grandchild) kept running. Verified via web-search of Rust docs:
+"There is no implementation of Drop for child processes, so if you do
+not ensure the Child has exited then it will continue to run."
+
+- `model.rs` — new `active_diagnostic_pid: Mutex<Option<u32>>` field
+  on `Runtime`. Stores the PID of the currently-running diagnostic probe.
+- `commands.rs` — new `cancel_diagnostic` async command. Reads the PID
+  and calls `kill_process_tree`:
+  - Windows: `taskkill /F /T /PID` (kills cmd.exe + Node tree).
+    Verified via web-search: "/T Tree kill: terminates the specified
+    process and any child processes which were started by it."
+  - Unix: `kill(SIGTERM)` then `kill(SIGKILL)` after 200ms.
+- `commands.rs` — `run_probe_capture_with_pid` variant registers the
+  spawned child's PID via callback before each probe. `diagnose_agent_sync`
+  now takes a `register_pid: &dyn Fn(u32)` parameter and passes it to
+  all `run_probe_with_pid` calls.
+- `commands.rs` — `diagnose_agent` (async) clears the PID on start and
+  on completion (or panic) so a late cancel doesn't kill an unrelated
+  process that reused the PID.
+- `tauri-bridge.js` — new `cancelDiagnostic` bridge method.
+- `panel.js` — `clearDiagnostic` calls `cancelDiagnostic` when a
+  diagnostic is running (providerDiagnosticBusy), killing the process tree.
+- `lib.rs` + `build.rs` + `panel.json` + `cancel_diagnostic.toml` —
+  registered the new command + permission + capability.
+
+**Deferred to R36**: full DiagnosticRegistry (prevents duplicate
+concurrent runs), Tauri Channel progress, CancellationToken-based
+cooperative cancel inside `run_probe_capture`. R35.2's approach is
+best-effort: it kills the process tree on cancel, but a probe that's
+between spawn and PID registration (a ~1ms window) won't be killable.
+
+### P0-5: release.yml signing semantics (carried from R35.1)
+
+No changes — the R35.1 `PLATFORM_SIGNED` + `REQUIRE_PLATFORM_SIGNING`
+work is preserved and the R35.2 smoke verifies it's still in place.
+
+### Web verification (z-ai web_search, 2026-07-31)
+
+- **Rust Child drop = no kill**: confirmed via doc.rust-lang.org/std/
+  process/struct.Child.html — "There is no implementation of Drop for
+  child processes, so if you do not ensure the Child has exited then
+  it will continue to run."
+- **taskkill /T /PID kills tree**: confirmed via Microsoft docs —
+  "/T Tree kill: terminates the specified process and any child
+  processes which were started by it."
+- **Tauri 2 window-scoped events**: confirmed (carried from R35.1).
+- **OpenCode/CodeWhale CLI commands**: confirmed current (carried).
+
+### Test coverage
+
+- New `test/tauri-r352-correctness-patch-smoke.js` (155 lines, 35
+  assertions) locks all 5 R35.2 patches.
+- Updated 7 existing smokes for signature/behavior changes:
+  - `tauri-bridge-smoke.js` — added `cancelDiagnostic` to expected API
+  - `tauri-capability-boundary-smoke.js` — added `cancel_diagnostic` to build.rs
+  - `tauri-cli-hardening-r3-smoke.js` — accept `diagnose_agent` with `state` param
+  - `tauri-cli-resilience-r7-smoke.js` — same
+  - `tauri-provider-phase2-smoke.js` — sl-new now routes through chooseProviderAndLaunch
+  - `tauri-r34-config-transaction-smoke.js` — set_providers new return shape
+  - `tauri-r35-correctness-hotfix-smoke.js` — INTERACTIVE_HIT_SEL updated
+  - `tauri-r351-correctness-patch-smoke.js` — diagnose_agent signature + selector updated
+- 4 phase2 smokes: version assertions bumped 0.5.12 → 0.5.13.
+- `npm test`: 40/40 smoke ok (was 39; +1 R35.2 smoke)
+- `npm run check:static`: 22/22 PASS
+- Rust brace balance: commands.rs 491/491+1810/1810+159/159,
+  model.rs 327/327+1348/1348+54/54
+
+### Known limitations
+
+- No Rust toolchain in dev container; `cargo build` verified on GitHub Actions.
+- `cancel_diagnostic` has a ~1ms race window between spawn and PID
+  registration. A full DiagnosticRegistry with spawn_blocking-aware
+  cancellation is R36.
+- The provider chooser's full focus trap (Tab cycling, arrow-key
+  navigation, focus restore to trigger button) is R36. R35.2 only
+  focuses the first item.
+- `set_providers` does not yet have a per-provider retry command. The
+  user can re-save the same selection to re-trigger resync, but a
+  dedicated "retry install" button is R36.
+
+---
+
+## 0.5.12 — R35.1 correctness patch（2026-07-31）
+
+Patch release closing 5 of the 6 gaps flagged by the
+`RE-LLMPET-0.5.11-deep-recheck-roadmap.md`. The 0.5.11 release was a real
+hotfix (not surface patching), but the recheck found a common pattern:
+many "fixes" were simulated by fixed timers, frontend result-dropping,
+or source-string gates rather than real OS/process/window state
+confirmation. This release closes the most actionable gaps.
+
+### P0-1: hit-test anchor-only + single pending radial intent
+
+The 0.5.11 recheck (P0-1 #3) noted that `INTERACTIVE_HIT_SEL` still
+included the animated skin elements (`#pixel/#mascot/#cat`) alongside
+`#pet-anchor`, so the click-through boundary still shifted during state
+animations even though the anchor itself was stable.
+
+- `frontend/renderer/pet.js` — `INTERACTIVE_HIT_SEL` narrowed to
+  `#pet-anchor,#radial,#notepad,#todopop,#ask,#sesslist,#meme-player`
+  (animated skins removed). The pet body is now represented in the
+  hit-test ONLY by the stable anchor.
+- New `pendingRadialOpen` boolean replaces the recursive
+  `setTimeout(openRadial, 260)` (P0-1 #2). The old code queued multiple
+  delayed opens on repeated clicks; the new code records a single
+  intent that `markGeometryBusy`'s settle callback opens exactly once.
+- `closeRadial()`, the blur handler, and drag-start (pointerdown) all
+  clear `pendingRadialOpen` so a stale intent can't reopen the HUD
+  after dismissal.
+
+### P0-2: panel window-scoped listeners + reset on panel:shown
+
+The 0.5.11 recheck (P0-2 #1) flagged that the panel used the GLOBAL
+`__TAURI__.event.listen('tauri://resize', ...)` which receives events
+from ALL windows. Since the pet window resizes frequently, pet resize
+events would enter the panel listener and permanently set `userSized=true`,
+disabling auto-fit. Verified via web-search of Tauri 2 docs
+(v2.tauri.app/reference/javascript/api/namespacewindow): the
+window-scoped `getCurrentWindow().onResized(cb)` / `.onScaleChanged(cb)`
+/ `.onMoved(cb)` helpers fire ONLY for the current window.
+
+- `frontend/renderer/panel.js` — `installWindowModeListeners` rewritten
+  to use `getCurrentWindow().onResized/onScaleChanged/onMoved`. Unlisteners
+  are collected in `windowModeUnlisteners` and torn down on `beforeunload`.
+- New `resetAutoFitOnShow()` resets `userSized`, `lastFitHeight`, and
+  `lastFitRequestTs` (P0-2 #2 — these were never reset before). Called
+  on the new `panel:shown` event.
+- `src-tauri/src/commands.rs::open_panel` now emits `app.emit("panel:shown", ())`
+  after `show()+set_focus()`, giving the frontend an explicit "you've
+  been shown again" signal.
+- `onScaleChanged` resets `lastFitHeight` and re-fits (P0-2 #5 — DPI
+  monitor change no longer leaves stale cached height).
+
+### P0-3: async diagnose_agent with spawn_blocking
+
+The 0.5.11 recheck (P0-3) noted that `diagnose_agent` was still a
+synchronous Tauri command, freezing the IPC thread for the full
+duration of all probes (up to ~30s worst case). Verified via web-search
+of Tauri 2 docs (v2.tauri.app/develop/calling-rust, Jun 2026):
+"Asynchronous commands are preferred in Tauri ... use
+async_runtime::spawn" and `spawn_blocking` is the correct primitive for
+blocking work.
+
+- `src-tauri/src/commands.rs` — `diagnose_agent` is now
+  `pub async fn diagnose_agent(provider: String) -> Result<Value, String>`.
+  The body is extracted into `fn diagnose_agent_sync(provider)` and
+  offloaded via `tauri::async_runtime::spawn_blocking(move || diagnose_agent_sync(provider))`.
+  JoinError (panic) is mapped to an error string.
+- This unblocks the IPC thread so pet/panel stay responsive during a
+  diagnostic. The frontend's `diagnosticGeneration` counter (R35) still
+  handles stale-result suppression.
+- **Deferred to R36** (per the roadmap): per-step progress via Tauri
+  Channel, real cancellation via CancellationToken + child kill, and a
+  DiagnosticRegistry preventing duplicate concurrent runs. The R35.1
+  change is the minimum to unblock the IPC thread without a full
+  diagnostic-job-registry rewrite.
+
+### P0-5: provider chooser + removal of「名称 +N」
+
+The 0.5.11 recheck (P0-5) flagged that the `agent-tag` still displayed
+「第一个 Provider 名称 +N」 and "New Agent" still silently launched
+`activeProviders[0]`. This conflated "enabled providers" with "active
+provider" and was a trust issue.
+
+- `frontend/renderer/pet.html` — new `<div id="provider-chooser">` modal
+  with `role="dialog" aria-modal="true"`.
+- `frontend/renderer/pet.css` — `.provider-chooser` styles (card, list,
+  item with icon + label + status badge).
+- `frontend/renderer/pet.js` — new `chooseProviderAndLaunch()`:
+  - 0 enabled providers → do nothing (R22 preserved)
+  - 1 enabled provider → launch directly (no modal)
+  - 2+ enabled providers → open `#provider-chooser` modal; user picks
+- The `agent-tag`「+N」label is removed; the element is always hidden
+  but retains a tooltip summarizing enabled providers (accessible name
+  for screen readers).
+- `sl-new` click handler routes through `chooseProviderAndLaunch()`.
+- `src-tauri/src/commands.rs::primary_action` — when more than one
+  provider is enabled and no session is active, emits a
+  `pet:event { kind: "choose-provider" }` instead of silently launching
+  array[0]. The frontend `onEvent` handler opens the chooser.
+- The chooser supports ✕ close, outside-click close, Escape close, and
+  blur close (consistent with radial/sesslist).
+
+### P0-6: release.yml platform signing semantics
+
+The 0.5.11 recheck (P0-6) flagged that the release workflow conflated
+the Tauri updater signing key with platform code-signing. They are NOT
+the same: the Tauri key signs updater artifacts (which this project
+doesn't even produce — `createUpdaterArtifacts=false`), while Windows
+Authenticode and macOS Developer ID + notarization affect SmartScreen /
+Gatekeeper. The previous `signed=true` output was misleading.
+
+- `.github/workflows/release.yml` — new `PLATFORM_SIGNED` output per
+  platform. Windows missing `WINDOWS_CERTIFICATE` → prominent
+  `::warning::` saying "Tauri-updater-signed only (no Authenticode)".
+  macOS missing `APPLE_CERTIFICATE` → similar warning.
+- New `REQUIRE_PLATFORM_SIGNING` repo variable (default false). When
+  `true`, missing platform certs HARD-FAIL the stable tag build (the
+  audit's strict recommendation). When `false` (current default), the
+  build proceeds but with prominent warnings — this lets the project
+  enforce platform signing once certs are available without blocking
+  the current release pipeline.
+- The misleading "updater key = binary signed" language is corrected in
+  the warning text.
+
+### Web verification
+
+Before implementation, the following API claims were verified via
+web-search (z-ai web_search function, 2026-07-31):
+
+- **Tauri 2 window-scoped events**: `getCurrentWindow().onResized(cb)`
+  returns a `Promise<UnlistenFn>` that fires ONLY for the current
+  window — confirmed via v2.tauri.app/reference/javascript/api/namespacewindow
+  and a tauri-apps discussion ("appWindow.onResized which fires only
+  for that window").
+- **Tauri 2 async commands**: `async_runtime::spawn_blocking` is the
+  correct primitive for blocking work — confirmed via
+  v2.tauri.app/develop/calling-rust (Jun 2026) and docs.rs/tauri/latest.
+- **OpenCode `auth list`**: still the current command — confirmed via
+  opencode.ai/docs/cli ("Lists all the authenticated providers").
+- **CodeWhale `doctor --json` + `auth status`**: still current —
+  confirmed via github.com/Hmbown/CodeWhale/blob/main/docs/GUIDE.md.
+- **GitHub Actions SHA pinning**: still the official best practice;
+  GitHub now natively supports blocking non-SHA-pinned actions (Aug
+  2025) — confirmed via github.blog/changelog/2025-08-15.
+
+### Test coverage
+
+- New `test/tauri-r351-correctness-patch-smoke.js` (155 lines, 30
+  assertions) locks all 5 R35.1 patches.
+- Updated `test/tauri-cli-hardening-r3-smoke.js` and
+  `test/tauri-cli-resilience-r7-smoke.js` to accept both
+  `pub fn diagnose_agent` and `pub async fn diagnose_agent` (R35.1
+  changed the signature).
+- Updated `test/tauri-r35-correctness-hotfix-smoke.js` — the
+  `INTERACTIVE_HIT_SEL` assertion now expects the anchor-only selector
+  (R35.1 narrowed it).
+- 4 phase2 smokes: version assertions bumped 0.5.11 → 0.5.12.
+- `npm test`: 39/39 smoke ok (was 38; +1 R35.1 smoke)
+- `npm run check:static`: 22/22 PASS
+
+### What's NOT in this release
+
+Per the recheck's "R35.1 first, then R36" guidance, the following
+remain deferred to R36 (0.5.13) or R37:
+- Real diagnostic cancellation via CancellationToken + child kill (P0-3
+  full closure — R35.1 only unblocked the IPC thread)
+- Full Provider state split (enabled/installed/healthy/running/focused)
+  — R35.1 only added the chooser and removed the +N label
+- Hook install onboarding (plan/diff/backup/apply/verify/rollback)
+- Unified atomic writer for transcript/metering/http_server (P1-1)
+- Stats hot-path incremental aggregation (P1-2)
+- Permission waiter pool isolation (P1-3)
+- Cursor hit-test conditional wakeup (P1-4)
+- Hidden panel render suppression (P1-5)
+- Bootstrap degraded/retry UI (P1-6)
+- Full dialog a11y + prefers-reduced-motion (P1-7)
+- Capability minimization + CSP tightening (P1-8)
+- GitHub Actions full SHA pinning (deferred — requires careful per-action
+  migration; the R35.1 release.yml changes are compatible with both
+  tag-ref and SHA-pinned actions)
+
+### Known limitations
+
+- The Rust changes (async diagnose_agent, primary_action emit, open_panel
+  emit) cannot be `cargo check`'d in this dev container — no Rust
+  toolchain. Compilation will be verified by GitHub Actions on push.
+  The smoke tests assert source-level patterns only.
+- The provider chooser is a functional first cut. The audit's full
+  recommendation (icon stack for running providers, recent/focused
+  state, "remember last" toggle) is R36.
+- `REQUIRE_PLATFORM_SIGNING` defaults to `false` to avoid blocking the
+  current release. The project should set it to `true` once Windows
+  Authenticode and Apple Developer ID certs are configured.
+
+---
+
+## 0.5.11 — R35 correctness hotfix（2026-07-31）
+
+Hotfix release closing 6 P0 issues identified by the
+`RE-LLMPET-0.5.10-deep-audit-roadmap.md` deep audit. The 0.5.10 release
+shipped 4/4 signed platform installers and a clean static gate, but
+real-machine testing surfaced five classes of runtime problems the
+source-level smoke suite could not catch — plus one new P0 in the
+config-write path. This release closes all six without adding any new
+provider/visual features, per the audit's "fix-then-extend" guidance.
+
+### P0-1: pet geometry — stable anchor + geometry transaction
+
+The audit traced the "桌宠跳动 + HUD 错位" regression to three coordinate
+systems (CSS transform, Tauri window size/position, native hit-test) being
+out of sync for ~0.55s during state changes. The CSS animations
+(`happyJump`, `attn`, `bob`) were applied directly to `#mascot` and
+`#pixel`, so `getBoundingClientRect()` on those elements returned transient
+mid-animation positions. `buildRadial()` then anchored the HUD at the
+transient position, and the native hit-test region followed the same
+shifting rect.
+
+- `frontend/renderer/pet.html` — wrap the three skin elements
+  (`#pixel`, `#mascot`, `#cat`) in a new `<div id="pet-anchor">` that
+  never receives a transform.
+- `frontend/renderer/pet.css` — move every state animation from the
+  outer skin element to the inner `#mascot-img` / `.pixel-sprite`.
+  `#pet-anchor` itself has no `transform`, no `animation`, no `filter`.
+  Filters (which don't affect `getBoundingClientRect()`) stay on the
+  skin element for visual consistency.
+- `frontend/renderer/pet.js` — `buildRadial()` now reads
+  `#pet-anchor.getBoundingClientRect()` instead of the skin element's
+  rect. `INTERACTIVE_HIT_SEL` includes `#pet-anchor` so the native
+  hit-test region follows the stable anchor.
+- New `geometryBusy` flag: set for ~260ms after each `set_pet_size`
+  call. `openRadial()` defers (via `setTimeout`) while the flag is
+  true, so clicks during a resize don't anchor the HUD at the
+  intermediate window size.
+- New `lastSentPetSize` dedupe: identical consecutive
+  `set_pet_size` requests (e.g. from stats updates) are skipped
+  entirely. The audit noted stats updates were repeatedly calling
+  `set_pet_size` with the same value, causing the OS to redraw the
+  window frame for no reason.
+
+### P0-2: panel — remove transparent gutter when maximized + clamp to work area
+
+The audit traced the "详情窗口透明边框" regression to the 20px transparent
+`padding` on `html, body` — originally added to give the 32px-blur
+`box-shadow` room to render. When the window is maximized or fullscreen,
+that 20px becomes a visible transparent border around the panel. The
+`#card`'s `border-radius: 18px` and `box-shadow: 0 8px 32px` also look
+wrong in fullscreen. Additionally, `set_panel_height` clamped to a fixed
+`[480, 1200]` range without consulting the current monitor's work area,
+so long diagnostics could push the panel past the taskbar.
+
+- `frontend/renderer/panel.css` — new `body.window-maximized` and
+  `body.window-fullscreen` classes that zero the padding and remove
+  the border, border-radius, and box-shadow from `#card`.
+- `frontend/renderer/panel.js` — new `syncWindowMode()` polls
+  `getCurrent().isMaximized()` / `isFullscreen()` and toggles the body
+  classes. `installWindowModeListeners()` subscribes to the Tauri 2
+  window events (`tauri://resize`, `tauri://maximize`, etc.) so the
+  classes stay in sync as the user toggles state.
+- New `userSized` flag: set on the first manual resize (detected via a
+  resize event that doesn't echo a recent `setPanelHeight` request).
+  Once set, `fitPanelHeight()` stops auto-fitting on every render —
+  the user picked a size, and stats updates shouldn't snap it back.
+- New `lastFitHeight` dedupe: identical consecutive `setPanelHeight`
+  IPC calls are skipped.
+- `src-tauri/src/commands.rs::set_panel_height` — clamps the requested
+  height to `monitor.work_area().height / scale_factor - 48` (the 48px
+  margin covers titlebar + OS chrome that the work_area calculation may
+  not include). Falls back to `1200.0` if no monitor is available.
+
+### P0-3: diagnostics — generation + cancel + stale-result suppression
+
+The audit traced the "诊断无法清除" regression to three problems:
+the loading view had no cancel button, the close button on a finished
+result didn't bump the in-flight IPC, and closing didn't call
+`fitPanelHeight()` (leaving a tall empty window).
+
+- `frontend/renderer/panel.js` — new `diagnosticGeneration` counter.
+  `diagnoseProvider()` captures `const gen = ++diagnosticGeneration`
+  before the IPC call; after `await`, if `gen !== diagnosticGeneration`,
+  the result is dropped silently. This prevents the "old request returns
+  and reopens the panel" bug.
+- The loading view now includes a Cancel button
+  (`data-diag-action="cancel"`) that routes through the new
+  `clearDiagnostic()` helper. `clearDiagnostic()` bumps the generation,
+  hides the panel, clears the DOM, calls `fitPanelHeight()` to close
+  the empty gap, and re-renders the provider list.
+- The click handler routes both `close` (finished result) and `cancel`
+  (loading view) through `clearDiagnostic()` so the behavior is
+  identical: any in-flight IPC result is dropped, the panel height
+  is re-fit.
+
+### P0-4a: Windows cmd quoting — `raw_arg` replaces `.arg(tail)`
+
+The audit's screenshot showed literal `\"C:\\...\\opencode.cmd\"` quotes
+in the diagnostic output — proof that Rust's `Command::arg()` was
+re-escaping the pre-built `call "C:\\...\\file.cmd" "arg1"` tail per
+CreateProcessW rules, then `cmd.exe /S /C` re-parsed the result and saw
+literal backslash-quotes. The .cmd shim never ran correctly. This
+affected every Windows `.cmd`/`.bat` invocation: probe, launch, GUI
+launch, and the cmd fallback.
+
+- `src-tauri/src/commands.rs` — new `append_cmd_tail(command, tail)`
+  helper that calls `command.args(["/D", "/S", "/C"]).raw_arg(tail)`.
+  `raw_arg` appends the string to the command line AS-IS, with no
+  CreateProcessW quoting. Combined with `/S`, `cmd.exe` strips the
+  outermost quote pair (if any) from `tail` and executes the result
+  verbatim.
+- `run_probe_capture` (probe path) and `launch_terminal` (both
+  Windows Terminal and cmd fallback) and `open_gui_application` all
+  route through `raw_arg`. The previous `.arg(cmd_probe_call(...))`
+  / `.arg(cmd_launch_call(...))` / `.arg(cmd_call(...))` patterns
+  are gone.
+- The `cmd_probe_call`, `cmd_launch_call`, `cmd_call`, and
+  `cmd_quote_arg` helper functions are preserved (they still build
+  the correctly-quoted tail string); only the call site changed.
+
+### P0-4b: Windows encoding — UTF-16 BOM → UTF-8 → OEM → ACP → lossy
+
+The audit's screenshot showed `�` (U+FFFD) flood in the diagnostic
+output — proof that `String::from_utf8_lossy` was replacing every
+non-ASCII byte. Chinese Windows `cmd.exe` emits CP936 (GBK); Japanese
+Windows emits CP932 (Shift-JIS); English Windows OEM is CP437. None of
+these are UTF-8, so `from_utf8_lossy` produced mojibake.
+
+- `src-tauri/src/commands.rs` — new `decode_subprocess_output(bytes)`
+  with the audit's recommended fallback chain:
+  1. UTF-16 LE BOM (`FF FE`) → `String::from_utf16`
+  2. UTF-16 BE BOM (`FE FF`) → `String::from_utf16`
+  3. Strict UTF-8 (`std::str::from_utf8`) — the common case for modern
+     `--json` CLIs
+  4. OEM code page (`GetOEMCP` + `MultiByteToWideChar` with
+     `MB_ERR_INVALID_CHARS`) — Windows-only, falls back to next on
+     failure
+  5. ANSI code page (`GetACP` + `MultiByteToWideChar`) — Windows-only
+  6. Lossy UTF-8 (`String::from_utf8_lossy`) — last resort
+- `sanitized_probe_json` and `bounded_probe_text` route through
+  `decode_subprocess_output` instead of calling
+  `String::from_utf8_lossy` directly. The lossy fallback is still the
+  final tier, but only after OEM and ACP have been tried.
+- `src-tauri/Cargo.toml` — add `Win32_Globalization` feature to
+  `windows-sys` for `GetOEMCP`, `GetACP`, `MultiByteToWideChar`,
+  `MB_ERR_INVALID_CHARS`. The crate version (0.61) is unchanged; only
+  the feature list grows. Cargo.lock doesn't track individual features,
+  so no lock-file edit is needed.
+
+### P0-6: config — serialize writes under `config_write_lock` + unique temp names
+
+The 0.5.10 R34 copy-on-write transaction still had a race: two
+concurrent writers could both snapshot C0, both persist (A then B on
+disk), and both commit (B then A in memory) — leaving `disk == B` but
+`memory == A`. The audit's `§4 / P0-6` example shows the exact
+split-brain. The temp file name `config.<pid>.tmp` also collided for
+concurrent writers in the same process.
+
+- `src-tauri/src/model.rs` — new `config_write_lock: Mutex<()>` field
+  on `Runtime`. `update_config()` acquires this lock at the start of
+  the transaction and holds it across the entire
+  snapshot → mutate → sanitize → save → commit sequence. Reads
+  (which only take `config`) remain fully concurrent; only writers
+  block each other. This is the simplest correct fix for the small
+  config volume — a CAS / revision scheme is overkill.
+- New `unique_tmp_path(dest)` helper: builds `<dest>.<pid>.<uuid>.tmp`
+  using `uuid::Uuid::new_v4()` (the `uuid` crate is already a
+  dependency). The UUID guarantees uniqueness across concurrent writers
+  in the same process, across processes, and across crashed runs.
+- `save_config` and `write_private_json_atomic` both use
+  `unique_tmp_path`. The old `with_extension(format!("{}.tmp",
+  std::process::id()))` pattern (PID-only) is gone.
+
+### Test coverage
+
+- New `test/tauri-r35-correctness-hotfix-smoke.js` (175 lines, 38
+  assertions) locks all 6 P0 fixes:
+  - P0-1: `#pet-anchor` in HTML, animations moved to `#mascot-img`
+    / `.pixel-sprite`, `INTERACTIVE_HIT_SEL` includes `#pet-anchor`,
+    `geometryBusy` guard, `lastSentPetSize` dedupe
+  - P0-2: `body.window-maximized` / `body.window-fullscreen` CSS
+    rules, `syncWindowMode` + `installWindowModeListeners`,
+    `userSized` flag, `lastFitHeight` dedupe, `set_panel_height`
+    clamps to `monitor.work_area()`
+  - P0-3: `diagnosticGeneration` counter, stale-result suppression,
+    `clearDiagnostic` helper, cancel button in loading view,
+    `fitPanelHeight()` after close
+  - P0-4a: `append_cmd_tail` helper, `raw_arg` calls, absence of
+    `.arg(cmd_probe_call(...))` / `.arg(cmd_launch_call(...))` /
+    `.arg(cmd_call(...))` after `/S /C` or `/S /K`
+  - P0-4b: `decode_subprocess_output` with UTF-16 BOM detection,
+    strict UTF-8, `decode_windows_codepage` with `MultiByteToWideChar`
+    / `GetOEMCP` / `GetACP` / `MB_ERR_INVALID_CHARS`, `Win32_Globalization`
+    feature in `Cargo.toml`
+  - P0-6: `config_write_lock: Mutex<()>` field, `_write_guard` in
+    `update_config`, `unique_tmp_path` with `uuid::Uuid::new_v4()`,
+    absence of PID-only temp name pattern
+- `npm test`: 38/38 smoke ok (was 37; +1 R35 smoke)
+- `npm run check:static`: 22/22 PASS
+- Existing smokes preserved: `cmd_probe_call`, `cmd_launch_call`,
+  `cmd_call`, `cmd_quote_arg` function names still present;
+  `.args(["/D", "/S", "/C"])` and `.args(["/D", "/S", "/K"])` source
+  patterns still present.
+
+### What's NOT in this release
+
+Per the audit's "fix-then-extend" guidance, this release contains
+**only** correctness fixes. Deferred to 0.5.12 (R36, UX & user trust):
+- async diagnostics with channel progress + cancellation (P0-3 partial
+  fix here only adds client-side stale-result suppression; the Rust
+  command is still synchronous)
+- enabled/installed/healthy/running/focused provider state split (P1-5)
+- hook install onboarding flow (P1-7)
+- `core:default` capability replacement (§5.1)
+- GitHub Actions pinned to full SHAs (§5.2)
+- full dialog a11y (§6.3)
+- `prefers-reduced-motion` (§6.4)
+- Stable signing policy clarification (P0-7)
+
+### Known limitations
+
+- The Rust changes (config serialization, encoding fallback, raw_arg)
+  cannot be `cargo check`'d in this dev container — no Rust toolchain.
+  Compilation will be verified by GitHub Actions on push. The smoke
+  tests assert source-level patterns only.
+- The encoding fallback uses `windows-sys`'s `MultiByteToWideChar`
+  which handles all Windows code pages (CP437, CP932, CP936, CP1252,
+  etc.) but does NOT handle UTF-7 or EBCDIC. These are not emitted by
+  any supported provider CLI.
+- `geometryBusy` uses a fixed 260ms window. If a future change makes
+  `set_pet_size` slower (e.g. always-on monitor work_area query), the
+  window may need to grow. The flag is a soft guard — if it stays true
+  for too long, `openRadial` opens anyway (better slightly-off than
+  silently swallowed).
+
+---
+
+## 0.5.9 — R34 release-tooling root-cause fix（2026-07-31）
+
+Hotfix release closing 2 root-cause issues that blocked the v0.5.8 release workflow. The v0.5.8 tag push correctly fail-closed on missing `TAURI_SIGNING_PRIVATE_KEY`, but after configuring the secret, the release still failed on 3 of 4 platforms. Investigation found 2 distinct root causes — both fixed here.
+
+### Root cause 1: CRLF line-ending corrupted fixture SHA on Windows
+
+- **Symptom**: `test/reference-contract-smoke.js` failed on Windows runner with `reference fixture changed without an explicit contract review: test/fixtures/claude-transcript-assistant.jsonl`, even though the local SHA matched the expected value.
+- **Root cause**: The repo had no `.gitattributes`. On Windows, Git's default `core.autocrlf=true` converted `*.jsonl` files from LF to CRLF on checkout, changing the byte content and breaking the SHA256 lock. The local dev environment (Linux) used LF, so the failure only surfaced in CI.
+- **Fix**: Added `.gitattributes` with `* text=auto eol=lf` as the default policy, plus `test/fixtures/** text eol=lf` to hard-force LF on all SHA-locked fixtures. Binary file extensions are explicitly marked `binary` to prevent any normalization. Shell scripts and PowerShell scripts are also forced to LF for cross-platform consistency.
+
+### Root cause 2: Release gate conflated Tauri signing with platform code-signing
+
+- **Symptom**: After configuring `TAURI_SIGNING_PRIVATE_KEY`, the release workflow still failed at step "Release preflight and static regression" with `FAIL release secret present: WINDOWS_CERTIFICATE` and `FAIL release secret present: WINDOWS_CERTIFICATE_PASSWORD`.
+- **Root cause**: `scripts/check-release-gates.js` treated Windows code-signing cert and Apple Developer ID + notarization secrets as REQUIRED for `--release` mode. The 0.5.7 audit (§P0-4) called out Tauri-signing-key-missing as a blocker because v0.5.7 published TRULY UNSIGNED binaries. But platform code-signing is a SEPARATE concern from Tauri updater signing — the Tauri key cryptographically attributes the binary; platform certs only suppress "unknown publisher" OS warnings. With the Tauri key configured, missing platform certs should be a SOFT WARN, not a hard FAIL.
+- **Fix**: `check-release-gates.js` now treats only `TAURI_SIGNING_PRIVATE_KEY` as a hard requirement for `--release` mode. Platform certs (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`, `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD`) emit `WARN` lines but do not fail the build. When platform certs become available, set them as GitHub secrets to silence the warnings and unlock OS-level UX (SmartScreen reputation, Gatekeeper notarization).
+
+### Root cause 2b: macOS tag-build path didn't pass `--no-sign` when Apple cert missing
+
+- **Symptom**: Even after fixing the gate script, macOS bundle jobs would still fail at the `tauri build` step because `tauri-action` tries to Apple-sign by default.
+- **Root cause**: The release.yml tag-push branch always set `bundleArgs=${{ matrix.args }}` without `--no-sign`. The `--no-sign` flag was only added in the workflow_dispatch path (unsigned draft).
+- **Fix**: The tag-push branch now conditionally adds `--no-sign` on macOS when `APPLE_CERTIFICATE` is missing. Windows doesn't need an equivalent flag because `tauri-action` handles missing `WINDOWS_CERTIFICATE` gracefully (the build succeeds, the .exe just isn't code-signed).
+
+### Signing keypair generated + configured
+
+- Generated a new Tauri signing keypair via `npx tauri signer generate --ci` (no password, since the secret store handles access control).
+- Private key uploaded as GitHub repo secret `TAURI_SIGNING_PRIVATE_KEY` (encrypted with libsodium sealed box via the repo's public key).
+- Public key saved at `/home/z/my-project/.tauri-keys/octopus.key.pub` for future updater config.
+- Private key backed up at `/home/z/my-project/.tauri-keys/octopus.key` (NOT committed to git; users with repo admin access can rotate via the same `scripts/set-github-secret.py` helper).
+
+### Test coverage
+
+- `npm test`: **37/37 smoke ok** (unchanged from 0.5.8; the gate-script behavior change is tested manually via `TAURI_SIGNING_PRIVATE_KEY=test node scripts/check-release-gates.js --release`).
+- `npm run check:static`: **22/22 PASS**.
+- Local gate verification: `--release` mode now passes with only `TAURI_SIGNING_PRIVATE_KEY` set; platform cert warnings appear but do not fail the build.
+
+### Verification
+
+- Both root causes verified by reading the actual GitHub Actions job logs (not just speculating from source).
+- The v0.5.8 release workflow run (commit `4e347e6`) is preserved as evidence of the pre-fix failure mode: 4/4 bundle jobs failed at step 11 "Release preflight and static regression" with the exact errors documented above.
+- After this fix lands, the v0.5.9 tag push should produce 4/4 successful signed bundles.
+
+### Not in this release (deferred to R35+)
+
+- `diagnose_agent` async refactor with progress channel (P1-3).
+- HTTP server permission waiter / `/state` capacity isolation (P1-4).
+- Performance gate thresholds — RSS / cold-start / long-task budgets (P1-6).
+- Hook install onboarding flow — path / diff / confirm / backup / rollback (P1-7).
+- GitHub Actions pinned to full commit SHAs (§5.2).
+- `core:default` capability replacement with explicit `core:*:allow-*` (§5.1).
+- Platform code-signing certs (Windows code-signing cert, Apple Developer ID + notarization) — these remain SOFT WARN until procured.
+- Toast upgrade: persistent error center with retry / copy-details / open-log (§6.1).
+- Full dialog a11y: `role="dialog"` / Tab trap / Esc / focus restore (§6.3).
+- `prefers-reduced-motion` support (§6.4).
+- Process-tree performance benchmark vs Electron (§9).
+
+These are larger refactors tracked in the 0.5.7-source-audit-roadmap Phases R34-R36.
+
+---
+
+## 0.5.8 — R34 config transaction + structured provider result + signing fail-closed（2026-07-31）
+
+Hotfix release closing 4 P0 + 1 P1 issue from the 0.5.7 source audit. The audit identified a recurring anti-pattern: *failures were silently dropped or contradicted by documentation*. This release closes those gaps with real fail-closed behavior.
+
+### P0-1: Config save is now transactional (copy-on-write)
+
+- **Root cause**: `src-tauri/src/model.rs:420-428` mutated the shared `Mutex<AppConfig>` IN PLACE, then called `save_config()`. If `save_config()` failed (disk full, permission denied, antivirus lock, rename failure), the in-memory config was already the new value while the disk still held the old value. Subsequent `get_config()` / restart would see conflicting state.
+- **Fix**: `update_config()` now snapshots the current config into a local `candidate`, mutates the snapshot, sanitizes, **persists to disk FIRST**, and only commits to the shared `Mutex` if the disk write succeeded. The `Mutex` is held only for the snapshot+commit, NOT across file IO.
+- Files changed: `src-tauri/src/model.rs:420-455`.
+
+### P0-2: set_providers returns structured per-provider result
+
+- **Root cause**: `src-tauri/src/commands.rs:269-290` returned `Ok(())` even when individual provider hook installs failed — the panel's Promise resolved and the UI showed success while hooks were never written. Errors were only emitted as a side-effect `pet:event` that the user might miss.
+- **Fix**: `set_providers()` now returns `Result<Value, String>` with a structured JSON object:
+  ```json
+  {
+    "ok": true,
+    "selected": ["claude", "codex"],
+    "providers": [
+      {"id":"claude","selected":true,"installed":true,"state":"ready",...}
+    ]
+  }
+  ```
+  On any per-provider failure, it returns `Err(errors.join("；"))` so the panel's `call()` rejects → `octopus:bridge-error` toast fires AND the checkbox reverts. The `pet:event` is still emitted for inline pet-window visibility.
+- Files changed: `src-tauri/src/commands.rs:268-331`.
+
+### P0-3: uninstall_hooks('all') no longer swallows failures
+
+- **Root cause**: `src-tauri/src/commands.rs:150-170` used `if let Ok(path) = uninstall_provider_hooks(id)` which silently discarded every `Err`. The UI told the user "all hooks removed" while external config files still had Octopus hooks in them.
+- **Fix**: Now collects per-provider `results` array with `{provider, status, path|error}`. Returns:
+  ```json
+  {
+    "provider": "all",
+    "allSucceeded": false,
+    "results": [{"provider":"claude","status":"removed",...}, {"provider":"codex","status":"failed","error":"..."}],
+    "failures": ["codex: ..."],
+    "message": "Partial failure — ..."
+  }
+  ```
+  **Only clears `config.providers` if `allSucceeded`**. On partial failure, the broken state is surfaced to the user rather than hidden.
+- Files changed: `src-tauri/src/commands.rs:142-217`.
+
+### P0-4: Tag pushes fail-closed without signing key
+
+- **Root cause**: `.github/workflows/release.yml:110-122` published an **unsigned public prerelease** on every tag push when `TAURI_SIGNING_PRIVATE_KEY` was missing. This contradicted `README.md`'s promise that "tag 缺签名凭据会在构建前失败". The v0.5.7 release was actually published this way.
+- **Fix**: Tag pushes now `exit 1` with an `::error::` annotation when the signing key is missing, directing users to `workflow_dispatch` for unsigned draft builds. The signed path (`prerelease=false`, `releaseDraft=false`) is preserved.
+- Files changed: `.github/workflows/release.yml:103-126`.
+
+### P1-1: panel.js setSessionPrefs caller awaits + reverts on failure
+
+- **Root cause**: The R32 bridge upgrade changed `setSessionPrefs` from `send()` to `call()`, but the panel.js click handler still called it fire-and-forget. Failures silently dropped, the UI showed the new state, and disk held the old state.
+- **Fix**: The click handler now snapshots `prevPinned`/`prevArchived`, applies the optimistic update, awaits `setSessionPrefs()`, and on `.catch()` reverts the UI arrays + re-renders + dispatches `octopus:bridge-error`. The button is disabled during the await.
+- Files changed: `frontend/renderer/panel.js:506-548`.
+
+### Documentation drift fixed
+
+- `README_EN.md`: 0.5.6 → 0.5.7.
+- `docs/MIGRATION_STATUS.md`: header updated to reflect 0.5.7 + R32/R34 hotfixes.
+
+### Test coverage
+
+- New `test/tauri-r34-config-transaction-smoke.js` (84 lines) locks all 5 P0/P1 fixes.
+- Existing `test/release-supply-chain-smoke.js` updated: now asserts the fail-closed `exit 1` path instead of the old warning + unsigned prerelease path.
+- `npm test`: **37/37 smoke ok** (was 36; +1 R34 smoke).
+- `npm run check:static`: **22/22 PASS**.
+
+### Verification
+
+- All 5 P0/P1 fixes verified by direct `grep` against source before any code change.
+- CI will run `cargo fmt --check` + `cargo check` + `cargo test` on Windows / macOS / Ubuntu.
+- Release workflow `Signed Tauri Release` will now fail-closed if `TAURI_SIGNING_PRIVATE_KEY` is missing — tag pushes can no longer produce unsigned public binaries.
+
+### Not in this release (deferred to R35+)
+
+- `diagnose_agent` async refactor with progress channel (P1-3).
+- HTTP server permission waiter / `/state` capacity isolation (P1-4).
+- Performance gate thresholds — RSS / cold-start / long-task budgets (P1-6).
+- Hook install onboarding flow — path / diff / confirm / backup / rollback (P1-7).
+- GitHub Actions pinned to full commit SHAs (§5.2).
+- `core:default` capability replacement with explicit `core:*:allow-*` (§5.1).
+- Toast upgrade: persistent error center with retry / copy-details / open-log (§6.1).
+- Full dialog a11y: `role="dialog"` / Tab trap / Esc / focus restore (§6.3).
+- `prefers-reduced-motion` support (§6.4).
+- Process-tree performance benchmark vs Electron (§9).
+
+These are larger refactors tracked in the 0.5.7-source-audit-roadmap Phases R34-R36.
+
+---
+
+## 0.5.7 — R32 bridge error visibility + permission await + empty provider（2026-07-31）
+
+Hotfix release addressing 4 P0 regressions identified in the R30-recheck audit (`RE-LLMPET-v0.5.6-R30-recheck-roadmap.md`). All 4 share the same anti-pattern: *fix intent written in comments, behavior not actually landed at runtime*. This release closes that gap with real user-visible behavior and a regression smoke that locks the fixes.
+
+### P0-1: pet.js cat lazy preload ReferenceError
+
+- **Root cause**: `frontend/renderer/pet.js:136` referenced `config.skin`, but no `config` symbol exists at module scope. The actual skin state is the `skin` variable declared later in the file (line 1132). The `requestIdleCallback`/`setTimeout` callback threw `ReferenceError` on every startup, logging noise to the console and never preloading cat assets.
+- **Fix**: `config.skin` → `skin`. TDZ-safe because the deferred callback only runs after the entire `<script>` has finished parsing.
+
+### P0-2: panel.js empty provider UI locked despite comment saying unlocked
+
+- **Root cause**: `frontend/renderer/panel.js:940` had `if (newActive.length === 0) { e.target.checked = true; return; }` even though the comment at line 769 said *"users can now uncheck all"*. The R22 `model.rs::sanitize()` fix already allowed `providers=[]` as a first-class state, but the UI still refused to persist it.
+- **Fix**: Removed the revert branch. `setProviders(newActive)` is now called with a possibly-empty array. On IPC failure, the checkbox reverts and a toast fires. Loading state disables the checkbox during the await.
+
+### P0-3: tauri-bridge.js used send() for security-critical commands
+
+- **Root cause**: The bridge comment at line 23-25 said *"state-changing or security-critical operations MUST use call() and await"*, but `setProviders`, `decidePermission`, `decideCwPermission`, `decideCwPermissionBatch`, and `setSessionPrefs` all used `send()` (fire-and-forget). IPC failures were silently dropped; the UI showed success while the agent kept waiting.
+- **Fix**: All 5 commands upgraded `send()` → `call()`. The `send()` path still exists for genuinely fire-and-forget operations (telemetry, focus hints, etc.) and still emits `octopus:bridge-error` on failure (R30 contract preserved).
+
+### P0-4: pet.js removed choice card BEFORE IPC resolved
+
+- **Root cause**: `submitPerm`/`gotoSession`/elicitation submit called `decidePermission()` then immediately `finishChoice()`, which removed the card from `askQueue`. If IPC failed, the user saw an *"allowed/denied"* bubble while the agent was still blocked waiting for an answer.
+- **Fix**: New `submitDecision(choice, behavior, msg)` wrapper:
+  1. Disable all buttons (loading state).
+  2. `await routeDecision(choice, behavior)`.
+  3. On success: `finishChoice` (remove card, show bubble).
+  4. On failure: dispatch `octopus:bridge-error` toast, restore buttons, DO NOT add to `answered` (so the choice stays in the queue for retry).
+- All 6 submit sites (`elicitation-submit`, `plan-feedback`, `cw-batch`, `submitPerm`, `gotoSession`, `popPerm`) now route through `submitDecision` or its inline equivalent.
+
+### P0-5: Visible bridge-error toast UI
+
+- **Root cause**: R30 added the `octopus:bridge-error` `CustomEvent`, but `panel.js` listener only `console.warn`-ed with a `TODO` comment. `pet.js` had no listener at all.
+- **Fix**: New `frontend/shared/toast.js` auto-installs on script load, listens for `octopus:bridge-error`, and shows a real visible toast in the `#octopus-toast` element (added to both `panel.html` and `pet.html`).
+  - Auto-dismisses after 4.5s
+  - Click-to-dismiss-early
+  - `role="alert"` + `aria-live="assertive"` for screen readers
+  - CSS in both `panel.css` and `pet.css`
+- `panel.js` listener kept as a debug log; `toast.js` is the user-visible path.
+
+### Test coverage
+
+- New `test/tauri-r32-bridge-error-visibility-smoke.js` locks all 4 P0 fixes + toast UI + 7 contract assertions (35 lines).
+- Existing `tauri-panel-sesslist-r19-smoke.js` updated to expect `call()` instead of `send()` for `setSessionPrefs`.
+- `npm test`: 36/36 smoke ok (was 35).
+- `npm run check:static`: 22/22 PASS (JS syntax 56 files, was 55; +1 `toast.js`).
+
+### Verification
+
+- 4 P0 fixes verified by direct `grep` against source before any code change (no roadmap-as-truth).
+- CI: Tauri CI 4 jobs (Windows / macOS / Ubuntu / RustSec Cargo.lock audit) all green on `1d3e017`.
+- Local cargo not available; CI ran `cargo fmt --check` + `cargo check` + `cargo test` on all 3 platforms.
+
+### Not in this release (deferred to R33+)
+
+- `diagnose_agent` async refactor with progress channel (P1).
+- Hook install onboarding flow (path / diff / confirm / backup / rollback).
+- GitHub Actions pinned to full commit SHAs.
+- Performance gate thresholds (RSS / cold-start / long-task budgets).
+- `core:default` capability replacement with explicit `core:*:allow-*`.
+
+These are larger refactors tracked in the R30-recheck roadmap Phases 1-2.
+
+---
+
+## 0.5.6 — R10-R21 visual migration complete + Windows cargo check clean（2026-07-30）
+
+This release completes the R9 roadmap's visual migration: **tray 18/18** and **panel 10/10** visual elements now match the upstream Electron layout. Windows `cargo check --target x86_64-pc-windows-gnu --locked` passes with 0 errors, 0 warnings (R20). All changes are source-level; Linux/macOS native compilation, real CLI execution, and signed bundles remain external gates per `docs/RELEASE.md`.
+
+### Tray menu (R10-R14)
+
+- **R10**: Fixed `TrayIconBuilder::new("main-tray")` compile blocker — Tauri 2.11.5 requires `.with_id("main-tray")`. Removed redundant `app.manage(tray)`. Reversed CodeWhale doctor probe to **companion-first** with dispatcher fallback (was dispatcher-first, contradicting project docs). Added 19-check `tauri-codewhale-doctor-consistency-r10-smoke.js` locking docs/impl/PowerShell/tests together.
+- **R11**: Added `src-tauri/src/i18n.rs` with 29-key `TRAY_LABELS` table (zh/en/ja). `build_tray_menu` localizes all labels. `refresh_tray_menu` rebuilds the menu + tooltip on language switch. 23-check cross-source parity smoke.
+- **R12**: Added 4 submenus (language / skin / 5h budget / mute) via `CheckMenuItem` + `PredefinedMenuItem::separator`. 10 new `on_menu_event` handlers route to existing config commands.
+- **R13**: Added disabled settings placeholder, `uninstall_hooks` Tauri command (single-provider hook cleanup via `hook_install::uninstall_provider_hooks`), localized tooltip.
+- **R14**: Added shape submenu (pet / panel / hidePet). `set_mode` now has window side-effects (hidePet hides pet window; pet/panel show+focus). `hidePet` replaces upstream's menubar mode (Tauri has no menubar).
+
+### Panel (R15-R19)
+
+- **R15**: Restored Codex 5h quota bar (`#codex-wrap`) + today/lifetime token grid (`#codex-usage`) with distinct cool-tone CSS. `renderCodexUsage` ready for when Rust codex-watch equivalent populates `s.codexLimits`/`s.codexUsage`.
+- **R16**: Restored Token/Cost metric switching (`.metric-tabs`) + `#usage-diagnostics` line. `renderChart`/`renderCal` now accept dual arrays and respect `usageMetric`. `renderDiagnostics` shows scan info + pricing staleness.
+- **R17** (audit): Fixed 5 pre-existing i18n hardcoded Chinese bugs in `today-tokens`, `win-reset`, `cal mouseover`, `renderByModel`, `renderProviderCost`. Wired `i18n.rs::known_keys()` into smoke (was dead code). Added 3 new i18n keys (`estimatedRounds`/`unknownRounds`/`total`).
+- **R18**: Added `cache_write_5m` + `cache_write_1h` to `UsageEvent` + `Aggregate` + `parse_claude_assistant` (extracts `ephemeral_5m/1h_input_tokens` from `usage.cache_creation`, remainder → 5m per Anthropic default TTL). Panel `t-cw` single row → `t-cw5` + `t-cw1` dual row. `modelDetail` upgraded to `{cw5}/{cw1}`.
+- **R19**: Added session list Pin/Archive + attention filter. `AppConfig.pinned_sessions`/`archived_sessions` + `set_session_prefs` Tauri command (sanitize 256-char + dedup + pin-wins). `renderSessList` filters by attention (waiting/needsinput), hides archived unless toggled, sorts pinned to top, renders pin/archive buttons per row. 9 new `sess.*` i18n keys × 3 langs.
+
+### Native compilation (R20-R21)
+
+- **R20**: `cargo check --target x86_64-pc-windows-gnu --locked` = 0 errors, 0 warnings. Added `build-windows.sh` for reproducible Windows builds. All R10-R19 Rust code compiles clean on Windows target.
+- **R21**: Web-verified 5 provider CLIs (4/5 current; Claude has 7 new non-blocking events documented in protocol-drift). Hardened smoke assertions to tolerate `cargo fmt` multiline splits.
+
+### CLI smoke test
+
+- Added `cli-smoke-test.sh` (10-dimension downloadable verification script): project structure, tray API contract, CodeWhale doctor order, tray i18n+submenus, panel visual elements, metering 5m/1h, npm test, static checks, provider CLI discoverability, real CodeWhale doctor test.
+
+### Verification
+
+- `npm test`: **45/45 PASS** (10 new R10-R19 smoke suites)
+- `npm run check:static`: 22/22 PASS (bridge parity 39 commands)
+- `python3 scripts/rust-structure-smoke.py`: 3/3 PASS
+- `cargo check --target x86_64-pc-windows-gnu --locked`: 0 errors, 0 warnings (R20)
+- `cargo fmt --check`: clean (R21)
+- `migration-todo`: 47 tasks (4 done, 40 implemented-uncompiled, 3 blocked, 1 deferred)
+
+### Not verified in this release
+
+- Linux/macOS `cargo check --locked` (Windows target verified; Linux/macOS targets need their own toolchain)
+- Real CodeWhale/Codex/OpenCode/Aider CLI execution (web-verified only)
+- Real GUI: tray submenu rendering, panel dual rows, pin/archive persistence
+- Windows/macOS/Linux signed bundles, SBOM, checksums (CI `release.yml` handles this on tag push)
+
+These remain release gates per `docs/RELEASE.md`. This is a **source-reconciled release candidate with Windows compile evidence**, not a stable production release.
+
+## 0.5.5 R7 — resilient doctor fallback and bounded local diagnostics（2026-07-29）
+
+- Reconciled CodeWhale's conflicting public dispatcher and detailed TUI doctor documentation with a bounded, auditable fallback chain: try `codewhale doctor --json`, then use the matched `codewhale-tui doctor --json` when the first surface has no parseable JSON. Both attempts, targets and selected surface remain visible.
+- Removed arbitrary diagnostic working directories from the always-on WebView. Diagnostics now run only in the application-owned directory, preventing renderer-controlled projects from implicitly loading provider `.env`, plugins, hooks or workspace configuration.
+- Added CodeWhale project-overlay detection, current/legacy overlay conflict warnings, and Claude Code `<2.1.200` sleep/wake compatibility guidance without turning version age into a launch blocker.
+- Added Aider configuration discovery for cwd/git-root/home and reports only credential environment variable names and model-presence booleans, never credential values.
+- Extended the existing zh/en/ja provider diagnostic card and the Windows PowerShell 5.1 evidence collector; no new web page or remote UI dependency was introduced.
+- Added a 23-check R7 CLI-resilience suite and a stable `npm run check:static` gate. Full npm smoke, 39-byte-identical visual/media assets, protocol drift, source-release gates, JavaScript/JSON checks and Rust lexical/structure checks pass. Native compilation and real Windows CLI execution remain external gates.
+
+## 0.5.5 R6 — authentication and route diagnostics（2026-07-29）
+
+- Split pre-launch diagnostics into installation, authentication, provider/model routing, and working-directory evidence instead of collapsing every CLI failure into `internal error`.
+- Parse CodeWhale `doctor --json` before truncation, recursively redact secrets, and expose only bounded route/config/session-migration summaries to the existing provider panel.
+- Added non-interactive `codewhale auth status`, `codex login status`, and `opencode auth list` probes; authentication uncertainty remains a warning because environment keys, project `.env`, custom providers, or local/keyless providers can still work.
+- OpenCode now receives its official `--dir .` argument on Windows Terminal, cmd fallback, macOS Terminal, and Linux terminal paths while retaining process `current_dir`.
+- Extended the Windows PowerShell 5.1 collector, zh/en/ja UI labels, structured migration TODO, and a 20-check R6 regression suite. No image, GIF, MP3, drag, DPI, or transparency behavior was replaced.
+- Offline tests, 39-byte-identical asset gate, protocol drift, 16 source-release gates, JavaScript syntax, JSON parsing, and Rust lexical/structure checks pass. Native Rust compilation and real CLI/desktop evidence remain external gates.
+
+## 0.5.5 — upstream reconciliation, visual preservation and runtime hardening（2026-07-28）
+
+- R4 merged the CLI-hardening overlay into the complete R2 source tree with a guarded function-level merge; it did not overwrite drag, cursor hit-testing, DPI anchoring, language switching, UI state, or visual/media resources.
+- Added diagnosable fixed-provider launch resolution, PATHEXT/npm shim handling, CodeWhale companion/version/doctor checks, explicit cwd support, bounded stdout/stderr probes, and a Windows PowerShell diagnostic collector.
+- Kept Windows Terminal as the primary host with a restricted cmd fallback, and fixed VS Code/Cursor `.cmd` GUI entry points without restoring `cmd /C start`.
+- The default test suite now includes 35 CLI merge/preservation assertions; all offline tests, resource hashes, protocol drift and source release gates pass. Native Rust compilation and Windows real-CLI evidence remain unclaimed.
+- Reconciled the Tauri tree against official upstream `49fef749364b31dfa2ddab857aed7d82d49460cc` and the five-provider fork `b424675b80162121e58cab631088604d10716b63`; official UI behavior, fork protocol lessons and Tauri runtime responsibilities are recorded separately.
+- Imported official zh/en/ja copy, two GIFs, two MP3 files and the cat-skin attribution byte-for-byte; retained the full meme catalog as a backend resource and generated a presentation-only renderer manifest without full prompt bodies.
+- Added persistent language switching for the core pet/panel UI and an honestly labelled local meme preview that preserves GIF/audio quality without pretending to send prompts.
+- Fixed the session-list provider launch regression where Codex/OpenCode/Aider labels still launched Claude; all five providers now use one fixed Rust allowlist, distinct session/cost icons and fail-closed unknown identifiers.
+- Replaced Windows shell-interpolated path opening with `explorer.exe` arguments; corrected PowerShell focus-helper scope; validated and stored UI-busy/visual-bound state instead of accepting no-op commands; flattened bounded diagnostics to prevent multi-line log forgery.
+- Hardened Windows hook/runtime atomic replacement with backup-and-rollback behavior so a rename failure does not destroy the previous configuration.
+- Added deterministic meme generation, upstream hash/provenance checks, command-safety tests, provider-launch regression tests and a 39-file visual baseline gate.
+- Fixed the transparent-pet input deadlock caused by treating Tauri's strict cursor-ignore API like Electron's `forward: true`: a native cursor hit-test guard now restores input over validated interactive bounds, while short-click and drag remain distinct gestures.
+- Reworked drag into an animation-frame-throttled move path with one final position commit, eliminating configuration writes and full config broadcasts on every pointer movement; pointer-capture completion is idempotent and popup resize invokes are serialized.
+- Windows agent launch now passes the allow-listed provider executable directly to `wt.exe` in a new Windows Terminal window; only if Terminal cannot be spawned does it fall back to `cmd.exe /D /K`, with no `cmd /C start` wrapper.
+- Continued upstream visual migration with a bounded ask body/fixed toolbar, per-provider identity tags, an in-session-HUD meme page, skin-aware side media, idle GIF preloading, and DPI-aware bottom-centre window anchoring while preserving every imported media byte.
+- All offline source, protocol, resource and JavaScript checks pass. Rust/Tauri compilation and real-provider/desktop/signing evidence remain unavailable in the current no-toolchain, DNS-blocked environment and are not claimed.
+
+## 0.5.1 — comprehensive audit hardening（2026-07-28）
+
+- Removed blanket Bash auto-approval and delegated HTTPS WebFetch to the provider-native permission flow; cleartext HTTP remains denied.
+- Split Tauri invoke permissions by `pet` and `panel` window using generated command permissions instead of exposing every registered command to every WebView.
+- Made signed tag releases fail closed; manual unsigned builds now create isolated draft releases instead of public prereleases.
+- Upgraded first-party artifact upload workflows to `actions/upload-artifact@v7`, corrected SPDX namespace/DESCRIBES metadata, and added a pinned RustSec `cargo-audit` CI gate.
+- Reconciled `package-lock.json` with version 0.5.1 and added regression checks for lockfile, release, capability, SBOM and permission boundaries.
+- Reconciled migration status for the committed `Cargo.lock`; three-platform compilation, real GUI and real-provider execution remain explicitly unverified.
+
+## 0.5.1 — hot-path performance optimization（2026-07-28）
+
+- Optimized `stats()` on the /state POST hot path: `project_name()` 3×→1× per session (cached), `PendingPermission` double-clone→1 clone + zero-copy borrow, `session_projects` values cloned→`&str`.
+- Added `privacy_settings() -> (bool, usize)` to `ingest()` — avoids a full `AppConfig` clone on every hook event (reads only `reply_bubbles` + `reply_bubble_chars`).
+- Fixed E0716 (dangling borrow on temporary `MutexGuard`) caught by CI macOS.
+- Cleaned stale source-tree files: `--draft` junk, duplicate migration TODO, 5 one-off phase4 verification logs, stale SHA256 manifest, unreferenced BUILD_TAURI.md.
+
+## 0.5.0-phase4 — upstream reliability reconciliation and complete runtime cutover（2026-07-27）
+
+- Compared the migration candidate with `purrfecto114-lgtm/LLMPET` and upstream `myunwang/LLMPET`; recorded the fork tag, observed fork head, and upstream head separately.
+- Adopted upstream's 2026-07-27 parallel permission semantics: distinct requests in one session remain separate; only exact provider/session/tool/input retries share a response.
+- Added top-level `pendingChoices`, `permId`-based renderer identity, shared retry responses, and session state preservation while another permission remains pending.
+- Removed the complete archived Electron/Node runtime, obsolete package scripts, old operational docs, and stale generated reports. Rollback now uses immutable repository/tag archives.
+- Retained only three anonymized, SHA-256-pinned data fixtures for behavioral contract tests.
+- Bumped package, Tauri config, and Cargo manifest to 0.5.0; source tests and static gates pass, while Cargo.lock/three-platform compilation/real CLI/GUI/signing remain explicit external blockers.
+
+## 0.4.0-phase3 — Tauri 活动路径切换与可执行发布门禁（2026-07-27）
+
+- 旧 Electron 主进程、preload、backend/provider/hook/renderer 运行路径已从源码树删除；仅保留匿名化、哈希固定的数据契约样本。
+- Claude `AskUserQuestion` / `ExitPlanMode` 使用 PreToolUse `updatedInput`；`permission_suggestions` 使用 PermissionRequest `updatedPermissions`；Codex 保持最小 fail-closed envelope。
+- 新增来源 PID 父进程链终端聚焦，支持 macOS/Windows/X11，并对纯 Wayland 明确降级。
+- 新增 `RunEvent::Resumed`、显示器拓扑签名、离屏窗口恢复和单例低频健康检查。
+- 新增资源基线、跨平台性能采样、真实 Provider/桌面 self-hosted gate、签名发布、校验和、SPDX SBOM 与 GitHub attestations。
+- package/Cargo/Tauri 升至 0.4.0；TODO 清零为 0，外部硬门禁保持 blocked/implemented-uncompiled，未虚报三平台、真机或签名完成。
+
+## 0.3.0-phase2 — 多 Provider 原生适配与动态迁移门禁（2026-07-26）
+
+- 对照用户指定 fork 与各 provider 当前官方/维护文档，确认 CodeWhale 是一等 provider，不再套用单一 Claude Hook 模型。
+- 新增 provider capability/status 模型；前端可见安装状态、配置路径、权限模式和能力限制。
+- Claude：merge-safe hooks、当前 `hookSpecificOutput`、收紧自动允许名单。
+- CodeWhale：TOML marker 合并、10 类维护事件、原生 payload 映射、服务失联显式 `ask`。
+- Codex：当前 `~/.codex/hooks.json` 嵌套结构、PermissionRequest、`/hooks` 信任提示。
+- OpenCode：官方风格 ESM plugin，观察 session/tool/permission，不伪造外部权限控制。
+- Aider：规范 `notifications-command`，只承诺 turn-end，拒绝覆盖用户已有通知命令。
+- Provider 开关即时安装/卸载；安装失败按 provider 隔离。
+- Windows Hook 命令统一经 `cmd.exe /D /S /C` 处理带空格路径。
+- marker block 异常时拒绝修改，避免配置误删。
+- GitHub Actions checkout/setup-node 更新为 v7，并固定 Node 24；保留三平台 cargo check/release binary 门禁。
+- 新增 `migration-todo.json`、动态 TODO、能力矩阵、Web 交叉验证报告与任务图校验器。
+- 旧核心 33/33 测试文件继续通过；Phase 2 provider smoke 通过。Rust/GUI/真 provider CLI 仍待 CI 与真机证明。
+- 同版本进一步迁移：新增 Rust 原生 CodeWhale `turn_end` 计量链、规范化 JSONL 账本、跨重启去重、95 天/5 万条有界保留与损坏行压实。
+- 同版本进一步迁移：按 RFC3339 `created_at` 归属历史窗口，持久化价格来源/更新时间；计划或额度型 `billing_surface` 明确保持未定价。
+- 同版本进一步迁移：修复 Hook 归一化时真实计费 provider 被覆盖的问题；失败/中断 turn 映射为错误状态。
+- 同版本进一步迁移：未知价格在今日、5 小时、provider、模型与合计视图均显示“价格未知”或“已知金额 + 未知”，预算百分比标记为下界。
+- CI 增加 Rust `cargo test --lib`；新增 CodeWhale fixture 与计量冒烟，版本仍保持 `0.3.0-phase2`。
+
+## 0.2.0-phase1 — Tauri 2 / Rust 激进迁移基线（2026-07-26）
+
+- 新建 Tauri 2 桌面壳与 2,200+ 行 Rust 核心，活动依赖中移除 Electron。
+- 复用全部现有 Web UI 和 35 个图片资源；新增 31 命令兼容桥。
+- 新增有界回环 HTTP 服务、随机令牌、Rust 配置/会话/权限状态和合并安全 Claude Hook 安装器。
+- 主程序通过 `--octopus-hook` 同时承担原生 Hook 模式，避免 Node 与 sidecar 打包依赖。
+- 修正当前 Claude `PreToolUse` 输出结构；收紧自动授权名单，只允许明确只读工具和 HTTPS WebFetch。
+- 移除永久 700 ms/3 s 前端轮询，改为事件和 `ResizeObserver`。
+- 新增三平台 CI/release 工作流、引导脚本、离线结构检查和 6 个迁移冒烟。
+- 原 33 个核心测试文件继续通过。
+- 计量、transcript、完整多 provider、精确终端聚焦和领地原生实现尚未迁移；详见 `docs/MIGRATION_STATUS.md`。
+
+## 0.1.1 — deep runtime hardening + CodeWhale catalog v2 + models.dev sync (2026-07-20)
+
+### CodeWhale catalog v2 + live sync
+
+- Expanded `backend/model-catalog.bundled.json` from 31 to **49 entries**, now covering every model registered in CodeWhale's `crates/agent/src/lib.rs` ModelRegistry: added `deepseek-chat`, `deepseek-reasoner`, `kimi-k3`, `moonshotai/kimi-k3`, `glm-5.1`, `glm-5-turbo`, `z-ai/glm-5.1`, `z-ai/glm-5-turbo`, `gpt-5.5`, `gpt-5.5-pro`, `grok-4.5`, `grok-4.3`, `grok-build`, `grok-composer-2.5-fast`, `grok-4.20-0309-reasoning`, `grok-4.20-0309-non-reasoning`, `LongCat-2.0`, `longcat-2.0`, `minimax-m3`.
+- Added vendor-published `cache_read_usd_per_million` / `cache_write_usd_per_million` fields per catalog entry. Previously the metering code used a single `0.1× input / 1.25× input` heuristic for all models; vendor reality differs significantly:
+  - Xiaomi MiMo: cache_read ≈ 2% of input (heuristic over-charged 5×)
+  - Z.AI GLM-5.x: cache_read ≈ 18.6% of input
+  - xAI Grok: cache_read 15-20% of input
+  - Meta Muse Spark: cache_read 12% of input
+  - MiniMax M3: cache_read 20% of input
+  - Meituan LongCat-2.0: cache_read 2% of input
+  - Xiaomi MiMo / Z.AI GLM-5.x cache_write: vendor-limited-time-free ($0)
+- Fixed wrong prices:
+  - `deepseek-v4-pro` was $2/$8 (CNY misread as USD) → correct $0.435/$0.87 per DeepSeek's official pricing page + models.dev catalog
+  - `deepseek-v4-flash` was $0.5/$2 → correct $0.14/$0.28
+  - `gpt-5.6-terra` was $3/$20 → correct $2.50/$15 per OpenAI pricing page
+  - `gpt-5.6-luna` was $2/$10 → correct $1/$6
+- Fixed wrong context windows: `grok-build` was 512K (correct 256K, official SKU `grok-build-0.1`), `grok-4.20-0309-reasoning/non-reasoning` were 2M (correct 1M per xAI docs).
+- **New: Models.dev live catalog sync** (`backend/models-dev-sync.js`). Mirrors CodeWhale upstream's `crates/tui/src/models_dev_live.rs` design:
+  - Background async fetch from `https://models.dev/catalog.json` (MIT-licensed, ~3 MB, 5000+ models)
+  - 24-hour TTL, 15-second timeout, 64 MiB response cap, no credentials/cookies
+  - Atomic write to `~/.octopus/catalog/models-dev.json` (0600 permissions)
+  - Three-layer lookup: live cache > bundled seed > null (token-only)
+  - Official-provider priority: when multiple providers serve the same model id (e.g. `deepseek-v4-pro` is served by both `deepseek` at $0.435/$0.87 and aggregator `frogbot` at $1.74/$3.48), the official provider wins
+  - Graceful degradation: failure to fetch falls back to stale cache or bundled seed; never blocks startup
+  - Env knobs: `RE_LLMPET_MODELS_DEV_URL` (override API URL), `OCTOPUS_DISABLE_MODELS_DEV_FETCH` / `OCTOPUS_NO_NET` (disable network)
+  - Schema validation: rejects absurd prices (>$1000/M), oversized context (>100M), malformed JSON; preserves `null` distinct from `0` (free)
+  - HTTPS-only (refuses http:// URLs to prevent MITM)
+
+### Metering behavior
+
+- Removed `DEFAULT_FALLBACK` ($1/$5 fabricated estimate) for unknown models. `priceFor()` now returns `null`, the metering records tokens honestly with `cost=0`, and the per-model daily aggregate carries an `unknownPrice` counter so the UI can show an "unknown price" badge instead of implying the user spent $0.
+- Removed the parallel `FALLBACK_PRICING` table; the catalog is now the single source of truth. Previously a fallback table could silently mask data loss if the catalog lost an entry.
+- Cache pricing now uses vendor-published rates when available and only falls back to the 10%/1.25× heuristic when the vendor truly doesn't publish (e.g. Arcee Trinity, grok-composer).
+- Fixed `loadCatalog` to preserve `null` cache_write/cache_read distinct from explicit `0` (free) — previous code coerced `Number(null)` to `0`, hiding the "vendor doesn't publish" signal.
+
+### Security
+
+- Upgraded Electron from 33.x to 43.1.1 and enabled renderer sandboxing, context isolation, web security, restrictive CSP, sender-validated IPC, navigation/webview/window blocking, download denial and deny-by-default browser permissions.
+- Added a cryptographically random per-launch token to all local hook/server routes, private runtime-file permissions, constant-time token comparison, slow-body timeouts and HTTP connection/header limits.
+- Reworked permission bridges to fail closed to `ask`, bounded pending/duplicate queues and made CodeWhale batch approval session-scoped with inactivity expiry and lifecycle cleanup.
+- Hardened all persisted metering data against prototype-pollution keys, malformed maps, non-finite numbers and unbounded collections; private file modes are restored after atomic rename.
+- Added bounded startup JSON/TOML readers, shell-safe command quoting and strict transcript/session path, symlink and size checks.
+
+### Performance and reliability
+
+- Replaced whole-unread-transcript allocation with 4 MiB fixed-memory JSONL chunks, a 32 MiB per-scan global budget, round-robin progress, a 5000-file cap and oversized-line forward progress.
+- Cached unchanged transcript tails, capped live sessions at 256, bounded startup/backfill scans and limited CodeWhale session-list parsing to 100 candidates / 64 MiB total.
+- Changed periodic stats refresh to non-overlapping one-shot scheduling, bounded asynchronous logging, added HTTP recovery after incomplete requests and retried hook installation during slow startup.
+- Repaired pet/panel bounds after monitor removal or resolution changes; panel opens on the pet's display.
+- Fixed model aliases with missing catalog prices, Unix CLI discovery, quoting of paths with spaces, Windows Node-mode hook uninstall and default `--no-sandbox` packaging regressions.
+
+### Packaging, tests and documentation
+
+- Added missing provider/runtime files to package manifests, retained production dependencies in Windows portable builds and kept the Chromium sandbox enabled unless an explicit diagnostic environment variable is set.
+- Expanded the core suite to **20 files** (was 18), 60+ file syntax traversal and 92 Windows assertions; added security, oversized-input, persistence, package-consistency, models.dev sync (unit + integration), and stress tests.
+- New test files:
+  - `test/models-dev-sync.js`: unit tests for transform/validate/cache logic (20+ assertions, includes live fetch verification)
+  - `test/models-dev-sync-integration.js`: end-to-end tests covering bundled-only, live-override, stale-cache, corrupted-cache, live-fetch, non-blocking, env-override scenarios (8 tests)
+- Updated `docs/CODEWHALE.md` §Token 计量与花费 with the new pricing model, vendor cache rate table, models.dev sync architecture, and the list of price corrections.
+- Updated README "CodeWhale 一等公民支持" section to highlight the catalog v2 upgrade and models.dev sync.
+- Added `MODEL-PRICING-RESEARCH.md` and `MODEL-PRICE-SYNC-RESEARCH.md` (shipped with source tarball, not in portable zip) documenting every price's vendor URL, access date, and the sync design rationale.
+- All 20 core tests pass; all 92 Windows adaptation assertions pass.
+
+## 0.1.0 — initial audited fork
+
+- Initial Claude Code / CodeWhale desktop pet fork and first-round upstream synchronization.

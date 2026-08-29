@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-session-pref"
+description = "Enables the set_session_pref command without any pre-configured scope."
+commands.allow = ["set_session_pref"]
+
+[[permission]]
+identifier = "deny-set-session-pref"
+description = "Denies the set_session_pref command without any pre-configured scope."
+commands.deny = ["set_session_pref"]

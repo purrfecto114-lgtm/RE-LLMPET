@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-29",
+  "sourceRepository": "https://github.com/myunwang/LLMPET",
+  "sourceCommit": "49fef749364b31dfa2ddab857aed7d82d49460cc",
+  "migrationPolicy": "Binary visual/media assets remain byte-identical. Source modules may be explicitly adapted for the Tauri five-provider UI when both source and destination hashes are recorded.",
+  "files": [
+    {
+      "sourcePath": "shared/i18n.js",
+      "destinationPath": "frontend/shared/i18n.js",
+      "byteIdentical": false,
+      "sourceSha256": "73506ebf26d625647209660639ef6ea59b336cf4805a86c633322f8c560c0f63",
+      "destinationSha256": "6b00997e12df957546f9ddb9498915041c3ecdd36b165106ca693052f55de7bc",
+      "sourceBytes": 43537,
+      "destinationBytes": 49553,
+      "adaptation": "Extended the upstream zh/en/ja dictionary with bounded CLI diagnostics and recovery actions inside the existing Tauri settings panel; no binary media was changed. R7 adds CodeWhale doctor command-surface/project-overlay labels and Aider config/credential-presence labels in zh/en/ja while retaining R6 authentication and route summaries. R11 (2026-07-30) adds tray.launchCodewhale/tray.launchOpencode/tray.launchAider/tray.launchAgent labels in zh/en/ja so the native tray menu can fully localize the 5-provider launch submenu. R12 (2026-07-30) adds shape.hidePet in zh/en/ja as the Tauri-native replacement for the Electron menubar mode (Tauri has no menubar; tray-only hides the pet window). R15 (2026-07-30) restores the Codex panel i18n keys (codexToday/codexLifetime/codexBreakdown/codexLocalHistory) in zh/en/ja so the panel can render Codex 5h quota and today/lifetime tokens once the Rust-side codex-watch equivalent populates the data. R16 (2026-07-30) restores the metric switching (metricTokens/metricCost) and usage diagnostics (diagScan/diagCorrections/diagEstimated/diagStale/diagNever) plus the hours/cal summary template keys in zh/en/ja so the panel can toggle Token/Cost views and show transcript scan staleness. AUDIT-FIX (2026-07-30): i18n-ized hardcoded Chinese in today-tokens, win-reset, cal mouseover, renderByModel, renderProviderCost; added panel.estimatedRounds/unknownRounds/total keys in zh/en/ja. R18 (2026-07-30): upgraded panel.modelDetail to use {cw5}/{cw1} split placeholders; added panel.tokCacheWrite5m/tokCacheWrite1h keys in zh/en/ja for the dual-row token detail. R19 (2026-07-30): added 9 sess.* keys (search/filters/filterAll/filterAttention/showArchived/pin/unpin/archive/unarchive) in zh/en/ja for session list pin/archive/attention features. R24 (2026-07-30): fixed double-dollar in hoursSummaryCost/calSummaryCost templates (removed literal $ before {total}/{peakV} since fmtCost already includes currency symbol). R26 (2026-07-30): i18n-ized STATE_META labels (13 states), aggregateCostText (3 strings), waiting detail, ops empty — all now use t() calls. R44 0.5.40 (2026-08-03): added 10 recovery.* keys (title/explain/backupReset/retry/close/warn/backupPathLabel/resetDone/resetFailed/confirm) in zh/en/ja for the config quarantine recovery overlay."
+    },
+    {
+      "sourcePath": "assets/memes/catalog.json",
+      "destinationPath": "resources/memes/catalog.json",
+      "bytes": 9566,
+      "sha256": "44db4685d9f4ebe6c45984cd3dc1d3d9c3b1e37f887e1031ab2a291d73563160",
+      "byteIdentical": true
+    },
+    {
+      "sourcePath": "assets/memes/huaqiang-guaranteed/visual.gif",
+      "destinationPath": "frontend/assets/memes/huaqiang-guaranteed/visual.gif",
+      "bytes": 796199,
+      "sha256": "071b250823da30d6bdf80891a61cf5debe674f4e19cd8df35079d41cbe172481",
+      "byteIdentical": true
+    },
+    {
+      "sourcePath": "assets/memes/huaqiang-guaranteed/voice.mp3",
+      "destinationPath": "frontend/assets/memes/huaqiang-guaranteed/voice.mp3",
+      "bytes": 51314,
+      "sha256": "acd1b3d4a066d7a7d2d72a1fe3c2a15585c81ae3b95b12ae70b2fc25dcdf560d",
+      "byteIdentical": true
+    },
+    {
+      "sourcePath": "assets/memes/ni-gan-ma/visual.gif",
+      "destinationPath": "frontend/assets/memes/ni-gan-ma/visual.gif",
+      "bytes": 656667,
+      "sha256": "485ae2c4aacd3b3c7a41b141ad31b58f6b3457b3c9c1fe9efd962dcf439f232f",
+      "byteIdentical": true
+    },
+    {
+      "sourcePath": "assets/memes/ni-gan-ma/voice.mp3",
+      "destinationPath": "frontend/assets/memes/ni-gan-ma/voice.mp3",
+      "bytes": 104882,
+      "sha256": "c45cbb45b263d470781b41de8c1247841183d8f674a4559ca39d54cb23cb0c29",
+      "byteIdentical": true
+    },
+    {
+      "sourcePath": "assets/cat/CREDITS.md",
+      "destinationPath": "frontend/assets/cat/CREDITS.md",
+      "bytes": 2795,
+      "sha256": "70ab95083923bd817f22e936ce5176497b0933e0d932c41db2e6e0ebd82bf0c8",
+      "byteIdentical": true
+    }
+  ]
+}

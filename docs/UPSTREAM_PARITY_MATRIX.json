@@ -1,0 +1,277 @@
+{
+  "schemaVersion": 1,
+  "upstreamCommit": "d51311eb7f3a4efb678f425a20bef360f383295c",
+  "upstreamRepo": "https://github.com/myunwang/LLMPET",
+  "reVersion": "0.5.46",
+  "generatedAt": "2026-08-04",
+  "items": [
+    {
+      "feature": "Tauri/Rust native rewrite",
+      "upstream": "N/A (Electron upstream)",
+      "reStatus": "complete",
+      "evidence": "src-tauri/ + frontend/ are the only active paths",
+      "source": "src-tauri/src/lib.rs"
+    },
+    {
+      "feature": "Claude lifecycle/hooks/transcript/permission",
+      "upstream": "Full",
+      "reStatus": "complete",
+      "evidence": "Rust HTTP server, hook_client, transcript scanner, permission queue",
+      "source": "src-tauri/src/http_server.rs, hook_client.rs, transcript.rs"
+    },
+    {
+      "feature": "Five Provider support (Claude/Codex/CodeWhale/OpenCode/Aider)",
+      "upstream": "Claude only",
+      "reStatus": "complete",
+      "evidence": "5 provider install/uninstall paths, capability matrix, diagnostic probes",
+      "source": "src-tauri/src/hook_install.rs"
+    },
+    {
+      "feature": "Three skins (mascot/pixel/cat)",
+      "upstream": "Full",
+      "reStatus": "complete",
+      "evidence": "35 visual assets verified",
+      "source": "frontend/assets/"
+    },
+    {
+      "feature": "Meme action system",
+      "upstream": "Full (selector, preview, dispatch)",
+      "reStatus": "excluded",
+      "evidence": "Intentionally removed per product target. Cat skin retained.",
+      "source": "N/A"
+    },
+    {
+      "feature": "Single pet mode",
+      "upstream": "Full",
+      "reStatus": "complete",
+      "evidence": "Single pet window + provider tags",
+      "source": "src-tauri/src/lib.rs"
+    },
+    {
+      "feature": "Dual pet mode (Claude/Codex independent)",
+      "upstream": "Full (independent skin/position/closePet)",
+      "reStatus": "complete",
+      "evidence": "Two uniquely labelled Tauri windows with independent provider query, skin, saved position, event/stat filtering and per-window native click-through state.",
+      "source": "src-tauri/tauri.conf.json, src-tauri/src/commands.rs, src-tauri/src/platform.rs, frontend/renderer/pet-agent-view.js",
+      "priority": "P1",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Codex rollout watcher (token usage + rate limits)",
+      "upstream": "N/A (RE enhancement)",
+      "reStatus": "complete",
+      "evidence": "Incremental cached parser prefers last_token_usage, otherwise cumulative deltas; traverses newest directories first, keys cache entries by file identity/size/mtime, bounds reads, removes stale entries, and falls back to imported official aggregates only when rollouts are unavailable.",
+      "source": "src-tauri/src/codex_rollout.rs, src-tauri/src/model.rs",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Codex 5h/weekly quota display",
+      "upstream": "Full (rate_limits parsing)",
+      "reStatus": "complete",
+      "evidence": "Panel renders codexLimits.usedPercent, secondaryUsedPercent, planType; codex_rollout.rs provides data",
+      "source": "frontend/renderer/panel.js:196-216, src-tauri/src/codex_rollout.rs",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Codex today/lifetime token grid",
+      "upstream": "Full",
+      "reStatus": "complete",
+      "evidence": "Panel renders codexUsage.today/lifetime; codex_rollout.rs provides data",
+      "source": "frontend/renderer/panel.js:218-449, src-tauri/src/codex_rollout.rs",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Pet HUD session search",
+      "upstream": "Full (sl-search in pet.html)",
+      "reStatus": "complete",
+      "evidence": "Pet HUD includes type=search and live project/op/session/provider matching.",
+      "source": "frontend/renderer/pet.html, frontend/renderer/pet.js",
+      "priority": "P1",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Pet HUD provider filter",
+      "upstream": "Full (Claude/Codex/pending filter)",
+      "reStatus": "complete",
+      "evidence": "HUD filters all/Claude/Codex/attention/archived; dual-pet renderer also isolates sessions and events by provider identity.",
+      "source": "frontend/renderer/pet.js, frontend/renderer/pet-agent-view.js",
+      "priority": "P1",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Pet HUD pin/archive",
+      "upstream": "Full (in-session operations)",
+      "reStatus": "complete",
+      "evidence": "HUD pin/archive controls persist through an atomic single-session transaction with optimistic rollback; the legacy bulk API remains compatible.",
+      "source": "frontend/shared/session-pref-client.js, frontend/renderer/pet.js, src-tauri/src/commands.rs",
+      "priority": "P1",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Session focus (terminal/client switch)",
+      "upstream": "Full",
+      "reStatus": "complete",
+      "evidence": "bridge focusSession + platform adapter",
+      "source": "frontend/renderer/tauri-bridge.js"
+    },
+    {
+      "feature": "Travel (read-only exploration)",
+      "upstream": "Full (mission templates, single-lock, cancel, timeout)",
+      "reStatus": "complete",
+      "evidence": "Single-flight read-only Claude/Codex trips use stdin prompts, provider-specific isolation flags, process-tree cancellation, bounded output/state reads, crash recovery, and unknown-format preservation.",
+      "source": "src-tauri/src/travel.rs, src-tauri/src/commands.rs",
+      "priority": "P2",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Wander (no-project public web exploration)",
+      "upstream": "Full",
+      "reStatus": "complete",
+      "evidence": "Provider-aware Claude/Codex wander uses isolated non-interactive read-only execution, stdin prompts, timeout/cancel, and persisted HUD status.",
+      "source": "src-tauri/src/travel.rs, frontend/renderer/pet-travel-view.js",
+      "priority": "P2",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Postcards / travel mailbox",
+      "upstream": "Full",
+      "reStatus": "complete",
+      "evidence": "Bounded persisted postcard history is exposed in pet HUD and panel. Official history is migrated.",
+      "source": "src-tauri/src/travel.rs, frontend/renderer/pet.js, frontend/renderer/panel.js",
+      "priority": "P2",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Growth system (leaf/star/moon/day)",
+      "upstream": "Full",
+      "reStatus": "complete",
+      "evidence": "Token-derived leaf/star/moon/day progress plus completed/failed/cancelled counters is persisted and rendered.",
+      "source": "src-tauri/src/travel.rs, frontend/renderer/panel.js",
+      "priority": "P2",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Territory mode (macOS)",
+      "upstream": "Full (rival detection, window top, accessibility, push)",
+      "reStatus": "complete",
+      "evidence": "macOS patrol queries System Events and moves each rival to the nearest edge of its own monitor/work area; built-ins allow known variants, custom entries require exact process names, and unsupported platforms degrade explicitly.",
+      "source": "src-tauri/src/territory.rs, src-tauri/src/commands.rs",
+      "priority": "P3",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Todo (session todos)",
+      "upstream": "Full",
+      "reStatus": "complete",
+      "evidence": "Legacy TodoWrite and current Task tools are normalized into ID-aware per-session items; top-level Todo is selected from the same effective sorted rows as active/context.",
+      "source": "src-tauri/src/model.rs, frontend/renderer/pet.js, frontend/renderer/panel.js",
+      "priority": "P2",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "lastOps (recent operations)",
+      "upstream": "Full",
+      "reStatus": "complete",
+      "evidence": "Accepted tool/subagent lifecycle events enter a bounded 50-entry ring; stats exposes the newest 30 with tool, icon, detail, project, provider, and timestamp.",
+      "source": "src-tauri/src/model.rs",
+      "priority": "P2",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Background task status",
+      "upstream": "Placeholder in current upstream adapter (fixed zero/empty values)",
+      "reStatus": "placeholder",
+      "evidence": "RE intentionally preserves the same fixed empty compatibility shape because current provider events do not supply a trustworthy process reconciliation feed; no synthetic running/zombie data is fabricated.",
+      "source": "src-tauri/src/model.rs; upstream backend/adapter.js",
+      "priority": "P4"
+    },
+    {
+      "feature": "Context summary",
+      "upstream": "Full",
+      "reStatus": "complete",
+      "evidence": "Top-level percent/used/limit is derived from the same effective first session row used by UI ordering, including pending-permission priority.",
+      "source": "src-tauri/src/model.rs",
+      "priority": "P3",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Permission card / structured Q&A",
+      "upstream": "Full",
+      "reStatus": "complete",
+      "evidence": "Parallel permission cards, AskUserQuestion, plan flow",
+      "source": "src-tauri/src/commands.rs"
+    },
+    {
+      "feature": "Three-language UI (zh/en/ja)",
+      "upstream": "Full",
+      "reStatus": "complete",
+      "evidence": "i18n.js has 29+ keys × 3 languages for pet/panel/tray",
+      "source": "frontend/shared/i18n.js"
+    },
+    {
+      "feature": "Config migration from official ~/.octopus",
+      "upstream": "N/A (upstream IS the source)",
+      "reStatus": "complete",
+      "evidence": "Incremental v3 receipt never blocks later files; bounded no-clobber scans reject links/races/oversized sources, preserve targets, convert travel/growth and Claude usage into native stores, use private permissions, and exclude transient PID caches.",
+      "source": "src-tauri/src/migration.rs, src-tauri/src/travel.rs, src-tauri/src/metering.rs, src-tauri/src/model.rs",
+      "priority": "P3",
+      "implementedIn": "0.5.46"
+    },
+    {
+      "feature": "Config quarantine + recovery UI",
+      "upstream": "N/A (RE enhancement)",
+      "reStatus": "complete",
+      "evidence": "ConfigState enum, get_config_state IPC, panel recovery overlay",
+      "source": "src-tauri/src/model.rs, frontend/renderer/panel.html",
+      "implementedIn": "0.5.40"
+    },
+    {
+      "feature": "schemaVersion + unknown-field preservation",
+      "upstream": "N/A (RE enhancement)",
+      "reStatus": "complete",
+      "evidence": "AppConfig has schema_version + #[serde(flatten)] extras",
+      "source": "src-tauri/src/model.rs",
+      "implementedIn": "0.5.41"
+    },
+    {
+      "feature": "Receipt-driven uninstall",
+      "upstream": "N/A (RE enhancement)",
+      "reStatus": "complete",
+      "evidence": "cleanup_provider_with_path uses receipt path; _at variants",
+      "source": "src-tauri/src/hook_install.rs",
+      "implementedIn": "0.5.41"
+    },
+    {
+      "feature": "Install receipts (backup + provenance)",
+      "upstream": "N/A (RE enhancement)",
+      "reStatus": "complete",
+      "evidence": "backup_config_file + write_install_receipt + read_install_receipts",
+      "source": "src-tauri/src/hook_install.rs",
+      "implementedIn": "0.5.38"
+    },
+    {
+      "feature": "Octopus identity (rename from RE-LLMPET)",
+      "upstream": "N/A (product decision)",
+      "reStatus": "complete",
+      "evidence": "productName, identifier, hooks, SBOM all Octopus; backward compat cleanup for re-llmpet",
+      "source": "src-tauri/tauri.conf.json",
+      "implementedIn": "0.5.42"
+    },
+    {
+      "feature": "NSIS PREINSTALL conflict check",
+      "upstream": "N/A (RE enhancement)",
+      "reStatus": "complete",
+      "evidence": "installer-hooks.nsh checks for old RE-LLMPET uninstall registry",
+      "source": "src-tauri/windows/installer-hooks.nsh",
+      "implementedIn": "0.5.42"
+    },
+    {
+      "feature": "Adaptive cursor hit-test polling",
+      "upstream": "N/A (RE enhancement)",
+      "reStatus": "complete",
+      "evidence": "45ms near, 240ms far, 500ms busy, 1000ms hidden",
+      "source": "src-tauri/src/platform.rs",
+      "implementedIn": "0.5.42"
+    }
+  ]
+}

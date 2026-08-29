@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-start-travel"
+description = "Enables the start_travel command without any pre-configured scope."
+commands.allow = ["start_travel"]
+
+[[permission]]
+identifier = "deny-start-travel"
+description = "Denies the start_travel command without any pre-configured scope."
+commands.deny = ["start_travel"]

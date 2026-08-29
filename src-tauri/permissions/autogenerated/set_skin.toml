@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-skin"
+description = "Enables the set_skin command without any pre-configured scope."
+commands.allow = ["set_skin"]
+
+[[permission]]
+identifier = "deny-set-skin"
+description = "Denies the set_skin command without any pre-configured scope."
+commands.deny = ["set_skin"]

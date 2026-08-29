@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="pet.css" />
+    <title>Octopus</title>
+  </head>
+  <body>
+    <div id="stage">
+      <!-- 气泡播报 -->
+      <div id="bubble" class="bubble hidden" role="status" aria-live="polite">
+        <span id="bubble-text"></span>
+      </div>
+
+      <!-- Needs Input / 授权卡片：Claude 要选择/授权/输入时在这处理 -->
+      <div id="ask" class="ask hidden" role="dialog" aria-modal="true" aria-label="需要你处理">
+        <div class="ask-head">
+          <div class="ask-label" id="ask-label">Needs Input</div>
+          <div class="ask-sess" id="ask-sess"></div>
+        </div>
+        <div class="ask-scroll" id="ask-scroll">
+          <div class="ask-card">
+            <div class="ask-qhead" id="ask-qhead"></div>
+            <div class="ask-q" id="ask-q"></div>
+            <div class="ask-hint" id="ask-hint"></div>
+            <div class="ask-opts" id="ask-opts"></div>
+            <div class="ask-other hidden" id="ask-input-row">
+              <input id="ask-text" type="text" placeholder="输入自定义回答…" data-i18n-placeholder="ask.placeholder" />
+            </div>
+          </div>
+        </div>
+        <div class="ask-toolbar">
+          <div class="ask-page" id="ask-page"></div>
+          <div class="ask-foot" id="ask-foot">
+            <button class="ask-btn" id="ask-back">Back</button>
+            <button class="ask-btn primary" id="ask-submit">Submit Answer</button>
+          </div>
+          <button class="ask-term" id="ask-term">💬 Go to Terminal</button>
+        </div>
+      </div>
+
+      <!-- 思考指示器（thinking 状态：填补 Claude 在想、没输出的空档） -->
+      <div id="think" class="think">
+        <span class="td">💭</span>
+        <span class="think-label" data-i18n="state.thinking">思考中</span>
+        <span class="dots"><i></i><i></i><i></i></span>
+      </div>
+
+      <!-- 睡觉指示器（逐渐变大往上飘的 z z Z，醒目） -->
+      <div id="sleep" class="sleep">
+        <span class="z z1">z</span>
+        <span class="z z2">z</span>
+        <span class="z z3">Z</span>
+      </div>
+
+
+      <!-- 点击章鱼弹出的泡泡菜单（JS 动态摆放在章鱼四周） -->
+      <div id="radial" class="radial hidden"></div>
+
+      <!-- 按工具动作时头顶飘出的道具 emoji -->
+      <div id="prop" class="prop"></div>
+      <!-- 召唤 subagent 时弹出的小分身 -->
+      <div id="sidekick" class="sidekick">🐙</div>
+
+      <!-- R35 (2026-07-31): stable geometric anchor. The three skin elements
+           (#pixel / #mascot / #cat) live INSIDE this anchor. State-class
+           animations are applied to the inner skin's image/sprite, NEVER to
+           the anchor itself, so the anchor's bounding rect is invariant
+           under happy/waiting/working transforms. buildRadial(),
+           reportPetVisualBounds(), and the drag hit-test read this anchor's
+           rect — they no longer read the (transformed) skin element's rect.
+           This is the fix for the audit's P0-1 "桌宠跳动 + HUD 错位". -->
+      <div id="pet-anchor">
+        <!-- 形象二：Claude Code 像素小怪兽 -->
+        <div id="pixel" class="pixel idle">
+          <div class="pixel-zzz">💤</div>
+          <div class="pixel-sprite"></div>
+          <div class="pixel-ground"></div>
+        </div>
+
+        <!-- 形象四：图标款小章鱼 —— 直接用 tray 图标同一套画法高清重渲的图，100% 还原 -->
+        <div id="mascot" class="mascot idle">
+          <img id="mascot-img" src="../assets/mascot.png" alt="mascot" draggable="false" />
+        </div>
+
+        <!-- 形象五：月薪喵（普通动画猫皮肤，每个状态一张 GIF，动效由 GIF 自带） -->
+        <div id="cat" class="cat idle">
+          <img id="cat-img" src="../assets/cat/cat-idle.gif" alt="cat" draggable="false" />
+        </div>
+      </div>
+
+      <!-- 多会话状态点：每个点 = 一个并行任务，颜色 = 状态 -->
+      <div id="sessions" class="sessions"></div>
+
+      <!-- 常驻小额度条 -->
+      <div id="chip" class="chip">
+        <span id="chip-cost">$0.000</span>
+        <span class="chip-sep">·</span>
+        <span id="chip-window" title="近5小时消耗">5h $0.000</span>
+      </div>
+
+      <!-- 多 Provider 模式名牌：R35.1 — 不再常驻显示「名称 +N」。
+           0.5.11 deep-recheck P0-5 指出该标签把「已启用 Provider 数」
+           当成「当前活动 Provider」显示，且 New Agent 静默启动数组第一项。
+           现在该元素仅在 hover/tooltip 中提供 Provider 列表摘要，
+           不再占用桌宠视觉空间。Provider 选择改用 #provider-chooser 弹层。 -->
+      <div id="agent-tag" class="agent-tag hidden"></div>
+
+      <!-- R35.1 (2026-07-31): Provider chooser modal — 当用户点击
+           「新开」或 primaryAction 且有多个 enabled Provider 时弹出，
+           让用户明确选择目标，不再静默启动数组第一项。
+           单个 Provider 时直接启动，不弹层。 -->
+      <div id="provider-chooser" class="provider-chooser hidden" role="dialog" aria-modal="true" aria-label="选择 Provider">
+        <div class="pc-card">
+          <div class="pc-head">
+            <span class="pc-title" data-i18n="provider.choose">选择 Provider</span>
+            <button type="button" class="pc-close" id="pc-close" aria-label="关闭">✕</button>
+          </div>
+          <div class="pc-list" id="pc-list"></div>
+        </div>
+      </div>
+
+      <!-- 记事本：有待办时章鱼举起它，点击看 todolist + 操作 -->
+      <div id="notepad" class="notepad hidden" title="待办清单" data-i18n-title="todo.notepadTitle">
+        <span class="np-icon">📋</span>
+        <span id="np-badge" class="np-badge"></span>
+      </div>
+
+      <!-- 会话列表 HUD -->
+      <div id="sesslist" class="sesslist hidden">
+        <div class="sl-top">
+          <span class="sl-title" id="sl-title" data-i18n="sess.title">🗂️ 会话</span>
+          <span class="sl-sub" id="sl-sub"></span>
+          <span class="sl-close" id="sl-close" title="关闭" data-i18n-title="sess.close">✕</span>
+        </div>
+        <div id="sl-session-view">
+          <!-- R44 0.5.44: search + filter bar (parity with upstream pet HUD) -->
+          <div class="sl-bar">
+            <input type="search" id="sl-search" class="sl-search" data-i18n-placeholder="sess.search" placeholder="搜索项目、会话或操作…" />
+            <div class="sl-filters">
+              <button class="sl-filter active" data-filter="all" data-i18n="sess.filterAll">全部</button>
+              <button class="sl-filter" data-filter="claude" data-i18n="sess.filterClaude">Claude</button>
+              <button class="sl-filter" data-filter="codex" data-i18n="sess.filterCodex">Codex</button>
+              <button class="sl-filter" data-filter="attention" data-i18n="sess.filterAttention">待处理</button>
+              <button class="sl-filter" data-filter="archived" data-i18n="sess.showArchived">归档</button>
+            </div>
+          </div>
+          <div class="sl-scroll" id="sl-rows"></div>
+          <div class="sl-travel-status" id="sl-travel-status"></div>
+          <div class="sl-foot">
+            <button id="sl-new" data-i18n="sess.newClaude">🚀 新开 Agent</button>
+            <button id="sl-wander" data-i18n="sess.wander">🐾 闲逛</button>
+            <button id="sl-panel" data-i18n="sess.panel">📊 详情</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 记事本弹层：行动清单（需要处理的事项 + 待办）+ 操作 -->
+      <div id="todopop" class="todopop hidden">
+        <div class="tp-top">
+          <span class="tp-title" id="tp-title" data-i18n="todo.title">🗒️ 行动清单</span>
+          <span class="tp-prog" id="tp-prog"></span>
+          <span class="tp-close" id="tp-close" title="关闭" data-i18n-title="sess.close">✕</span>
+        </div>
+        <div class="tp-scroll">
+          <div class="tp-sec" id="tp-act-sec">
+            <div class="tp-sec-h" data-i18n="todo.needYou">🔔 需要你处理</div>
+            <div id="tp-acts"></div>
+          </div>
+          <div class="tp-sec" id="tp-todo-sec">
+            <div class="tp-sec-h" data-i18n="todo.list">📋 待办</div>
+            <div class="tp-list" id="tp-list"></div>
+          </div>
+        </div>
+        <div class="tp-ops">
+          <button data-op="claude">💬 唤起 Claude</button>
+          <button data-op="panel" data-i18n="todo.panel">📊 详情</button>
+          <button data-op="log" data-i18n="todo.log">📄 日志</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- R32 (2026-07-31): visible bridge-error toast container. -->
+    <div id="re-llmpet-toast" class="re-llmpet-toast" role="alert" aria-live="assertive" hidden></div>
+
+    <script src="../shared/i18n.js"></script>
+    <script src="../shared/toast.js"></script>
+    <script src="tauri-bridge.js"></script>
+    <script src="../shared/latest-value-controller.js"></script>
+    <script src="../shared/config-write-controller.js"></script>
+  <script src="../shared/session-pref-client.js"></script>
+    <script src="../shared/states.js"></script>
+    <script src="icons.js"></script>
+    <script src="pet-runtime-policy.js"></script>
+    <script src="pet-agent-view.js"></script>
+    <script src="pet-session-lifecycle.js"></script>
+    <script src="pet-travel-view.js"></script>
+    <script src="pet-radial-menu.js"></script>
+    <script src="pet.js"></script>
+  </body>
+</html>

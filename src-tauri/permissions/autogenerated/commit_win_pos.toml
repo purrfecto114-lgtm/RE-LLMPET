@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-commit-win-pos"
+description = "Enables the commit_win_pos command without any pre-configured scope."
+commands.allow = ["commit_win_pos"]
+
+[[permission]]
+identifier = "deny-commit-win-pos"
+description = "Denies the commit_win_pos command without any pre-configured scope."
+commands.deny = ["commit_win_pos"]

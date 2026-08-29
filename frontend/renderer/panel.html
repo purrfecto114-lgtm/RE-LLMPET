@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <link rel="stylesheet" href="panel.css" />
+    <title data-i18n="panel.title">Octopus · 详情</title>
+  </head>
+  <body>
+    <div id="card">
+      <header id="titlebar">
+        <div class="brand">
+          <span class="logo">🐙</span>
+          <div>
+            <div class="brand-title">Octopus</div>
+            <div class="brand-sub" id="active-sub" data-i18n="panel.waitingSession">等待会话…</div>
+          </div>
+        </div>
+        <div class="title-actions">
+          <label class="lang-picker" title="语言 / Language">
+            <span aria-hidden="true">🌐</span>
+            <select id="language" aria-label="Language">
+              <option value="zh">简体中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+            </select>
+          </label>
+          <button id="close" title="关闭" data-i18n-title="panel.close">✕</button>
+        </div>
+      </header>
+
+      <section class="grid">
+        <div class="stat">
+          <div class="stat-label" data-i18n="panel.todayCost">今日花费</div>
+          <div class="stat-value" id="today-cost">$0.000</div>
+          <div class="stat-foot" id="today-tokens">0 tokens</div>
+          <div class="stat-split" id="today-split"></div>
+        </div>
+        <div class="stat">
+          <div class="stat-label" data-i18n="panel.last5h">近 5 小时</div>
+          <div class="stat-value" id="win-cost">$0.000</div>
+          <div class="stat-foot" id="win-reset" data-i18n="panel.windowIdle">窗口空闲</div>
+        </div>
+      </section>
+
+      <section id="budget-wrap" class="budget hidden">
+        <div class="budget-head">
+          <span data-i18n="panel.budget5h">5h 预算</span>
+          <span id="budget-pct">0%</span>
+        </div>
+        <div class="bar"><div id="budget-fill" class="bar-fill"></div></div>
+      </section>
+
+      <!-- R15 (2026-07-30): Codex 5h quota bar (rollout rate_limits).
+           Hidden by default; render() shows it when s.codexLimits is present. -->
+      <section id="codex-wrap" class="budget hidden">
+        <div class="budget-head">
+          <span data-i18n="panel.codexQuota">🛰️ Codex 额度（5h 窗口）</span>
+          <span id="codex-pct">0%</span>
+        </div>
+        <div class="bar"><div id="codex-fill" class="bar-fill codex"></div></div>
+        <div class="stat-foot" id="codex-foot"></div>
+      </section>
+
+      <!-- R15: Codex today + lifetime tokens. Hidden by default;
+           render() shows it when s.codexUsage is present. -->
+      <section id="codex-usage" class="grid hidden">
+        <div class="stat compact">
+          <div class="stat-label" data-i18n="panel.codexToday">Codex 今日 token</div>
+          <div class="stat-value" id="codex-today">0</div>
+          <div class="stat-foot" id="codex-today-detail"></div>
+        </div>
+        <div class="stat compact">
+          <div class="stat-label" data-i18n="panel.codexLifetime">Codex 本机累计 token</div>
+          <div class="stat-value" id="codex-lifetime">0</div>
+          <div class="stat-foot" id="codex-lifetime-detail"></div>
+        </div>
+      </section>
+
+      <section class="block" id="pet-mode-block">
+        <div class="block-title" data-i18n="panel.petMode">桌宠模式</div>
+        <div class="seg-row">
+          <span class="seg-label" data-i18n="panel.window">窗口</span>
+          <div class="seg" id="pet-mode-seg">
+            <button class="seg-btn" data-pet-mode="single" data-i18n="panel.single">单宠</button>
+            <button class="seg-btn" data-pet-mode="duo" data-i18n="panel.duo">双宠 · Claude + Codex</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="block" id="travel-block">
+        <div class="block-title"><span data-i18n="panel.travelGrowth">🧳 旅行与成长</span><span id="travel-growth"></span></div>
+        <div id="travel-active" class="empty" data-i18n="panel.noTravel">当前没有旅行</div>
+        <div id="travel-postcard" class="travel-postcard"></div>
+      </section>
+
+      <!-- R11 backport: machineGrowth — whole-machine rank combining Claude +
+           Codex lifetime tokens (10M tokens per unit, QQ-style 4-to-1
+           promotion: paw → star → moon → sun → crown). Mirrors upstream
+           backend/growth.js#machineGrowth. -->
+      <section class="block" id="machine-growth-block">
+        <div class="block-title"><span data-i18n="panel.machineGrowth">🤖 本机成长</span><span id="machine-growth"></span></div>
+      </section>
+
+      <section class="block" id="todo-block">
+        <div class="block-title">
+          <span><span data-i18n="panel.todoBlock">📋 待办清单</span> <span id="todo-proj" class="todo-proj"></span></span>
+          <span id="todo-prog" class="todo-prog"></span>
+        </div>
+        <div id="todo-list" class="todos"><div class="empty" data-i18n="panel.noTodo">当前没有待办</div></div>
+      </section>
+
+      <section class="block">
+        <div class="block-title">
+          <span data-i18n="panel.usageTrend">用量趋势</span>
+          <span class="trend-controls">
+            <span class="metric-tabs">
+              <button data-metric="tokens" class="mt active" data-i18n="panel.metricTokens">Token</button>
+              <button data-metric="cost" class="mt" data-i18n="panel.metricCost">费用</button>
+            </span>
+            <span class="view-tabs">
+              <button data-view="hours" class="vt active" data-i18n="panel.today24h">今日24h</button>
+              <button data-view="cal" class="vt" data-i18n="panel.calendar">日历</button>
+            </span>
+          </span>
+        </div>
+        <div id="view-hours" class="uview">
+          <div id="chart" class="chart"></div>
+          <div class="chart-axis"><span>0</span><span>6</span><span>12</span><span>18</span><span>23</span><span data-i18n="panel.hourUnit">点</span></div>
+          <div id="hours-readout" class="readout"></div>
+        </div>
+        <div id="view-cal" class="uview hidden">
+          <div id="cal" class="cal"></div>
+          <div class="cal-legend"><span data-i18n="panel.less">少</span> <i class="lv0"></i><i class="lv1"></i><i class="lv2"></i><i class="lv3"></i><i class="lv4"></i> <span data-i18n="panel.more">多</span></div>
+          <div id="cal-readout" class="readout"></div>
+        </div>
+        <div id="price-src" class="price-src" data-i18n-title="panel.priceSrcTitle" title="价目数据来源与更新时间"></div>
+        <div id="usage-diagnostics" class="usage-diagnostics"></div>
+        <div class="price-controls" aria-label="模型价格自动更新">
+          <button id="price-refresh" type="button" title="立即检查 models.dev 最新价目">立即刷新</button>
+          <button id="price-rebuild" type="button" title="用当前价目重算历史花费">重算花费</button>
+          <label class="price-auto"><input id="price-auto" type="checkbox" /> <span data-i18n="panel.autoUpdate">自动更新</span></label>
+          <select id="price-interval" title="自动检查间隔">
+            <option value="6" data-i18n="panel.interval6">每 6 小时</option>
+            <option value="12" data-i18n="panel.interval12">每 12 小时</option>
+            <option value="24" data-i18n="panel.interval24">每 24 小时</option>
+            <option value="48" data-i18n="panel.interval48">每 48 小时</option>
+            <option value="72" data-i18n="panel.interval72">每 72 小时</option>
+          </select>
+          <span class="export-controls" aria-label="导出用量数据">
+            <button id="export-csv" type="button" title="导出 CSV（可导入 Excel/Numbers）">📊 CSV</button>
+            <button id="export-json" type="button" title="导出 JSON（完整结构化数据）">📄 JSON</button>
+          </span>
+        </div>
+      </section>
+
+      <div class="cols">
+        <section class="block">
+          <div class="block-title" data-i18n="panel.tokenDetail">Token 明细（今日 · 总）</div>
+          <div class="rows" id="token-rows">
+            <div class="row"><span data-i18n="panel.tokIn">输入</span><b id="t-in">0</b></div>
+            <div class="row"><span data-i18n="panel.tokOut">输出</span><b id="t-out">0</b></div>
+            <!-- R18 (2026-07-30): cache write split into 5m + 1h rows,
+                 matching upstream Electron panel.html. Falls back to 0
+                 when the provider doesn't expose the TTL split. -->
+            <div class="row"><span data-i18n="panel.tokCacheWrite5m">缓存写入（5m）</span><b id="t-cw5">0</b></div>
+            <div class="row"><span data-i18n="panel.tokCacheWrite1h">缓存写入（1h）</span><b id="t-cw1">0</b></div>
+            <div class="row"><span data-i18n="panel.tokCacheRead">缓存读取</span><b id="t-cr">0</b></div>
+            <div class="row total"><span data-i18n="panel.msgRounds">消息轮次</span><b id="t-msg">0</b></div>
+          </div>
+        </section>
+
+        <section class="block" id="provider-cost-block">
+          <div class="block-title" data-i18n="panel.byProvider">按 Provider（今日）</div>
+          <div id="provider-cost" class="rows"><div class="empty" data-i18n="panel.noData">暂无数据</div></div>
+        </section>
+
+      <section class="block" id="provider-block">
+        <div class="block-title">
+          <span data-i18n="panel.providers">Provider</span>
+          <span id="provider-diag-summary" class="provider-diag-summary"></span>
+        </div>
+        <div id="provider-list" class="provider-list"></div>
+        <div id="provider-diagnostic" class="provider-diagnostic hidden" aria-live="polite"></div>
+      </section>
+
+        <section class="block">
+          <div class="block-title session-title">
+            <span data-i18n="panel.activeTasks">进行中的任务</span>
+            <span id="sess-count" class="session-count"></span>
+          </div>
+          <div class="session-filters" aria-label="会话筛选">
+            <select id="sess-provider-filter" title="按 Provider 筛选"><option value="">全部 Provider</option></select>
+            <input id="sess-query" type="search" maxlength="128" data-i18n-placeholder="panel.sessPlaceholder" placeholder="项目或会话 ID" autocomplete="off" />
+            <!-- R19 (2026-07-30): attention filter + archive toggle.
+                 "Attention" shows only waiting/needsinput sessions.
+                 "Archived" toggles whether archived sessions are visible. -->
+            <button id="sess-attention" class="sess-filter-btn" type="button" title="只看待处理" data-i18n="sess.filterAttention">待处理</button>
+            <button id="sess-show-archived" class="sess-filter-btn" type="button" title="显示归档" data-i18n="sess.showArchived">归档</button>
+          </div>
+          <div id="sess-list" class="rows"><div class="empty" data-i18n="panel.noActiveSession">暂无活跃会话</div></div>
+        </section>
+
+        <section class="block">
+          <div class="block-title" data-i18n="panel.byModel">按模型（分）</div>
+          <div id="by-model" class="rows"><div class="empty" data-i18n="panel.noData">暂无数据</div></div>
+        </section>
+
+        <section class="block" id="bg-block">
+          <div id="bg-head" class="block-title" data-i18n="panel.bgTasks">后台任务</div>
+          <div id="bg-list" class="rows"><div class="empty" data-i18n="panel.bgClean">没有长跑的后台进程 — 干净</div></div>
+        </section>
+
+        <section class="block">
+          <div class="block-title" data-i18n="panel.liveOps">实时操作</div>
+          <ul id="ops" class="ops"><li class="empty" data-i18n="panel.waitingOps">等待操作…</li></ul>
+        </section>
+      </div>
+    </div>
+    <!-- R44 0.5.40 (Roadmap v6 P0-01): config recovery overlay.
+         Shown when getConfigState returns quarantined=true.
+         Hides the normal card content via the renderer script. -->
+    <div id="recovery-overlay" class="recovery-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="recovery-title">
+      <div class="recovery-card">
+        <div class="recovery-icon" aria-hidden="true">⚠️</div>
+        <h2 id="recovery-title" data-i18n="recovery.title">配置文件损坏</h2>
+        <p id="recovery-state" class="recovery-state"></p>
+        <p id="recovery-message" class="recovery-message"></p>
+        <p class="recovery-explain" data-i18n="recovery.explain">Octopus 检测到配置文件无法安全读取。为防止默认配置覆盖您的现有设置，所有保存操作已被阻止。您可以备份当前文件并重置为默认配置。</p>
+        <div class="recovery-actions">
+          <button id="recovery-backup-reset" class="recovery-btn primary" data-i18n="recovery.backupReset">备份并重置</button>
+          <button id="recovery-retry" class="recovery-btn" data-i18n="recovery.retry">重新检测</button>
+          <button id="recovery-close" class="recovery-btn" data-i18n="recovery.close">关闭面板</button>
+        </div>
+        <p id="recovery-backup-path" class="recovery-backup-path" hidden></p>
+        <p class="recovery-warn" data-i18n="recovery.warn">重置后需重启应用以加载默认配置。</p>
+      </div>
+    </div>
+    <!-- R32 (2026-07-31): visible bridge-error toast container. -->
+    <div id="re-llmpet-toast" class="re-llmpet-toast" role="alert" aria-live="assertive" hidden></div>
+    <script src="../shared/i18n.js"></script>
+    <script src="../shared/toast.js"></script>
+    <script src="tauri-bridge.js"></script>
+    <script src="../shared/latest-value-controller.js"></script>
+    <script src="../shared/config-write-controller.js"></script>
+  <script src="../shared/session-pref-client.js"></script>
+    <script src="../shared/panel-fit-controller.js"></script>
+    <script src="panel.js"></script>
+    <script src="panel-export.js"></script>
+  </body>
+</html>

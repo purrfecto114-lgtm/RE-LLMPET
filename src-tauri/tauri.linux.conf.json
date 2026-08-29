@@ -1,0 +1,15 @@
+{
+  "bundle": {
+    "targets": [
+      "deb",
+      "appimage"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "curl"
+        ]
+      }
+    }
+  }
+}

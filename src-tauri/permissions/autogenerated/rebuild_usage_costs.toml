@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rebuild-usage-costs"
+description = "Enables the rebuild_usage_costs command without any pre-configured scope."
+commands.allow = ["rebuild_usage_costs"]
+
+[[permission]]
+identifier = "deny-rebuild-usage-costs"
+description = "Denies the rebuild_usage_costs command without any pre-configured scope."
+commands.deny = ["rebuild_usage_costs"]
