@@ -13,8 +13,8 @@ jobs:
     name: Test (no electron needed)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: actions/setup-node@94196ee1d15439c1b6651cd87ef14e88ec435966
         with:
           node-version: 20
       - name: Tag/package version guard
@@ -26,14 +26,14 @@ jobs:
     needs: test
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: actions/setup-node@94196ee1d15439c1b6651cd87ef14e88ec435966
         with:
           node-version: 20
           cache: npm
       - run: npm ci
       - name: Cache electron binaries
-        uses: actions/cache@v4
+        uses: actions/cache@3edfce9056124e459a23f683a21433670d47daca
         with:
           path: |
             ~\AppData\Local\electron\Cache
@@ -43,7 +43,7 @@ jobs:
       - name: List artifacts
         shell: pwsh
         run: Get-ChildItem dist -File | Format-Table Name, Length
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: win-x64
           path: |
@@ -58,8 +58,8 @@ jobs:
     outputs:
       mode: ${{ steps.sig.outputs.mode }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: actions/setup-node@94196ee1d15439c1b6651cd87ef14e88ec435966
         with:
           node-version: 20
           cache: npm
@@ -97,7 +97,7 @@ jobs:
       - name: Package unsigned (adhoc)
         if: steps.sig.outputs.mode == 'adhoc'
         run: LLMPET_MAC_SIGN_MODE=adhoc bash scripts/package-mac.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: mac-arm64-${{ steps.sig.outputs.mode }}
           path: dist/*.zip
@@ -108,7 +108,7 @@ jobs:
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317
         with:
           path: release
           merge-multiple: true

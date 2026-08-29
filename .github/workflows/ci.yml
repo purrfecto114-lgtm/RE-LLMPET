@@ -14,8 +14,8 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         node: [18, 20, 22]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: actions/setup-node@94196ee1d15439c1b6651cd87ef14e88ec435966
         with:
           node-version: ${{ matrix.node }}
       # 冒烟测试只依赖 Node 内置模块 + 仓库内文件（不 require electron），
