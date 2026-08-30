@@ -30,7 +30,7 @@ jobs:
           node-version: 20
           cache: npm
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@2c7215f132e9 # stable
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
         with:
           components: rustfmt, clippy
       - run: npm ci
@@ -118,7 +118,7 @@ jobs:
           node-version: 20
           cache: npm
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@2c7215f132e9 # stable
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
         with:
           components: rustfmt, clippy
       - name: Install Linux webkit dependencies
@@ -160,7 +160,7 @@ jobs:
           fi
           echo "PLATFORM_SIGNED=$PLATFORM_SIGNED" >> "$GITHUB_OUTPUT"
       - name: Build and upload bundles to the draft release
-        uses: tauri-apps/tauri-action@abbd19ad15b3 # v1
+        uses: tauri-apps/tauri-action@abbd19ab15b37f89667db9cc46ec1cb5419f22be # v1
         env:
           CARGO_NET_OFFLINE: true
         with:
@@ -181,7 +181,7 @@ jobs:
           node scripts/generate-checksums.js src-tauri/target "reports/SHA256SUMS-${{ matrix.platform }}"
           gh release upload "$DRAFT_TAG" "reports/SHA256SUMS-${{ matrix.platform }}" --clobber
       - name: Attest the platform checksum manifest
-        uses: actions/attest@508db95dd578 # v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
           subject-path: reports/SHA256SUMS-${{ matrix.platform }}
 

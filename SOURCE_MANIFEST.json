@@ -6,11 +6,11 @@
   "files": {
     ".claude-plugin/plugin.json": "5671723c4869dcae32e8050aa18437e0ff01bde37fc6d18b5120810045cf5a09",
     ".gitattributes": "c41b15dfba8e2ca096b715cd0ee0d5831a781e21d2b5fbb4e5229ace268b36aa",
-    ".github/workflows/ci.yml": "fa3ef331e4c58dd40cba78bdb79e2d818430a0eaae8205b819a75db625c45dc5",
+    ".github/workflows/ci.yml": "eff7958e001bc993b5a58969c78448419ed2090345e2279aec304ee5655b2aa1",
     ".github/workflows/desktop-real-machine.yml": "cdaf432c4b6ddb0423f5178a0f950edfc7767d54273ffe9fd3300002eb0ba5f9",
     ".github/workflows/protocol-drift.yml": "9b79cb1d8c2bec4c40e28cb08439566b613703cc902afb3e9e8cbb52df1df5c7",
     ".github/workflows/provider-real-cli.yml": "d60b6a38b4fdd876952efeaa62688b394c86621a89aef9c5dbd1469795863992",
-    ".github/workflows/release.yml": "2f84af7d75b49159bf095cb8f5a1b6456998f4ac49e29a3053f9290109cbbf06",
+    ".github/workflows/release.yml": "d1a7357eb3219c5dc0bac332b52231d42b8c3b2681d48bda53cf457e8de5f8dd",
     ".gitignore": "12633ba3e3ae8dbf0afeb1efbd4957e19a886a6fd2ba451c1a74bbae08594681",
     ".ignore": "d848d497c18118c6142a789e167a989adbc2c2227e371b0164480a6206bab443",
     ".slim/deepwork/2026-08-28-equivalent-feature-migration.md": "a7f69d8ded946a876c9d5adc35f9c4a4b09c652f67238efcdba5fc5ebe31ee38",
@@ -385,6 +385,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "97ff85901b0edf591d75b13a42c4bd1089dee43ba3dada75ab09e66a415d9af2"
   },
-  "sha256_of_manifest": "0ccd008b0734dc6dd807537a1208afd1a4071e213e9047f940f5d4ca533d969c",
+  "sha256_of_manifest": "eb53ea58472cdbfc39f2960db4cec072d7fbe2eb71693a532ab8869800a31660",
   "source_commit": "octopus-0.5.62"
 }
