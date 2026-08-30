@@ -180,6 +180,7 @@ jobs:
           uploadUpdaterSignatures: false
           args: ${{ matrix.args }}
       - name: Publish the per-platform checksum manifest
+        shell: bash
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
