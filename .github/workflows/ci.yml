@@ -31,6 +31,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
       - name: Install Linux GUI dependencies
         if: runner.os == 'Linux'
         run: |

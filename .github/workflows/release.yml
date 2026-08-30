@@ -166,7 +166,7 @@ jobs:
           fi
           echo "PLATFORM_SIGNED=$PLATFORM_SIGNED" >> "$GITHUB_OUTPUT"
       - name: Build and upload bundles to the draft release
-        uses: tauri-apps/tauri-action@abbd19ab15b37f89667db9cc46ec1cb5419f22be # v1
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           CARGO_NET_OFFLINE: true
         with:
