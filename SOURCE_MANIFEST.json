@@ -2,7 +2,7 @@
   "version": "0.6.1",
   "generated": 1785847535,
   "root": "Octopus-0.6.1",
-  "file_count": 380,
+  "file_count": 379,
   "files": {
     ".claude-plugin/plugin.json": "5671723c4869dcae32e8050aa18437e0ff01bde37fc6d18b5120810045cf5a09",
     ".gitattributes": "c41b15dfba8e2ca096b715cd0ee0d5831a781e21d2b5fbb4e5229ace268b36aa",
@@ -29,7 +29,6 @@
     "SOURCE_REVISION": "3f839fcde55e67a71406e74d57739dd9699037d3f38ea146a685026278e9567f",
     "STATES.md": "33f52a33abbe42d5e5d17549004b38b437d06136da946a6006605df7e38450d6",
     "build-windows.sh": "8f1ffccdcc0f77b2b229c1ee6abc4977d95b9d3dd17195e1e01aa526af18f51b",
-    "cargo-audit-install.log": "d127aa587ab2f7216f462713aa91c919a14c43a6702295effb3c36f015465f9f",
     "cli-smoke-test.sh": "45fae69517482f0c7408302f6b9cf69d24fc0f539d1a63858a263906833a204b",
     "docs/ARCHITECTURE_BOUNDARIES.md": "add72374b3b222bd65d8f0039cdeb6a8acf79dc7ae47e8842faea801235f7663",
     "docs/ARCHITECTURE_HARDCODED_INVENTORY.md": "751d8806cd48ea436cc59ecb4553b3a6b0eead2ad01ee41bd791506c5642ff73",
@@ -156,7 +155,7 @@
     "package-lock.json": "ac4aa0a36523cd683f4e9fa3c77b643ecd82c6ad88806a187b20929e7b588107",
     "package.json": "30e6dee0396ec6826ab9d1910d1a9c2892189e0d8c917a677603f613ba04a906",
     "protocol-baseline.json": "b0882fc78f22cf124453bf22ee75ba6d3981e7f5645fc0a0e776bc4f0ae8eb9c",
-    "report.txt": "7e11e3f60e2024056effd13ae5ead6c8f44177db3d7b7650f560fecdc7198f24",
+    "report.txt": "1497e2e4e041ff6a5ac5786cbd863097c8a63ddc10751ede59b11d52d53262a5",
     "reports/asset-visual-baseline.json": "f112a44a56b23d7d60b9a7981428ed7d2e77d9bb577b49389b752d9a360345ab",
     "reports/provider-real-aider-2026-08-30T04-36-06-004Z.json": "4c7aa429c813ddb820c5e3dad609c14fdfa16b01763225615a3411ae8336c3fe",
     "reports/provider-real-claude-2026-08-30T03-34-21-839Z.json": "002f63fb24fc1fd4cbd8096850b6c840f7ac3e04a5f5fef16e512bf2fcf598f9",
@@ -385,6 +384,6 @@
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
     "worklog.md": "97ff85901b0edf591d75b13a42c4bd1089dee43ba3dada75ab09e66a415d9af2"
   },
-  "sha256_of_manifest": "fe14ac6defd50bd95ed581cef4f10bf045f1d19be2439d8fc581d74430e955a7",
+  "sha256_of_manifest": "c9a3037b6e0bc269c9dbecd6f2b3371ef65354564669a9dada62e3577acd896a",
   "source_commit": "octopus-0.5.62"
 }
