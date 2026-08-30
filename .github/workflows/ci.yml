@@ -35,6 +35,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
       - name: Verify Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
