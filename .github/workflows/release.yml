@@ -188,6 +188,15 @@ jobs:
         run: |
           node scripts/generate-checksums.js src-tauri/target "reports/SHA256SUMS-${{ matrix.platform }}"
           gh release upload "$DRAFT_TAG" "reports/SHA256SUMS-${{ matrix.platform }}" --clobber
+      - name: Publish the per-platform SBOM
+        shell: bash
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          DRAFT_TAG: ${{ needs.prepare.outputs.draft_tag }}
+        run: |
+          node scripts/generate-sbom.js "reports/octopus-${{ matrix.platform }}.spdx.json"
+          gh release upload "$DRAFT_TAG" "reports/octopus-${{ matrix.platform }}.spdx.json" --clobber
       - name: Attest the platform checksum manifest
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
