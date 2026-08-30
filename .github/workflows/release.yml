@@ -97,7 +97,7 @@ jobs:
     needs: prepare
     runs-on: ${{ matrix.os }}
     permissions:
-      contents: read
+      contents: write
       id-token: write
       attestations: write
     strategy:
@@ -168,6 +168,7 @@ jobs:
       - name: Build and upload bundles to the draft release
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           CARGO_NET_OFFLINE: true
         with:
           projectPath: src-tauri
