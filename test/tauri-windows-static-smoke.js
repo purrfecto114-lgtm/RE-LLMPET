@@ -62,9 +62,16 @@ assert(hook.includes('USERPROFILE'), 'hook client needs a Windows home fallback'
 assert(hook.includes('X-Re-Llmpet-Token'), 'hook transport must authenticate local requests');
 
 const packageJson = json('package.json');
-assert.strictEqual(packageJson.dependencies.electron, undefined);
-assert.strictEqual(packageJson.devDependencies.electron, undefined);
-assert(packageJson.scripts['package:win'].includes('--bundles nsis'));
+// Electron exit: dependency blocks may be absent entirely; absence == pass.
+assert.strictEqual((packageJson.dependencies || {}).electron, undefined);
+assert.strictEqual((packageJson.devDependencies || {}).electron, undefined);
+// Windows bundling is now declared in src-tauri/tauri.windows.conf.json
+// (bundle.targets === ['nsis'] asserted above). The npm package:win script
+// from the electron-builder era is gone; keep the semantic by asserting the
+// Tauri build script exists and no script re-references electron-builder.
+assert(packageJson.scripts['tauri:build'].includes('cargo tauri build'));
+assert(Object.values(packageJson.scripts).every((script) => !/electron/i.test(script)),
+  'no npm script may reference electron tooling anymore');
 
 // R22 (2026-08-10): hide_console_window regression guard.
 // Octopus is a GUI-subsystem binary; every non-interactive console child

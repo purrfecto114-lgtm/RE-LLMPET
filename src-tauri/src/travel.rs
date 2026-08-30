@@ -198,17 +198,33 @@ impl TravelManager {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_ascii_lowercase);
-        let provider = match requested {
-            Some(value) if matches!(value.as_str(), "claude" | "codex" | "codewhale") => value,
-            Some(_) => {
-                return Err("wander currently supports Claude, Codex, and CodeWhale only".into())
-            }
-            None => runtime
+        // R50: degrade instead of erroring. The pet resolves its "current
+        // provider" from live sessions, which can legitimately be opencode /
+        // aider / the neutral aggregate bucket — none of which have a wander
+        // runner yet. Previously that surfaced as a raw "wander currently
+        // supports … only" error on click. Fall back to the first enabled
+        // supported provider, then to the historical default, and log the
+        // degradation so the choice stays diagnosable.
+        let supported_by_config = || {
+            runtime
                 .config()
                 .providers
                 .into_iter()
                 .find(|value| matches!(value.as_str(), "claude" | "codex" | "codewhale"))
-                .unwrap_or_else(|| "claude".into()),
+        };
+        let provider = match requested {
+            Some(value) if matches!(value.as_str(), "claude" | "codex" | "codewhale") => value,
+            Some(rejected) => {
+                let fallback = supported_by_config().unwrap_or_else(|| "claude".into());
+                runtime.write_log(
+                    "travel",
+                    &format!(
+                        "wander provider '{rejected}' has no runner; degrading to '{fallback}'"
+                    ),
+                );
+                fallback
+            }
+            None => supported_by_config().unwrap_or_else(|| "claude".into()),
         };
         self.start(
             app,

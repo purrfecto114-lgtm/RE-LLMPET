@@ -1,12 +1,12 @@
 {
   "schemaVersion": 2,
-  "updatedAt": "2026-08-01",
+  "updatedAt": "2026-08-30",
   "sourceFork": {
     "repository": "https://github.com/purrfecto114-lgtm/LLMPET",
     "publishedTag": "v0.1.2-pre",
     "tagCommit": "1a6617a",
-    "observedMainCommit": "86cbd9e",
-    "observedAt": "2026-07-27",
+    "observedMainCommit": "11ff1baf1aab7ee6844b29799d04884141b664b0",
+    "observedAt": "2026-08-30",
     "verificationUrl": "https://github.com/purrfecto114-lgtm/LLMPET/commits/main/"
   },
   "localContracts": {
@@ -58,7 +58,8 @@
       "SubagentStart",
       "SubagentStop",
       "PreCompact",
-      "PostCompact"
+      "PostCompact",
+      "Interrupt"
     ],
     "opencodeNeedles": [
       "permission.asked",
@@ -73,7 +74,7 @@
       "session.status"
     ],
     "aiderNeedles": [
-      "notifications_command:",
+      "notifications-command:",
       "turn-end-only"
     ]
   },
@@ -82,9 +83,9 @@
       "id": "source-fork-head-and-tag",
       "url": "https://github.com/purrfecto114-lgtm/LLMPET/commits/main/",
       "required": [
-        "86cbd9e",
-        "1a6617a"
-      ]
+        "11ff1ba"
+      ],
+      "note": "R51 2026-08-30: upstream fork moved (old head 86cbd9e paginated off page 1; new head 11ff1ba observed). Tag anchor 1a6617a dropped from required needles — it is a historical tag commit and no longer appears on the commits/main page. New commits were not API-inspectable from this network (GitHub API 403); treat as \"upstream active, review if rebasing\"."
     },
     {
       "id": "claude-hooks",
@@ -115,7 +116,8 @@
         "PermissionRequest",
         "hookSpecificOutput",
         "/hooks"
-      ]
+      ],
+      "note": "R51 2026-08-30: this host serves 403 bot-blocks to datacenter IPs. The checker classifies 401/403/429/5xx as transport-blocked (not content drift); the needles are additionally verified live by scripts/provider-smoke/run-codex.sh against codex-cli 0.151.0 (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/Stop/SessionEnd all fired with hookSpecificOutput-honoring decisions)."
     },
     {
       "id": "opencode-plugins",

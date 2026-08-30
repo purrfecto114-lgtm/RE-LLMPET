@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "provider": "aider",
+  "platform": "linux",
+  "arch": "x64",
+  "isolatedHome": true,
+  "cliVersion": "aider 0.86.2",
+  "events": [
+    "turn-end"
+  ],
+  "permissionDecisions": [],
+  "permissionMode": "native-only",
+  "trustReviewed": false,
+  "commandTranscripts": [
+    "2026-08-30T04:36:09Z argv=",
+    "2026-08-30T04:36:09Z argv="
+  ],
+  "errors": [],
+  "stdoutTail": "run-aider: evidence written to /tmp/octopus-aider-QUI35i/provider-evidence.json\n",
+  "stderrTail": "",
+  "completedAt": "2026-08-30T04:36:12.716Z"
+}

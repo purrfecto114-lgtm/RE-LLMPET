@@ -1,0 +1,49 @@
+name: Desktop real machine gate
+
+# Real-desktop UI gate: drives the actual pet window, tray menu and panel
+# on self-hosted machines with a display, then samples idle CPU / RSS /
+# startup metrics. scripts/real-desktop-gate.js requires a genuine GUI
+# automation command via OCTOPUS_GUI_GATE_COMMAND — a headless runner
+# cannot produce this evidence.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '41 1 * * 2'
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-gate:
+    name: Real desktop gate (${{ matrix.platform }})
+    runs-on:
+      - self-hosted
+      - desktop
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux, darwin, win32]
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: actions/setup-node@94196ee1d15439c1b6651cd87ef14e88ec435966
+        with:
+          node-version: 20
+      - name: Build the release desktop binary offline
+        shell: bash
+        run: |
+          cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+          CARGO_NET_OFFLINE=true cargo build --manifest-path src-tauri/Cargo.toml --release --locked
+      - name: Drive the real desktop UI and sample performance
+        shell: bash
+        env:
+          OCTOPUS_GUI_GATE_COMMAND: ${{ vars.DESKTOP_GATE_COMMAND }}
+          OCTOPUS_BENCHMARK_DURATION: '300'
+        run: node scripts/real-desktop-gate.js --platform ${{ matrix.platform }}
+      - name: Retain the desktop evidence bundle
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: desktop-real-${{ matrix.platform }}-${{ github.run_number }}
+          path: reports/
+          if-no-files-found: warn

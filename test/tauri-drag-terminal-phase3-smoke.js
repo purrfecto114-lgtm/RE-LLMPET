@@ -33,8 +33,14 @@ assert(commands.includes('pub fn commit_win_pos'), 'native final-position commit
 assert(commands.includes('fn resize_pet_anchored'), 'DPI-aware anchored resize helper missing');
 assert(commands.includes('.scale_factor()'), 'logical sizes must use the current window scale factor');
 assert(commands.includes('monitor.work_area()'), 'resized windows must clamp to the monitor work area');
-assert(commands.includes('let center_x ='), 'resize must preserve the pet bottom-centre anchor');
-assert(commands.includes('let bottom ='), 'resize must preserve the pet bottom edge');
+// R50 refactor: the anchor math now lives in the place_pet_anchor pure
+// function (anchor_x/anchor_y), replacing the old inline let center_x/bottom.
+// Intent preserved: bottom-centre anchoring + work-area clamping.
+assert(commands.includes('fn place_pet_anchor('), 'anchored placement must be a pure, testable helper');
+assert(commands.includes('let mut anchor_x'), 'resize must derive a horizontal centre anchor');
+assert(commands.includes('let mut anchor_y'), 'resize must derive the bottom-edge anchor');
+assert(commands.includes('anchor_y - i64::from(height)'), 'placement must keep the pet bottom edge on screen');
+assert(commands.includes('anchor_x - i64::from(width) / 2'), 'placement must keep the pet horizontally centred on its anchor');
 assert(pet.includes('OctoLatestValue.createLatestValueController') && pet.includes('const petSizeController'), 'Tauri resize requests must be coalesced by the latest-value controller');
 assert(pet.includes("rlog('resize', 'set size failed:"), 'resize failures should remain diagnosable');
 

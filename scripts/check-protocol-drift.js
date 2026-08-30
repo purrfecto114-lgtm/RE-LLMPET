@@ -76,19 +76,27 @@ async function fetchContract(contract) {
   try {
     const response = await fetch(contract.url, {
       redirect: 'follow',
-      headers: { 'user-agent': 'Octopus-protocol-drift-check/0.5.41', accept: 'text/html,application/json,text/plain;q=0.9,*/*;q=0.1' },
+      headers: { 'user-agent': 'Octopus-protocol-drift-check/0.6.1', accept: 'text/html,application/json,text/plain;q=0.9,*/*;q=0.1' },
       signal: controller.signal,
     });
     const text = await readBoundedResponse(response);
     const missing = contract.required.filter((needle) => !text.includes(needle));
+    // R51 (2026-08-30): distinguish "we could not see the page" from "the
+    // page changed". 401/403/429 are transport-level blocks (CDN bot rules
+    // against datacenter IPs — observed for developers.openai.com/codex/hooks
+    // from this sandbox while the documented needles remain verified by the
+    // shipped codex binary itself). A block is NOT content drift: it must not
+    // fail strict-network runs, but it stays visible in the report.
+    const blocked = [401, 403, 429].includes(response.status) || (response.status >= 500 && response.status < 600);
     return {
       id: contract.id,
       url: contract.url,
       finalUrl: response.url,
       reachable: true,
+      blocked,
       status: response.status,
       bytes: Buffer.byteLength(text),
-      ok: response.ok && missing.length === 0,
+      ok: blocked ? null : response.ok && missing.length === 0,
       missing,
     };
   } catch (error) {
@@ -112,7 +120,8 @@ async function main() {
   const cliVersions = baseline.cliVersionCommands.map(cliVersion);
   const remote = remoteEnabled ? await Promise.all(baseline.remoteContracts.map(fetchContract)) : [];
   const localDrift = local.some((entry) => !entry.ok);
-  const remoteDrift = remote.some((entry) => entry.reachable && !entry.ok);
+  const remoteDrift = remote.some((entry) => entry.reachable && entry.ok === false);
+  const blocked = remote.filter((entry) => entry.blocked);
   const networkInconclusive = remote.some((entry) => !entry.reachable);
   const report = {
     schemaVersion: 1,
@@ -122,11 +131,20 @@ async function main() {
     local,
     cliVersions,
     remote,
-    verdict: localDrift || remoteDrift ? 'review-required' : remote.length === 0 ? 'local-contract-ok' : networkInconclusive ? 'inconclusive-network' : 'remote-contract-ok',
+    blocked,
+    verdict: localDrift || remoteDrift
+      ? 'review-required'
+      : blocked.length
+        ? (networkInconclusive ? 'inconclusive-blocked' : 'remote-contract-ok-blocked')
+        : remote.length === 0
+          ? 'local-contract-ok'
+          : networkInconclusive
+            ? 'inconclusive-network'
+            : 'remote-contract-ok',
   };
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-  console.log(`protocol-drift: ${report.verdict}; report=${path.relative(root, reportPath)}`);
+  console.log(`protocol-drift: ${report.verdict}; report=${path.relative(root, reportPath)}${blocked.length ? `; blocked=[${blocked.map((entry) => entry.id + ':' + entry.status).join(',')}]` : ''}`);
   if (localDrift || remoteDrift || (strictNetwork && networkInconclusive)) process.exitCode = 1;
 }
 

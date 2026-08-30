@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.6.1 — Provider Hooks 真实 CLI 冒烟 + 协议基线校准（2026-08-30）
+
+> 0.6.0（R50，2026-08-29/30）修复了 8 类桌宠问题并完成 Electron 清理，
+> 未单独记条目；本条目含其后的 0.6.1 增量。
+
+### HIGH: 五大 provider hooks 可用性以真实 CLI 实证（去理想化返工）
+- **方法**: 自下载 provider CLI（claude 2.1.251 / codex-cli 0.151.0 / opencode 1.18.25 /
+  aider(pip) / codewhale 文档+CLI），用本机 mock 模型服务（OpenAI chat/completions、
+  Responses API、Anthropic Messages 三协议）驱动真实 CLI 全链路会话，hooks 指向捕获
+  shim/收集器。新增 `scripts/provider-smoke/`（collector / mock-llm / mock-anthropic /
+  hook-capture / claude-decide-shim / run-{claude,opencode,codex}.sh），可被
+  `real-provider-smoke.js`（`OCTOPUS_PROVIDER_SMOKE_COMMAND`）直接调用。
+- **结果（全部为真实 CLI 行为，非 fixture）**:
+  - **claude 2.1.251 PASS**（官方契约全过）: SessionStart/UserPromptSubmit/PreToolUse/
+    PostToolUse/Stop/SessionEnd 全触发；Read 工具真实执行；hookSpecificOutput 的
+    allow/deny/ask 决策全部被 CLI 遵守（deny 时工具被阻止）。23 事件清单与二进制
+    strings 一致，决策协议 token 全部存活。另证：hooks 在无 API 调用前即可触发。
+  - **opencode 1.18.25 PASS**: 官方契约全过。从 hook_install.rs 运行时抽取的 v4 插件
+    真实加载，桥接（/state + X-Re-Llmpet-Token）验证；SessionStart/SessionStatus/
+    PreToolUse/PostToolUse/Stop/Notification(permission.asked→needsinput) 全触发。
+    注意：`--format json` 在无 TTY 管道下可挂死 1.18.25（记录在案）。
+  - **codex 0.151.0 部分通过（诚实失败）**: SessionStart/UserPromptSubmit/PreToolUse/
+    PostToolUse/Stop/SessionEnd 全触发（payload 含 turn_id/tool_input/tool_response/
+    stop_hook_active）；rollout 文件首行 session_meta 与 codex_rollout.rs 解析一致；
+    `--dangerously-bypass-hook-trust` 可绕过 /hooks 信任。**失败项**: PermissionRequest
+    无法在 headless 诱发（exec 模式自动批准 + workspace-write 沙箱放行 /tmp），allow/deny
+    决策证据缺失 → real-provider-smoke 如实判 FAIL。重大情报: codex 0.151 移除
+    `wire_api="chat"`（仅 Responses API）；shell 工具改名 exec_command（参数
+    {"cmd":"..."}）；`codex exec` 在 stdin 为未关闭管道时会等待输入（必须 </dev/null）。
+  - **codewhale**: 文档契约核实（11 事件名/[[hooks.hooks]] schema/decision 词表
+    allow|deny|ask/exit 2 硬拒/background 语义）。**hooks 是 TUI 运行时特性**——
+    `codewhale exec` 等 CLI 面不触发（官方 HOOKS.md 明示），沙箱无法 headless 冒烟，
+    如实标注待 TUI 环境验证。env 契约新增 DEEPSEEK_TOOL_EXIT_CODE/TOTAL_TOKENS/
+    SESSION_COST 三变量映射。
+  - **aider 0.86.2 PASS**: 官方契约全过（turn-end + native-only）。**并揪出真 bug**:
+    我们 install_aider 写入的 `notifications_command:`（下划线）会让当前 aider 直接
+    exit(2)（configargparse YAMLConfigFileParser 把 yaml 键原样拼成 CLI 旗标，而旗标
+    是连字符版）→ 已修复为 `notifications-command:` 并锁定回归测试。另证：通知在
+    "下一次用户输入提示"时触发（单回合 --message 模式永不触发，冒烟需管道双输入）。
+
+### FIX: 协议基线与代码校准
+- `hook_install.rs`: CODEX_EVENTS 增补 `Interrupt`（二进制实证的用户中止事件，
+  TUI 门控）；opencode 安装日志 v3→v4 更正。
+- `hook_client.rs`: codex `Interrupt` 归一化为 Stop/attention（中止后桌宠不再永远
+  working）；CodeWhale env 兜底表补 3 变量。
+- `check-protocol-drift.js`: 401/403/429/5xx 归类为 transport-blocked（非内容漂移），
+  strict-network 不再因 CDN 拦截误报；报告新增 blocked 清单。
+- `protocol-baseline.json`: codexEvents+Interrupt；上游 fork 头部更新为 11ff1ba
+  （旧 86cbd9e 已翻页，上游仍为 Electron 线，本仓 Tauri 线分叉记录在案）；
+  developers.openai.com 403 注记 + 活体验证替代说明。
+
+### 工具链
+- 沙箱自建 Rust 1.98.0（rustup minimal）+ 683 个 GTK dev deb（apt-get download 闭包
+  解包到 ~/.local/gtk-dev + pkg-config --define-prefix 包装），恢复 cargo 全量检查能力。
+
+### 验证
+- real-provider-smoke: opencode/claude PASS（官方报告入 reports/）；codex FAIL
+  （缺 allow/deny——headless 不可诱发，见上）；npm test / static-checks / cargo
+  fmt+clippy+test 结果见交付说明。
+
+---
+
 ## 0.5.62 — 桌宠状态过渡动画（B3）（2026-08-11）
 
 ### HIGH: 状态切换平滑过渡

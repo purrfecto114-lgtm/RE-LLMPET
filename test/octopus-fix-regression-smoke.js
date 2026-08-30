@@ -10,7 +10,10 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const exists = (file) => fs.existsSync(path.join(root, file));
 
 const css = read('frontend/renderer/pet.css');
-assert(css.includes('#pixel.error .pixel-sprite { animation: errShake'), 'error animation must stay on inner sprite');
+// R50: errShake (one-shot shake) was replaced by errPersist (2.4s persistent
+// shake) so a stuck error keeps signalling; the animation still lives on the
+// INNER .pixel-sprite, never on the outer hit container.
+assert(css.includes('#pixel.error .pixel-sprite { animation: errPersist'), 'error animation must stay on inner sprite');
 assert(css.includes('#mascot.act-work #mascot-img, #pixel.act-work .pixel-sprite'), 'busy animation must stay on inner visual layers');
 assert(!/#pixel\.error\s*\{[^}]*animation:/s.test(css), 'outer pixel hit container must not animate');
 assert(!/#mascot\.act-work\s*\{[^}]*animation:/s.test(css), 'outer mascot hit container must not animate');

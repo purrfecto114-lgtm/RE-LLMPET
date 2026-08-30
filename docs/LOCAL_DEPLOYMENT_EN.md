@@ -26,38 +26,37 @@ Requirements: Git, Node.js 18 or newer (CI uses Node.js 20), and Claude Code and
 ```bash
 git clone https://github.com/myunwang/LLMPET.git
 cd LLMPET
-npm ci
+npm install
 npm test
-npm start
+npm run tauri:dev
 ```
 
-`npm ci` installs the dependency versions pinned in `package-lock.json`. `npm start` runs LLMPET in the foreground.
+`npm ci` installs the dependency versions pinned in `package-lock.json`. `npm run tauri:dev` runs LLMPET in the foreground.
 
 Useful launch variants:
 
 ```bash
-OCTOPUS_NO_HOOKS=1 npm start  # do not modify Claude settings
-OCTOPUS_NO_NET=1 npm start    # disable the optional pricing download
+OCTOPUS_NO_HOOKS=1 npm run tauri:dev  # do not modify Claude settings
+OCTOPUS_NO_NET=1 npm run tauri:dev    # disable the optional pricing download
 ```
 
 PowerShell:
 
 ```powershell
 $env:OCTOPUS_NO_HOOKS='1'
-npm start
+npm run tauri:dev
 ```
 
 If Electron downloads are slow:
 
 ```bash
-ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm ci
+npm install
 ```
 
 PowerShell:
 
 ```powershell
-$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'
-npm ci
+$env:npm install
 ```
 
 ## Create a local package

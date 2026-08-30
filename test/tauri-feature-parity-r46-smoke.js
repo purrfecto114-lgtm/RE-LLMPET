@@ -33,14 +33,24 @@ const windows = conf.app.windows;
 const primary = windows.find((w) => w.label === 'pet');
 const codex = windows.find((w) => w.label === 'pet-codex');
 assert(primary && codex, 'dual-pet mode requires pet and pet-codex windows');
-assert(primary.url.includes('agent=claude') && codex.url.includes('agent=codex'), 'each pet window must have a stable provider identity');
+// 2026-08-29 (user-reported bug): the primary pet window URL must NOT hardcode
+// ?agent=claude — the query used to override the config-driven defaultAgent()
+// fix, so PET_AGENT was stuck on 'claude'. Identity is now config-driven for
+// the primary pet; only the dedicated codex pet pins its agent via query.
+assert(!primary.url.includes('agent='), 'primary pet window URL must not hardcode a provider identity (config-driven defaultAgent)');
+assert(codex.url.includes('agent=codex'), 'the codex pet window must keep its stable provider identity');
 for (const token of ['pub pet_mode: String', 'pub skin_codex: String', 'pub pet_position_codex: Option<Point>']) {
   assert(model.includes(token), `dual-pet config field missing: ${token}`);
 }
 assert(commands.includes('pub fn set_pet_mode') && commands.includes('sync_pet_windows'), 'dual-pet mode command/synchronizer missing');
 assert(platform.includes('Mutex<HashMap<String, bool>>') && platform.includes('Mutex<HashMap<String, VisualBounds>>'), 'click-through state must be isolated by window label');
 assert(platform.includes('for label in ["pet", "pet-codex"]'), 'native cursor/recovery workers must cover both pets');
-assert(petAgent.includes("get('agent') === 'codex'") && petAgent.includes('event.provider || (event.trip && event.trip.provider)') && petAgent.includes('const latest = sessions[0] || null'), 'renderer must isolate direct/nested provider events without overriding backend state priority');
+// R50 refactor: pet-agent-view.js now resolves identity via a URLSearchParams
+// snapshot (fromQuery) instead of URLSearchParams(...).get('agent'); event
+// routing reads event.provider with the trip provider as fallback and picks
+// sessions[0] as the latest snapshot. Intent unchanged: direct/nested provider
+// events stay isolated without overriding backend state priority.
+assert(petAgent.includes("fromQuery === 'codex'") && petAgent.includes('event.provider || (event.trip && event.trip.provider)') && petAgent.includes('const latest = sessions[0] || null'), 'renderer must isolate direct/nested provider events without overriding backend state priority');
 assert(petJs.includes('!eventBelongsToThisPet(event)'), 'travel lifecycle events must stay on their provider-specific pet');
 
 // P1 — pet HUD search/filter/pin/archive with persisted preferences.

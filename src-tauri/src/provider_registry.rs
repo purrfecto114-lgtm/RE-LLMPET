@@ -1,9 +1,16 @@
+// R51 (2026-08-30): this module is the declared capability matrix
+// (docs/PROVIDER_CAPABILITY_MATRIX.md) — the API surface is intentionally
+// complete and awaiting wiring per roadmap; unused items are kept, not
+// deleted, so allow(dead_code) is scoped to the whole module file.
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 /// Provider capability flags — declarative, no hidden magic.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CapabilityFlags {
     /// Provider installs and uses native hooks (Claude, CodeWhale, Codex, OpenCode, Aider)
@@ -20,20 +27,6 @@ pub struct CapabilityFlags {
     pub trust_review: bool,
     /// Provider supports subagent/delegation tracking
     pub subagent: bool,
-}
-
-impl Default for CapabilityFlags {
-    fn default() -> Self {
-        Self {
-            hook: false,
-            observer: false,
-            launch: false,
-            metering: false,
-            permission_bridge: false,
-            trust_review: false,
-            subagent: false,
-        }
-    }
 }
 
 /// Permission mode for hook / external permission handling.
@@ -217,42 +210,66 @@ impl ProviderRegistry {
 
     /// Get provider specs that have the `hook` capability.
     pub fn hook_providers(&self) -> Vec<&ProviderSpec> {
-        self.all_specs().into_iter().filter(|s| s.capabilities.hook).collect()
+        self.all_specs()
+            .into_iter()
+            .filter(|s| s.capabilities.hook)
+            .collect()
     }
 
     /// Get provider specs that have the `observer` capability.
     pub fn observer_providers(&self) -> Vec<&ProviderSpec> {
-        self.all_specs().into_iter().filter(|s| s.capabilities.observer).collect()
+        self.all_specs()
+            .into_iter()
+            .filter(|s| s.capabilities.observer)
+            .collect()
     }
 
     /// Get provider specs that have the `launch` capability.
     pub fn launch_providers(&self) -> Vec<&ProviderSpec> {
-        self.all_specs().into_iter().filter(|s| s.capabilities.launch).collect()
+        self.all_specs()
+            .into_iter()
+            .filter(|s| s.capabilities.launch)
+            .collect()
     }
 
     /// Get provider specs that have the `metering` capability.
     pub fn metering_providers(&self) -> Vec<&ProviderSpec> {
-        self.all_specs().into_iter().filter(|s| s.capabilities.metering).collect()
+        self.all_specs()
+            .into_iter()
+            .filter(|s| s.capabilities.metering)
+            .collect()
     }
 
     /// Get provider specs that have the `permission_bridge` capability.
     pub fn permission_bridge_providers(&self) -> Vec<&ProviderSpec> {
-        self.all_specs().into_iter().filter(|s| s.capabilities.permission_bridge).collect()
+        self.all_specs()
+            .into_iter()
+            .filter(|s| s.capabilities.permission_bridge)
+            .collect()
     }
 
     /// Convert custom spec to internal ProviderSpec.
-    fn custom_spec_to_provider_spec(&self, spec: crate::config_types::CustomProviderSpec) -> Option<ProviderSpec> {
+    fn custom_spec_to_provider_spec(
+        &self,
+        spec: crate::config_types::CustomProviderSpec,
+    ) -> Option<ProviderSpec> {
         // Validate ID: alphanumeric + hyphen, max 32 chars, not empty, not conflicting with built-in
         if spec.id.is_empty()
             || spec.id.len() > 32
-            || !spec.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            || !spec
+                .id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-')
             || self.builtin.contains_key(&spec.id)
         {
             return None;
         }
         // Validate command: non-empty, no shell metacharacters
         if spec.command.is_empty()
-            || spec.command.chars().any(|c| matches!(c, '|' | '&' | ';' | '$' | '`' | '(' | ')' | '<' | '>'))
+            || spec
+                .command
+                .chars()
+                .any(|c| matches!(c, '|' | '&' | ';' | '$' | '`' | '(' | ')' | '<' | '>'))
         {
             return None;
         }
@@ -311,9 +328,15 @@ impl ProviderRegistry {
                 config_cmd: None,
             },
             ui_metadata: UiMetadata {
-                icon: ui_metadata.as_ref().and_then(|u| u.icon.clone()).unwrap_or_else(|| "⬦".to_string()),
+                icon: ui_metadata
+                    .as_ref()
+                    .and_then(|u| u.icon.clone())
+                    .unwrap_or_else(|| "⬦".to_string()),
                 label,
-                color: ui_metadata.as_ref().and_then(|u| u.color.clone()).unwrap_or_else(|| "#8a8a8e".to_string()),
+                color: ui_metadata
+                    .as_ref()
+                    .and_then(|u| u.color.clone())
+                    .unwrap_or_else(|| "#8a8a8e".to_string()),
                 i18n_prefix: format!("custom.{}", id),
             },
         })
@@ -334,15 +357,28 @@ impl ProviderRegistry {
                 title: "Claude Code".to_string(),
                 command: "claude".to_string(),
                 companion: None,
-                config_path: home.join(".claude").join("settings.json").to_string_lossy().to_string(),
+                config_path: home
+                    .join(".claude")
+                    .join("settings.json")
+                    .to_string_lossy()
+                    .to_string(),
                 events: vec![
-                    "PreToolUse".to_string(), "PostToolUse".to_string(), "UserPromptSubmit".to_string(), "Stop".to_string(),
-                    "Notification".to_string(), "PreCompact".to_string(), "SubagentStart".to_string(), "SubagentStop".to_string()
+                    "PreToolUse".to_string(),
+                    "PostToolUse".to_string(),
+                    "UserPromptSubmit".to_string(),
+                    "Stop".to_string(),
+                    "Notification".to_string(),
+                    "PreCompact".to_string(),
+                    "SubagentStart".to_string(),
+                    "SubagentStop".to_string(),
                 ],
                 markers: MarkerSet {
                     begin: "# octopus:claude-hooks:begin".to_string(),
                     end: "# octopus:claude-hooks:end".to_string(),
-                    legacy: vec!["# re-llmpet-hooks:begin".to_string(), "# re-llmpet-hooks:end".to_string()],
+                    legacy: vec![
+                        "# re-llmpet-hooks:begin".to_string(),
+                        "# re-llmpet-hooks:end".to_string(),
+                    ],
                 },
                 permission_mode: PermissionMode::External,
                 capabilities: CapabilityFlags {
@@ -364,8 +400,16 @@ impl ProviderRegistry {
                 diagnostic_probes: DiagnosticProbes {
                     version_cmd: Some(vec!["claude".to_string(), "--version".to_string()]),
                     doctor_cmd: None,
-                    auth_cmd: Some(vec!["claude".to_string(), "auth".to_string(), "status".to_string()]),
-                    config_cmd: Some(vec!["claude".to_string(), "config".to_string(), "list".to_string()]),
+                    auth_cmd: Some(vec![
+                        "claude".to_string(),
+                        "auth".to_string(),
+                        "status".to_string(),
+                    ]),
+                    config_cmd: Some(vec![
+                        "claude".to_string(),
+                        "config".to_string(),
+                        "list".to_string(),
+                    ]),
                 },
                 ui_metadata: UiMetadata {
                     icon: "🤖".to_string(),
@@ -384,16 +428,31 @@ impl ProviderRegistry {
                 title: "CodeWhale".to_string(),
                 command: "codewhale".to_string(),
                 companion: Some("codewhale-tui".to_string()),
-                config_path: home.join(".config").join("codewhale").join("config.toml").to_string_lossy().to_string(),
+                config_path: home
+                    .join(".config")
+                    .join("codewhale")
+                    .join("config.toml")
+                    .to_string_lossy()
+                    .to_string(),
                 events: vec![
-                    "turn_start".to_string(), "turn_end".to_string(), "tool_call".to_string(), "tool_result".to_string(),
-                    "user_message".to_string(), "assistant_message".to_string(), "approval_asked".to_string(), "approval_decided".to_string(),
-                    "compaction_start".to_string(), "compaction_end".to_string()
+                    "turn_start".to_string(),
+                    "turn_end".to_string(),
+                    "tool_call".to_string(),
+                    "tool_result".to_string(),
+                    "user_message".to_string(),
+                    "assistant_message".to_string(),
+                    "approval_asked".to_string(),
+                    "approval_decided".to_string(),
+                    "compaction_start".to_string(),
+                    "compaction_end".to_string(),
                 ],
                 markers: MarkerSet {
                     begin: "# octopus:codewhale-hooks:v4".to_string(),
                     end: "# octopus:codewhale-hooks:end".to_string(),
-                    legacy: vec!["# re-llmpet-hooks:begin".to_string(), "# re-llmpet-hooks:end".to_string()],
+                    legacy: vec![
+                        "# re-llmpet-hooks:begin".to_string(),
+                        "# re-llmpet-hooks:end".to_string(),
+                    ],
                 },
                 permission_mode: PermissionMode::ExternalAfterTrust,
                 capabilities: CapabilityFlags {
@@ -414,9 +473,21 @@ impl ProviderRegistry {
                 },
                 diagnostic_probes: DiagnosticProbes {
                     version_cmd: Some(vec!["codewhale".to_string(), "--version".to_string()]),
-                    doctor_cmd: Some(vec!["codewhale".to_string(), "doctor".to_string(), "--json".to_string()]),
-                    auth_cmd: Some(vec!["codewhale".to_string(), "auth".to_string(), "status".to_string()]),
-                    config_cmd: Some(vec!["codewhale".to_string(), "config".to_string(), "list".to_string()]),
+                    doctor_cmd: Some(vec![
+                        "codewhale".to_string(),
+                        "doctor".to_string(),
+                        "--json".to_string(),
+                    ]),
+                    auth_cmd: Some(vec![
+                        "codewhale".to_string(),
+                        "auth".to_string(),
+                        "status".to_string(),
+                    ]),
+                    config_cmd: Some(vec![
+                        "codewhale".to_string(),
+                        "config".to_string(),
+                        "list".to_string(),
+                    ]),
                 },
                 ui_metadata: UiMetadata {
                     icon: "🐋".to_string(),
@@ -435,11 +506,22 @@ impl ProviderRegistry {
                 title: "Codex".to_string(),
                 command: "codex".to_string(),
                 companion: None,
-                config_path: home.join(".codex").join("hooks.json").to_string_lossy().to_string(),
+                config_path: home
+                    .join(".codex")
+                    .join("hooks.json")
+                    .to_string_lossy()
+                    .to_string(),
                 events: vec![
-                    "session_start".to_string(), "turn_start".to_string(), "turn_end".to_string(), "tool_call".to_string(),
-                    "tool_result".to_string(), "user_message".to_string(), "assistant_message".to_string(),
-                    "pre_tool_use".to_string(), "post_tool_use".to_string(), "notification".to_string()
+                    "session_start".to_string(),
+                    "turn_start".to_string(),
+                    "turn_end".to_string(),
+                    "tool_call".to_string(),
+                    "tool_result".to_string(),
+                    "user_message".to_string(),
+                    "assistant_message".to_string(),
+                    "pre_tool_use".to_string(),
+                    "post_tool_use".to_string(),
+                    "notification".to_string(),
                 ],
                 markers: MarkerSet {
                     begin: "# octopus:codex-hooks:begin".to_string(),
@@ -465,9 +547,21 @@ impl ProviderRegistry {
                 },
                 diagnostic_probes: DiagnosticProbes {
                     version_cmd: Some(vec!["codex".to_string(), "--version".to_string()]),
-                    doctor_cmd: Some(vec!["codex".to_string(), "doctor".to_string(), "--json".to_string()]),
-                    auth_cmd: Some(vec!["codex".to_string(), "auth".to_string(), "status".to_string()]),
-                    config_cmd: Some(vec!["codex".to_string(), "config".to_string(), "list".to_string()]),
+                    doctor_cmd: Some(vec![
+                        "codex".to_string(),
+                        "doctor".to_string(),
+                        "--json".to_string(),
+                    ]),
+                    auth_cmd: Some(vec![
+                        "codex".to_string(),
+                        "auth".to_string(),
+                        "status".to_string(),
+                    ]),
+                    config_cmd: Some(vec![
+                        "codex".to_string(),
+                        "config".to_string(),
+                        "list".to_string(),
+                    ]),
                 },
                 ui_metadata: UiMetadata {
                     icon: "💻".to_string(),
@@ -486,10 +580,21 @@ impl ProviderRegistry {
                 title: "OpenCode".to_string(),
                 command: "opencode".to_string(),
                 companion: None,
-                config_path: home.join(".config").join("opencode").join("plugins").join("llmpet-hook.js").to_string_lossy().to_string(),
+                config_path: home
+                    .join(".config")
+                    .join("opencode")
+                    .join("plugins")
+                    .join("llmpet-hook.js")
+                    .to_string_lossy()
+                    .to_string(),
                 events: vec![
-                    "PreToolUse".to_string(), "PostToolUse".to_string(), "UserPromptSubmit".to_string(), "Stop".to_string(),
-                    "Notification".to_string(), "SubagentStart".to_string(), "SubagentStop".to_string()
+                    "PreToolUse".to_string(),
+                    "PostToolUse".to_string(),
+                    "UserPromptSubmit".to_string(),
+                    "Stop".to_string(),
+                    "Notification".to_string(),
+                    "SubagentStart".to_string(),
+                    "SubagentStop".to_string(),
                 ],
                 markers: MarkerSet {
                     begin: "// octopus:opencode-hooks:begin".to_string(),
@@ -538,7 +643,10 @@ impl ProviderRegistry {
                 companion: None,
                 config_path: home.join(".aider.conf.yml").to_string_lossy().to_string(),
                 events: vec![
-                    "turn_start".to_string(), "turn_end".to_string(), "tool_call".to_string(), "tool_result".to_string()
+                    "turn_start".to_string(),
+                    "turn_end".to_string(),
+                    "tool_call".to_string(),
+                    "tool_result".to_string(),
                 ],
                 markers: MarkerSet {
                     begin: "# octopus:aider-hooks:begin".to_string(),
@@ -593,9 +701,17 @@ impl ProviderRegistry {
                     .to_string_lossy()
                     .to_string(),
                 events: vec![
-                    "turn_start".to_string(), "turn_end".to_string(), "tool_call".to_string(), "tool_result".to_string(),
-                    "user_message".to_string(), "assistant_message".to_string(), "approval_asked".to_string(), "approval_decided".to_string(),
-                    "compaction_start".to_string(), "compaction_end".to_string(), "session_title".to_string()
+                    "turn_start".to_string(),
+                    "turn_end".to_string(),
+                    "tool_call".to_string(),
+                    "tool_result".to_string(),
+                    "user_message".to_string(),
+                    "assistant_message".to_string(),
+                    "approval_asked".to_string(),
+                    "approval_decided".to_string(),
+                    "compaction_start".to_string(),
+                    "compaction_end".to_string(),
+                    "session_title".to_string(),
                 ],
                 markers: MarkerSet {
                     begin: "# octopus:dsh-hooks:begin".to_string(),
@@ -634,24 +750,22 @@ impl ProviderRegistry {
             },
         );
 
-map
+        map
     }
 }
 /// Global registry instance — initialized at startup from config.
-static mut REGISTRY: Option<ProviderRegistry> = None;
+/// R51: OnceLock replaces `static mut` (shared references to mutable
+/// statics are UB-adjacent and warn under rust-2024 compatibility).
+static REGISTRY: OnceLock<ProviderRegistry> = OnceLock::new();
 
 /// Initialize the global registry from custom provider specs.
 pub fn init_registry(custom_specs: Vec<crate::config_types::CustomProviderSpec>) {
-    unsafe {
-        REGISTRY = Some(ProviderRegistry::new(custom_specs));
-    }
+    let _ = REGISTRY.set(ProviderRegistry::new(custom_specs));
 }
 
 /// Get the global registry instance.
 pub fn registry() -> &'static ProviderRegistry {
-    unsafe {
-        REGISTRY.as_ref().expect("Provider registry not initialized")
-    }
+    REGISTRY.get().expect("Provider registry not initialized")
 }
 
 /// Validate a list of provider IDs against the registry.
@@ -675,22 +789,37 @@ pub fn default_pet_agent(active: &[String]) -> String {
             }
         }
     }
-    active.first().cloned().unwrap_or_else(|| "claude".to_string())
+    active
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "claude".to_string())
 }
 
 /// Get all providers with hook capability (for hook resync).
 pub fn hook_provider_ids() -> Vec<String> {
-    registry().hook_providers().iter().map(|s| s.id.clone()).collect()
+    registry()
+        .hook_providers()
+        .iter()
+        .map(|s| s.id.clone())
+        .collect()
 }
 
 /// Get all providers with observer capability.
 pub fn observer_provider_ids() -> Vec<String> {
-    registry().observer_providers().iter().map(|s| s.id.clone()).collect()
+    registry()
+        .observer_providers()
+        .iter()
+        .map(|s| s.id.clone())
+        .collect()
 }
 
 /// Get all providers with launch capability.
 pub fn launch_provider_ids() -> Vec<String> {
-    registry().launch_providers().iter().map(|s| s.id.clone()).collect()
+    registry()
+        .launch_providers()
+        .iter()
+        .map(|s| s.id.clone())
+        .collect()
 }
 
 /// Get provider spec for CLI commands.

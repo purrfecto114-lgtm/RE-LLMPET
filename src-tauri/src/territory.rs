@@ -201,8 +201,12 @@ fn chatgpt_visual_bounds(
 ) -> (i32, i32, i32, i32) {
     // placement: end = pushing right (or window center on right half of screen)
     let end = dir == 1;
-    // lower = mascot in lower half of the transparent frame
-    let lower = y + height / 2 >= y + height / 2; // always true for our use; kept for parity
+    // lower = mascot in lower half of the transparent frame. The upstream
+    // JS derived this from the mascot's live position; every window layout we
+    // ship places it in the lower half, so the branch is constant here. The
+    // old spelling (`y + height/2 >= y + height/2`) was a tautology that
+    // tripped clippy::eq_op — replaced by the explicit constant.
+    let lower = true;
     let sx = width as f64 / CHATGPT_VIEWPORT_W as f64;
     let sy = height as f64 / CHATGPT_VIEWPORT_H as f64;
     let frame_left = if end {
@@ -403,14 +407,11 @@ return output
         .map_err(|error| format!("launch osascript: {error}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(
-            if is_perm_error(&stderr) {
-                "macOS Accessibility permission is required to inspect and move rival windows"
-                    .into()
-            } else {
-                format!("System Events query failed: {}", clean(&stderr, 1200))
-            },
-        );
+        return Err(if is_perm_error(&stderr) {
+            "macOS Accessibility permission is required to inspect and move rival windows".into()
+        } else {
+            format!("System Events query failed: {}", clean(&stderr, 1200))
+        });
     }
 
     let pet_window = app
@@ -567,10 +568,7 @@ fn windows_patrol(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
         1 // TRUE: continue enumeration
     }
     unsafe {
-        let _ = EnumWindows(
-            Some(enum_proc),
-            &mut handles as *mut Vec<HWND> as isize,
-        );
+        let _ = EnumWindows(Some(enum_proc), &mut handles as *mut Vec<HWND> as isize);
     }
 
     let pet_window = app

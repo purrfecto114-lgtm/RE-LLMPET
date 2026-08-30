@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "provider": "opencode",
+  "platform": "linux",
+  "arch": "x64",
+  "isolatedHome": true,
+  "cliVersion": "1.18.25",
+  "events": [
+    "session-start",
+    "tool",
+    "turn-end"
+  ],
+  "permissionDecisions": [],
+  "permissionMode": "native-only",
+  "trustReviewed": false,
+  "commandTranscripts": [
+    "PreToolUse:read",
+    "PostToolUse:read",
+    "PreToolUse:read",
+    "PostToolUse:read"
+  ],
+  "errors": [],
+  "stdoutTail": "run-opencode: evidence written to /tmp/octopus-opencode-EsYoV2/provider-evidence.json\n",
+  "stderrTail": "",
+  "completedAt": "2026-08-30T03:23:21.288Z"
+}

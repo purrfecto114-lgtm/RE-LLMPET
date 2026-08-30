@@ -1,18 +1,47 @@
 'use strict';
 
+// R50 (2026-08-30): dual pets must not share one wander trip. The backend
+// snapshot exposes `active` as an owner-keyed map ({"pet": …, "pet-codex": …})
+// plus the legacy `activeTrip` (first trip of ANY owner). The previous code
+// read only `activeTrip`, so after either pet started a trip BOTH pets'
+// HUDs showed "⏹ 取消旅行" and the same status line — wander looked
+// identical on both pets. Resolve the trip for THIS pet's owner window first
+// and only fall back to `activeTrip` when the owner map is absent (older
+// backend payload).
 window.OctoPetTravelView = (() => {
-  function create({ api, bubble, close, provider }) {
+  // Wander needs a provider whose CLI can execute a headless web mission.
+  // The Rust side currently implements claude / codex / codewhale runners;
+  // opencode and aider are launched differently and are rejected there.
+  // When the pet resolves to one of those (or the neutral 'aggregate'
+  // bucket), degrade to the first ENABLED supported provider instead of
+  // failing the click.
+  const WANDER_SUPPORTED = ['claude', 'codex', 'codewhale'];
+
+  function ownerKeyFor(agent) {
+    return agent === 'codex' ? 'pet-codex' : 'pet';
+  }
+
+  function create({ api, bubble, close, provider, agent, enabledProviders }) {
     const wander = document.getElementById('sl-wander');
     const status = document.getElementById('sl-travel-status');
     let state = null;
 
+    function activeTripForPet(snapshot) {
+      const ownerMap = snapshot && snapshot.active;
+      if (ownerMap && typeof ownerMap === 'object') {
+        const own = ownerMap[ownerKeyFor(agent)];
+        if (own) return own;
+        // Owner map present but this pet has no trip — do NOT borrow another
+        // pet's trip; report "no active trip" for this window.
+        return null;
+      }
+      return (snapshot && snapshot.activeTrip) || null;
+    }
+
     function update(next) {
       if (next) state = next;
       const snapshot = state || {};
-      // `active` is now an owner-keyed map ({"pet": {...}, "pet-codex": {...}})
-      // after the dual-pet refactor. `activeTrip` is the backward-compat single
-      // trip used for this pet's travel-view display.
-      const active = snapshot.activeTrip;
+      const active = activeTripForPet(snapshot);
       const growth = snapshot.growth || {};
       // P5-3 fix (R2): if a terminal event (completed/failed/cancelled)
       // arrives for a trip whose id doesn't match the currently-active
@@ -35,16 +64,22 @@ window.OctoPetTravelView = (() => {
 
     async function toggle() {
       try {
-        if (state && state.activeTrip) {
+        if (activeTripForPet(state)) {
           await api.cancelTravel();
           bubble('⏹ 正在取消旅行…', 2400, true);
           return;
         }
-        const target = typeof provider === 'function' ? provider() : provider;
-        if (!target || target === 'aggregate') throw new Error('no provider available for wander');
+        let target = typeof provider === 'function' ? provider() : provider;
+        // R50: degrade unsupported/neutral resolutions to the first
+        // supported enabled provider instead of erroring out.
+        if (!target || !WANDER_SUPPORTED.includes(target)) {
+          const enabled = (typeof enabledProviders === 'function' ? enabledProviders() : null) || [];
+          target = WANDER_SUPPORTED.find((id) => enabled.includes(id)) || null;
+        }
+        if (!target) throw new Error('no wander-capable provider enabled (claude/codex/codewhale)');
         const result = await api.startWander('在公开网络上寻找一个值得开发者今天了解的新工具、方法或趋势', target);
         update(result);
-        bubble('🐾 出门闲逛啦，回来会带明信片！', 3600, true);
+        bubble(`🐾 出门闲逛啦（${target}），回来会带明信片！`, 3600, true);
         close();
       } catch (error) {
         bubble(`⚠️ 闲逛失败：${String(error && (error.message || error) || 'unknown')}`, 5000, true);
@@ -58,5 +93,5 @@ window.OctoPetTravelView = (() => {
     return { update };
   }
 
-  return { create };
+  return { create, ownerKeyFor, WANDER_SUPPORTED };
 })();

@@ -37,7 +37,7 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.5.62',
+assert.strictEqual(packageJson.version, '0.6.1',
   'R40: package.json version must be 0.5.57');
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -45,8 +45,12 @@ assert.strictEqual(packageJson.version, '0.5.62',
 // ──────────────────────────────────────────────────────────────────────────
 
 // The plugin source is a raw string in hook_install.rs.
+// R50: marker bumped v3 -> v4 (2026-08-29 subagent/parent metadata rework);
+// v3 (and older) markers now live in the OPENCODE_MARKER_LEGACY list.
+assert(hookInstall.includes('octopus-opencode-plugin-v4'),
+  'R40-1: opencode plugin marker must use the current Octopus v4 identity');
 assert(hookInstall.includes('octopus-opencode-plugin-v3'),
-  'R40-1: opencode plugin marker must use the current Octopus v3 identity');
+  'R50: the retired v3 marker must be retained in the legacy overwrite list');
 assert(!hookInstall.includes('"session.status": ["UserPromptSubmit", "thinking"]'),
   'R40-1: session.status MUST NOT map to UserPromptSubmit (causes "收到新任务" on every tool call)');
 // R40.1: session.status now uses a dynamic handler that reads the actual

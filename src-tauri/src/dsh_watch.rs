@@ -1,3 +1,10 @@
+// R51 (2026-08-30): the DshEvent/…/RequestContextData structs below are the
+// declared wire-contract types for the DSH observer line format
+// (docs/DSH_OBSERVER_DELIVERY_2026-08-29.md). Deserialization call sites are
+// gated behind the DSH watch pipeline; they are contract documentation as
+// much as code, so unused-construction warnings are silenced file-wide.
+#![allow(dead_code)]
+
 use crate::dsh_zstd::decode_complete_frames;
 use crate::model::{Runtime, Session};
 use serde::{Deserialize, Serialize};
@@ -101,11 +108,23 @@ enum DshEvent {
     #[serde(rename = "llm/retry")]
     LlmRetry { seq: u64, time: u64 },
     #[serde(rename = "session/title")]
-    SessionTitle { seq: u64, time: u64, data: TitleData },
+    SessionTitle {
+        seq: u64,
+        time: u64,
+        data: TitleData,
+    },
     #[serde(rename = "request/header")]
-    RequestHeader { seq: u64, time: u64, data: RequestHeaderData },
+    RequestHeader {
+        seq: u64,
+        time: u64,
+        data: RequestHeaderData,
+    },
     #[serde(rename = "request/context")]
-    RequestContext { seq: u64, time: u64, data: RequestContextData },
+    RequestContext {
+        seq: u64,
+        time: u64,
+        data: RequestContextData,
+    },
     #[serde(rename = "text-chunks")]
     TextChunks,
     #[serde(rename = "reasoning-chunks")]
@@ -242,7 +261,10 @@ impl DshWatcher {
     }
 
     pub async fn start(&mut self) {
-        if std::env::var("LLMPET_NO_DSH").map(|v| v == "1").unwrap_or(false) {
+        if std::env::var("LLMPET_NO_DSH")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+        {
             info!("dsh watcher disabled, not starting");
             return;
         }
@@ -322,13 +344,20 @@ impl DshWatcher {
         Ok(sessions)
     }
 
-    async fn process_session(&mut self, session_path: &Path) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn process_session(
+        &mut self,
+        session_path: &Path,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Ensure tracker exists
         if !self.trackers.contains_key(session_path) {
             self.trackers.insert(
                 session_path.to_path_buf(),
                 SessionTracker {
-                    session_id: session_path.file_name().unwrap().to_string_lossy().to_string(),
+                    session_id: session_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .to_string(),
                     is_zstd: false,
                     accepts_events: false,
                     file_offset: 0,
@@ -416,7 +445,11 @@ impl DshWatcher {
             lines.last().map(|v| v.to_string()).unwrap_or_default()
         };
 
-        let end_idx = if tracker.carry.is_empty() { lines.len() } else { lines.len().saturating_sub(1) };
+        let end_idx = if tracker.carry.is_empty() {
+            lines.len()
+        } else {
+            lines.len().saturating_sub(1)
+        };
         for line in &lines[..end_idx] {
             if line.trim().is_empty() {
                 continue;
@@ -424,11 +457,8 @@ impl DshWatcher {
 
             match serde_json::from_str::<Value>(line) {
                 Ok(event_value) => {
-                    if let Err(e) = Self::handle_event_static(
-                        runtime,
-                        tracker,
-                        &event_value,
-                    ).await {
+                    if let Err(e) = Self::handle_event_static(runtime, tracker, &event_value).await
+                    {
                         warn!("dsh event parse error: {}", e);
                     }
                 }
@@ -456,7 +486,10 @@ impl DshWatcher {
             // Fail-closed: reject unknown versions
             if header.version != 0 {
                 tracker.accepts_events = false;
-                warn!("dsh session {}: unknown version {}, ignoring", header.id, header.version);
+                warn!(
+                    "dsh session {}: unknown version {}, ignoring",
+                    header.id, header.version
+                );
                 return Ok(());
             }
 
@@ -496,6 +529,7 @@ impl DshWatcher {
                 last_event_rank: 0,
                 last_event_key: None,
                 ended_at: None,
+                parent_id: None,
             };
 
             // Use the runtime's session ingestion - directly insert into sessions map
@@ -529,15 +563,35 @@ impl DshWatcher {
         match event_type {
             "turn/start" => {
                 tracker.session_state = "thinking".to_string();
-                Self::emit_session_event_static(runtime, &tracker.session_id, "TaskStarted", json!({}), time, seq)?;
+                Self::emit_session_event_static(
+                    runtime,
+                    &tracker.session_id,
+                    "TaskStarted",
+                    json!({}),
+                    time,
+                    seq,
+                )?;
             }
             "user/message" => {
                 let data = event.get("data");
-                let source_kind = data.and_then(|d| d.get("source")).and_then(|s| s.get("kind")).and_then(|k| k.as_str());
+                let source_kind = data
+                    .and_then(|d| d.get("source"))
+                    .and_then(|s| s.get("kind"))
+                    .and_then(|k| k.as_str());
                 if source_kind == Some("user") {
                     tracker.session_state = "thinking".to_string();
-                    let prompt = data.and_then(|d| d.get("content")).and_then(|c| c.as_str()).unwrap_or("");
-                    Self::emit_session_event_static(runtime, &tracker.session_id, "UserPromptSubmit", json!({ "prompt": prompt }), time, seq)?;
+                    let prompt = data
+                        .and_then(|d| d.get("content"))
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("");
+                    Self::emit_session_event_static(
+                        runtime,
+                        &tracker.session_id,
+                        "UserPromptSubmit",
+                        json!({ "prompt": prompt }),
+                        time,
+                        seq,
+                    )?;
                 }
             }
             "step/start" => {
@@ -548,7 +602,10 @@ impl DshWatcher {
             }
             "tool/call" | "tool/code-dispatch-start" => {
                 let data = event.get("data");
-                let tool_name = data.and_then(|d| d.get("name")).and_then(|n| n.as_str()).unwrap_or("");
+                let tool_name = data
+                    .and_then(|d| d.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("");
                 tracker.session_state = "working".to_string();
 
                 // Check for Task/subagent tool
@@ -556,23 +613,50 @@ impl DshWatcher {
                     tracker.session_state = "juggling".to_string();
                 }
 
-                Self::emit_session_event_static(runtime, &tracker.session_id, "PreToolUse", json!({ "tool_name": tool_name }), time, seq)?;
+                Self::emit_session_event_static(
+                    runtime,
+                    &tracker.session_id,
+                    "PreToolUse",
+                    json!({ "tool_name": tool_name }),
+                    time,
+                    seq,
+                )?;
             }
             "tool/result" | "tool/code-dispatch" => {
                 let data = event.get("data");
-                let tool_name = data.and_then(|d| d.get("name")).and_then(|n| n.as_str()).unwrap_or("");
+                let tool_name = data
+                    .and_then(|d| d.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("");
                 let error = data.and_then(|d| d.get("error")).and_then(|e| e.as_str());
 
                 if error.is_some() {
-                    Self::emit_session_event_static(runtime, &tracker.session_id, "PostToolUseFailure", json!({ "tool_name": tool_name }), time, seq)?;
+                    Self::emit_session_event_static(
+                        runtime,
+                        &tracker.session_id,
+                        "PostToolUseFailure",
+                        json!({ "tool_name": tool_name }),
+                        time,
+                        seq,
+                    )?;
                     tracker.session_state = "error".to_string();
                 } else {
-                    Self::emit_session_event_static(runtime, &tracker.session_id, "PostToolUse", json!({ "tool_name": tool_name }), time, seq)?;
+                    Self::emit_session_event_static(
+                        runtime,
+                        &tracker.session_id,
+                        "PostToolUse",
+                        json!({ "tool_name": tool_name }),
+                        time,
+                        seq,
+                    )?;
                 }
             }
             "assistant/message" => {
                 let data = event.get("data");
-                let content = data.and_then(|d| d.get("content")).and_then(|c| c.as_str()).unwrap_or("");
+                let content = data
+                    .and_then(|d| d.get("content"))
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("");
                 tracker.assistant_last_output = Some(content.to_string());
 
                 // Extract usage for context %
@@ -588,26 +672,58 @@ impl DshWatcher {
             }
             "turn/end" => {
                 let data = event.get("data");
-                let reason = data.and_then(|d| d.get("reason")).and_then(|r| r.get("kind")).and_then(|k| k.as_str()).unwrap_or("");
+                let reason = data
+                    .and_then(|d| d.get("reason"))
+                    .and_then(|r| r.get("kind"))
+                    .and_then(|k| k.as_str())
+                    .unwrap_or("");
 
                 match reason {
                     "completed" => {
                         tracker.session_state = "attention".to_string();
-                    Self::emit_session_event_static(runtime, &tracker.session_id, "Stop", json!({}), time, seq)?;
+                        Self::emit_session_event_static(
+                            runtime,
+                            &tracker.session_id,
+                            "Stop",
+                            json!({}),
+                            time,
+                            seq,
+                        )?;
                     }
                     "error" => {
                         tracker.session_state = "error".to_string();
-                        Self::emit_session_event_static(runtime, &tracker.session_id, "ApiError", json!({}), time, seq)?;
+                        Self::emit_session_event_static(
+                            runtime,
+                            &tracker.session_id,
+                            "ApiError",
+                            json!({}),
+                            time,
+                            seq,
+                        )?;
                     }
                     _ => {
                         // aborted, blocked, etc.
                         tracker.session_state = "idle".to_string();
-                        Self::emit_session_event_static(runtime, &tracker.session_id, "TurnAborted", json!({}), time, seq)?;
+                        Self::emit_session_event_static(
+                            runtime,
+                            &tracker.session_id,
+                            "TurnAborted",
+                            json!({}),
+                            time,
+                            seq,
+                        )?;
                     }
                 }
             }
             "approval/asked" => {
-                Self::emit_session_event_static(runtime, &tracker.session_id, "Notification", json!({ "text": "waiting for reply" }), time, seq)?;
+                Self::emit_session_event_static(
+                    runtime,
+                    &tracker.session_id,
+                    "Notification",
+                    json!({ "text": "waiting for reply" }),
+                    time,
+                    seq,
+                )?;
                 tracker.session_state = "notification".to_string();
             }
             "approval/decided" => {
@@ -617,14 +733,28 @@ impl DshWatcher {
                 }
             }
             "compaction/start" => {
-                Self::emit_session_event_static(runtime, &tracker.session_id, "PreCompact", json!({}), time, seq)?;
+                Self::emit_session_event_static(
+                    runtime,
+                    &tracker.session_id,
+                    "PreCompact",
+                    json!({}),
+                    time,
+                    seq,
+                )?;
                 tracker.session_state = "sweeping".to_string();
             }
             "compaction/end" => {
                 tracker.session_state = "thinking".to_string();
             }
             "llm/retry" => {
-                Self::emit_session_event_static(runtime, &tracker.session_id, "ApiError", json!({}), time, seq)?;
+                Self::emit_session_event_static(
+                    runtime,
+                    &tracker.session_id,
+                    "ApiError",
+                    json!({}),
+                    time,
+                    seq,
+                )?;
                 tracker.session_state = "error".to_string();
             }
             "session/title" => {
@@ -641,7 +771,10 @@ impl DshWatcher {
             }
             "request/context" => {
                 let data = event.get("data");
-                if let Some(ctx) = data.and_then(|d| d.get("context_window")).and_then(|c| c.as_u64()) {
+                if let Some(ctx) = data
+                    .and_then(|d| d.get("context_window"))
+                    .and_then(|c| c.as_u64())
+                {
                     tracker.context_limit = Some(ctx);
                 }
                 if let Some(_model) = data.and_then(|d| d.get("model")).and_then(|m| m.as_str()) {
@@ -654,7 +787,14 @@ impl DshWatcher {
         Ok(())
     }
 
-    fn emit_session_event_static(runtime: &Arc<Runtime>, session_id: &str, kind: &str, data: Value, time: u64, seq: u64) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn emit_session_event_static(
+        runtime: &Arc<Runtime>,
+        session_id: &str,
+        kind: &str,
+        data: Value,
+        time: u64,
+        seq: u64,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut event = json!({
             "session_id": session_id,
             "provider": PROVIDER_ID,
@@ -676,9 +816,8 @@ impl DshWatcher {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        self.trackers.retain(|_, tracker| {
-            now.saturating_sub(tracker.last_event_time) < IDLE_UNTRACK_MS
-        });
+        self.trackers
+            .retain(|_, tracker| now.saturating_sub(tracker.last_event_time) < IDLE_UNTRACK_MS);
     }
 }
 

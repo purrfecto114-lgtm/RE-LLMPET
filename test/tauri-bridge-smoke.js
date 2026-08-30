@@ -67,6 +67,9 @@ const expected = [
   'blurPet', 'openLog', 'petLog', 'uiBusy', 'petVisualBounds',
   // R44 0.5.40 (Roadmap v6 P0-01): config recovery closure.
   'getConfigState', 'backupAndResetConfig', 'getInstallReceipts',
+  // 2026-08-29 config-driven default agent: the pet window no longer relies
+  // on a hardcoded ?agent= query, so the bridge exposes the configured default.
+  'defaultAgent',
 ].sort();
 assert(api && typeof api === 'object');
 assert(Object.isFrozen(api), 'compatibility API must be frozen');

@@ -1,0 +1,35 @@
+name: Protocol drift check
+
+# Weekly canary that compares the local Claude / CodeWhale / Codex /
+# OpenCode / Aider observer contracts in src-tauri/src/hook_install.rs
+# against the pinned protocol-baseline.json, and (with --remote) against
+# the live upstream documentation pages. Network-inconclusive runs fail
+# in --strict-network mode so a silently-changed provider doc page cannot
+# hide behind a flaky network.
+
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: Compare provider contracts against the pinned baseline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: actions/setup-node@94196ee1d15439c1b6651cd87ef14e88ec435966
+        with:
+          node-version: 20
+      - name: Check provider protocol drift (local + remote contracts)
+        run: node scripts/check-protocol-drift.js --remote --strict-network
+      - name: Retain the drift report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: protocol-drift-report-${{ github.run_number }}
+          path: reports/protocol-drift.json
+          if-no-files-found: warn

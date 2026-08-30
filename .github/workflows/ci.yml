@@ -14,11 +14,55 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         node: [18, 20, 22]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: actions/setup-node@94196ee1d15439c1b6651cd87ef14e88ec435966
         with:
           node-version: ${{ matrix.node }}
-      # 冒烟测试只依赖 Node 内置模块 + 仓库内文件（不 require electron），
-      # 所以无需 npm install —— 直接跑，快且不受 electron 二进制下载影响。
+      # 冒烟测试只依赖 Node 内置模块 + 仓库内文件（不需要 npm install），
+      # 直接跑，快且不受二进制下载影响。
       - name: Smoke + renderer tests
         run: npm test
+
+  rust:
+    name: Rust gates (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@2c7215f132e9 # stable
+        with:
+          components: rustfmt, clippy
+      - name: Verify Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - name: Compile against the committed lockfile
+        run: cargo check --manifest-path src-tauri/Cargo.toml --locked
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
+      - name: Run Rust unit tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
+      - name: Compile the release helper binary offline
+        env:
+          CARGO_NET_OFFLINE: true
+        run: cargo build --manifest-path src-tauri/Cargo.toml --bin octopus-hook --release --locked
+
+  rustsec:
+    name: RustSec advisory scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - name: Install the pinned cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: Audit the committed Cargo.lock
+        working-directory: src-tauri
+        run: cargo audit --json > audit.json
+      - name: Retain the advisory report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cargo-audit-${{ github.run_number }}
+          path: src-tauri/audit.json
+          if-no-files-found: ignore

@@ -92,10 +92,12 @@ const pluginCheck = spawnSync(process.execPath, ['--check', temp], { encoding: '
 fs.rmSync(temp, { force: true });
 assert.strictEqual(pluginCheck.status, 0, pluginCheck.stderr);
 
-// Aider: YAML config uses underscore (notifications_command); the CLI flag
-// uses hyphen (--notifications-command). The installer must write the YAML form.
-assert(installer.includes('notifications_command:'));
-assert(installer.includes('notifications: true\\nnotifications_command:'));
+// Aider: configargparse YAMLConfigFileParser turns the yaml key VERBATIM into
+// a CLI flag, so the key must match the dash spelling of --notifications-command.
+// R51 (2026-08-30): the underscore spelling was verified live to make aider
+// 0.86.2 exit(2) with "unrecognized arguments: --notifications_command=...".
+assert(installer.includes('notifications-command:'));
+assert(installer.includes('notifications: true\\nnotifications-command:'));
 assert(installer.includes('turn-end-only'));
 assert(client.includes('stable_session("aider"'));
 

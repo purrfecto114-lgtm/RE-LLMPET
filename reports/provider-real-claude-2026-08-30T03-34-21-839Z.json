@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "provider": "claude",
+  "platform": "linux",
+  "arch": "x64",
+  "isolatedHome": true,
+  "cliVersion": "2.1.251 (Claude Code)",
+  "events": [
+    "session-start",
+    "tool",
+    "turn-end"
+  ],
+  "permissionDecisions": [
+    "allow",
+    "deny",
+    "ask"
+  ],
+  "permissionMode": null,
+  "trustReviewed": false,
+  "commandTranscripts": [
+    "PreToolUse:Read",
+    "PreToolUse:allow:Read",
+    "PreToolUse:deny:Read",
+    "PreToolUse:ask:Read"
+  ],
+  "errors": [],
+  "stdoutTail": "run-claude: evidence written to /tmp/octopus-claude-EKTU1x/provider-evidence.json\n",
+  "stderrTail": "",
+  "completedAt": "2026-08-30T03:34:26.378Z"
+}

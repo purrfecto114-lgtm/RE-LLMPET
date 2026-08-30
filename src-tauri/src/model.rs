@@ -1,4 +1,6 @@
-use crate::config_types::{CustomProviderSpec, validate_custom_provider_specs, validate_provider_ids};
+use crate::config_types::{
+    validate_custom_provider_specs, validate_provider_ids, CustomProviderSpec,
+};
 use crate::metering::{UsageIngest, UsageLedger};
 use crate::transcript::TranscriptScanner;
 use serde::{Deserialize, Serialize};
@@ -276,6 +278,8 @@ pub struct Session {
     pub last_event_key: Option<String>,
     #[serde(default, skip_serializing)]
     pub ended_at: Option<u64>,
+    #[serde(default, skip_serializing)]
+    pub parent_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -804,6 +808,27 @@ impl Runtime {
             .get("headless")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        // R50: explicit parent identity (OpenCode plugin session.created with
+        // parentID, CodeWhale parent env) marks child sessions headless at the
+        // source; a child with a parent is never a top-level row.
+        let parent_id = clean_text(body.get("parent_id").or_else(|| body.get("parentId")), 256);
+        let headless = headless || parent_id.is_some();
+        // R50: adoption heuristic — subagent tool streams that arrive WITHOUT
+        // any parent metadata still must not become top-level pseudo sessions
+        // (the "桌宠下面的点排满了" regression). A session whose FIRST event is a
+        // bare tool call is, with high confidence, a child of the live
+        // top-level session in the same provider+cwd. Auto-adopted rows carry
+        // parent_id="auto:<owner>" and are released as soon as an unambiguous
+        // top-level lifecycle event (session start / user prompt / turn stop /
+        // session end) arrives without a parent marker.
+        let adopts_on_first_event = matches!(
+            event.as_str(),
+            "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "SubagentStop"
+        ) && parent_id.is_none();
+        let releases_auto_adoption = matches!(
+            event.as_str(),
+            "SessionStart" | "UserPromptSubmit" | "Stop" | "SessionEnd"
+        ) && parent_id.is_none();
         let state = normalize_state(&explicit_state, &event);
         let now = now_ms();
         let event_at = incoming_event_time(body, now);
@@ -850,6 +875,25 @@ impl Runtime {
 
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let (snapshot, accepted) = {
+            // R50: resolve the auto-adoptive parent BEFORE taking the entry —
+            // a brand-new session whose first event is a bare tool call adopts
+            // the live top-level sibling in the same provider+cwd as parent.
+            let adopted_parent = if adopts_on_first_event && !sessions.contains_key(&id) {
+                sessions
+                    .values()
+                    .find(|sibling| {
+                        sibling.id != id
+                            && sibling.provider == provider
+                            && !cwd.is_empty()
+                            && sibling.cwd == cwd
+                            && !sibling.headless
+                            && sibling.state != "sleeping"
+                            && now.saturating_sub(sibling.updated_at) <= 300_000
+                    })
+                    .map(|sibling| format!("auto:{}", sibling.id))
+            } else {
+                None
+            };
             let entry = sessions.entry(id.clone()).or_insert_with(|| Session {
                 id: id.clone(),
                 provider: provider.clone(),
@@ -858,7 +902,7 @@ impl Runtime {
                 tool_name: None,
                 model: None,
                 assistant_last_output: None,
-                headless,
+                headless: headless || adopted_parent.is_some(),
                 updated_at: now,
                 source_pid,
                 context_used: usage_result.context_used,
@@ -873,6 +917,7 @@ impl Runtime {
                 last_event_rank: 0,
                 last_event_key: None,
                 ended_at: None,
+                parent_id: parent_id.clone().or_else(|| adopted_parent.clone()),
             });
             let accepted =
                 should_accept_event(entry, event_at, event_seq, event_rank, event_key.as_deref());
@@ -900,6 +945,21 @@ impl Runtime {
                 // later status/tool events often omit parent metadata. Never
                 // turn an established headless child back into a top-level row.
                 entry.headless = entry.headless || headless;
+                if parent_id.is_some() {
+                    entry.parent_id = parent_id.clone();
+                }
+                // R50: an explicit top-level lifecycle event releases an
+                // AUTO-adopted row (our guess was wrong); explicit parents are
+                // sticky and never released here.
+                if releases_auto_adoption
+                    && entry
+                        .parent_id
+                        .as_deref()
+                        .is_some_and(|value| value.starts_with("auto:"))
+                {
+                    entry.parent_id = None;
+                    entry.headless = false;
+                }
                 if source_pid.is_some() {
                     entry.source_pid = source_pid;
                 }
@@ -1290,6 +1350,7 @@ impl Runtime {
                 last_event_rank: 0,
                 last_event_key: None,
                 ended_at: None,
+                parent_id: None,
             });
         if let Some((provider, tool_name, permission_id)) = pending_meta {
             entry.provider = provider;
@@ -1406,21 +1467,26 @@ impl Runtime {
                 } else {
                     (session.state.clone(), Value::Null, Value::Null)
                 };
-            if !session.headless {
-                match state.as_str() {
-                    "waiting" => waiting += 1,
-                    "needsinput" | "notification" => needs_input += 1,
-                    "working" => working += 1,
-                    "juggling" => juggling += 1,
-                    "sweeping" => sweeping += 1,
-                    "thinking" => thinking += 1,
-                    "loafing" => loafing += 1,
-                    "error" => errors += 1,
-                    // CodeWhale turn_end and OpenCode session.idle both use
-                    // attention for a top-level session awaiting its user.
-                    "attention" => attention += 1,
-                    _ => {}
-                }
+            // R50: waiting/needsinput MUST count headless children too. A
+            // blocked subagent (permission.asked lands on the child session)
+            // blocks the whole task; excluding headless rows from these two
+            // counters was why the pet never surfaced "other sessions are
+            // blocked" while an error/attention state was showing. The
+            // remaining counters keep the documented "headless sessions do not
+            // drive the main pet" semantics (STATES.md §3).
+            match state.as_str() {
+                "waiting" => waiting += 1,
+                "needsinput" | "notification" => needs_input += 1,
+                "working" if !session.headless => working += 1,
+                "juggling" if !session.headless => juggling += 1,
+                "sweeping" if !session.headless => sweeping += 1,
+                "thinking" if !session.headless => thinking += 1,
+                "loafing" if !session.headless => loafing += 1,
+                "error" if !session.headless => errors += 1,
+                // CodeWhale turn_end and OpenCode session.idle both use
+                // attention for a top-level session awaiting its user.
+                "attention" if !session.headless => attention += 1,
+                _ => {}
             }
             rows.push(json!({
                 "project":project,
@@ -1430,6 +1496,7 @@ impl Runtime {
                 "op":session.tool_name,
                 "sessionId":session.id,
                 "headless":session.headless,
+                "parentId":session.parent_id.clone(),
                 "provider":if session.provider == "claude" { Value::Null } else { json!(session.provider) },
                 "providerId":session.provider,
                 "badge":if session.state == "error" { "error" } else { "idle" },
@@ -2861,7 +2928,9 @@ fn recent_operation_for_event(
     })
 }
 
-fn tool_icon(tool: &str) -> &'static str {
+// R50: shared with http_server so emitted `operation` events carry the real
+// per-tool icon instead of a generic 🔧 for every PreToolUse.
+pub(crate) fn tool_icon(tool: &str) -> &'static str {
     match tool {
         "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => "📝",
         "Read" => "📖",
@@ -2965,6 +3034,7 @@ mod session_order_tests {
             last_event_rank: rank,
             last_event_key: key.map(str::to_string),
             ended_at: None,
+            parent_id: None,
         }
     }
 

@@ -4,8 +4,8 @@ mod commands;
 mod config_types;
 mod diagnostic_control;
 mod diagnostic_io;
-mod dsh_zstd;
 mod dsh_watch;
+mod dsh_zstd;
 mod emotion;
 pub mod hook_client;
 mod hook_install;
@@ -827,7 +827,10 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 let result = uninstall_hooks(app.clone(), app.state::<AppState>(), "claude".into());
                 let msg = match result {
                     Ok(val) => {
-                        let summary = val.get("summary").and_then(|v| v.as_str()).unwrap_or("卸载完成");
+                        let summary = val
+                            .get("summary")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("卸载完成");
                         format!("🧹 {}", summary)
                     }
                     Err(e) => format!("卸载失败: {}", e),
@@ -884,8 +887,8 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 }
             }
         });
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone());
+    if let Some(icon) = platform_tray_icon().or_else(|| app.default_window_icon().cloned()) {
+        builder = builder.icon(icon);
     }
     let _tray = builder.build(app)?;
     // R10 (2026-07-30): drop the redundant managed-handle registration. With
@@ -893,6 +896,24 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     // works without holding an extra managed handle. Keeping a second handle
     // would create ambiguous ownership on shutdown.
     Ok(())
+}
+
+/// R50 (2026-08-30): HiDPI tray icon source per platform.
+///
+/// - Windows keeps the bundled multi-resolution .ico via
+///   `default_window_icon()`; the shell picks the exact 16/24/32px entry for
+///   the current DPI scale, so re-feeding a single raster would be a loss.
+/// - macOS/Linux previously reused the full-size window icon (icns / large
+///   png), which the shell resamples down for the menu bar — visibly blurry
+///   on Retina/HiDPI. Feed the dedicated @2x tray artwork instead.
+#[cfg(not(target_os = "windows"))]
+fn platform_tray_icon() -> Option<tauri::image::Image<'static>> {
+    tauri::image::Image::from_bytes(include_bytes!("../../frontend/assets/tray@2x.png")).ok()
+}
+
+#[cfg(target_os = "windows")]
+fn platform_tray_icon() -> Option<tauri::image::Image<'static>> {
+    None
 }
 
 /// R28 (2026-07-30): Disable Windows 11 DWM automatic corner rounding.

@@ -96,7 +96,7 @@ const CLAUDE_EVENTS: [&str; 23] = [
     "WorktreeRemove",
     "DirectoryAdded",
 ];
-const CODEX_EVENTS: [&str; 11] = [
+const CODEX_EVENTS: [&str; 12] = [
     "SessionStart",
     "SessionEnd",
     "UserPromptSubmit",
@@ -108,6 +108,14 @@ const CODEX_EVENTS: [&str; 11] = [
     "SubagentStop",
     "PreCompact",
     "PostCompact",
+    // R51 (2026-08-30): Interrupt verified against the real codex-cli
+    // 0.151.0 binary (hook enum cluster + the `Interrupt hook:` log string).
+    // Stop/UserPromptSubmit were re-verified as LIVE events in the same
+    // smoke run (both fired with turn_id payloads) — earlier suspicion that
+    // they had been removed came from a Claude-settings migration enum in
+    // the binary, not the hooks.json schema. Interrupt itself fires when the
+    // user aborts a running turn (TUI-gated; not headless-exercisable).
+    "Interrupt",
 ];
 // Current maintained CodeWhale events. shell_env is excluded: it is a
 // credential/environment mutation contract, not a lifecycle observer.
@@ -150,9 +158,12 @@ const AIDER_MARKERS: &[(&str, &str)] = &[
     (AIDER_BEGIN, AIDER_END),
     (AIDER_LEGACY_BEGIN, AIDER_LEGACY_END),
 ];
-const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v3";
-const OPENCODE_MARKER_LEGACY: &[&str] =
-    &["re-llmpet-opencode-plugin-v1", "octopus-opencode-plugin-v2"];
+const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v4";
+const OPENCODE_MARKER_LEGACY: &[&str] = &[
+    "re-llmpet-opencode-plugin-v1",
+    "octopus-opencode-plugin-v2",
+    "octopus-opencode-plugin-v3",
+];
 
 #[derive(Debug, Default)]
 pub struct InstallResult {
@@ -259,7 +270,10 @@ impl CleanupResult {
     /// True if the result represents a successful cleanup (Removed or
     /// NotFound). Used by bulk uninstall to compute `allHooksVerifiedAbsent`.
     pub fn is_clean(&self) -> bool {
-        matches!(self, CleanupResult::Removed { .. } | CleanupResult::NotFound { .. })
+        matches!(
+            self,
+            CleanupResult::Removed { .. } | CleanupResult::NotFound { .. }
+        )
     }
 
     /// True if the result represents a hard failure (Unreadable or
@@ -267,7 +281,10 @@ impl CleanupResult {
     /// PathDrift) leave the file in a known state and don't block other
     /// providers.
     pub fn is_hard_failure(&self) -> bool {
-        matches!(self, CleanupResult::Unreadable { .. } | CleanupResult::ManualActionRequired { .. })
+        matches!(
+            self,
+            CleanupResult::Unreadable { .. } | CleanupResult::ManualActionRequired { .. }
+        )
     }
 }
 
@@ -295,10 +312,13 @@ pub fn sync_enabled(
     // P2-2 fix (R5): acquire process-wide lock to serialize install/uninstall
     // operations. Prevents concurrent sync_enabled or uninstall_provider_hooks
     // calls from racing on the same config files (lost-update).
-    let _guard = SYNC_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| {
-        eprintln!("[octopus:hook] sync lock poisoned, recovering: {e}");
-        e.into_inner()
-    });
+    let _guard = SYNC_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| {
+            eprintln!("[octopus:hook] sync lock poisoned, recovering: {e}");
+            e.into_inner()
+        });
     let selected: HashSet<&str> = enabled.iter().map(String::as_str).collect();
     let mut statuses = Vec::new();
     for id in ["claude", "codewhale", "codex", "opencode", "aider"] {
@@ -377,7 +397,13 @@ pub fn resync_current(runtime: &Runtime) -> Result<Vec<ProviderStatus>, String> 
         .and_then(Value::as_str)
         .ok_or("runtime token unavailable")?;
     let config = runtime.config();
-    Ok(sync_enabled(runtime, port, token, config.perm_hook, &config.providers))
+    Ok(sync_enabled(
+        runtime,
+        port,
+        token,
+        config.perm_hook,
+        &config.providers,
+    ))
 }
 
 /// R36 (2026-07-31): verify-only startup check. The 0.5.12 carpet audit
@@ -521,7 +547,11 @@ fn hook_presence(id: &str) -> HookPresence {
             &[MARKER, HOOK_OWNER],
             &[LEGACY_MARKER, LEGACY_HOOK_OWNER],
         ),
-        "codewhale" => file_block_presence(codewhale_config_path(), (CW_BEGIN, CW_END), &[(CW_LEGACY_BEGIN, CW_LEGACY_END)]),
+        "codewhale" => file_block_presence(
+            codewhale_config_path(),
+            (CW_BEGIN, CW_END),
+            &[(CW_LEGACY_BEGIN, CW_LEGACY_END)],
+        ),
         "codex" => file_marker_presence(
             home_dir().join(".codex").join("hooks.json"),
             &[MARKER, HOOK_OWNER],
@@ -667,14 +697,18 @@ fn finish_json_hook_cleanup(path: &Path) -> CleanupResult {
             detail: "Octopus-owned hook remains after cleanup".into(),
         }
     } else {
-        CleanupResult::Removed { path: path.to_path_buf() }
+        CleanupResult::Removed {
+            path: path.to_path_buf(),
+        }
     }
 }
 
 /// R44 0.5.41: Claude uninstall at a specific path (receipt-driven).
 fn uninstall_claude_at(path: &Path) -> CleanupResult {
     if !path.exists() {
-        return CleanupResult::NotFound { path: path.to_path_buf() };
+        return CleanupResult::NotFound {
+            path: path.to_path_buf(),
+        };
     }
     let raw = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -714,7 +748,9 @@ fn uninstall_claude_at(path: &Path) -> CleanupResult {
 /// R44 0.5.41: Codex uninstall at a specific path (receipt-driven).
 fn uninstall_codex_at(path: &Path) -> CleanupResult {
     if !path.exists() {
-        return CleanupResult::NotFound { path: path.to_path_buf() };
+        return CleanupResult::NotFound {
+            path: path.to_path_buf(),
+        };
     }
     let raw = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -759,19 +795,23 @@ fn uninstall_opencode_at(path: &Path) -> CleanupResult {
             let owns_legacy = OPENCODE_MARKER_LEGACY.iter().any(|m| raw.contains(m));
             if owns_current || owns_legacy {
                 match fs::remove_file(path) {
-                    Ok(()) => CleanupResult::Removed { path: path.to_path_buf() },
+                    Ok(()) => CleanupResult::Removed {
+                        path: path.to_path_buf(),
+                    },
                     Err(e) => CleanupResult::ManualActionRequired {
                         path: path.to_path_buf(),
                         detail: format!("remove_file failed: {e}"),
                     },
                 }
             } else {
-                CleanupResult::Unowned { path: path.to_path_buf() }
+                CleanupResult::Unowned {
+                    path: path.to_path_buf(),
+                }
             }
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            CleanupResult::NotFound { path: path.to_path_buf() }
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => CleanupResult::NotFound {
+            path: path.to_path_buf(),
+        },
         Err(e) => CleanupResult::Unreadable {
             path: path.to_path_buf(),
             error: e.to_string(),
@@ -789,10 +829,13 @@ fn uninstall_opencode_at(path: &Path) -> CleanupResult {
 /// distinguish "removed" / "notFound" / "unowned" / "unreadable" etc.
 pub fn uninstall_provider_hooks(id: &str) -> CleanupResult {
     // P2-2 fix (R5): acquire sync lock (shared with sync_enabled)
-    let _guard = SYNC_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| {
-        eprintln!("[octopus:hook] sync lock poisoned, recovering: {e}");
-        e.into_inner()
-    });
+    let _guard = SYNC_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| {
+            eprintln!("[octopus:hook] sync lock poisoned, recovering: {e}");
+            e.into_inner()
+        });
     cleanup_provider(id)
 }
 
@@ -803,10 +846,13 @@ pub fn uninstall_provider_hooks(id: &str) -> CleanupResult {
 /// command when a prior receipt is available.
 pub fn uninstall_provider_hooks_with_path(id: &str, receipt_path: &Path) -> CleanupResult {
     // P2-2 fix (R5): acquire sync lock (shared with sync_enabled)
-    let _guard = SYNC_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| {
-        eprintln!("[octopus:hook] sync lock poisoned, recovering: {e}");
-        e.into_inner()
-    });
+    let _guard = SYNC_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| {
+            eprintln!("[octopus:hook] sync lock poisoned, recovering: {e}");
+            e.into_inner()
+        });
     cleanup_provider_with_path(id, Some(receipt_path))
 }
 
@@ -917,7 +963,13 @@ pub fn install_claude(
         installed_events.push("PermissionRequest".into());
     }
     write_json_atomic(&settings_path, &Value::Object(settings))?;
-    write_install_receipt(runtime, "claude", &settings_path, &installed_events, backup_path.as_deref());
+    write_install_receipt(
+        runtime,
+        "claude",
+        &settings_path,
+        &installed_events,
+        backup_path.as_deref(),
+    );
     runtime.write_log("hooks", "Claude hooks synced");
     Ok(result)
 }
@@ -949,19 +1001,33 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
         let permission = event == "tool_call_before";
         let command = hook_command(&executable, "codewhale", Some(event), permission);
         block.push_str("\n[[hooks.hooks]]\n");
-        block.push_str(&format!("name = \"octopus-{event}\"\nevent = \"{event}\"\n"));
+        block.push_str(&format!(
+            "name = \"octopus-{event}\"\nevent = \"{event}\"\n"
+        ));
         block.push_str(&format!("command = {}\n", toml_string(&command)));
-        block.push_str(&format!("timeout_secs = {}\n", if permission { 600 } else { 5 }));
+        block.push_str(&format!(
+            "timeout_secs = {}\n",
+            if permission { 600 } else { 5 }
+        ));
         // A stale/missing binary must not turn a permission hook into an allow;
         // the helper emits an explicit deny when the desktop service is absent.
-        block.push_str(&format!("continue_on_error = {}\n", if permission { "false" } else { "true" }));
+        block.push_str(&format!(
+            "continue_on_error = {}\n",
+            if permission { "false" } else { "true" }
+        ));
         if !permission {
             block.push_str("background = true\n");
         }
     }
     block.push_str(CW_END);
     replace_codewhale_marker_block(&path, &block)?;
-    write_install_receipt(runtime, "codewhale", &path, &installed_events, backup_path.as_deref());
+    write_install_receipt(
+        runtime,
+        "codewhale",
+        &path,
+        &installed_events,
+        backup_path.as_deref(),
+    );
     runtime.write_log("hooks", "CodeWhale hooks synced (v4, global hooks enabled); exact legacy markers migrated; unmarked legacy cleanup remains disabled");
     Ok(InstallResult {
         added: CODEWHALE_EVENTS.len(),
@@ -1004,7 +1070,11 @@ fn backup_config_file(path: &Path, runtime: &Runtime) -> Result<Option<PathBuf>,
     let ts = now_ms();
     // Backup name starts with `.` and embeds stem + extension so provider
     // configs in the same directory don't collide on the pruner's stem match.
-    let backup_name = if ext.is_empty() { format!(".{stem}.octopus-bak-{ts}") } else { format!(".{stem}.octopus-bak-{ts}.{ext}") };
+    let backup_name = if ext.is_empty() {
+        format!(".{stem}.octopus-bak-{ts}")
+    } else {
+        format!(".{stem}.octopus-bak-{ts}.{ext}")
+    };
     let backup_path = parent.join(backup_name);
     fs::copy(path, &backup_path).map_err(|e| {
         format!(
@@ -1013,7 +1083,14 @@ fn backup_config_file(path: &Path, runtime: &Runtime) -> Result<Option<PathBuf>,
             backup_path.display()
         )
     })?;
-    runtime.write_log("hooks", &format!("config backed up: {} → {}", path.display(), backup_path.display()));
+    runtime.write_log(
+        "hooks",
+        &format!(
+            "config backed up: {} → {}",
+            path.display(),
+            backup_path.display()
+        ),
+    );
     prune_backups(parent, stem, ext)?;
     Ok(Some(backup_path))
 }
@@ -1026,7 +1103,11 @@ fn prune_backups(parent: &Path, stem: &str, ext: &str) -> Result<(), String> {
     let prefix = format!(".{stem}.octopus-bak-");
     // Also sweep legacy-named backups (re-llmpet-bak-) for backward compat.
     let legacy_prefix = format!(".{stem}.re-llmpet-bak-");
-    let suffix = if ext.is_empty() { String::new() } else { format!(".{ext}") };
+    let suffix = if ext.is_empty() {
+        String::new()
+    } else {
+        format!(".{ext}")
+    };
     let entries = fs::read_dir(parent).map_err(|e| e.to_string())?;
     let mut backups: Vec<(u64, PathBuf)> = Vec::new();
     for entry in entries.flatten() {
@@ -1131,11 +1212,23 @@ fn install_codex(runtime: &Runtime) -> Result<InstallResult, String> {
     for event in CODEX_EVENTS {
         let permission = event == "PermissionRequest";
         let command = hook_command(&executable, "codex", Some(event), permission);
-        let timeout = if event == "SessionEnd" { 3 } else if permission { 600 } else { 5 };
+        let timeout = if event == "SessionEnd" {
+            3
+        } else if permission {
+            600
+        } else {
+            5
+        };
         add_group(hooks, event, command_hook(command, timeout));
     }
     write_json_atomic(&path, &Value::Object(root))?;
-    write_install_receipt(runtime, "codex", &path, &installed_events, backup_path.as_deref());
+    write_install_receipt(
+        runtime,
+        "codex",
+        &path,
+        &installed_events,
+        backup_path.as_deref(),
+    );
     runtime.write_log("hooks", "Codex hooks synced; /hooks trust review required");
     Ok(InstallResult {
         added: CODEX_EVENTS.len(),
@@ -1180,7 +1273,10 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
                     let had_llmpet = obj
                         .get("plugins")
                         .and_then(|v| v.as_array())
-                        .map(|arr| arr.iter().any(|v| v.as_str().is_some_and(|s| s.contains("llmpet-hook.js"))))
+                        .map(|arr| {
+                            arr.iter()
+                                .any(|v| v.as_str().is_some_and(|s| s.contains("llmpet-hook.js")))
+                        })
                         .unwrap_or(false);
                     if had_llmpet {
                         obj.remove("plugins");
@@ -1197,10 +1293,17 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
         runtime,
         "opencode",
         &path,
-        &["event".to_string(), "tool.execute.before".into(), "tool.execute.after".into()],
+        &[
+            "event".to_string(),
+            "tool.execute.before".into(),
+            "tool.execute.after".into(),
+        ],
         backup_path.as_deref(),
     );
-    runtime.write_log("hooks", "OpenCode ESM plugin synced (v3); auto-discovered via plugins/ directory scan");
+    runtime.write_log(
+        "hooks",
+        "OpenCode ESM plugin synced (v4); auto-discovered via plugins/ directory scan",
+    );
     Ok(InstallResult {
         added: 1,
         path,
@@ -1233,7 +1336,10 @@ fn uninstall_opencode() -> CleanupResult {
             }
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => CleanupResult::NotFound { path },
-        Err(e) => CleanupResult::Unreadable { path, error: e.to_string() },
+        Err(e) => CleanupResult::Unreadable {
+            path,
+            error: e.to_string(),
+        },
     }
 }
 
@@ -1256,7 +1362,8 @@ fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
     // notifications_command to avoid clobbering a foreign one.
     let foreign = stripped.lines().find(|line| {
         let t = line.trim();
-        (t.starts_with("notifications_command:") || t.starts_with("notifications-command:")) && !t.contains(MARKER)
+        (t.starts_with("notifications_command:") || t.starts_with("notifications-command:"))
+            && !t.contains(MARKER)
     });
     if let Some(line) = foreign {
         return Err(format!(
@@ -1266,9 +1373,24 @@ fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
     }
     let executable = current_exe_clean().map_err(|e| e.to_string())?;
     let command = hook_command(&executable, "aider", Some("turn_end"), false);
-    let block = format!("{AIDER_BEGIN}\nnotifications: true\nnotifications_command: {}\n{AIDER_END}", yaml_string(&command));
+    // R51 (2026-08-30): aider (configargparse YAMLConfigFileParser) turns the
+    // yaml key VERBATIM into a CLI flag. The flag is --notifications-command,
+    // so the key must use a dash. The underscore spelling made real aider
+    // 0.86.2 exit(2) with "unrecognized arguments: --notifications_command=…"
+    // (verified live in scripts/provider-smoke/run-aider.sh). The block marker
+    // is unchanged, so legacy underscore blocks still migrate cleanly.
+    let block = format!(
+        "{AIDER_BEGIN}\nnotifications: true\nnotifications-command: {}\n{AIDER_END}",
+        yaml_string(&command)
+    );
     replace_marker_variants(&path, AIDER_MARKERS, &block)?;
-    write_install_receipt(runtime, "aider", &path, &["turn_end".to_string()], backup_path.as_deref());
+    write_install_receipt(
+        runtime,
+        "aider",
+        &path,
+        &["turn_end".to_string()],
+        backup_path.as_deref(),
+    );
     runtime.write_log("hooks", "Aider notification bridge synced");
     Ok(InstallResult {
         added: 1,
@@ -1602,7 +1724,9 @@ fn replace_marker_variants(
 
 fn uninstall_marker_variants(path: &Path, markers: &[(&str, &str)]) -> CleanupResult {
     if !path.exists() {
-        return CleanupResult::NotFound { path: path.to_path_buf() };
+        return CleanupResult::NotFound {
+            path: path.to_path_buf(),
+        };
     }
     let existing = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -1857,7 +1981,10 @@ fn write_install_receipt(
 ) {
     let dir = receipts_dir();
     if let Err(e) = fs::create_dir_all(&dir) {
-        runtime.write_log("hooks", &format!("receipt dir create failed (non-fatal): {e}"));
+        runtime.write_log(
+            "hooks",
+            &format!("receipt dir create failed (non-fatal): {e}"),
+        );
         return;
     }
     let ts = now_ms();
@@ -1875,7 +2002,10 @@ fn write_install_receipt(
     let bytes = match serde_json::to_vec_pretty(&receipt) {
         Ok(b) => b,
         Err(e) => {
-            runtime.write_log("hooks", &format!("receipt serialize failed (non-fatal): {e}"));
+            runtime.write_log(
+                "hooks",
+                &format!("receipt serialize failed (non-fatal): {e}"),
+            );
             return;
         }
     };
@@ -1964,7 +2094,7 @@ pub fn read_install_receipts() -> Map<String, Value> {
 }
 
 fn opencode_plugin_source() -> &'static str {
-    r#"// octopus-opencode-plugin-v3
+    r#"// octopus-opencode-plugin-v4
 // R40 (2026-08-01): rewrite of the OpenCode plugin event mapping.
 //
 // Root-cause analysis (systematic-debugging Phase 1):
@@ -2098,20 +2228,46 @@ export const LLMPETPlugin = async ({ directory }) => ({
       headless: Boolean(parentID)
     });
   },
-  "tool.execute.before": async (input) => send({
-    hook_event_name: "PreToolUse",
-    state: "working",
-    session_id: sidFromToolInput(input, directory),
-    cwd: directory,
-    tool_name: input?.tool || input?.toolName || "tool"
-  }),
-  "tool.execute.after": async (input) => send({
-    hook_event_name: "PostToolUse",
-    state: "working",
-    session_id: sidFromToolInput(input, directory),
-    cwd: directory,
-    tool_name: input?.tool || input?.toolName || "tool"
-  })
+  "tool.execute.before": async (input) => {
+    // R50: subagent tools must not look like ordinary parent work, and child
+    // tool streams must carry parent metadata when OpenCode exposes it.
+    // - The `task`/`agent` tool dispatches a subagent: map it to SubagentStart
+    //   so the pet shows the parent's "派出子代理" (juggling + summon sidekick)
+    //   expression; tool.execute.after maps the matching SubagentStop.
+    // - Any other tool keeps the normal PreToolUse/working path (unknown
+    //   tools degrade to generic work on the renderer side).
+    // - When the hook input exposes a parentID (child session streams), send
+    //   it so the backend marks the row headless instead of creating a
+    //   top-level pseudo session per tool call.
+    const tool = input?.tool || input?.toolName || "tool";
+    const parent = input?.parentID || input?.metadata?.parentID || input?.info?.parentID || null;
+    const base = {
+      session_id: sidFromToolInput(input, directory),
+      cwd: directory,
+      tool_name: tool
+    };
+    if (parent) { base.parent_id = parent; base.headless = true; }
+    if (tool === "task" || tool === "agent") {
+      await send({ ...base, hook_event_name: "SubagentStart", state: "juggling" });
+      return;
+    }
+    await send({ ...base, hook_event_name: "PreToolUse", state: "working" });
+  },
+  "tool.execute.after": async (input) => {
+    const tool = input?.tool || input?.toolName || "tool";
+    const parent = input?.parentID || input?.metadata?.parentID || input?.info?.parentID || null;
+    const base = {
+      session_id: sidFromToolInput(input, directory),
+      cwd: directory,
+      tool_name: tool
+    };
+    if (parent) { base.parent_id = parent; base.headless = true; }
+    if (tool === "task" || tool === "agent") {
+      await send({ ...base, hook_event_name: "SubagentStop", state: "working" });
+      return;
+    }
+    await send({ ...base, hook_event_name: "PostToolUse", state: "working" });
+  }
 });
 // R13: also export as default for opencode plugin loader compatibility
 export default LLMPETPlugin;

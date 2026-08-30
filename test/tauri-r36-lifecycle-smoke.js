@@ -85,8 +85,13 @@ assert(hookInstall.includes('pub fn verify_enabled('),
   'R36: hook_install.rs must define verify_enabled function');
 assert(hookInstall.includes('fn is_hook_installed(id: &str) -> bool'),
   'R36: hook_install.rs must define is_hook_installed predicate');
-assert(hookInstall.includes('fn file_contains(path: impl AsRef<Path>, marker: &str) -> bool'),
-  'R36: hook_install.rs must define file_contains helper');
+// R50: file_contains was split into file_marker_presence/file_block_presence
+// so marker-line checks and managed-block checks can report HookPresence
+// (current/legacy/mixed) instead of a bare boolean.
+assert(hookInstall.includes('fn file_marker_presence('),
+  'R36: hook_install.rs must define the file_marker_presence helper (successor of file_contains)');
+assert(hookInstall.includes('fn file_block_presence('),
+  'R36: hook_install.rs must define the file_block_presence helper');
 // verify_enabled reports "missing" state (not "error") for uninstalled hooks
 assert(hookInstall.includes('"missing"'),
   'R36: verify_enabled must report "missing" state for uninstalled hooks');

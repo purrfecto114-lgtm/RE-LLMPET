@@ -24,11 +24,14 @@ fn scan_frame(data: &[u8]) -> io::Result<FrameBoundary> {
             return Ok(FrameBoundary::Torn);
         }
         let payload = u32::from_le_bytes(data[4..8].try_into().unwrap()) as usize;
-        let end = 8usize
-            .checked_add(payload)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "skippable frame overflow"))?;
+        let end = 8usize.checked_add(payload).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "skippable frame overflow")
+        })?;
         return Ok(if end <= data.len() {
-            FrameBoundary::Complete { end, skippable: true }
+            FrameBoundary::Complete {
+                end,
+                skippable: true,
+            }
         } else {
             FrameBoundary::Torn
         });
@@ -56,7 +59,11 @@ fn scan_frame(data: &[u8]) -> io::Result<FrameBoundary> {
     let single_segment = descriptor & 0x20 != 0;
     let has_checksum = descriptor & 0x04 != 0;
     let dictionary_flag = descriptor & 0x03;
-    let dictionary_bytes = if dictionary_flag == 3 { 4 } else { dictionary_flag as usize };
+    let dictionary_bytes = if dictionary_flag == 3 {
+        4
+    } else {
+        dictionary_flag as usize
+    };
     let content_size_bytes = if content_size_flag == 0 {
         usize::from(single_segment)
     } else {
@@ -80,7 +87,10 @@ fn scan_frame(data: &[u8]) -> io::Result<FrameBoundary> {
         let block_type = (block_header >> 1) & 0x03;
         let block_size = (block_header >> 3) as usize;
         if block_type == 0x03 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "reserved zstd block type"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "reserved zstd block type",
+            ));
         }
         let payload_bytes = if block_type == 0x01 { 1 } else { block_size };
         if data.len().saturating_sub(offset) < payload_bytes {
@@ -98,14 +108,20 @@ fn scan_frame(data: &[u8]) -> io::Result<FrameBoundary> {
         }
         offset += 4;
     }
-    Ok(FrameBoundary::Complete { end: offset, skippable: false })
+    Ok(FrameBoundary::Complete {
+        end: offset,
+        skippable: false,
+    })
 }
 
 /// Decode exactly one complete zstd frame. The returned byte count is the
 /// compressed frame boundary even when concatenated frames follow it.
 pub fn decode_zstd_frame(data: &[u8]) -> io::Result<(String, usize)> {
     let FrameBoundary::Complete { end, skippable } = scan_frame(data)? else {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "incomplete zstd frame"));
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "incomplete zstd frame",
+        ));
     };
     if skippable {
         return Ok((String::new(), end));

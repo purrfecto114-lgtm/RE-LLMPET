@@ -21,7 +21,9 @@ const driftScript = read('scripts/check-protocol-drift.js');
 assert.strictEqual(baseline.sourceFork.repository, 'https://github.com/purrfecto114-lgtm/LLMPET');
 assert.strictEqual(baseline.sourceFork.publishedTag, 'v0.1.2-pre');
 assert.strictEqual(baseline.sourceFork.tagCommit, '1a6617a');
-assert.strictEqual(baseline.sourceFork.observedMainCommit, '86cbd9e');
+// R51 (2026-08-30): upstream fork main moved (86cbd9e paginated off page 1);
+// baseline now anchors the freshly observed head instead.
+assert.strictEqual(baseline.sourceFork.observedMainCommit, '11ff1baf1aab7ee6844b29799d04884141b664b0');
 assert.strictEqual(baseline.upstream.observedMainCommit, '4637a20cef1ae6207d3773f75edcfe3d231120d9');
 
 for (const event of ['PermissionDenied', 'TaskCreated', 'TaskCompleted', 'TeammateIdle', 'ElicitationResult']) {

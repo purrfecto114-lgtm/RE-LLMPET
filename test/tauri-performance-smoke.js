@@ -19,7 +19,7 @@ assert(/visualBoundsObserver\.disconnect\(\)/.test(pet), 'observer cleanup missi
 
 assert(!/cargo tauri (?:dev|build)[^\n\"]*--manifest-path/.test(JSON.stringify(pkg.scripts)),
   'Tauri CLI scripts must not pass Cargo-only --manifest-path');
-assert(!pkg.dependencies.electron && !pkg.devDependencies.electron, 'default rewrite dependency graph must exclude Electron');
+assert(!(pkg.dependencies || {}).electron && !(pkg.devDependencies || {}).electron, 'default rewrite dependency graph must exclude Electron');
 
 assert(/Result<\[i32; 2\], String>/.test(commands), 'get_win_pos must preserve renderer [x,y] contract');
 assert(/Array\.isArray\(pos\)/.test(bridge), 'bridge must normalize window-position result');

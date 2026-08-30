@@ -1,55 +1,16 @@
 {
   "name": "llmpet",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "桌面宠物：实时呈现 Claude Code、OpenAI Codex 与 DeepSeek Harness 的状态、消息和会话",
-  "main": "main.js",
   "license": "MIT",
   "author": "myunwang",
   "scripts": {
-    "start": "electron .",
-    "install:hooks": "node backend/hookinstall.js",
-    "uninstall:hooks": "node backend/hookinstall.js --uninstall",
-    "meter:rebuild": "node backend/meter-rebuild.js",
-    "three-piece": "bash scripts/three-piece.sh",
-    "package:mac": "bash scripts/package-mac.sh",
-    "package:mac:dev": "LLMPET_MAC_SIGN_MODE=adhoc bash scripts/package-mac.sh",
-    "verify:mac": "bash scripts/verify-mac-release.sh",
-    "package:win": "electron-builder --win --publish never",
-    "test": "node test/smoke.js && node test/state-smoke.js && node test/pricing.js && node test/metering.js && node test/usage-archive.js && node test/usage-combine.js && node test/panel-render.js && node test/codex-metering.js && node test/codex-pricing.js && node test/agent-startup.js && node test/session-preferences.js && node test/session-handoff.js && node test/session-archive.js && node test/program-registry.js && node test/program-skill.js && node test/runtime-monitor.js && node test/codex-watch.js && node test/codex-integration.js && node test/zstd.js && node test/dsh-watch.js && node test/i18n.js && node test/pet-geometry.js && node test/popup-style.js && node test/branding.js && node test/mac-release.js"
-  },
-  "devDependencies": {
-    "@electron/notarize": "2.5.0",
-    "@electron/osx-sign": "1.3.3",
-    "electron": "^33.2.0",
-    "electron-builder": "^26.15.3"
-  },
-  "build": {
-    "appId": "com.myunwang.octopus",
-    "productName": "LLMPET",
-    "asar": false,
-    "files": [
-      "main.js",
-      "preload.js",
-      "backend/**",
-      "renderer/**",
-      "assets/**",
-      ".agents/skills/register-generated-program/**",
-      ".claude/skills/register-generated-program/**",
-      "scripts/register-generated-program.js",
-      "shared/**",
-      "hook/**"
-    ],
-    "win": {
-      "target": [
-        "nsis",
-        "zip"
-      ],
-      "icon": "assets/icon.ico",
-      "artifactName": "LLMPET-${version}-Windows-${arch}.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+    "tauri:dev": "cargo tauri dev",
+    "tauri:build": "cargo tauri build",
+    "test": "node test/config-write-controller.test.js && node test/i18n.js && node test/latest-value-controller.test.js && node test/maintainability-boundary-smoke.js && node test/native-hook-installer-smoke.js && node test/octopus-fix-regression-smoke.js && node test/panel-fit-controller.test.js && node test/pet-r50-regression-smoke.js && node test/pet-r51-provider-smoke-regression.js && node test/pet-runtime-startup-smoke.js && node test/pet-systemic-regression.test.js && node test/phase1-pet-interaction-regression.test.js && node test/popup-style.js && node test/reference-contract-smoke.js && node test/release-asset-verifier.test.js && node test/release-supply-chain-smoke.js && node test/root-regression.test.js && node test/session-pref-client.test.js && node test/tauri-bridge-smoke.js && node test/tauri-capability-boundary-smoke.js && node test/tauri-claude-pretool-hook-r8-smoke.js && node test/tauri-cli-auth-r6-smoke.js && node test/tauri-cli-diagnostics-r5-smoke.js && node test/tauri-cli-hardening-r3-smoke.js && node test/tauri-cli-resilience-r7-smoke.js && node test/tauri-codewhale-config-path-dedup-r9-smoke.js && node test/tauri-codewhale-doctor-consistency-r10-smoke.js && node test/tauri-codewhale-failed-turn-r8-smoke.js && node test/tauri-codewhale-v095-forward-compat-r8-smoke.js && node test/tauri-codex-pricing-r10-smoke.js && node test/tauri-command-safety-smoke.js && node test/tauri-drag-terminal-phase3-smoke.js && node test/tauri-dsh-observer-closure-smoke.js && node test/tauri-feature-parity-r46-smoke.js && node test/tauri-global-audit-r47-smoke.js && node test/tauri-hook-consolidation-smoke.js && node test/tauri-local-http-hardening-smoke.js && node test/tauri-machine-growth-r11-smoke.js && node test/tauri-metering-cw-split-r18-smoke.js && node test/tauri-metering-phase2-smoke.js && node test/tauri-native-core-smoke.js && node test/tauri-panel-codex-r15-smoke.js && node test/tauri-panel-i18n-audit-r17-smoke.js && node test/tauri-panel-metrics-r16-smoke.js && node test/tauri-panel-sesslist-r19-smoke.js && node test/tauri-performance-smoke.js && node test/tauri-permission-concurrency-smoke.js && node test/tauri-phase4-cutover-smoke.js && node test/tauri-price-auto-update-smoke.js && node test/tauri-protocol-drift-smoke.js && node test/tauri-provider-phase2-smoke.js && node test/tauri-r11-settings-watcher-smoke.js && node test/tauri-r32-bridge-error-visibility-smoke.js && node test/tauri-r34-config-transaction-smoke.js && node test/tauri-r35-correctness-hotfix-smoke.js && node test/tauri-r351-correctness-patch-smoke.js && node test/tauri-r352-correctness-patch-smoke.js && node test/tauri-r36-lifecycle-smoke.js && node test/tauri-r37-perf-security-smoke.js && node test/tauri-r38-correctness-blocker-smoke.js && node test/tauri-r381-correctness-closure-smoke.js && node test/tauri-r39-ux-accessibility-smoke.js && node test/tauri-r40-runtime-regressions-smoke.js && node test/tauri-r401-carpet-audit-closure-smoke.js && node test/tauri-r44-0-5-39-correctness-smoke.js && node test/tauri-r44-0-5-40-product-closure-smoke.js && node test/tauri-r44-0-5-41-config-durability-smoke.js && node test/tauri-r44-0-5-43-codex-rollout-smoke.js && node test/tauri-r44c-backup-receipt-smoke.js && node test/tauri-r44d-uninstall-provenance-smoke.js && node test/tauri-r45-release-lifecycle-smoke.js && node test/tauri-single-instance-smoke.js && node test/tauri-static-smoke.js && node test/tauri-transcript-pricing-phase2-smoke.js && node test/tauri-tray-extras-r13-smoke.js && node test/tauri-tray-i18n-r11-smoke.js && node test/tauri-tray-shape-r14-smoke.js && node test/tauri-tray-submenu-r12-smoke.js && node test/tauri-windows-static-smoke.js && node test/upstream-reconciliation-smoke.js",
+    "test:smoke": "node test/tauri-dsh-observer-closure-smoke.js",
+    "manifest:gen": "node scripts/generate-source-manifest.js --generate",
+    "manifest:verify": "node scripts/generate-source-manifest.js --verify",
+    "static-checks": "node scripts/run-static-checks.js"
   }
 }

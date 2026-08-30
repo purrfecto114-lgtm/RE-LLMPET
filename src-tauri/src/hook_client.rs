@@ -90,7 +90,9 @@ fn run() -> Result<(), String> {
                 );
             }
         };
-        let _ = reader_handle.join().map_err(|e| eprintln!("stdin reader thread panicked: {e:?}"));
+        let _ = reader_handle
+            .join()
+            .map_err(|e| eprintln!("stdin reader thread panicked: {e:?}"));
         if raw.len() > MAX_STDIN_BYTES {
             return permission_fallback(&provider, requested_permission, "stdin payload too large");
         }
@@ -335,6 +337,20 @@ fn normalize_provider_body(
         object
             .entry("state")
             .or_insert(Value::String("attention".into()));
+    } else if provider == "codex" {
+        // R51 (2026-08-30): codex 0.151 emits `Interrupt` when the user aborts
+        // the running turn. Map it to Stop/attention so the pet stops
+        // "working" after an abort instead of staying busy forever. Other
+        // codex events already carry canonical hook_event_name payloads
+        // (verified live: SessionStart/UserPromptSubmit/PreToolUse/
+        // PostToolUse/Stop/SessionEnd with turn_id + tool_input/tool_response).
+        if native_event == "Interrupt" {
+            object.insert("native_event".into(), Value::String("Interrupt".into()));
+            object.insert("hook_event_name".into(), Value::String("Stop".into()));
+            object
+                .entry("state".to_string())
+                .or_insert(Value::String("attention".into()));
+        }
     } else {
         if !object.contains_key("hook_event_name") && !native_event.is_empty() {
             object.insert("hook_event_name".into(), Value::String(native_event));
@@ -413,6 +429,13 @@ fn apply_codewhale_env_fallback(object: &mut Map<String, Value>) {
             "session_id",
             ["DEEPSEEK_SESSION_ID", "CODEWHALE_SESSION_ID"],
         ),
+        // R50: subagent streams expose their owning session (when the CLI
+        // provides it) so the backend marks them headless children instead
+        // of spawning a top-level pseudo session per tool call.
+        (
+            "parent_id",
+            ["CODEWHALE_PARENT_SESSION_ID", "DEEPSEEK_PARENT_SESSION_ID"],
+        ),
         ("workspace", ["DEEPSEEK_WORKSPACE", "CODEWHALE_WORKSPACE"]),
         ("mode", ["DEEPSEEK_MODE", "CODEWHALE_MODE"]),
         ("model", ["DEEPSEEK_MODEL", "CODEWHALE_MODEL"]),
@@ -438,6 +461,21 @@ fn apply_codewhale_env_fallback(object: &mut Map<String, Value>) {
         (
             "tool_success",
             ["DEEPSEEK_TOOL_SUCCESS", "CODEWHALE_TOOL_SUCCESS"],
+        ),
+        // R51 (2026-08-30): verified against Hmbown/CodeWhale docs/HOOKS.md —
+        // these three env vars exist on current builds but were missing from
+        // the fallback table, so metering/receipts lost free data.
+        (
+            "tool_exit_code",
+            ["DEEPSEEK_TOOL_EXIT_CODE", "CODEWHALE_TOOL_EXIT_CODE"],
+        ),
+        (
+            "session_tokens",
+            ["DEEPSEEK_TOTAL_TOKENS", "CODEWHALE_TOTAL_TOKENS"],
+        ),
+        (
+            "session_cost_usd",
+            ["DEEPSEEK_SESSION_COST", "CODEWHALE_SESSION_COST"],
         ),
     ] {
         if object
@@ -681,10 +719,7 @@ fn post_json(
 ) -> Result<Vec<u8>, String> {
     let payload = serde_json::to_vec(body).map_err(|e| e.to_string())?;
     // R4-E2 fix: connect_timeout prevents 75s OS-default hang when main process not running
-    let addr = std::net::SocketAddr::from((
-        std::net::Ipv4Addr::LOCALHOST,
-        runtime.port,
-    ));
+    let addr = std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, runtime.port));
     let mut stream =
         TcpStream::connect_timeout(&addr, Duration::from_millis(500)).map_err(|e| e.to_string())?;
     let timeout = if blocking {

@@ -537,9 +537,7 @@ if ($script:found) { exit 0 } else { exit 3 }
     ]);
     // R22: hide the flashing PowerShell console window on every focus click.
     hide_console_window(&mut command);
-    let status = command
-        .status()
-        .map_err(|error| error.to_string())?;
+    let status = command.status().map_err(|error| error.to_string())?;
     if status.success() {
         Ok(())
     } else {

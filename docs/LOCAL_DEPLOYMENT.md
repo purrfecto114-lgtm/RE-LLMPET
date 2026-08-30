@@ -23,7 +23,7 @@ LLMPET 至少需要用户安装并使用过以下一个 agent：
 - 配置、位置、语言和用量历史保存在 `~/.octopus/`；
 - 日志位于 `~/.octopus/octopus.log`。
 
-如果只使用 Codex，不希望安装 Claude hooks，可以使用下方“从源码运行”的 `OCTOPUS_NO_HOOKS=1 npm start`。
+如果只使用 Codex，不希望安装 Claude hooks，可以使用下方“从源码运行”的 `OCTOPUS_NO_HOOKS=1 npm run tauri:dev`。
 
 ## 从源码部署
 
@@ -47,32 +47,32 @@ npm --version
 ```bash
 git clone https://github.com/myunwang/LLMPET.git
 cd LLMPET
-npm ci
+npm install
 npm test
-npm start
+npm run tauri:dev
 ```
 
-- `npm ci` 按 `package-lock.json` 安装锁定版本，适合可复现部署；
+- `npm install` 只安装测试工具链（本仓库已无 JS 运行时依赖）；
 - `npm test` 运行项目的无头回归测试；
-- `npm start` 以前台进程启动桌宠，关闭该终端会结束应用。
+- `npm run tauri:dev` 以 Tauri 开发模式启动桌宠（需要 Rust 工具链），关闭该终端会结束应用。
 
 只验证界面、不修改 `~/.claude/settings.json`：
 
 ```bash
-OCTOPUS_NO_HOOKS=1 npm start
+OCTOPUS_NO_HOOKS=1 npm run tauri:dev
 ```
 
 完全禁止可选的价格表联网请求：
 
 ```bash
-OCTOPUS_NO_NET=1 npm start
+OCTOPUS_NO_NET=1 npm run tauri:dev
 ```
 
 Windows PowerShell 中设置临时环境变量：
 
 ```powershell
 $env:OCTOPUS_NO_HOOKS='1'
-npm start
+npm run tauri:dev
 ```
 
 ### 网络较慢时
@@ -80,14 +80,13 @@ npm start
 macOS shell：
 
 ```bash
-ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm ci
+npm install
 ```
 
 Windows PowerShell：
 
 ```powershell
-$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'
-npm ci
+$env:npm install
 ```
 
 ## 制作本地安装包

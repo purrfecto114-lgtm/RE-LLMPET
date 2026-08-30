@@ -1568,3 +1568,13 @@ Phase A 的 A2 项：整理 v0.5.58-v0.5.60 修复的真机验证步骤，写入
 ### 下轮重点
 - **B1: 闲逛任务模板用户自定义** 或 **B4: panel 响应式优化**
 
+
+---
+
+## v0.6.1 — Provider Hooks 真实 CLI 冒烟 + 协议基线校准（2026-08-30）
+
+详见 docs/superpowers/specs/2026-08-30-provider-hooks-smoke-findings.md 与 CHANGELOG 0.6.1。
+要点：真实 CLI 冒烟（claude/opencode/aider PASS、codex 诚实 FAIL、codewhale 文档级）；
+install_aider 下划线键导致 aider exit(2) 的真 bug 修复（连字符发射）；
+CODEX_EVENTS+Interrupt；drift 检查器 blocked 分类；CodeWhale env 表补 3 变量；
+Rust 工具链 1.98.0 沙箱自建；全门禁绿（npm 80/80、static 22/22、clippy -D、test --lib 115/115）。

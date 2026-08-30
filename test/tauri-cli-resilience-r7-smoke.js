@@ -37,7 +37,8 @@ const checks = [
   ['Tauri click-through workaround remains native-state based', read('src-tauri/src/lib.rs').includes('start_cursor_hit_test') && commands.includes('platform_state.set_visual_bounds(pet_label_for_agent(agent.as_deref()), &rect)')],
   ['DPI anchored resizing remains intact', commands.includes('fn resize_pet_anchored') && commands.includes('logical_to_physical')],
   ['visual asset CSP remains local-only', (function() { const c = JSON.parse(read('src-tauri/tauri.conf.json')); return c.app.security.csp.includes("img-src 'self' data:") && !/img-src[^;]*https?:/i.test(c.app.security.csp); })()],
-  ['offline static gate has a stable package command', JSON.parse(read('package.json')).scripts['check:static'] === 'node scripts/run-static-checks.js'],
+  // 2026-08-29 Electron exit: the npm alias is `static-checks` now.
+  ['offline static gate has a stable package command', JSON.parse(read('package.json')).scripts['static-checks'] === 'node scripts/run-static-checks.js'],
 ];
 
 for (const [name, ok] of checks) assert(ok, name);

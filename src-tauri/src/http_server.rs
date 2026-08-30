@@ -671,6 +671,16 @@ fn emit_hook_event(app: &AppHandle, body: &Value, session: &Session) {
         .or_else(|| body.get("toolName"))
         .and_then(Value::as_str)
         .unwrap_or("");
+    // R50: headless child sessions (subagents) surface through their PARENT —
+    // SubagentStart juggling, the summon prop, and the permission queue. Their
+    // per-tool-call events used to be broadcast like top-level traffic, which
+    // read as "every tool call is a new session": bubble spam plus state flips
+    // between unrelated expressions. Suppress them here; stats snapshots still
+    // carry the child rows (dots/panel) and pending permissions still emit
+    // their own `waiting` events from the /permission handler.
+    if session.headless {
+        return;
+    }
     if event == "Stop" {
         if let Some(text) = session
             .assistant_last_output
@@ -690,8 +700,24 @@ fn emit_hook_event(app: &AppHandle, body: &Value, session: &Session) {
         "PreToolUse" | "PostToolUse" => json!({
             "kind":"operation",
             "tool":tool,
-            "icon":"🔧",
+            // R50: real per-tool icon (matches recentOps) instead of a flat 🔧.
+            "icon": crate::model::tool_icon(tool),
             "detail":if tool.is_empty() { "Running tool" } else { tool }
+        }),
+        // R50: subagent dispatch maps to the "派出子代理" expression (frontend
+        // playAction routes tool Task/Agent to the summon sidekick). OpenCode's
+        // task tool arrives here via the plugin's SubagentStart mapping.
+        "SubagentStart" => json!({
+            "kind":"operation",
+            "tool":"Task",
+            "icon":"🤹",
+            "detail":"dispatched a subagent"
+        }),
+        "SubagentStop" => json!({
+            "kind":"operation",
+            "tool":"Task",
+            "icon":"✅",
+            "detail":"subagent finished"
         }),
         "StopFailure" | "PostToolUseFailure" => {
             json!({"kind":"error","text":"Agent execution failed"})

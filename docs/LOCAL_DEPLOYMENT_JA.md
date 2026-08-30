@@ -26,38 +26,37 @@ Git、Node.js 18 以上（CI は Node.js 20）、Claude Code または OpenAI Co
 ```bash
 git clone https://github.com/myunwang/LLMPET.git
 cd LLMPET
-npm ci
+npm install
 npm test
-npm start
+npm run tauri:dev
 ```
 
-`npm ci` は `package-lock.json` に固定された依存関係をインストールします。`npm start` は LLMPET をフォアグラウンドで実行します。
+`npm ci` は `package-lock.json` に固定された依存関係をインストールします。`npm run tauri:dev` は LLMPET をフォアグラウンドで実行します。
 
 起動オプション：
 
 ```bash
-OCTOPUS_NO_HOOKS=1 npm start  # Claude 設定を変更しない
-OCTOPUS_NO_NET=1 npm start    # 任意の価格表ダウンロードを無効化
+OCTOPUS_NO_HOOKS=1 npm run tauri:dev  # Claude 設定を変更しない
+OCTOPUS_NO_NET=1 npm run tauri:dev    # 任意の価格表ダウンロードを無効化
 ```
 
 PowerShell：
 
 ```powershell
 $env:OCTOPUS_NO_HOOKS='1'
-npm start
+npm run tauri:dev
 ```
 
 Electron のダウンロードが遅い場合：
 
 ```bash
-ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm ci
+npm install
 ```
 
 PowerShell：
 
 ```powershell
-$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'
-npm ci
+$env:npm install
 ```
 
 ## ローカルパッケージを作成

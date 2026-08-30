@@ -199,17 +199,23 @@ def check_assets() -> None:
 
 def check_contracts() -> None:
     package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
-    deps = {**package.get("dependencies", {}), **package.get("devDependencies", {})}
-    if any("electron" in name.lower() for name in deps):
-        fail("Electron remains in active package dependencies")
+    # Electron is a build-time dependency (electron-builder), not runtime.
+    # Only flag if it appears in runtime dependencies.
+    runtime_deps = package.get("dependencies", {})
+    if any("electron" in name.lower() for name in runtime_deps):
+        fail("Electron remains in runtime package dependencies")
     else:
-        ok("Active package manifest contains no Electron dependency")
+        ok("Active package manifest contains no Electron runtime dependency")
 
     lock = (ROOT / "package-lock.json").read_text(encoding="utf-8").lower()
-    if "node_modules/electron" in lock:
-        fail("Electron remains in package-lock")
+    # 2026-08-29 Electron exit: devDependencies (electron/electron-builder/
+    # @electron/*) were removed from package.json, so the lockfile must be
+    # free of electron packages too. The old "skip" note applied when
+    # electron-builder was still a dev dependency.
+    if "electron" in lock:
+        fail("package-lock.json still references Electron packages (regenerate with npm install --package-lock-only)")
     else:
-        ok("package-lock contains no Electron package")
+        ok("package-lock.json contains no Electron packages")
 
     config = json.loads((ROOT / "src-tauri" / "tauri.conf.json").read_text(encoding="utf-8"))
     if config.get("build", {}).get("frontendDist") == "../frontend":

@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 /// Built-in provider IDs — single source of truth.
-pub const BUILTIN_PROVIDER_IDS: &[&str] = &["claude", "codewhale", "codex", "opencode", "aider", "dsh"];
+pub const BUILTIN_PROVIDER_IDS: &[&str] =
+    &["claude", "codewhale", "codex", "opencode", "aider", "dsh"];
 
 /// UI metadata for custom providers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +43,9 @@ pub struct CustomProviderSpec {
 }
 
 /// Validate a provider ID against built-in and custom provider IDs.
+/// R51: superseded by provider_registry::validate_provider_ids for the
+/// active call path; kept as the config-level primitive.
+#[allow(dead_code)]
 pub fn validate_provider_id(id: &str, custom_ids: &[String]) -> bool {
     let id_lower = id.trim().to_lowercase();
     if id_lower.is_empty() {
@@ -76,16 +80,28 @@ pub fn validate_custom_provider_specs(specs: &mut Vec<CustomProviderSpec>) -> Ve
 
         // Validate ID format
         if id_lower.is_empty() || id_lower.len() > 32 {
-            errors.push(format!("Provider '{}': ID must be 1-32 characters", spec.id));
+            errors.push(format!(
+                "Provider '{}': ID must be 1-32 characters",
+                spec.id
+            ));
             continue;
         }
-        if !id_lower.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-            errors.push(format!("Provider '{}': ID must be alphanumeric or hyphen", spec.id));
+        if !id_lower
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+        {
+            errors.push(format!(
+                "Provider '{}': ID must be alphanumeric or hyphen",
+                spec.id
+            ));
             continue;
         }
         // Check conflict with built-in
         if builtin_set.contains(id_lower.as_str()) {
-            errors.push(format!("Provider '{}': ID conflicts with built-in provider", spec.id));
+            errors.push(format!(
+                "Provider '{}': ID conflicts with built-in provider",
+                spec.id
+            ));
             continue;
         }
         // Check duplicate
@@ -98,19 +114,35 @@ pub fn validate_custom_provider_specs(specs: &mut Vec<CustomProviderSpec>) -> Ve
             errors.push(format!("Provider '{}': command is required", spec.id));
             continue;
         }
-        if spec.command.chars().any(|c| matches!(c, '|' | '&' | ';' | '$' | '`' | '(' | ')' | '<' | '>')) {
-            errors.push(format!("Provider '{}': command contains invalid characters", spec.id));
+        if spec
+            .command
+            .chars()
+            .any(|c| matches!(c, '|' | '&' | ';' | '$' | '`' | '(' | ')' | '<' | '>'))
+        {
+            errors.push(format!(
+                "Provider '{}': command contains invalid characters",
+                spec.id
+            ));
             continue;
         }
         // Validate label
         if spec.label.is_empty() || spec.label.len() > 64 {
-            errors.push(format!("Provider '{}': label must be 1-64 characters", spec.id));
+            errors.push(format!(
+                "Provider '{}': label must be 1-64 characters",
+                spec.id
+            ));
             continue;
         }
         // Validate args
         for arg in &spec.args {
-            if arg.chars().any(|c| matches!(c, '|' | '&' | ';' | '$' | '`' | '(' | ')' | '<' | '>')) {
-                errors.push(format!("Provider '{}': args contain invalid characters", spec.id));
+            if arg
+                .chars()
+                .any(|c| matches!(c, '|' | '&' | ';' | '$' | '`' | '(' | ')' | '<' | '>'))
+            {
+                errors.push(format!(
+                    "Provider '{}': args contain invalid characters",
+                    spec.id
+                ));
                 break;
             }
         }

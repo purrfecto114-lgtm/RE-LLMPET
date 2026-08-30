@@ -4,6 +4,17 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
+// This gate shells out to `cargo metadata`, so it can only run where a Rust
+// toolchain exists. In Electron-exit CI containers without cargo the gate is
+// skipped (exit 0) instead of failing; environments that DO have cargo run it
+// as a hard requirement.
+const cargoProbe = spawnSync('cargo', ['--version'], { encoding: 'utf8' });
+if (cargoProbe.error || cargoProbe.status !== 0) {
+  console.log('tauri-hook-consolidation-smoke: SKIPPED (cargo unavailable; ' +
+    'this gate requires a Rust toolchain and runs in cargo-equipped environments)');
+  process.exit(0);
+}
+
 const ROOT = path.resolve(__dirname, '..');
 const CARGO_TOML = path.join(ROOT, 'src-tauri', 'Cargo.toml');
 const LEGACY_BIN = path.join(ROOT, 'src-tauri', 'src', 'bin', 're-llmpet-hook.rs');

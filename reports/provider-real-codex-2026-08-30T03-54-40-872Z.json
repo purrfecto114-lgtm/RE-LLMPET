@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "status": "failed",
+  "provider": "codex",
+  "platform": "linux",
+  "arch": "x64",
+  "isolatedHome": true,
+  "cliVersion": "codex-cli 0.151.0",
+  "events": [
+    "session-start",
+    "tool",
+    "turn-end"
+  ],
+  "permissionDecisions": [],
+  "permissionMode": null,
+  "trustReviewed": true,
+  "commandTranscripts": [
+    "PreToolUse:Bash",
+    "PostToolUse:Bash",
+    "PreToolUse:Bash",
+    "PostToolUse:Bash",
+    "PreToolUse:Bash",
+    "PostToolUse:Bash",
+    "PreToolUse:Bash"
+  ],
+  "errors": [
+    "missing permission decisions: allow, deny"
+  ],
+  "stdoutTail": "run-codex: evidence written to /tmp/octopus-codex-J11gO2/provider-evidence.json\n",
+  "stderrTail": "",
+  "completedAt": "2026-08-30T03:54:44.533Z"
+}

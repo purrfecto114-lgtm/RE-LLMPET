@@ -10,9 +10,11 @@ const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
 const hash = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
 const pkg = JSON.parse(read('package.json'));
-assert(!pkg.dependencies.electron && !pkg.devDependencies.electron, 'Electron must not be a runtime/dev dependency of the rewrite');
-assert(pkg.scripts.start.includes('cargo tauri dev'));
-assert(pkg.scripts.build.includes('cargo tauri build'));
+// The Electron exit removed devDependencies entirely, so both blocks may be
+// absent; absence == no Electron == pass (semantic preserved).
+assert(!(pkg.dependencies || {}).electron && !(pkg.devDependencies || {}).electron, 'Electron must not be a runtime/dev dependency of the rewrite');
+assert(pkg.scripts['tauri:dev'].includes('cargo tauri dev'));
+assert(pkg.scripts['tauri:build'].includes('cargo tauri build'));
 
 const config = JSON.parse(read('src-tauri/tauri.conf.json'));
 // withGlobalTauri must be `true`: the frontend is plain-script (no bundler,

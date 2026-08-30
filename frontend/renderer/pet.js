@@ -35,6 +35,18 @@ function applyLanguage(next) {
   if (sessListOpen) { slTitle.textContent = t('sess.title'); renderSessList(); }
 }
 
+// R50 (2026-08-30): right-click must not depend on the contextmenu event.
+// preventDefault() on pointerdown suppresses the compat mouse pipeline on
+// several WebView builds (WebView2/GTK), so the old flow — pointerdown claims
+// input, contextmenu toggles the radial — could end with a claimed window and
+// no menu. Toggle directly on pointerdown(button 2); the contextmenu handler
+// remains as the fallback and is guarded against double-firing.
+let rightClickHandledAt = 0;
+function toggleRadialFromPointer() {
+  rightClickHandledAt = perfNow();
+  toggleRadial();
+}
+
 const stage = document.getElementById('stage');
 const pixel = document.getElementById('pixel');
 const mascot = document.getElementById('mascot');
@@ -1022,7 +1034,13 @@ function sessionStateLabel(value) {
 function ctxClass(p) { return p >= 90 ? 'high' : p >= 75 ? 'mid' : ''; }
 
 // 单一判定：哪些会话出现在「头顶小点」和「会话列表 HUD」里（保持两处联动一致）
-const isVisibleSession = (s) => !!s && !s.headless && s.state !== 'sleeping';
+// R50: headless CHILD sessions (subagents) are hidden — they surface through
+// their parent (juggling/summon) — but a BLOCKED child (waiting/needsinput)
+// must stay visible: that is exactly the "other session is stuck and the pet
+// never told me" case. Background headless sessions (claude -p) have no
+// parentId and remain visible per STATES.md §3.
+const isVisibleSession = (s) => !!s && s.state !== 'sleeping'
+  && (!s.headless || s.state === 'waiting' || s.state === 'needsinput' || s.state === 'notification');
 // 单一配色：小点和 HUD 用同一套（完成→绿、中断→红，否则按状态）
 function sessionDotClass(s) {
   if (s.state === 'idle' && s.badge === 'done') return 'done';
@@ -1202,6 +1220,10 @@ const travelView = window.OctoPetTravelView.create({
   bubble: showBubble,
   close: closeSessList,
   provider: activeProviderForPet,
+  // R50: dual-pet isolation — this pet only tracks trips owned by its own
+  // window (pet / pet-codex); wander degrades to a supported enabled provider.
+  agent: PET_AGENT,
+  enabledProviders: () => activeProviders,
 });
 // 工具 -> 干活动作；道具 emoji 的运动变体
 const TOOL_ACT = {
@@ -1407,6 +1429,21 @@ function confetti() {
   }
 }
 
+// R50 (2026-08-30): bubbles must not resize the native window unless the
+// content genuinely overflows. Every showBubble→fitPopup→hideBubble→
+// resetPetSize cycle used to grow/shrink the OS window (320x340 ↔ 520xN);
+// on WebView2 that relayout is the visible「状态一更新就卡顿闪一下」stutter.
+// Most bubbles fit above the pet inside the base window — grow only when
+// needed, and shrink only if THIS bubble was the one that grew it.
+let bubbleOwnsResize = false;
+function fitBubbleToViewport() {
+  const top = Math.floor(bubble.getBoundingClientRect().top);
+  const available = Math.max(0, top - 8);
+  if (bubble.scrollHeight <= available) return;
+  fitPopup(bubble);
+  bubbleOwnsResize = true;
+}
+
 function showBubble(text, holdMs = 3200, force = false) {
   if (!force && (muted || radialOpen || askActive)) return; // 选项面板开着时不弹气泡盖住它(force=重要提示强制显示)
   // emoji → 内联 SVG（OctoIcons 在 emoji 字符与 SVG 之间做安全替换；不可识别字符原样保留）
@@ -1417,16 +1454,20 @@ function showBubble(text, holdMs = 3200, force = false) {
   }
   bubble.classList.remove('hidden');
   bubble.scrollTop = 0; // 重置滚动到顶（上次长气泡可能滚到了下边）
-  // 大段文字：把窗口按实际高度撑开（fitPopup 已按屏幕封顶，永远不顶出屏幕；
-  // 实在超屏时由 #bubble 自身 overflow-y:auto 内滚动兜底）。
-  fitPopup(bubble);
+  // R50: 免缩放优先 —— 气泡塞得进当前窗口就不动原生窗口；实在超屏时
+  // 由 fitPopup 按屏幕封顶，#bubble 自身 overflow-y:auto 内滚动兜底。
+  fitBubbleToViewport();
   clearTimeout(bubbleTimer);
   bubbleTimer = setTimeout(hideBubble, holdMs);
 }
 function hideBubble() {
   bubble.classList.add('hidden');
+  // R50: 只有本气泡真的撑大过窗口才缩回，短气泡不再引发 resize 抖动。
   // 若没有其它弹层占用大窗口尺寸，恢复原始尺寸（避免 pet 一直停在加大窗口里）
-  if (!askActive && !sessListOpen && !todoPopOpen) resetPetSize();
+  if (bubbleOwnsResize && !askActive && !sessListOpen && !todoPopOpen) {
+    bubbleOwnsResize = false;
+    resetPetSize();
+  }
 }
 
 function scheduleBlink() {
@@ -2230,6 +2271,11 @@ function attachDrag(el) {
     if (e.button === 2) {
       e.preventDefault();
       setMouseIgnore(false);
+      // R50: toggling here (not in contextmenu) because preventDefault() on
+      // pointerdown suppresses the compatibility mouse pipeline — including
+      // contextmenu — on several WebView builds. contextmenu below is kept as
+      // a guarded fallback for builds that fire it.
+      toggleRadialFromPointer();
       return;
     }
     if (e.button !== 0) return;
@@ -2282,7 +2328,10 @@ function attachDrag(el) {
     e.preventDefault();
     e.stopPropagation();
     setMouseIgnore(false);
-    toggleRadial();
+    // R50: pointerdown(button 2) already toggled on builds that suppress
+    // contextmenu; skip if that just happened, otherwise toggle here for
+    // builds that deliver contextmenu without a prior pointerdown claim.
+    if (perfNow() - rightClickHandledAt > 400) toggleRadial();
   });
 }
 if (petAnchor) attachDrag(petAnchor);
@@ -2414,12 +2463,18 @@ function showRadialNow() {
 
 function requestRadialViewport() {
   pendingRadialOpen = true;
-  setRequestedPetSize(320, 340);
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    if (!pendingRadialOpen || geometryBusy) return;
-    pendingRadialOpen = false;
-    showRadialNow();
-  }));
+  // R50: await the resize IPC chain (normalizePetAnchor -> set_pet_size ->
+  // applyPetLayout) BEFORE building the radial. The old rAF×2 heuristic read
+  // geometryBusy before petSizeController.apply() had even started (it first
+  // awaits getWinPos), so the radial was laid out in the pre-resize viewport
+  // and ended up misaligned once the window snapped to 320x340.
+  Promise.resolve(petSizeController.request([320, 340]))
+    .catch(() => {})
+    .then(() => requestAnimationFrame(() => {
+      if (!pendingRadialOpen || geometryBusy) return;
+      pendingRadialOpen = false;
+      if (!radialOpen && !todoPopOpen && !sessListOpen) showRadialNow();
+    }));
 }
 
 function openRadial() {

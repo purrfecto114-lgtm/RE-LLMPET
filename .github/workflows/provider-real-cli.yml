@@ -1,0 +1,44 @@
+name: Provider real CLI gate
+
+# Exercises the real provider CLIs (Claude Code, CodeWhale, Codex,
+# OpenCode, Aider) on self-hosted runners that actually have them
+# installed. scripts/real-provider-smoke.js refuses to infer anything
+# from fixtures: OCTOPUS_PROVIDER_SMOKE_COMMAND must drive a genuine CLI
+# session in an isolated HOME and write evidence JSON.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  provider-contract:
+    name: Real ${{ matrix.provider }} CLI contract
+    runs-on: [self-hosted, provider-cli]
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [claude, codewhale, codex, opencode, aider]
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: actions/setup-node@94196ee1d15439c1b6651cd87ef14e88ec435966
+        with:
+          node-version: 20
+      - name: Build the release binaries from the committed lockfile
+        run: |
+          cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+          CARGO_NET_OFFLINE=true cargo build --manifest-path src-tauri/Cargo.toml --release --locked
+      - name: Exercise the real provider CLI
+        env:
+          OCTOPUS_PROVIDER_SMOKE_COMMAND: ${{ vars.PROVIDER_SMOKE_COMMAND }}
+        run: node scripts/real-provider-smoke.js --provider ${{ matrix.provider }}
+      - name: Retain the provider contract report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: provider-real-${{ matrix.provider }}-${{ github.run_number }}
+          path: reports/
+          if-no-files-found: warn

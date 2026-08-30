@@ -1,140 +1,215 @@
 name: Release
 
+# Tag-driven release pipeline for the Tauri rewrite.
+#
+# Updater artifacts stay disabled at their producers (tauri.conf.json
+# bundle.createUpdaterArtifacts=false): this workflow never builds, signs or
+# uploads updater payloads, so no updater key is configured anywhere below.
+# Native platform publisher signing (Windows Authenticode / macOS Developer
+# ID + notarization) is a separate, fail-closed policy driven by the
+# REQUIRE_PLATFORM_SIGNING repository variable.
+
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
-  test:
-    name: Test (no electron needed)
+  validate:
+    name: Validate release source
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Tag/package version guard
-        run: node -e "const v=require('./package.json').version;if('v'+v!==process.env.GITHUB_REF_NAME)throw new Error('tag/package version mismatch')"
-      - run: npm test
-
-  build-windows:
-    name: Build Windows x64
-    needs: test
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: actions/setup-node@94196ee1d15439c1b6651cd87ef14e88ec435966
         with:
           node-version: 20
           cache: npm
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@2c7215f132e9 # stable
+        with:
+          components: rustfmt, clippy
       - run: npm ci
-      - name: Cache electron binaries
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~\AppData\Local\electron\Cache
-            ~\AppData\Local\electron-builder\Cache
-          key: electron-win-${{ hashFiles('package-lock.json') }}
-      - run: npx electron-builder --win --publish never
-      - name: List artifacts
-        shell: pwsh
-        run: Get-ChildItem dist -File | Format-Table Name, Length
-      - uses: actions/upload-artifact@v4
-        with:
-          name: win-x64
-          path: |
-            dist/*.exe
-            dist/*.zip
-          if-no-files-found: error
+      - name: Guard the pushed tag against the package version
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED_TAG="v$VERSION"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "$EXPECTED_TAG" ]; then
+            echo "::error::pushed tag $GITHUB_REF_NAME does not match package version $EXPECTED_TAG"
+            exit 1
+          fi
+      - name: Guard updater artifacts stay disabled
+        run: |
+          node -e "const c=require('./src-tauri/tauri.conf.json');if(c.bundle.createUpdaterArtifacts!==false)throw new Error('bundle.createUpdaterArtifacts=false is required: the release pipeline must not produce updater artifacts')"
+      - name: Run the full source regression suite
+        run: npm test
+      - name: Verify Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - name: Lint Rust with Clippy (warnings are errors)
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
+      - name: Compile Rust unit tests from the committed lockfile
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib --no-run --locked
+      - name: Run Rust core unit tests on the host
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
 
-  build-macos:
-    name: Build macOS ARM64 (${{ needs.build-macos.outputs.mode }})
-    needs: test
-    runs-on: macos-14
+  prepare:
+    name: Prepare private release draft
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
-      mode: ${{ steps.sig.outputs.mode }}
+      release_id: ${{ steps.draft.outputs.release_id }}
+      draft_tag: ${{ steps.draft.outputs.draft_tag }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: actions/setup-node@94196ee1d15439c1b6651cd87ef14e88ec435966
         with:
           node-version: 20
           cache: npm
-      - id: sig
-        env:
-          P12: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
-        run: |
-          if [ -n "$P12" ]; then echo "mode=full" >> "$GITHUB_OUTPUT"
-          else echo "mode=adhoc" >> "$GITHUB_OUTPUT"; fi
       - run: npm ci
-      - name: Sign, notarize and package (full)
-        if: steps.sig.outputs.mode == 'full'
+      - name: Open a private draft release under a run-scoped tag
+        id: draft
         env:
-          APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
-          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: true
         run: |
-          node scripts/sign-notarize-mac.js --check-env
-          CERTIFICATE_PATH="$RUNNER_TEMP/llmpet-developer-id.p12"
-          KEYCHAIN_PATH="$RUNNER_TEMP/llmpet-signing.keychain-db"
-          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
-          printf '%s' "$APPLE_DEVELOPER_ID_P12_BASE64" | base64 -D > "$CERTIFICATE_PATH"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERTIFICATE_PATH" -P "$APPLE_DEVELOPER_ID_P12_PASSWORD" -A -t agg -f pkcs12 -k "$KEYCHAIN_PATH"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH"
-          security default-keychain -d user -s "$KEYCHAIN_PATH"
-          MAC_SIGNING_KEYCHAIN="$KEYCHAIN_PATH" npm run package:mac
-          npm run verify:mac
-          security delete-keychain "$KEYCHAIN_PATH"
-      - name: Package unsigned (adhoc)
-        if: steps.sig.outputs.mode == 'adhoc'
-        run: LLMPET_MAC_SIGN_MODE=adhoc bash scripts/package-mac.sh
-      - uses: actions/upload-artifact@v4
+          VERSION="$(node -p "require('./package.json').version")"
+          DRAFT_TAG="v$VERSION-draft-$GITHUB_RUN_NUMBER"
+          RELEASE_NAME="Octopus v$VERSION manual draft #$GITHUB_RUN_NUMBER"
+          RELEASE_URL="$(gh release create "$DRAFT_TAG" --target "$GITHUB_SHA" --title "$RELEASE_NAME" --notes "Manual inspection draft. Kept private until draft asset closure is verified." --draft --prerelease)"
+          RELEASE_ID="${RELEASE_URL##*/}"
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+          echo "draft_tag=$DRAFT_TAG" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.platform }} bundles
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+            args: ""
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+            args: ""
+          - os: windows-latest
+            platform: windows-x64
+            args: ""
+          - os: macos-14
+            platform: macos-arm64
+            args: "--target aarch64-apple-darwin"
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: actions/setup-node@94196ee1d15439c1b6651cd87ef14e88ec435966
         with:
-          name: mac-arm64-${{ steps.sig.outputs.mode }}
-          path: dist/*.zip
-          if-no-files-found: error
+          node-version: 20
+          cache: npm
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@2c7215f132e9 # stable
+        with:
+          components: rustfmt, clippy
+      - name: Install Linux webkit dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - name: Prefetch the committed Cargo dependency set
+        run: cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+      - name: Compute platform signing status
+        id: signing
+        shell: bash
+        env:
+          REQUIRE_PLATFORM_SIGNING: ${{ vars.REQUIRE_PLATFORM_SIGNING }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        run: |
+          PLATFORM_SIGNED=false
+          case "${{ matrix.platform }}" in
+            windows-*)
+              if [ -n "$WINDOWS_CERTIFICATE" ]; then
+                PLATFORM_SIGNED=true
+              else
+                echo "::warning::WINDOWS_CERTIFICATE is not configured: the Windows bundles will ship without an Authenticode publisher signature"
+              fi
+              ;;
+            macos-*)
+              if [ -n "$APPLE_CERTIFICATE" ]; then
+                PLATFORM_SIGNED=true
+              else
+                echo "::warning::APPLE_CERTIFICATE is not configured: the macOS bundles will ship without a Developer ID signature or notarization"
+              fi
+              ;;
+          esac
+          if [ "$REQUIRE_PLATFORM_SIGNING" = "true" ] && [ "$PLATFORM_SIGNED" != "true" ]; then
+            echo "::error::REQUIRE_PLATFORM_SIGNING=true but ${{ matrix.platform }} has no platform publisher certificate"
+            exit 1
+          fi
+          echo "PLATFORM_SIGNED=$PLATFORM_SIGNED" >> "$GITHUB_OUTPUT"
+      - name: Build and upload bundles to the draft release
+        uses: tauri-apps/tauri-action@abbd19ad15b3 # v1
+        env:
+          CARGO_NET_OFFLINE: true
+        with:
+          projectPath: src-tauri
+          tagName: ${{ needs.prepare.outputs.draft_tag }}
+          releaseId: ${{ needs.prepare.outputs.release_id }}
+          releaseDraft: true
+          prerelease: true
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+          args: ${{ matrix.args }}
+      - name: Publish the per-platform checksum manifest
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          DRAFT_TAG: ${{ needs.prepare.outputs.draft_tag }}
+        run: |
+          node scripts/generate-checksums.js src-tauri/target "reports/SHA256SUMS-${{ matrix.platform }}"
+          gh release upload "$DRAFT_TAG" "reports/SHA256SUMS-${{ matrix.platform }}" --clobber
+      - name: Attest the platform checksum manifest
+        uses: actions/attest@508db95dd578 # v4
+        with:
+          subject-path: reports/SHA256SUMS-${{ matrix.platform }}
 
   publish:
-    name: Publish GitHub Release
-    needs: [build-windows, build-macos]
+    name: Reconcile and publish the draft release
+    needs: [prepare, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: actions/setup-node@94196ee1d15439c1b6651cd87ef14e88ec435966
         with:
-          path: release
-          merge-multiple: true
-      - name: Checksums
-        run: |
-          cd release
-          sha256sum * > SHA256SUMS.txt
-          cat SHA256SUMS.txt
-      - name: Create release
+          node-version: 20
+      - name: Verify draft asset closure
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --title "LLMPET ${GITHUB_REF_NAME#v}" --generate-notes
-      - name: Retention — keep latest 3 releases (+drop their tags)
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const keep = 3;
-            const rels = await github.paginate(github.rest.repos.listReleases, {
-              owner: context.repo.owner, repo: context.repo.repo, per_page: 100,
-            });
-            const stale = rels.sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(keep);
-            for (const r of stale) {
-              core.info('deleting ' + r.tag_name);
-              await github.rest.repos.deleteRelease({ owner: context.repo.owner, repo: context.repo.repo, release_id: r.id });
-              await github.rest.git.deleteRef({
-                owner: context.repo.owner, repo: context.repo.repo,
-                ref: 'tags/' + r.tag_name,
-              }).catch((e) => core.warning('tag delete skipped: ' + e.message));
-            }
+          DRAFT_TAG: ${{ needs.prepare.outputs.draft_tag }}
+        run: |
+          mkdir -p release-audit
+          gh release view "$DRAFT_TAG" --json assets,isDraft,isPrerelease,tagName > release-audit/release.json
+          gh release download "$DRAFT_TAG" --dir release-audit --pattern 'SHA256SUMS-*'
+          node scripts/verify-release-assets.js release-audit/release.json release-audit 4
+      - name: Make the fully assembled tag release visible
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          DRAFT_TAG: ${{ needs.prepare.outputs.draft_tag }}
+        run: |
+          PRERELEASE=true gh release edit "$DRAFT_TAG" --repo "$GH_REPO" --draft=false --prerelease

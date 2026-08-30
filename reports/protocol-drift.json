@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-04T11:44:34.929Z",
-  "baselineUpdatedAt": "2026-08-01",
+  "generatedAt": "2026-08-30T04:45:16.672Z",
+  "baselineUpdatedAt": "2026-08-30",
   "sourceFork": {
     "repository": "https://github.com/purrfecto114-lgtm/LLMPET",
     "publishedTag": "v0.1.2-pre",
     "tagCommit": "1a6617a",
-    "observedMainCommit": "86cbd9e",
-    "observedAt": "2026-07-27",
+    "observedMainCommit": "11ff1baf1aab7ee6844b29799d04884141b664b0",
+    "observedAt": "2026-08-30",
     "verificationUrl": "https://github.com/purrfecto114-lgtm/LLMPET/commits/main/"
   },
   "local": [
@@ -170,7 +170,8 @@
         "SubagentStart",
         "SubagentStop",
         "PreCompact",
-        "PostCompact"
+        "PostCompact",
+        "Interrupt"
       ],
       "expected": [
         "SessionStart",
@@ -183,7 +184,8 @@
         "SubagentStart",
         "SubagentStop",
         "PreCompact",
-        "PostCompact"
+        "PostCompact",
+        "Interrupt"
       ],
       "missing": [],
       "unexpected": [],
@@ -203,23 +205,27 @@
   "cliVersions": [
     {
       "id": "claude",
-      "installed": false,
-      "error": "ENOENT"
+      "installed": true,
+      "status": 0,
+      "version": "2.1.251 (Claude Code)"
     },
     {
       "id": "codewhale",
-      "installed": false,
-      "error": "ENOENT"
+      "installed": true,
+      "status": 0,
+      "version": "codewhale 0.9.11 (96d13a0bc3f4)"
     },
     {
       "id": "codex",
-      "installed": false,
-      "error": "ENOENT"
+      "installed": true,
+      "status": 0,
+      "version": "codex-cli 0.151.0"
     },
     {
       "id": "opencode",
-      "installed": false,
-      "error": "ENOENT"
+      "installed": true,
+      "status": 0,
+      "version": "1.18.25"
     },
     {
       "id": "aider",
@@ -227,6 +233,105 @@
       "error": "ENOENT"
     }
   ],
-  "remote": [],
-  "verdict": "local-contract-ok"
+  "remote": [
+    {
+      "id": "source-fork-head-and-tag",
+      "url": "https://github.com/purrfecto114-lgtm/LLMPET/commits/main/",
+      "finalUrl": "https://github.com/purrfecto114-lgtm/LLMPET/commits/main/",
+      "reachable": true,
+      "blocked": false,
+      "status": 200,
+      "bytes": 502271,
+      "ok": true,
+      "missing": []
+    },
+    {
+      "id": "claude-hooks",
+      "url": "https://docs.anthropic.com/en/docs/claude-code/hooks",
+      "finalUrl": "https://code.claude.com/docs/en/hooks",
+      "reachable": true,
+      "blocked": false,
+      "status": 200,
+      "bytes": 2801191,
+      "ok": true,
+      "missing": []
+    },
+    {
+      "id": "codewhale-hooks",
+      "url": "https://raw.githubusercontent.com/Hmbown/CodeWhale/main/docs/CONFIGURATION.md",
+      "finalUrl": "https://raw.githubusercontent.com/Hmbown/CodeWhale/main/docs/CONFIGURATION.md",
+      "reachable": true,
+      "blocked": false,
+      "status": 200,
+      "bytes": 164208,
+      "ok": true,
+      "missing": []
+    },
+    {
+      "id": "codex-hooks",
+      "url": "https://developers.openai.com/codex/hooks",
+      "finalUrl": "https://developers.openai.com/codex/hooks",
+      "reachable": true,
+      "blocked": true,
+      "status": 403,
+      "bytes": 5525,
+      "ok": null,
+      "missing": [
+        "PermissionRequest",
+        "hookSpecificOutput",
+        "/hooks"
+      ]
+    },
+    {
+      "id": "opencode-plugins",
+      "url": "https://opencode.ai/docs/plugins/",
+      "finalUrl": "https://opencode.ai/docs/plugins/",
+      "reachable": true,
+      "blocked": false,
+      "status": 200,
+      "bytes": 109727,
+      "ok": true,
+      "missing": []
+    },
+    {
+      "id": "models-dev-catalog",
+      "url": "https://models.dev/api.json",
+      "finalUrl": "https://models.dev/api.json",
+      "reachable": true,
+      "blocked": false,
+      "status": 200,
+      "bytes": 4432097,
+      "ok": true,
+      "missing": []
+    },
+    {
+      "id": "upstream-parallel-permission-semantics",
+      "url": "https://github.com/myunwang/LLMPET/commit/4637a20cef1ae6207d3773f75edcfe3d231120d9",
+      "finalUrl": "https://github.com/myunwang/LLMPET/commit/4637a20cef1ae6207d3773f75edcfe3d231120d9",
+      "reachable": true,
+      "blocked": false,
+      "status": 200,
+      "bytes": 805080,
+      "ok": true,
+      "missing": []
+    }
+  ],
+  "blocked": [
+    {
+      "id": "codex-hooks",
+      "url": "https://developers.openai.com/codex/hooks",
+      "finalUrl": "https://developers.openai.com/codex/hooks",
+      "reachable": true,
+      "blocked": true,
+      "status": 403,
+      "bytes": 5525,
+      "ok": null,
+      "missing": [
+        "PermissionRequest",
+        "hookSpecificOutput",
+        "/hooks"
+      ]
+    }
+  ],
+  "verdict": "remote-contract-ok-blocked"
 }
