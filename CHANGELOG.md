@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.6.2 — R52 启动崩溃热修（2026-09-05）
+
+> 0.6.1 的全部平台安装包（exe / dmg / AppImage / deb）在启动时立即崩溃。
+> 本条目是热修：一行根因、复现证据、以及为什么所有既有门禁都没拦住它。
+
+### CRITICAL: 0.6.1 全平台安装包启动即崩
+- **症状**: 安装 0.6.1 后启动立即退出——无窗口、无托盘、无报错弹窗。
+- **根因**: `dsh_watch.rs` 的 `start_dsh_watcher` 在 Tauri setup 回调（GUI
+  主线程）里直接调用 `tokio::spawn`。主线程没有 Tokio reactor，该调用立即
+  panic：`there is no reactor running, must be called from the context of a
+  Tokio 1.x runtime`，进程随即 abort。dsh 是全应用唯一基于 async 的后台组件
+  （pricing_sync / hook_watcher / http_server 都是 std 线程），所以只有这
+  一处地雷——但它足够让启动全灭。
+- **复现（真实产物，非源码推理）**: 从 GitHub Release v0.6.1 下载 amd64
+  AppImage，在 Xvfb + dbus-run-session 环境下运行，稳定复现同一 panic 栈
+  （`src/dsh_watch.rs:827`）；崩溃点之前 GTK、窗口创建、托盘、HTTP server
+  全部已成功初始化——即只要修掉这一处，启动链路其余部分是好的。
+- **修复**: 改用 `tauri::async_runtime::spawn`（Tauri 托管的全局异步运行
+  时，与 `commands.rs` 里的 async commands 同一款），任何线程可调、随应用
+  生命周期存续、无需调用方自建 reactor。dsh 轮询逻辑本身零改动。
+- **回归防护**: ①新增 Rust 单测 `r52_watcher_spawn_survives_threads_without_
+  a_reactor`——在无线程 reactor 的裸 std 线程上执行 spawn，断言不 panic
+  （0.6.1 的 `tokio::spawn` 调用形态在该测试里必崩）；②本次源码变更第一
+  时间就被 r401 SOURCE_MANIFEST 门禁拦截（hash mismatch），门禁链本身
+  始终有效。
+- **为什么 0.6.1 的全绿门禁没拦住**: `cargo test --lib` 的每个测试都天然
+  运行在 Tokio 测试运行时里，`tokio::spawn` 在测试上下文完全合法；真实
+  应用的 GUI 主线程没有这个上下文。CI 也从未真正启动过打包后的 GUI 二
+  进制——这是 R51「本地门禁无法覆盖 runner 真实环境」教训的再一次实证。
+  本轮新增验证纪律：发布前在本沙箱真实启动 CI 产物（AppImage），确认进
+  入窗口事件循环、无 panic，才算过。
+
+### 其他
+- 无。0.6.2 只含此修复与配套回归测试，不夹带任何其他变更；所有独有
+  功能与 provider（claude / codewhale / codex / opencode / aider / dsh）
+  原样保留。
+
 ## 0.6.1 — Provider Hooks 真实 CLI 冒烟 + 协议基线校准（2026-08-30）
 
 > 0.6.0（R50，2026-08-29/30）修复了 8 类桌宠问题并完成 Electron 清理，

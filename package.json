@@ -1,6 +1,6 @@
 {
   "name": "llmpet",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "桌面宠物：实时呈现 Claude Code、OpenAI Codex 与 DeepSeek Harness 的状态、消息和会话",
   "license": "MIT",
   "author": "myunwang",

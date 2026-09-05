@@ -50,7 +50,7 @@ const packageJson = JSON.parse(read('package.json'));
 // Version (still 0.5.57 — Phase 0D ships in the same release as 0C)
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.6.1',
+assert.strictEqual(packageJson.version, '0.6.2',
   'P0D: package.json version must remain 0.5.57 (Phase 0C+0D ship together)');
 
 // ──────────────────────────────────────────────────────────────────────────

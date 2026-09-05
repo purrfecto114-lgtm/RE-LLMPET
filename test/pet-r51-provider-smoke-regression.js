@@ -81,10 +81,10 @@ check('codex smoke report still captured lifecycle events', ['session-start', 't
 
 // --- 6. version coherence ----------------------------------------------
 const pkg = JSON.parse(read('package.json'));
-check('package.json at 0.6.1', pkg.version === '0.6.1');
-check('tauri.conf.json at 0.6.1', JSON.parse(read('src-tauri/tauri.conf.json')).version === '0.6.1');
-check('Cargo.toml at 0.6.1', /^version = "0\.6\.1"$/m.test(read('src-tauri/Cargo.toml')));
-check('migration-todo release at 0.6.1', JSON.parse(read('migration-todo.json')).release === '0.6.1');
+check('package.json at 0.6.2', pkg.version === '0.6.2');
+check('tauri.conf.json at 0.6.2', JSON.parse(read('src-tauri/tauri.conf.json')).version === '0.6.2');
+check('Cargo.toml at 0.6.2', /^version = "0\.6\.2"$/m.test(read('src-tauri/Cargo.toml')));
+check('migration-todo release at 0.6.2', JSON.parse(read('migration-todo.json')).release === '0.6.2');
 
 // --- 7. aider dash-form emission (live-verified breakage fix) -------------
 check('install_aider emits notifications-command (dash form)', /notifications: true\\nnotifications-command: /.test(installer));

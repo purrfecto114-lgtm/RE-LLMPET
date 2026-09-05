@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Octopus provider-smoke collector (2026-08-30, 0.6.1 rework).
+// Octopus provider-smoke collector (2026-08-30, 0.6.2 pin).
 // Accepts POST /state exactly like the desktop app's loopback ingest endpoint
 // (hook_client.rs posts raw HTTP with X-Re-Llmpet-Token; the OpenCode plugin
 // fetch()es the same path with lowercase headers). Records every event to a

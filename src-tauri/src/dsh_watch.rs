@@ -824,7 +824,16 @@ impl DshWatcher {
 /// Initialize and start the dsh watcher.
 pub fn start_dsh_watcher(runtime: Arc<Runtime>) {
     let mut watcher = DshWatcher::new(runtime);
-    tokio::spawn(async move {
+    // R52 (2026-09-05) startup-crash hotfix: `tokio::spawn` requires a live
+    // Tokio reactor on the *calling* thread, but this function runs from the
+    // Tauri setup callback on the GUI main thread, which owns none. The
+    // released 0.6.1 binaries therefore aborted on every platform with
+    // "there is no reactor running, must be called from the context of a
+    // Tokio 1.x runtime" (reproduced against the shipped AppImage). Spawn
+    // onto Tauri's managed async runtime — the same runtime that backs the
+    // async commands in `commands.rs` — which exists for the whole app
+    // lifetime and needs no per-thread context.
+    tauri::async_runtime::spawn(async move {
         watcher.start().await;
     });
 }
@@ -875,5 +884,24 @@ mod tests {
         let json = r#"{"type":"session","version":1,"id":"ses_123","cwd":"/home/user","createdAt":1234567890,"delegationDepth":0,"origin":null}"#;
         let header: DshSessionHeader = serde_json::from_str(json).unwrap();
         assert_ne!(header.version, 0);
+    }
+
+    #[test]
+    fn r52_watcher_spawn_survives_threads_without_a_reactor() {
+        // R52 (2026-09-05): `start_dsh_watcher` runs on the Tauri setup
+        // (GUI main) thread, which owns no Tokio reactor. The 0.6.1 release
+        // aborted at startup on every platform because `tokio::spawn` was
+        // called from that thread ("there is no reactor running"). The spawn
+        // target is Tauri's managed async runtime, which must be usable from
+        // ANY plain thread. This test reproduces the crashing context — a
+        // bare std thread with no runtime context — and asserts the spawn
+        // path completes instead of panicking.
+        let joined = std::thread::spawn(|| {
+            // Same call shape as `start_dsh_watcher`; a bare `tokio::spawn`
+            // here panics, `tauri::async_runtime::spawn` does not.
+            tauri::async_runtime::spawn(async {});
+        })
+        .join();
+        joined.expect("spawn from a reactor-less thread must not panic");
     }
 }
