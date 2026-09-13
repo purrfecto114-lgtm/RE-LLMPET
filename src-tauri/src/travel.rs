@@ -9,7 +9,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -374,7 +374,14 @@ impl TravelManager {
             let stdout = private_output_file(&out_path)?;
             let stderr = private_output_file(&err_path)?;
             let prompt = build_prompt(&trip);
-            let args = provider_args(&trip);
+            let (mut args, delivery) = provider_args(&trip);
+            if delivery == PromptDelivery::Argv {
+                // CodeWhale takes the prompt as the final positional argument.
+                // Newlines are flattened: cmd.exe quoting of embedded line
+                // breaks inside a single argument is not a contract we want to
+                // depend on, and the mission is bounded anyway.
+                args.push(prompt.replace(['\r', '\n'], " "));
+            }
             let mut command = provider_command(&executable, &args);
             command
                 .current_dir(&cwd)
@@ -386,16 +393,23 @@ impl TravelManager {
                 .map_err(|error| format!("launch {}: {error}", trip.provider))?;
             let pid = child.id();
             *self.child_pid.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
-            let stdin_result = child
-                .stdin
-                .take()
-                .ok_or_else(|| "travel CLI stdin was unavailable".to_string())
-                .and_then(|mut stdin| {
-                    stdin
-                        .write_all(prompt.as_bytes())
-                        .and_then(|_| stdin.flush())
-                        .map_err(|error| format!("write travel prompt to stdin: {error}"))
-                });
+            let stdin_result = if delivery == PromptDelivery::Stdin {
+                child
+                    .stdin
+                    .take()
+                    .ok_or_else(|| "travel CLI stdin was unavailable".to_string())
+                    .and_then(|mut stdin| {
+                        stdin
+                            .write_all(prompt.as_bytes())
+                            .and_then(|_| stdin.flush())
+                            .map_err(|error| format!("write travel prompt to stdin: {error}"))
+                    })
+            } else {
+                // Argv delivery: drop our stdin handle immediately so the child
+                // never blocks waiting for input we will not send.
+                drop(child.stdin.take());
+                Ok(())
+            };
             if let Err(error) = stdin_result {
                 let _ = crate::commands::kill_process_tree(pid);
                 let _ = wait_bounded(&mut child, Duration::from_secs(2));
@@ -442,12 +456,28 @@ impl TravelManager {
             let output = read_bounded(&out_path);
             let errors = read_bounded(&err_path);
             if !status.success() {
-                let message = clean_text(if errors.is_empty() { &output } else { &errors }, 2000);
-                return Err(if message.is_empty() {
-                    format!("{} exited with status {status}", trip.provider)
-                } else {
-                    message
-                });
+                // R53: raw CLI stderr must never become the postcard/bubble
+                // text. Real failures observed in the wild: clap usage dumps
+                // that echo the full Windows command line, GBK console output
+                // that decodes to mojibake, and multi-KB help text — all of
+                // which previously landed verbatim in a 2000-char pet bubble.
+                // Log the bounded raw stream for diagnosis, show a sanitized
+                // one-line excerpt at most.
+                runtime.write_log(
+                    "travel",
+                    &format!(
+                        "trip {} ({} mode) failed with status {status}; stderr tail: {}",
+                        trip.id,
+                        trip.mode,
+                        log_excerpt(&errors, 2000)
+                    ),
+                );
+                return Err(friendly_cli_error(
+                    &trip.provider,
+                    &errors,
+                    &output,
+                    &status,
+                ));
             }
             let tokens = usage_tokens(&output, &trip.provider);
             Ok((final_message(&output), tokens))
@@ -842,29 +872,60 @@ fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-fn provider_args(trip: &ActiveTrip) -> Vec<String> {
+/// R53 (2026-09-13): how the travel/wander prompt reaches the provider CLI.
+/// Claude and Codex both read the prompt from stdin (codex marks it with a
+/// trailing `-` argument). CodeWhale's `exec` subcommand has NO stdin mode —
+/// the prompt must be the final positional argument (`codewhale exec --json
+/// "<prompt>"`, verified live against the real v0.9.12 binary: stdin is
+/// ignored and clap rejects a missing `<PROMPT>...`). Passing codex-style
+/// flags to codewhale made every wander fail with a clap usage dump that
+/// then leaked into the pet bubble (mojibake on GBK consoles).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PromptDelivery {
+    Stdin,
+    Argv,
+}
+
+fn provider_args(trip: &ActiveTrip) -> (Vec<String>, PromptDelivery) {
     if trip.provider == "claude" {
         let tools = if trip.mode == "wander" {
             "WebSearch,WebFetch"
         } else {
             "Read,Glob,Grep"
         };
-        [
-            "-p",
-            "--permission-mode",
-            "plan",
-            "--tools",
-            tools,
-            "--strict-mcp-config",
-            "--output-format",
-            "json",
-            "--max-turns",
-            "8",
-            "--no-session-persistence",
-        ]
-        .into_iter()
-        .map(str::to_string)
-        .collect()
+        (
+            [
+                "-p",
+                "--permission-mode",
+                "plan",
+                "--tools",
+                tools,
+                "--strict-mcp-config",
+                "--output-format",
+                "json",
+                "--max-turns",
+                "8",
+                "--no-session-persistence",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+            PromptDelivery::Stdin,
+        )
+    } else if trip.provider == "codewhale" {
+        // R53: CodeWhale exec surface (verified against v0.9.12 --help + a live
+        // mock-DeepSeek run): `codewhale exec --json <PROMPT>` emits one
+        // pretty-printed summary JSON object with an `output` field. There is
+        // no `--search`, no `--ephemeral`, no `--sandbox`, no
+        // `--ask-for-approval` — those are Codex-only flags. Plain `exec`
+        // (without `--auto`) is a one-shot model response with NO tool access,
+        // which is the only safe unsupervised mode CodeWhale offers (`--auto`
+        // grants auto-approved write-capable tools with no sandbox
+        // counterpart). The prompt is appended to argv by the caller.
+        (
+            vec!["exec".to_string(), "--json".to_string()],
+            PromptDelivery::Argv,
+        )
     } else {
         let mut args = Vec::new();
         if trip.mode == "wander" {
@@ -887,7 +948,7 @@ fn provider_args(trip: &ActiveTrip) -> Vec<String> {
             .into_iter()
             .map(str::to_string),
         );
-        args
+        (args, PromptDelivery::Stdin)
     }
 }
 
@@ -941,7 +1002,142 @@ fn output_exceeded(stdout: &Path, stderr: &Path) -> bool {
         > MAX_OUTPUT_BYTES
 }
 
+/// R53: bounded, control-safe excerpt for the app log. ANSI escapes are
+/// stripped (clap and several CLIs wrap errors in them) and unprintable
+/// bytes become spaces so the log line stays greppable.
+fn log_excerpt(value: &str, max: usize) -> String {
+    // Order matters: strip ANSI FIRST (ESC is a control char — the control
+    // cleanup would otherwise turn every escape sequence into literal spaces
+    // before the ANSI parser ever sees it).
+    let cleaned: String = strip_ansi(value)
+        .chars()
+        .map(|c| {
+            if c.is_control() && c != '\n' && c != '\t' {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+    let single_line: String = cleaned.lines().collect::<Vec<_>>().join(" ⏎ ");
+    single_line.trim().chars().take(max).collect()
+}
+
+/// Remove CSI/OSC escape sequences that CLIs emit even when stderr is a
+/// pipe (clap's "error:" styling, progress spinners on Windows builds).
+fn strip_ansi(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            match chars.next() {
+                Some('[') => {
+                    // CSI: parameters + intermediates + final byte
+                    while let Some(&next) = chars.peek() {
+                        chars.next();
+                        if next.is_ascii_alphabetic() || next == '~' {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    // OSC: until BEL or ST
+                    while let Some(next) = chars.next() {
+                        if next == '\u{7}' {
+                            break;
+                        }
+                        if next == '\u{1b}' {
+                            let _ = chars.next(); // ST is ESC \
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// R53: sanitize a failed trip into a pet-friendly one-line message.
+/// Rules (each backed by a real-world failure shape):
+///   - never echo the raw stderr (clap usage dumps, help text, paths);
+///   - prefer the first non-empty stderr line, ANSI-stripped;
+///   - replace absolute paths with their basename (C:\Users\...\codewhale.cmd
+///     leaks the user's home layout into the bubble);
+///   - if the text is not cleanly decodable (GBK console output that
+///     lossy-converted to U+FFFD soup), drop the excerpt entirely —
+///     mojibake in the bubble was the reported bug;
+///   - cap the excerpt at 140 chars; the full stream goes to the app log.
+fn friendly_cli_error(provider: &str, errors: &str, output: &str, status: &ExitStatus) -> String {
+    let code = status
+        .code()
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| "signal".into());
+    let source = if errors.trim().is_empty() {
+        output
+    } else {
+        errors
+    };
+    let first_line = source
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("");
+    let mut excerpt = strip_ansi(first_line);
+    // Path scrubbing: replace every path-shaped run with "prefix…basename".
+    // Keeps the verb context ("error: cannot run") while dropping the
+    // C:\Users\<name>\… layout. Cheap char scan — no regex dependency.
+    if excerpt.contains('/') || excerpt.contains('\\') {
+        let mut prefix = String::new();
+        let mut segment = String::new();
+        let mut seen_separator = false;
+        for c in excerpt.chars() {
+            if c == '/' || c == '\\' {
+                if !seen_separator {
+                    prefix = segment.clone();
+                    seen_separator = true;
+                }
+                segment.clear();
+            } else {
+                segment.push(c);
+            }
+        }
+        if seen_separator {
+            excerpt = if segment.is_empty() {
+                prefix
+            } else {
+                format!("{prefix}…{segment}")
+            };
+        }
+    }
+    // Mojibake guard: a GBK stream decoded as UTF-8 is dominated by U+FFFD.
+    let total = excerpt.chars().count().max(1);
+    let replacements = excerpt.chars().filter(|c| *c == '\u{fffd}').count();
+    if replacements * 4 > total {
+        excerpt.clear();
+    }
+    let bounded: String = excerpt.trim().chars().take(140).collect();
+    if bounded.is_empty() {
+        format!("{provider} CLI 执行失败（退出码 {code}），详见应用日志")
+    } else {
+        format!("{provider} CLI 执行失败（退出码 {code}）：{bounded}")
+    }
+}
+
 fn build_prompt(trip: &ActiveTrip) -> String {
+    if trip.provider == "codewhale" {
+        // R53: plain `codewhale exec` (no `--auto`) is a one-shot model
+        // response with no tools at all — the only safe unsupervised mode
+        // CodeWhale offers. The prompt must not claim tool access that does
+        // not exist; the postcard honestly reflects a knowledge-based answer.
+        return format!(
+            "You are Octopus, a desktop pet on a short breather. Answer from your own knowledge without using any tools or reading local files. Mission: {}. Reply in Chinese with a concise postcard: key points, why they matter, and one practical takeaway.",
+            trip.mission
+        );
+    }
     if trip.mode == "wander" {
         let tool_boundary = if trip.provider == "claude" {
             "Use only WebSearch/WebFetch."
@@ -1073,22 +1269,50 @@ fn read_bounded(path: &Path) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
+/// R53: extract the postcard text from one JSON value. CodeWhale `exec
+/// --json` (verified live) reports the answer under `output`; codex uses
+/// `result`/`finalResponse`/item.text; claude uses `result`; OpenAI-style
+/// chat payloads use message.content[0].text.
+fn json_postcard_text(value: &Value) -> Option<String> {
+    let text = value
+        .get("result")
+        .or_else(|| value.get("finalResponse"))
+        .or_else(|| value.get("output"))
+        .or_else(|| value.pointer("/item/text"))
+        .or_else(|| value.pointer("/message/content/0/text"))
+        .and_then(Value::as_str)?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 fn final_message(output: &str) -> String {
     let mut fallback = String::new();
-    for line in output.lines().filter(|line| !line.trim().is_empty()) {
-        if let Ok(value) = serde_json::from_str::<Value>(line) {
-            if let Some(text) = value
-                .get("result")
-                .or_else(|| value.get("finalResponse"))
-                .or_else(|| value.pointer("/item/text"))
-                .or_else(|| value.pointer("/message/content/0/text"))
-                .and_then(Value::as_str)
-            {
-                fallback = text.to_string();
-            }
-        } else {
-            fallback.push_str(line);
+    // R53: try the WHOLE output as one JSON document first. CodeWhale `exec
+    // --json` emits a pretty-printed multi-line object — the previous
+    // line-by-line parser fed every indented line through the non-JSON
+    // fallback, so the postcard would have been raw JSON fragments. Claude's
+    // `--output-format json` result object benefits from the same path.
+    if let Ok(value) = serde_json::from_str::<Value>(output.trim()) {
+        if let Some(text) = json_postcard_text(&value) {
+            fallback = text;
+        } else if !value.is_object() {
+            fallback.push_str(output.trim());
             fallback.push('\n');
+        }
+    } else {
+        for line in output.lines().filter(|line| !line.trim().is_empty()) {
+            if let Ok(value) = serde_json::from_str::<Value>(line) {
+                if let Some(text) = json_postcard_text(&value) {
+                    fallback = text.to_string();
+                }
+            } else {
+                fallback.push_str(line);
+                fallback.push('\n');
+            }
         }
     }
     let result = clean_text(&fallback, 5000);
@@ -1100,6 +1324,15 @@ fn final_message(output: &str) -> String {
 }
 
 fn usage_tokens(output: &str, provider: &str) -> u64 {
+    // R53: whole-document JSON first (CodeWhale --json is one pretty-printed
+    // object whose usage lives at usage.input_tokens/output_tokens), then
+    // the NDJSON line stream (codex --json / claude stream outputs).
+    if let Ok(value) = serde_json::from_str::<Value>(output.trim()) {
+        let tokens = usage_tokens_value(&value, provider);
+        if tokens > 0 {
+            return tokens;
+        }
+    }
     output
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
@@ -1236,13 +1469,170 @@ mod tests {
             started_at: 1,
             owner: "pet-codex".into(),
         };
-        let args = provider_args(&trip);
+        let (args, delivery) = provider_args(&trip);
+        assert_eq!(delivery, PromptDelivery::Stdin);
         assert_eq!(args.first().map(String::as_str), Some("--search"));
         assert_eq!(args.get(1).map(String::as_str), Some("exec"));
         assert!(args
             .windows(2)
             .any(|pair| pair[0] == "--sandbox" && pair[1] == "read-only"));
         assert!(build_prompt(&trip).contains("native web_search"));
+    }
+
+    #[test]
+    fn codewhale_wander_uses_exec_json_argv_prompt_without_codex_flags() {
+        let trip = ActiveTrip {
+            id: "trip".into(),
+            mode: "wander".into(),
+            provider: "codewhale".into(),
+            session_id: None,
+            project: "Web Wander".into(),
+            mission: "look around".into(),
+            started_at: 1,
+            owner: "pet".into(),
+        };
+        let (args, delivery) = provider_args(&trip);
+        // R53: `codewhale exec --json <PROMPT>` — no --search/--ephemeral/
+        // --sandbox/--ask-for-approval (Codex-only flags that clap rejects),
+        // and the prompt rides argv, not stdin (stdin is ignored by exec).
+        assert_eq!(delivery, PromptDelivery::Argv);
+        assert_eq!(args.first().map(String::as_str), Some("exec"));
+        assert!(args.contains(&"--json".to_string()));
+        for codex_only in [
+            "--search",
+            "--ephemeral",
+            "--sandbox",
+            "--ask-for-approval",
+            "-",
+        ] {
+            assert!(
+                !args.contains(&codex_only.to_string()),
+                "codewhale args must not contain {codex_only}"
+            );
+        }
+        // The honest prompt: no tool/web claims, knowledge-based answer.
+        let prompt = build_prompt(&trip);
+        assert!(prompt.contains("from your own knowledge"));
+        assert!(!prompt.contains("web_search"));
+        assert!(!prompt.contains("Read/Glob/Grep"));
+    }
+
+    #[test]
+    fn final_message_parses_codewhale_pretty_json_output() {
+        // Exact shape captured from a live `codewhale exec --json` run against
+        // a mock DeepSeek endpoint (v0.9.12): one pretty-printed object whose
+        // answer lives under `output`. The old line-by-line parser would have
+        // returned raw JSON fragments here.
+        let output = r#"{
+  "mode": "one-shot",
+  "provider": "deepseek",
+  "model": "deepseek-v4-pro",
+  "success": true,
+  "output": "这是一张测试明信片：发现1个链接，实用建议1条。",
+  "stop_reason": "stop",
+  "usage": {
+    "input_tokens": 12,
+    "output_tokens": 34
+  },
+  "error": null
+}"#;
+        assert_eq!(
+            final_message(output),
+            "这是一张测试明信片：发现1个链接，实用建议1条。"
+        );
+        assert_eq!(usage_tokens(output, "codewhale"), 46);
+    }
+
+    #[test]
+    fn final_message_still_parses_ndjson_streams() {
+        // codex/claude line-delimited outputs keep working.
+        let output = "{\"result\":\"第一回合\"}\n{\"result\":\"最终明信片\"}\n";
+        assert_eq!(final_message(output), "最终明信片");
+        assert_eq!(usage_tokens(output, "codex"), 0);
+        let tokens = "{\"total_tokens\":7}\n{\"total_tokens\":3}\n";
+        assert_eq!(usage_tokens(tokens, "codex"), 7);
+    }
+
+    #[test]
+    fn friendly_cli_error_sanitizes_command_line_leak() {
+        let status = exit_status(2);
+        // Shape observed on Windows: clap echoes the full invocation,
+        // including the absolute .cmd shim path and every flag.
+        let stderr = "error: unexpected argument '--search exec --ephemeral --sandbox read-only --ask-for-approval never --json -' found\n\nUsage: codewhale-tui [OPTIONS] [COMMAND]\n\nFor more information, try '--help'.\n";
+        let message = friendly_cli_error("codewhale", stderr, "", &status);
+        assert!(
+            message.starts_with("codewhale CLI 执行失败（退出码 2）："),
+            "{message}"
+        );
+        assert!(
+            !message.contains("Usage:"),
+            "usage dump must not leak: {message}"
+        );
+        assert!(
+            message.chars().count() < 200,
+            "bubble text must stay short: {message}"
+        );
+    }
+
+    #[test]
+    fn friendly_cli_error_drops_mojibake_excerpt() {
+        let status = exit_status(1);
+        // GBK console output lossy-decoded to UTF-8: dominated by U+FFFD.
+        let mojibake =
+            "error: \u{fffd}\u{fffd}\u{fffd}\u{fffd}\u{fffd}\u{fffd}\u{fffd}\u{fffd}\u{fffd}";
+        let message = friendly_cli_error("codewhale", mojibake, "", &status);
+        assert_eq!(message, "codewhale CLI 执行失败（退出码 1），详见应用日志");
+    }
+
+    #[test]
+    fn friendly_cli_error_keeps_clean_first_line() {
+        let status = exit_status(1);
+        // Verified live against a mock 500 endpoint: single clean stderr line.
+        let stderr = "error: Server error (500): mock upstream exploded";
+        let message = friendly_cli_error("codewhale", stderr, "", &status);
+        assert_eq!(
+            message,
+            "codewhale CLI 执行失败（退出码 1）：error: Server error (500): mock upstream exploded"
+        );
+    }
+
+    #[test]
+    fn friendly_cli_error_collapses_absolute_paths() {
+        let status = exit_status(1);
+        let stderr = "error: cannot run C:\\Users\\aza0\\AppData\\Roaming\\npm\\codewhale.cmd";
+        let message = friendly_cli_error("codewhale", stderr, "", &status);
+        assert!(
+            !message.contains("Users"),
+            "home layout must not leak: {message}"
+        );
+        assert!(
+            message.contains("codewhale.cmd"),
+            "basename hint should survive: {message}"
+        );
+    }
+
+    /// Cross-platform exit-code constructor: Unix waits encode the code in
+    /// the high byte (ExitStatusExt on unix), Windows ExitStatus wraps the
+    /// raw u32 (ExitStatusExt on windows) — both are extension traits, the
+    /// inherent `from_raw` does not exist on Windows.
+    fn exit_status(code: i32) -> std::process::ExitStatus {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(code << 8)
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(code as u32)
+        }
+    }
+
+    #[test]
+    fn log_excerpt_strips_ansi_and_joins_lines() {
+        let noisy = "\u{1b}[31merror:\u{1b}[0m something\n\u{1b}[2mdetails\u{1b}[0m";
+        let excerpt = log_excerpt(noisy, 200);
+        assert_eq!(excerpt, "error: something ⏎ details");
     }
 
     #[test]

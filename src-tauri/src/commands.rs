@@ -3182,10 +3182,15 @@ pub fn focus_session(
                 "focus",
                 &format!("native focus unavailable for {session_id}: {error}"),
             );
-            // R18: sanitize error — truncate to 200 chars to avoid leaking
-            // long paths or platform-specific details into the pet UI.
-            let safe_error: String = error.chars().take(200).collect();
-            let _ = app.emit("pet:event", json!({"kind":"say","text":format!("Cannot focus terminal: {safe_error}. Opening dashboard.")}));
+            // R53: localize the fallback bubble (an English error inside a
+            // Chinese UI was the reported issue) and keep the excerpt tight —
+            // 80 chars is enough to name the reason without dumping paths.
+            // Raw diagnostics stay in the app log.
+            let safe_error: String = error.chars().take(80).collect();
+            let _ = app.emit(
+                "pet:event",
+                json!({"kind":"say","text":format!("无法聚焦终端：{safe_error}。已为你打开详情面板。")}),
+            );
             open_panel(app)
         }
     }

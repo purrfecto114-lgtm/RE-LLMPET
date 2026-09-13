@@ -151,8 +151,9 @@
 
 ## 6. 前端接入现状(给生成完之后接图用)
 
-- **现在已渲染**:`idle / working / juggling / sweeping / thinking / waiting / needsinput / happy / greet / talking / sleeping / error` + 情绪短暂态 `loved / sad / sorry / excited / puzzled`(月薪喵皮肤有独立素材;章鱼/像素回落到就近表情)。
-- **状态机里有、但前端还没接独立形象**:`carrying / attention / roam / yawning / dozing / collapsing / waking`(attention 被 Stop 完成门改写为 idle+徽标;roam/入睡序列暂无生产者)。
+- **现在已渲染**:`idle / working / juggling / sweeping / thinking / waiting / needsinput / happy / greet / talking / sleeping / error / roam / loafing` + 情绪短暂态 `loved / sad / sorry / excited / puzzled`(月薪喵皮肤有独立素材;章鱼皮肤 R53 起对共享图状态提供专属身体动画 + emoji 徽标,像素皮肤回落到就近表情)。
+- **状态机里有、但前端还没接独立形象**:`carrying / yawning / dozing / collapsing / waking`(入睡序列暂无生产者)。
+- **R53 新生产者**:① `roam` —— 闲逛(wander)进行中,聚合结果为 idle/sleeping 时接管(pet.js applyStats);② `loafing` —— CodeWhale 新事件 `session_idle`(间隙摸鱼);③ `waiting`/`needsinput` —— CodeWhale 新事件 `waiting_for_user`（reason=approval/goal_continuation → waiting，user_input → needsinput）；④ `error` —— CodeWhale 新事件 `session_error`；⑤ `working` —— CodeWhale 新事件 `session_busy`。上游 HOOKS.md 契约 10 → 15 事件，见 `hook_install.rs` CODEWHALE_EVENTS 与 `hook_client.rs` 映射。
 - 前端聚合梯子与本文件第 3 节优先级表一致:`waiting > 短暂态 > error > needsinput > sweeping > juggling > working > thinking > loafing > idle > sleeping`(见 `frontend/renderer/pet.js` applyStats 与 `frontend/renderer/pet-runtime-policy.js` aggregateState)。oneshot 衰减(attention/carrying 15s、sweeping 20s、error 45s)由聚合器按会话 idleMs 租约实现;notification 例外,等用户行动。
 - **loafing(摸鱼)**:adapter 合成态——工具结束(PostToolUse/SubagentStop)后 >5s 无事件的间隙。间隙里模型可能在推理/流式输出/事件丢失,不硬标注为「思考」;真思考走 UserPromptSubmit → thinking 事件通道。网络重试间隙由 transcript 巡检识别为 error,ESC 中断识别为 idle+中断徽标。
 - 状态机回归测试:`npm test`(渲染端行为由 `test/pet-systemic-regression.test.js`、`test/phase1-pet-interaction-regression.test.js`、`test/tauri-r40-runtime-regressions-smoke.js` 等覆盖;Rust 侧 `cargo test --manifest-path src-tauri/Cargo.toml --lib`)。

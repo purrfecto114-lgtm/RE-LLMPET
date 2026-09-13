@@ -8,6 +8,28 @@ The active implementation is in `src-tauri/src/hook_install.rs`, `src-tauri/src/
 - `turn_end.usage` is ingested into the provider-neutral ledger.
 - Full Access or other native bypass modes must be shown honestly; the desktop app cannot claim an approval prompt occurred when the CLI bypassed it.
 
+## Event contract (R53, 2026-09-13)
+
+Upstream `docs/HOOKS.md` grew from 10 to **15 lifecycle events**. Octopus installs
+14 of them as observers (marker `octopus:codewhale-hooks:v5`); `shell_env` stays
+excluded — it is a steering contract that mutates the child environment, not a
+lifecycle observer. The four new state observers map onto existing pet states:
+
+| Native event | Canonical event | Pet state |
+| --- | --- | --- |
+| `session_idle` | `SessionIdle` | `loafing` (gap-between-steps) |
+| `session_error` | `StopFailure` | `error` |
+| `waiting_for_user` (reason=approval / goal_continuation) | `WaitingForUser` | `waiting` (等你处理) |
+| `waiting_for_user` (reason=user_input) | `WaitingForUser` | `needsinput` (等你回复) |
+| `session_busy` | `SessionBusy` | `working` |
+
+Delivery channel for the new events is tolerant: payloads (from/to/reason) are
+read from stdin when present; a stuck stdin pipe degrades to an env-only body
+(`DEEPSEEK_REASON` / `CODEWHALE_REASON` fill the reason) instead of aborting the
+hook. The `codewhale exec` surface fires NO hooks — headless one-shot trips are
+run through `exec --json <PROMPT>` with the prompt as the final positional
+argument (verified live against v0.9.12).
+
 Run `npm run gate:provider` on an isolated self-hosted runner with the exact CodeWhale CLI version recorded in evidence.
 
 ## CLI internal error diagnostics

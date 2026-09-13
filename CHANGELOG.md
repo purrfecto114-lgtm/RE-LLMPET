@@ -1,5 +1,94 @@
 # Changelog
 
+## 0.6.3 — R53 闲逛/会话聚焦/表情适配修复 + CodeWhale 15 事件契约（2026-09-13）
+
+> 用户实机报告（附两张截图）：①闲逛失败——codewhale 被喂了 Codex 专属旗标，
+> clap 报错原文连着绝对路径和 GBK 乱码直接进了桌宠气泡；②点击会话报
+> 「Cannot focus terminal: session did not report a source process」（英文错误
+> 出现在中文 UI 里）；③部分表情未适配——mascot 皮肤大量状态共享同一张图，
+> roam/loafing 没有生产者。对照上游 LLMPET（0.1.1 起对 codewhale 的适配系列）
+> 与最新 CodeWhale HOOKS.md（事件 10 → 15）完成本轮回修。
+
+### HIGH: 闲逛（wander）对 CodeWhale 的真实 exec 适配
+- **根因**: `travel.rs` 的 `provider_args` 把所有非 claude provider 一律按
+  Codex CLI 拼旗标（`--search exec --ephemeral --sandbox read-only
+  --ask-for-approval never --json -`）。CodeWhale 的 exec 子命令没有其中任何
+  一个旗标，clap 直接报 `unexpected argument` 并把整条命令行回显到 stderr；
+  旧代码再把 stderr 原样塞进气泡（中文 Windows 控制台 GBK 编码 → UTF-8
+  lossy 转码 → 乱码）。
+- **实证过程**: 本沙箱重装 codewhale（npm，拉取 v0.9.12 原生二进制），跑
+  `codewhale exec --help` + mock DeepSeek 端点（`DEEPSEEK_API_KEY` +
+  `DEEPSEEK_BASE_URL`）真实调用，确认：①`exec` 的 prompt 是**位置参数**，
+  stdin 被忽略（无 `-` 约定）；②`--json` 输出**单个 pretty-printed JSON
+  对象**，答案在 `output` 字段、用量在 `usage.input_tokens/output_tokens`；
+  ③API 错误时退出码 1 + stderr 单行 `error: ...`；④无 `--auto` 的 exec 是
+  无工具单轮回答（唯一安全的无人值守模式——`--auto` 是自动批准的写能力
+  工具，CodeWhale 没有沙箱对应物）。
+- **修复**: ①`PromptDelivery::Argv` —— codewhale 走 `exec --json <PROMPT>`
+  （prompt 压平换行后作为最后一个位置参数），claude/codex 维持 stdin；②
+  `build_prompt` 的 codewhale 分支说实话——提示词只要求基于模型自身知识回
+  答，不再声称有 web_search/Read 工具；③`final_message`/`usage_tokens` 先
+  尝试**整体 JSON** 解析（codewhale pretty JSON、claude result 对象都是这个
+  形态），再回落 NDJSON 逐行——旧逐行解析对多行 JSON 会把缩进碎片当正文
+  返回；④失败路径重构：`friendly_cli_error()` 只取 stderr 首行、剥 ANSI、
+  绝对路径折叠成 basename、乱码（U+FFFD 占比过高）整段丢弃、截断 140 字
+  符；原始 stderr 以 `log_excerpt()` 入应用日志供诊断。
+
+### HIGH: 会话聚焦修复（OpenCode source_pid + 本地化兜底）
+- **根因①**: OpenCode 插件经 HTTP `/state` 上报事件，事件体不带任何 pid——
+  会话从建立起 `source_pid = None`，点击必报 "session did not report a
+  source process"。插件运行在 opencode 进程内部，`process.pid` 就是终端
+  里那个进程：现在每个事件都带 `source_pid: process.pid`（marker 维持
+  v4，安装器整体重写插件文件）。
+- **根因②**: 聚焦失败的兜底气泡是硬编码英文（中文 UI 里唯一一段英文报
+  错）。改为「无法聚焦终端：{原因}。已为你打开详情面板。」，原因截断 80
+  字符；原始错误继续完整入日志。
+
+### HIGH: 表情适配（mascot 共享图状态 + roam/loafing 生产者）
+- **mascot 皮肤**只有 6 张图，juggling/sweeping/loafing/needsinput/talking/
+  roam/sad/sorry/loved/excited/puzzled 全部回落到别的图——肉眼无法区分。
+  本轮给每个共享图状态：①专属身体动画（`juggleToss`/`sweepSway`/`lazySway`
+  /`askBounce`/`chatPulse`/`waddle`/`droop`/`sorryBow`/`heartPulse`/
+  `excitedBounce`/`puzzledTilt`，全部作用于内层 `#mascot-img`，遵守 R35
+  「外层几何不变」约束）；②右上角 emoji 徽标（`::after` 纯 CSS，含
+  error❌/waiting⏳/attention❗ 三个易混态）；③sad 去饱和、loved 粉色光晕。
+- **roam 终于有生产者**: 闲逛进行中，若聚合结果为 idle/sleeping 则桌宠进入
+  `roam` 态（小跑 + 🐾 徽标）——优先级对齐 STATES.md（roam 与 idle 同级 1，
+  等你处理/出错/干活等仍然让位）。此前闲逛全程桌宠闭眼睡觉。
+- **loafing 也有生产者了**: CodeWhale 新事件 `session_idle`（见下）。
+
+### HIGH: CodeWhale 15 事件契约（对照上游 HOOKS.md 实测更新）
+- 上游 `docs/HOOKS.md` 从 10 个生命周期事件扩到 **15 个**。新增 4 个状态
+  观察者全部接入（`shell_env` 仍排除——那是改变子进程环境的 steering 契
+  约，不是观察者）：
+  | 原生事件 | 规范事件 | 桌宠状态 |
+  |---|---|---|
+  | `session_idle` | SessionIdle | loafing（间隙摸鱼） |
+  | `session_error` | StopFailure | error |
+  | `waiting_for_user`(reason=approval/goal_continuation) | WaitingForUser | waiting（等你处理） |
+  | `waiting_for_user`(reason=user_input) | WaitingForUser | needsinput（等你回复） |
+  | `session_busy` | SessionBusy | working |
+  CodeWhale 会话从此能表达「等你处理/等你回复/间隙摸鱼」——此前
+  `waiting`/`needsinput`/`loafing` 对 CodeWhale 永远不可能出现。
+- 安装 marker `octopus:codewhale-hooks:v4 → v5`（v4/v3 进 legacy 迁移列
+  表，重装/诊断自动迁移）；`CODEWHALE_EVENTS` 10 → 14。
+- 传输容错：新事件的 payload（from/to/reason）优先读 stdin；stdin 卡死
+  管道时降级为 env-only body（`DEEPSEEK_REASON`/`CODEWHALE_REASON` 兜底
+  reason）而不是整个 hook 失败——卡死的读线程被留在后台随进程退出，绝不
+  join 挂死。
+- `protocol-baseline.json` 的 `codewhaleEvents` 契约同步（drift 检查继续
+  生效）；`docs/CODEWHALE.md` 补事件契约表。
+
+### 其他
+- 交互反馈补全：聚焦失败/闲逛失败的两类气泡全部中文化 + 长度受控；闲逛
+  开始气泡指明实际承载 provider（「出门闲逛啦（codewhale）」）。
+- 新增回归测试 `test/pet-r53-codewhale-wander-focus-smoke.js`（约 50 项断
+  言）+ travel.rs/hook_client.rs 共 11 个 Rust 单测（codewhale 参数形状/
+  pretty-JSON 明信片/失败清洗/新事件映射）。
+- 所有独有功能与 provider（claude / codewhale / codex / opencode / aider /
+  dsh）原样保留；cat 皮肤 GIF 矩阵、像素皮肤、双宠分区、领地、成长、旅行
+  与价格体系零改动。
+
 ## 0.6.2 — R52 启动崩溃热修（2026-09-05）
 
 > 0.6.1 的全部平台安装包（exe / dmg / AppImage / deb）在启动时立即崩溃。

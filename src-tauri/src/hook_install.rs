@@ -120,6 +120,19 @@ const CODEX_EVENTS: [&str; 12] = [
 // Current maintained CodeWhale events. shell_env is excluded: it is a
 // credential/environment mutation contract, not a lifecycle observer.
 //
+// R53 (2026-09-13): the upstream HOOKS.md contract grew from 10 to 15
+// lifecycle events. Four new observers map onto existing pet states:
+//   session_idle      → loafing  (the gap-between-steps state finally gets
+//                                a producer; previously only turn_end's
+//                                attention lease represented "done")
+//   session_error     → error    (terminal turn failure, distinct from the
+//                                broader on_error transport/tool failures)
+//   waiting_for_user  → waiting / needsinput (reason: approval /
+//                                user_input / goal_continuation) — this is
+//   session_busy      → working  (begins/resumes work)
+// the missing "CodeWhale 会话在等你" expression the user reported.
+// shell_env stays excluded (steering contract, not an observer).
+//
 // R40.5 (audit P1-3): message_submit RESTORED as a background observer.
 // The R22 removal was based on an outdated assumption that message_submit
 // is always foreground-blocking. Current CodeWhale documentation
@@ -133,7 +146,7 @@ const CODEX_EVENTS: [&str; 12] = [
 //   timeout_secs = 5 (short — observer doesn't need long)
 // This gives us the most direct user-message observation without
 // blocking CodeWhale's message submission.
-const CODEWHALE_EVENTS: [&str; 10] = [
+const CODEWHALE_EVENTS: [&str; 14] = [
     "session_start",
     "session_end",
     "tool_call_before",
@@ -144,12 +157,22 @@ const CODEWHALE_EVENTS: [&str; 10] = [
     "subagent_spawn",
     "subagent_complete",
     "message_submit",
+    "session_idle",
+    "session_error",
+    "waiting_for_user",
+    "session_busy",
 ];
-const CW_BEGIN: &str = "# >>> octopus:codewhale-hooks:v4 >>>";
-const CW_END: &str = "# <<< octopus:codewhale-hooks:v4 <<<";
-const CW_LEGACY_BEGIN: &str = "# >>> re-llmpet:codewhale-hooks:v3 >>>";
-const CW_LEGACY_END: &str = "# <<< re-llmpet:codewhale-hooks:v3 <<<";
-const CW_MARKERS: &[(&str, &str)] = &[(CW_BEGIN, CW_END), (CW_LEGACY_BEGIN, CW_LEGACY_END)];
+const CW_BEGIN: &str = "# >>> octopus:codewhale-hooks:v5 >>>";
+const CW_END: &str = "# <<< octopus:codewhale-hooks:v5 <<<";
+const CW_LEGACY_BEGIN: &str = "# >>> octopus:codewhale-hooks:v4 >>>";
+const CW_LEGACY_END: &str = "# <<< octopus:codewhale-hooks:v4 <<<";
+const CW_LEGACY_V3_BEGIN: &str = "# >>> re-llmpet:codewhale-hooks:v3 >>>";
+const CW_LEGACY_V3_END: &str = "# <<< re-llmpet:codewhale-hooks:v3 <<<";
+const CW_MARKERS: &[(&str, &str)] = &[
+    (CW_BEGIN, CW_END),
+    (CW_LEGACY_BEGIN, CW_LEGACY_END),
+    (CW_LEGACY_V3_BEGIN, CW_LEGACY_V3_END),
+];
 const AIDER_BEGIN: &str = "# >>> octopus:aider-notification:v4 >>>";
 const AIDER_END: &str = "# <<< octopus:aider-notification:v4 <<<";
 const AIDER_LEGACY_BEGIN: &str = "# >>> re-llmpet:aider-notification:v3 >>>";
@@ -1028,7 +1051,7 @@ fn install_codewhale(runtime: &Runtime) -> Result<InstallResult, String> {
         &installed_events,
         backup_path.as_deref(),
     );
-    runtime.write_log("hooks", "CodeWhale hooks synced (v4, global hooks enabled); exact legacy markers migrated; unmarked legacy cleanup remains disabled");
+    runtime.write_log("hooks", "CodeWhale hooks synced (v5: 15-event contract, four new state observers; global hooks enabled); exact legacy markers migrated; unmarked legacy cleanup remains disabled");
     Ok(InstallResult {
         added: CODEWHALE_EVENTS.len(),
         path,
@@ -2135,7 +2158,13 @@ async function send(payload) {
     if (runtime.app !== "re-llmpet" || runtime.port < 41330 || runtime.port > 41334) return;
     await fetch(`http://127.0.0.1:${runtime.port}/state`, {
       method: "POST", headers: { "content-type": "application/json", "x-re-llmpet-token": runtime.token, "x-re-llmpet-server": "re-llmpet" },
-      body: JSON.stringify({ provider: "opencode", ...payload }), signal: AbortSignal.timeout(500)
+      // R53: this plugin runs INSIDE the opencode process, so process.pid is
+      // exactly the terminal process that owns the session. Reporting it lets
+      // the desktop app focus that terminal when the user clicks the session
+      // ("Cannot focus terminal: session did not report a source process"
+      // was the reported bug for every OpenCode session — HTTP-delivered
+      // events used to arrive without any pid at all).
+      body: JSON.stringify({ provider: "opencode", source_pid: process.pid, ...payload }), signal: AbortSignal.timeout(500)
     });
   } catch {}
 }

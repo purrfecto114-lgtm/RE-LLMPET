@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "updatedAt": "2026-08-30",
+  "updatedAt": "2026-09-13",
   "sourceFork": {
     "repository": "https://github.com/purrfecto114-lgtm/LLMPET",
     "publishedTag": "v0.1.2-pre",
@@ -45,7 +45,11 @@
       "mode_change",
       "subagent_spawn",
       "subagent_complete",
-      "message_submit"
+      "message_submit",
+      "session_idle",
+      "session_error",
+      "waiting_for_user",
+      "session_busy"
     ],
     "codexEvents": [
       "SessionStart",

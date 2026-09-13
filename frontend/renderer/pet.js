@@ -68,6 +68,9 @@ const MASCOT_EYES = {
   needsinput: 'mascot-think.png', // 等你回复：往上看(期待)
   attention: 'mascot-wait.png', // 需要注意：瞪大（CodeWhale turn_end / OpenCode idle）
   error: 'mascot-wait.png',
+  // R53: 闲逛中 —— 基础形象 + waddle 动画 + 🐾 徽标（STATES.md 的 roam 态
+  // 终于有了生产者：闲逛进行中不再回落到闭眼睡觉）。
+  roam: 'mascot.png',
   // 情绪短暂态 → 就近回落（专属图未画）
   loved: 'mascot-happy.png',
   excited: 'mascot-happy.png',
@@ -1792,9 +1795,17 @@ function applyStats(s, force) {
     setState(transientState);
   } else {
     const next = runtimePolicy.aggregateState(s, { sleepMs: IDLE_SLEEP_MS });
+    // R53: 闲逛进行中 → roam 表情（小跑 + 🐾 徽标）。优先级对齐 STATES.md：
+    // roam 与 idle 同级(1)，只在聚合结果为 idle/sleeping 时接管；
+    // waiting/needsinput/error/sweeping/attention/juggling/working/thinking
+    // 仍然优先 —— 有会话等你处理时，闲逛表情让位。
+    const ownTrip = s.travel && s.travel.active
+      && s.travel.active[window.OctoPetTravelView.ownerKeyFor(PET_AGENT)];
+    const wanderRoaming = !!(ownTrip && ownTrip.mode === 'wander'
+      && (next === 'idle' || next === 'sleeping'));
     const dismissedError = next === 'error' && errorDismissed
       && perfNow() - errorDismissedAt < ERROR_DISMISS_COOLDOWN_MS;
-    setState(dismissedError ? 'idle' : next);
+    setState(dismissedError ? 'idle' : (wanderRoaming ? 'roam' : next));
     if (next === 'error' && !dismissedError) errorDismissed = false;
   }
 }

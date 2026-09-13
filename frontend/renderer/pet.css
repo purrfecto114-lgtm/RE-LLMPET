@@ -1270,3 +1270,151 @@ body.skin-cat #cat { display: flex; }
 @media (prefers-reduced-motion: reduce) {
   .radial-item { transition: opacity 0.12s ease; transform: none !important; }
 }
+
+/* ====================================================================
+   R53 (2026-09-13): mascot 表情适配 —— 共享图状态获得专属动画 + 徽标。
+   mascot 皮肤只有 6 张图（base/happy/sleep/think/wait/work），juggling/
+   sweeping/loafing/needsinput/talking/roam/sad/sorry/loved/excited/puzzled
+   长期回落到别的图，肉眼完全无法区分。cat 皮肤每个状态一张 GIF 没有此
+   问题。这里给每个共享图状态：① 专属身体动画（全部放在内层
+   #mascot-img，遵守 R35「外层几何不变」约束）② 右上角 emoji 徽标
+   （::after，纯 CSS，无 JS 改动）。error/waiting/attention 已有动画/
+   光晕，只补徽标增强区分度。
+   ==================================================================== */
+#mascot { position: relative; } /* 徽标锚点（badge anchor） */
+
+/* ── 徽标基座：默认隐藏，状态规则给 content + 显形 ── */
+#mascot::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 16px;
+  font-size: 21px;
+  line-height: 1.2;
+  opacity: 0;
+  transform: scale(0.5);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+  z-index: 6;
+  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.45);
+}
+#mascot.juggling::after,
+#mascot.sweeping::after,
+#mascot.loafing::after,
+#mascot.needsinput::after,
+#mascot.talking::after,
+#mascot.roam::after,
+#mascot.sad::after,
+#mascot.sorry::after,
+#mascot.loved::after,
+#mascot.excited::after,
+#mascot.puzzled::after,
+#mascot.error::after,
+#mascot.waiting::after,
+#mascot.attention::after {
+  opacity: 1;
+  transform: scale(1);
+}
+#mascot.juggling::after { content: '🤹'; }
+#mascot.sweeping::after { content: '🧹'; }
+#mascot.loafing::after { content: '😌'; }
+#mascot.needsinput::after { content: '❓'; }
+#mascot.talking::after { content: '💬'; }
+#mascot.roam::after { content: '🐾'; }
+#mascot.sad::after { content: '💧'; }
+#mascot.sorry::after { content: '🙇'; }
+#mascot.loved::after { content: '❤️'; }
+#mascot.excited::after { content: '✨'; }
+#mascot.puzzled::after { content: '⁉️'; }
+#mascot.error::after { content: '❌'; }
+#mascot.waiting::after { content: '⏳'; }
+#mascot.attention::after { content: '❗'; }
+
+/* ── 专属身体动画（全部作用于内层 #mascot-img）── */
+/* 并行子任务：双手交替抛掷 */
+@keyframes juggleToss {
+  0%, 100% { transform: translateY(0) rotate(-6deg); }
+  25% { transform: translateY(-7px) rotate(3deg); }
+  50% { transform: translateY(-2px) rotate(6deg); }
+  75% { transform: translateY(-9px) rotate(-3deg); }
+}
+#mascot.juggling #mascot-img { animation: juggleToss 0.7s ease-in-out infinite; }
+
+/* 清理上下文：左右扫动 */
+@keyframes sweepSway {
+  0%, 100% { transform: translateX(-6px) rotate(-3deg); }
+  50% { transform: translateX(6px) rotate(3deg); }
+}
+#mascot.sweeping #mascot-img { animation: sweepSway 1.3s ease-in-out infinite; }
+
+/* 间隙摸鱼：懒洋洋慢摇 */
+@keyframes lazySway {
+  0%, 100% { transform: rotate(-2deg) translateY(0); }
+  50% { transform: rotate(2deg) translateY(-2px); }
+}
+#mascot.loafing #mascot-img { animation: lazySway 4.2s ease-in-out infinite; }
+
+/* 等你回复：期待地小弹跳 */
+@keyframes askBounce {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-6px); }
+  60% { transform: translateY(-4px); }
+}
+#mascot.needsinput #mascot-img { animation: askBounce 1.9s ease-in-out infinite; }
+
+/* 回应中：说话脉冲 */
+@keyframes chatPulse {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-3px) scale(1.03); }
+}
+#mascot.talking #mascot-img { animation: chatPulse 0.55s ease-in-out infinite; }
+
+/* 闲逛中：摇摆小跑（roam 态终于有生产者：闲逛进行中不再睡大觉） */
+@keyframes waddle {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50% { transform: translateY(-5px) rotate(4deg); }
+}
+#mascot.roam #mascot-img { animation: waddle 0.75s ease-in-out infinite; }
+
+/* 惹你生气了：下垂 + 去饱和 */
+#mascot.sad {
+  filter: saturate(0.6) brightness(0.94) drop-shadow(0 6px 10px rgba(150, 70, 40, 0.3));
+}
+@keyframes droop {
+  0%, 100% { transform: translateY(2px) rotate(-1.5deg); }
+  50% { transform: translateY(5px) rotate(1.5deg); }
+}
+#mascot.sad #mascot-img { animation: droop 3.6s ease-in-out infinite; }
+
+/* 道歉：鞠躬 */
+@keyframes sorryBow {
+  0%, 100% { transform: rotate(0deg); }
+  45%, 55% { transform: rotate(10deg) translateY(4px); }
+}
+#mascot.sorry #mascot-img {
+  animation: sorryBow 2.1s ease-in-out infinite;
+  transform-origin: bottom center;
+}
+
+/* 被夸：爱心脉冲 + 粉色光晕 */
+@keyframes heartPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+#mascot.loved { filter: drop-shadow(0 0 9px rgba(255, 120, 160, 0.75)) drop-shadow(0 6px 10px rgba(150, 70, 40, 0.3)); }
+#mascot.loved #mascot-img { animation: heartPulse 1.05s ease-in-out infinite; }
+
+/* 兴奋：快速弹跳 */
+@keyframes excitedBounce {
+  0%, 100% { transform: translateY(0); }
+  35% { transform: translateY(-11px); }
+  70% { transform: translateY(-3px); }
+}
+#mascot.excited #mascot-img { animation: excitedBounce 0.5s ease-in-out infinite; }
+
+/* 疑惑：歪头 */
+@keyframes puzzledTilt {
+  0%, 100% { transform: rotate(0deg); }
+  40%, 60% { transform: rotate(-9deg); }
+}
+#mascot.puzzled #mascot-img { animation: puzzledTilt 2.4s ease-in-out infinite; }

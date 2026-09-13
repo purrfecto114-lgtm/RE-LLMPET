@@ -447,7 +447,7 @@ impl ProviderRegistry {
                     "compaction_end".to_string(),
                 ],
                 markers: MarkerSet {
-                    begin: "# octopus:codewhale-hooks:v4".to_string(),
+                    begin: "# octopus:codewhale-hooks:v5".to_string(),
                     end: "# octopus:codewhale-hooks:end".to_string(),
                     legacy: vec![
                         "# re-llmpet-hooks:begin".to_string(),

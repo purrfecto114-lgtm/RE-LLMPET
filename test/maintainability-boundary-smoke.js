@@ -57,7 +57,11 @@ assert(platform.includes('struct CursorHitDecision'));
 
 // New external ownership uses Octopus. Legacy identifiers remain only in
 // explicit migration arrays and compatibility storage/protocol paths.
+// R53: codewhale marker is v5 (15-event contract); the retired v4 and v3
+// markers live only in the CW_MARKERS legacy list.
+assert(hooks.includes('# >>> octopus:codewhale-hooks:v5 >>>'));
 assert(hooks.includes('# >>> octopus:codewhale-hooks:v4 >>>'));
+assert(hooks.includes('# >>> re-llmpet:codewhale-hooks:v3 >>>'));
 assert(hooks.includes('# >>> octopus:aider-notification:v4 >>>'));
 // R50: opencode plugin marker is v4; the retired v3 marker is kept only in
 // the OPENCODE_MARKER_LEGACY overwrite list.
@@ -105,7 +109,10 @@ for (const [name, source, maxLines] of [
   // R50: pet.js grew past the R40 baseline (2594 lines) with the 2026-08-29
   // systemic pet fixes (oneshot leases, radial pointerdown, bubble no-resize).
   // Budget nudged to just above the new audited baseline.
-  ["frontend/renderer/pet.js", pet, 2600],
+  // R53 (2026-09-13): roam expression mapping + wander-active state override
+  // (+11 lines, audited 2605) — the roam state finally has a producer, so the
+  // mascot/cat tables and the aggregate ladder each gained one guarded branch.
+  ["frontend/renderer/pet.js", pet, 2640],
   ['frontend/renderer/panel.js', panel, 1760],
   // R51 (2026-08-30): cargo fmt with the 2024 style edition re-wrapped this
   // file (same statements, more lines): 3360 -> 3572 with zero logic growth.

@@ -53,6 +53,15 @@ fn run() -> Result<(), String> {
     // Reading stdin for them is both unnecessary and risky: a provider build
     // that leaves the pipe open can stall the hook and make the pet appear to
     // miss the entire working transition.
+    //
+    // R53 (2026-09-13): the four NEW upstream events (session_idle,
+    // session_error, waiting_for_user, session_busy) are state observers
+    // whose payloads (from/to/reason/last_turn_status/error) may arrive on
+    // stdin OR via env — the upstream docs describe both channels. They stay
+    // OUT of the env-only list so the stdin payload (notably the
+    // waiting_for_user `reason`) is read when present; the reader below
+    // treats a stuck pipe as an empty body for codewhale observers so a
+    // wrong guess costs one missed transition, never a hung hook.
     let codewhale_env_only = provider == "codewhale"
         && matches!(
             positional_event.as_deref(),
@@ -63,6 +72,20 @@ fn run() -> Result<(), String> {
                     | "tool_call_after"
                     | "mode_change"
                     | "on_error"
+            )
+        );
+    let codewhale_observer = provider == "codewhale"
+        && matches!(
+            positional_event.as_deref(),
+            Some(
+                "turn_end"
+                    | "subagent_spawn"
+                    | "subagent_complete"
+                    | "message_submit"
+                    | "session_idle"
+                    | "session_error"
+                    | "waiting_for_user"
+                    | "session_busy"
             )
         );
     let body: Value = if codewhale_env_only {
@@ -80,8 +103,17 @@ fn run() -> Result<(), String> {
             result
         });
         let stdin_timeout = Duration::from_secs(10);
-        let raw = match rx.recv_timeout(stdin_timeout) {
-            Ok(raw) => raw,
+        let (raw, reader_stuck) = match rx.recv_timeout(stdin_timeout) {
+            Ok(raw) => (raw, false),
+            Err(_) if codewhale_observer => {
+                // R53: codewhale state observers may legitimately deliver their
+                // payload env-only. A stuck stdin pipe must not kill the event
+                // (the old path aborted the whole hook): fall through with an
+                // empty body and let apply_codewhale_env_fallback fill in what
+                // the environment carries. The blocked reader thread is left
+                // detached — it dies with the process at the end of run().
+                (Vec::new(), true)
+            }
             Err(_) => {
                 return permission_fallback(
                     &provider,
@@ -90,9 +122,11 @@ fn run() -> Result<(), String> {
                 );
             }
         };
-        let _ = reader_handle
-            .join()
-            .map_err(|e| eprintln!("stdin reader thread panicked: {e:?}"));
+        if !reader_stuck {
+            let _ = reader_handle
+                .join()
+                .map_err(|e| eprintln!("stdin reader thread panicked: {e:?}"));
+        }
         if raw.len() > MAX_STDIN_BYTES {
             return permission_fallback(&provider, requested_permission, "stdin payload too large");
         }
@@ -296,6 +330,16 @@ fn normalize_provider_body(
 
     if provider == "codewhale" {
         apply_codewhale_env_fallback(object);
+        // R53 (2026-09-13): four new upstream state observers (HOOKS.md grew
+        // from 10 to 15 lifecycle events). waiting_for_user carries `reason`
+        // (approval / user_input / goal_continuation) which selects the pet
+        // expression: 等你处理 vs 等你回复 — previously CodeWhale sessions
+        // could never show either because no event mapped onto them.
+        let wait_reason = object
+            .get("reason")
+            .and_then(Value::as_str)
+            .map(|value| value.trim().to_ascii_lowercase())
+            .unwrap_or_default();
         let (event, state): (String, &str) = match native_event.as_str() {
             "session_start" => ("SessionStart".into(), "idle"),
             "session_end" => ("SessionEnd".into(), "sleeping"),
@@ -307,6 +351,18 @@ fn normalize_provider_body(
             "subagent_spawn" => ("SubagentStart".into(), "juggling"),
             "subagent_complete" => ("SubagentStop".into(), "working"),
             "mode_change" => ("Notification".into(), "idle"),
+            "session_idle" => ("SessionIdle".into(), "loafing"),
+            "session_error" => ("StopFailure".into(), "error"),
+            "waiting_for_user" => {
+                let state = match wait_reason.as_str() {
+                    "user_input" => "needsinput",
+                    // approval + goal_continuation both park the agent on the
+                    // operator: the 等你处理 expression is the honest reading.
+                    _ => "waiting",
+                };
+                ("WaitingForUser".into(), state)
+            }
+            "session_busy" => ("SessionBusy".into(), "working"),
             _ => (native_event.clone(), "idle"),
         };
         object.insert("native_event".into(), Value::String(native_event.clone()));
@@ -450,6 +506,7 @@ fn apply_codewhale_env_fallback(object: &mut Map<String, Value>) {
             "previous_mode",
             ["DEEPSEEK_PREVIOUS_MODE", "CODEWHALE_PREVIOUS_MODE"],
         ),
+        ("reason", ["DEEPSEEK_REASON", "CODEWHALE_REASON"]),
         (
             "tool_call_id",
             ["DEEPSEEK_TOOL_CALL_ID", "CODEWHALE_TOOL_CALL_ID"],
@@ -815,6 +872,84 @@ mod tests {
         assert_eq!(normalized["hook_event_name"], "StopFailure");
         assert_eq!(normalized["state"], "error");
         assert_eq!(normalized["api_error_type"], "provider timeout");
+    }
+
+    // ── R53 (2026-09-13): upstream HOOKS.md grew to 15 lifecycle events ───
+
+    #[test]
+    fn codewhale_session_idle_maps_to_loafing() {
+        let payload = serde_json::json!({
+            "session_id": "cw-1",
+            "workspace": "/repo",
+            "from": "in_progress",
+            "to": "idle",
+            "last_turn_status": "success"
+        });
+        let normalized =
+            normalize_provider_body("codewhale", Some("session_idle"), payload).unwrap();
+        assert_eq!(normalized["hook_event_name"], "SessionIdle");
+        assert_eq!(normalized["state"], "loafing");
+    }
+
+    #[test]
+    fn codewhale_session_error_maps_to_error() {
+        let payload = serde_json::json!({
+            "session_id": "cw-1",
+            "workspace": "/repo",
+            "error": "context window exhausted"
+        });
+        let normalized =
+            normalize_provider_body("codewhale", Some("session_error"), payload).unwrap();
+        assert_eq!(normalized["hook_event_name"], "StopFailure");
+        assert_eq!(normalized["state"], "error");
+    }
+
+    #[test]
+    fn codewhale_waiting_for_user_reason_selects_expression() {
+        for (reason, expected_state) in [
+            ("approval", "waiting"),
+            ("goal_continuation", "waiting"),
+            ("user_input", "needsinput"),
+        ] {
+            let payload = serde_json::json!({
+                "session_id": "cw-1",
+                "workspace": "/repo",
+                "reason": reason,
+                "from": "in_progress",
+                "to": "waiting"
+            });
+            let normalized =
+                normalize_provider_body("codewhale", Some("waiting_for_user"), payload).unwrap();
+            assert_eq!(normalized["hook_event_name"], "WaitingForUser");
+            assert_eq!(
+                normalized["state"], expected_state,
+                "reason {reason} must map to {expected_state}"
+            );
+        }
+    }
+
+    #[test]
+    fn codewhale_session_busy_maps_to_working() {
+        let payload = serde_json::json!({
+            "session_id": "cw-1",
+            "workspace": "/repo",
+            "from": "idle",
+            "to": "in_progress"
+        });
+        let normalized =
+            normalize_provider_body("codewhale", Some("session_busy"), payload).unwrap();
+        assert_eq!(normalized["hook_event_name"], "SessionBusy");
+        assert_eq!(normalized["state"], "working");
+    }
+
+    #[test]
+    fn codewhale_waiting_reason_falls_back_to_waiting_without_reason() {
+        // Env-only delivery (no stdin payload): the reason is absent, so the
+        // safe default is 等你处理 (waiting) — never a raw passthrough.
+        let payload = serde_json::json!({ "session_id": "cw-1", "workspace": "/repo" });
+        let normalized =
+            normalize_provider_body("codewhale", Some("waiting_for_user"), payload).unwrap();
+        assert_eq!(normalized["state"], "waiting");
     }
 
     #[test]
