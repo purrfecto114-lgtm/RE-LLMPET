@@ -17,9 +17,11 @@ mod metering;
 mod migration;
 mod model;
 mod platform;
+mod plugin_sources;
 mod pricing_sync;
 mod provider_registry;
 mod secure_file;
+mod session_resume;
 mod territory;
 mod transcript;
 mod travel;
@@ -27,6 +29,7 @@ mod travel;
 use commands::*;
 use model::AppState;
 use serde_json::json;
+use session_resume::resume_session;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -257,6 +260,7 @@ pub fn run() {
             launch_agent_in,
             launch_agent_gui,
             focus_session,
+            resume_session,
             primary_action,
             open_log,
             pet_log,

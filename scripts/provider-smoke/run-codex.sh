@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# Octopus provider-smoke driver: codex (2026-08-30).
-# Drives the REAL codex CLI (0.151.x) headless against a local mock
+# Octopus provider-smoke driver: codex (2026-08-30; header corrected R54 2026-09-22).
+# Drives the REAL codex CLI (0.15x) headless against a local mock
 # OpenAI-compatible provider. Two hooks.json variants are compared:
-#   A) exactly what install_codex writes today (11 events incl Stop and
-#      UserPromptSubmit — NOT present in the 0.151 binary's hook enum)
-#   B) the binary-verified event set (+ Interrupt)
+#   A) exactly what install_codex writes today (all 12 CODEX_EVENTS)
+#   B) the 10-event cluster once suspected to be "the binary's real enum"
+# R54 resolution: both suspicions were WRONG. All 12 installed names are REAL
+# codex hook events — openai/codex @ rust-v0.151.0 codex-rs/hooks/src/lib.rs
+# HOOK_EVENT_NAMES: [&str; 12] (the engine is literally named ClaudeHooksEngine;
+# Claude-compatible PascalCase is codex's own design), cross-verified by the
+# official docs and by the 2026-09-22 live capture (reports/provider-smoke/
+# 0.6.4/codex-hooks-capture.jsonl: SessionStart/SessionEnd/UserPromptSubmit/
+# PreToolUse/PostToolUse/Stop all fired). Variant B's cluster matches a
+# different upstream const (HOOK_EVENT_NAMES_WITH_MATCHERS). Both variants are
+# kept as regression evidence that install shape B is a strict subset.
 # Also captures the rollout session file for codex_rollout.rs comparison and
 # attempts a PermissionRequest decision pass.
 set -u
@@ -60,8 +68,11 @@ fs.writeFileSync(process.argv[2], JSON.stringify({ description: "Octopus multi-a
 write_hooks_variant_b() {
   node -e '
 const fs = require("fs");
-// Binary-verified 0.151 enum: PreToolUse PermissionRequest PostToolUse PreCompact
-// PostCompact SessionStart SessionEnd SubagentStart SubagentStop Interrupt
+// R54 (2026-09-22): this 10-event cluster is NOT the full 0.151 enum — it
+// matches upstream HOOK_EVENT_NAMES_WITH_MATCHERS, a const without the two
+// matcher-less events (Stop, UserPromptSubmit). Both ARE real and fire; see
+// the run header for the source-verified full list. Kept as the subset
+// variant for regression comparison.
 const events = ["PreToolUse","PermissionRequest","PostToolUse","PreCompact","PostCompact","SessionStart","SessionEnd","SubagentStart","SubagentStop","Interrupt"];
 const shim = process.argv[1];
 const hooks = {};

@@ -196,7 +196,7 @@ assert(commands.includes('.raw_arg(tail)'),
 assert(commands.includes('append_cmd_tail(&mut command, cmd_probe_call(executable, args))'),
   'run_probe_capture must use append_cmd_tail for the cmd probe tail');
 // The launch path uses raw_arg for /K too
-assert(commands.includes('.raw_arg(cmd_launch_call(executable, launch_args))'),
+assert(commands.includes('.raw_arg(cmd_launch_call(executable, &launch_args))'),
   'launch_terminal Windows Terminal path must use raw_arg for /K tail');
 assert(commands.includes('.raw_arg(command_line)'),
   'launch_terminal fallback path must use raw_arg for /K tail');

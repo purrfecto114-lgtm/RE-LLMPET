@@ -45,6 +45,8 @@ const COMMANDS: &[&str] = &[
     "launch_agent_in",
     "launch_agent_gui",
     "focus_session",
+    // R54 (2026-09-22): explicit provider-native session resume surface.
+    "resume_session",
     "primary_action",
     "open_log",
     "pet_log",

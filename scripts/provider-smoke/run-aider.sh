@@ -20,8 +20,12 @@ export MOCK_LLM_LOG="$EVDIR/aider-mock-llm.jsonl"
 A_OUT="$EVDIR/aider-run.out"; A_ERR="$EVDIR/aider-run.err"
 rm -f "$OCTOPUS_SMOKE_CAPTURE_FILE" "$A_OUT" "$A_ERR"
 
-# notifications capture shim: aider appends the message as an argument and
-# does NOT close stdin promptly, so read defensively with a short timeout.
+# notifications capture shim. R54 (2026-09-22, verified against real aider
+# 0.86.2 + upstream io.py ring_bell): aider invokes the notifications command
+# with ZERO argv and does not close stdin promptly (the old "appends the
+# message as an argument" comment was wrong — argv is always empty; the
+# message text is never delivered to a custom command). Read defensively with
+# a short timeout and record argv to prove the empty contract.
 cat > "$EVDIR/aider-notify.sh" <<SH
 #!/bin/bash
 echo "\$(date -u +%FT%TZ) argv=\$*" >> "$OCTOPUS_SMOKE_CAPTURE_FILE"
@@ -54,7 +58,7 @@ YAML
 printf 'Reply with exactly: SMOKE-ONE\nReply with exactly: SMOKE-TWO\n' | \
 OPENAI_API_BASE="http://127.0.0.1:4599/v1" \
 OPENAI_API_KEY="smoke" \
-  timeout 150 /home/z/aider-venv/bin/aider \
+  timeout 150 "${AIDER_BIN:-$(command -v aider || echo /home/z/aider-venv/bin/aider)}" \
     --model openai/mock-mini \
     --openai-api-base "http://127.0.0.1:4599/v1" \
     --yes-always --no-auto-commits --no-gitignore --no-suggest-shell-commands \
@@ -77,7 +81,11 @@ for (const line of capLines) {
 if (read(stdinPath).trim()) transcripts.push("stdin:" + read(stdinPath).trim().slice(0, 200));
 const evidence = {
   provider: "aider",
-  cliVersion: require("child_process").spawnSync("/home/z/aider-venv/bin/aider", ["--version"], { encoding: "utf8" }).stdout.trim() || "unknown",
+  cliVersion: ["/home/z/aider-venv/bin/aider", process.env.AIDER_BIN, "aider"]
+    .filter(Boolean).map((bin) => {
+      const r = require("child_process").spawnSync(bin, ["--version"], { encoding: "utf8" });
+      return (r && typeof r.stdout === "string") ? r.stdout.trim() : "";
+    }).find((v) => v) || "unknown",
   events: [...events],
   rawHookEventsObserved: [...events],
   permissionDecisions: [],

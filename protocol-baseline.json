@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "updatedAt": "2026-09-13",
+  "updatedAt": "2026-09-22",
   "sourceFork": {
     "repository": "https://github.com/purrfecto114-lgtm/LLMPET",
     "publishedTag": "v0.1.2-pre",
@@ -65,22 +65,28 @@
       "PostCompact",
       "Interrupt"
     ],
+    "codexEventsNote": "R54 (2026-09-22): all 12 verified REAL from openai/codex source at tag rust-v0.151.0 (codex-rs/hooks/src/lib.rs HOOK_EVENT_NAMES + protocol.rs HookEventName; the engine is named ClaudeHooksEngine — Claude-compatible PascalCase is codex's own design), cross-checked against the official docs and the live 0.155.1 capture in reports/provider-smoke/0.6.4/codex-hooks-capture.jsonl (SessionStart/SessionEnd/UserPromptSubmit/PreToolUse/PostToolUse/Stop all fired). The R51-era suspicion that Stop/UserPromptSubmit were absent is refuted.",
     "opencodeNeedles": [
-      "permission.asked",
-      "permission.replied",
-      "tool.execute.before",
-      "tool.execute.after",
-      "session.idle",
-      "session.error",
+      "event_type",
       "session.created",
+      "session.idle",
+      "session.status",
+      "session.error",
       "session.compacted",
       "session.deleted",
-      "session.status"
+      "message.updated",
+      "permission.asked",
+      "permission.v2.asked",
+      "question.asked",
+      "tool.execute.before",
+      "tool.execute.after"
     ],
+    "opencodeNeedlesNote": "R54 (2026-09-22): v5 plugin forwards provider-native event names (dotted lowercase) under event_type — no Claude-spelled translation at the source. The dictionary lives in hook_client::normalize_opencode_native. message.updated is the role-discriminated user/assistant lifecycle (the real UserPromptSubmit + turn-end producers); session.status union is idle|busy|retry only. Ground truth: live 1.18.32 smoke tap (reports/provider-smoke/0.6.4/opencode-native-events-tap.jsonl) + sst/opencode@1.18.32 schema manifest.",
     "aiderNeedles": [
       "notifications-command:",
-      "turn-end-only"
-    ]
+      "single-signal-waiting-for-input"
+    ],
+    "aiderNeedlesNote": "R54 (2026-09-22): aider's notifications-command is a single indistinguishable waiting-for-input signal fired with ZERO argv (verified against real 0.86.2 + upstream io.py ring_bell). The old 'turn-end-only' needle described an upstream option that does not exist and was replaced. Resume for aider is --restore-chat-history + --chat-history-file (no --resume/--continue exist, verified across 21 upstream tags)."
   },
   "remoteContracts": [
     {
@@ -121,7 +127,7 @@
         "hookSpecificOutput",
         "/hooks"
       ],
-      "note": "R51 2026-08-30: this host serves 403 bot-blocks to datacenter IPs. The checker classifies 401/403/429/5xx as transport-blocked (not content drift); the needles are additionally verified live by scripts/provider-smoke/run-codex.sh against codex-cli 0.151.0 (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/Stop/SessionEnd all fired with hookSpecificOutput-honoring decisions)."
+      "note": "R54 (2026-09-22): this host serves 403 bot-blocks to datacenter IPs. The checker classifies 401/403/429/5xx as transport-blocked (not content drift); needles additionally verified via web-reader (content matches the source below) AND by the upstream source itself: openai/codex tag rust-v0.151.0 codex-rs/hooks/src/lib.rs HOOK_EVENT_NAMES carries all 12 project-installed names (engine literally named ClaudeHooksEngine). Live 0.155.1 capture: reports/provider-smoke/0.6.4/codex-hooks-capture.jsonl."
     },
     {
       "id": "opencode-plugins",

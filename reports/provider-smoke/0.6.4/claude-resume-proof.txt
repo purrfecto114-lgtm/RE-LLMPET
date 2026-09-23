@@ -1,0 +1,2 @@
+claude resume proof:
+claude -p --resume 6b8a38b3-1783-4369-95dd-3a44f636d075 "Reply with exactly: RESUME-OK claude" -> rc=0, output: RESUME-OK claude (claude 2.1.278, mock Anthropic, 2026-09-22)

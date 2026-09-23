@@ -61,10 +61,12 @@ assert(travel.includes('fn json_postcard_text'), 'shared postcard extractor miss
 assert(travel.includes('value.get("output")'), 'codewhale `output` key must be read');
 
 // ── 3. OpenCode plugin reports its pid → focus works for those sessions ─────
-const hookInstall = read('src-tauri/src/hook_install.rs');
-const pluginSend = hookInstall.slice(
-  hookInstall.indexOf('async function send(payload)'),
-  hookInstall.indexOf('function sidFromEvent'),
+// R54: the plugin source moved to plugin_sources.rs (hook_install.rs growth
+// budget); the send() contract is unchanged.
+const pluginSources = read('src-tauri/src/plugin_sources.rs');
+const pluginSend = pluginSources.slice(
+  pluginSources.indexOf('async function send(payload)'),
+  pluginSources.indexOf('function sidFromEvent'),
 );
 assert(pluginSend.includes('source_pid: process.pid'),
   'the OpenCode plugin must report its own process pid with every event');
@@ -75,14 +77,23 @@ const focusFn = commands.slice(
   commands.indexOf('pub fn focus_session'),
   commands.indexOf('pub fn primary_action'),
 );
-assert(focusFn.includes('无法聚焦终端'), 'focus fallback bubble must be localized');
+// R54: focus now falls back to RESUMING the conversation through the
+// provider CLI (session_resume module) before surfacing any error, so the
+// localized bubble says "cannot reopen" instead of "cannot focus".
+assert(focusFn.includes('无法重新打开会话'), 'focus fallback bubble must be localized');
 assert(focusFn.includes('已为你打开详情面板'), 'focus fallback must name the dashboard fallback');
 assert(!focusFn.includes('Cannot focus terminal'),
   'the English focus error must be gone');
 assert(focusFn.includes('.chars().take(80)'), 'focus error excerpt must be bounded to 80 chars');
+assert(focusFn.includes('crate::session_resume::resume_session_inner'),
+  'focus fallback must try the provider resume path before erroring');
+const sessionResume = read('src-tauri/src/session_resume.rs');
+assert(sessionResume.includes('已为你重新打开这个会话。'),
+  'resume feedback bubble must be localized');
 
 // ── 5. CodeWhale 15-event contract ───────────────────────────────────────────
 // Installer: 14 managed events (shell_env excluded as a steering contract).
+const hookInstall = read('src-tauri/src/hook_install.rs');
 const eventsBlock = hookInstall.slice(
   hookInstall.indexOf('const CODEWHALE_EVENTS'),
   hookInstall.indexOf('];', hookInstall.indexOf('const CODEWHALE_EVENTS')),

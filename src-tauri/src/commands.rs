@@ -1327,14 +1327,14 @@ pub fn decide_permission_batch(
 }
 
 #[derive(Clone, Copy)]
-struct AgentSpec {
-    id: &'static str,
-    title: &'static str,
-    command: &'static str,
-    companion: Option<&'static str>,
+pub(crate) struct AgentSpec {
+    pub(crate) id: &'static str,
+    pub(crate) title: &'static str,
+    pub(crate) command: &'static str,
+    pub(crate) companion: Option<&'static str>,
 }
 
-fn agent_spec(provider: &str) -> Result<AgentSpec, String> {
+pub(crate) fn agent_spec(provider: &str) -> Result<AgentSpec, String> {
     match provider {
         "claude" => Ok(AgentSpec {
             id: "claude",
@@ -1370,7 +1370,7 @@ fn agent_spec(provider: &str) -> Result<AgentSpec, String> {
     }
 }
 
-fn agent_working_directory(requested: Option<&str>) -> Result<PathBuf, String> {
+pub(crate) fn agent_working_directory(requested: Option<&str>) -> Result<PathBuf, String> {
     if let Some(raw) = requested.map(str::trim).filter(|value| !value.is_empty()) {
         let path = PathBuf::from(raw);
         if !path.is_dir() {
@@ -1549,7 +1549,7 @@ fn companion_for(spec: AgentSpec, executable: &Path) -> Option<PathBuf> {
         .or_else(|| which(name))
 }
 
-fn resolve_agent(spec: AgentSpec) -> Result<PathBuf, String> {
+pub(crate) fn resolve_agent(spec: AgentSpec) -> Result<PathBuf, String> {
     let executable = which(spec.command).ok_or_else(|| format!("{} CLI not found in the desktop application's PATH; restart Octopus after installing it", spec.title))?;
     // R8 forward-compat: v0.9.5+ consolidates codewhale-tui into codewhale (single runtime).
     // Don't hard-fail on MISSING_COMPANION_BINARY; doctor probe falls back to dispatcher.
@@ -3114,7 +3114,7 @@ pub fn launch_agent_in(provider: String, cwd: Option<String>) -> Result<(), Stri
     let spec = agent_spec(&provider)?;
     let executable = resolve_agent(spec)?;
     let working_directory = agent_working_directory(cwd.as_deref())?;
-    launch_terminal(spec, &executable, &working_directory)
+    launch_terminal(spec, &executable, &working_directory, &[])
 }
 
 /// Launch a GUI/IDE version only for providers with a real GUI mapping. Unknown
@@ -3182,16 +3182,26 @@ pub fn focus_session(
                 "focus",
                 &format!("native focus unavailable for {session_id}: {error}"),
             );
-            // R53: localize the fallback bubble (an English error inside a
-            // Chinese UI was the reported issue) and keep the excerpt tight —
-            // 80 chars is enough to name the reason without dumping paths.
-            // Raw diagnostics stay in the app log.
-            let safe_error: String = error.chars().take(80).collect();
-            let _ = app.emit(
-                "pet:event",
-                json!({"kind":"say","text":format!("无法聚焦终端：{safe_error}。已为你打开详情面板。")}),
-            );
-            open_panel(app)
+            // R54 (2026-09-22): the terminal that owned this session is gone
+            // (or never reported a pid). Fall back to resuming the session
+            // through the provider CLI before surfacing any error — the pet
+            // button's contract is "put me back in that conversation", not
+            // "focus a window that no longer exists" (session_resume module).
+            match crate::session_resume::resume_session_inner(&app, &state, &session_id) {
+                Ok(()) => Ok(()),
+                Err(resume_error) => {
+                    // R53: localize the fallback bubble (an English error inside a
+                    // Chinese UI was the reported issue) and keep the excerpt tight —
+                    // 80 chars is enough to name the reason without dumping paths.
+                    // Raw diagnostics stay in the app log.
+                    let safe_error: String = resume_error.chars().take(80).collect();
+                    let _ = app.emit(
+                        "pet:event",
+                        json!({"kind":"say","text":format!("无法重新打开会话：{safe_error}。已为你打开详情面板。")}),
+                    );
+                    open_panel(app)
+                }
+            }
         }
     }
 }
@@ -3301,16 +3311,29 @@ fn agent_launch_args(spec: AgentSpec) -> &'static [&'static str] {
 }
 
 #[cfg(windows)]
-fn cmd_launch_call(path: &Path, args: &[&str]) -> String {
+fn cmd_launch_call(path: &Path, args: &[String]) -> String {
     let mut command_line = vec![cmd_call(path)];
     command_line.extend(args.iter().map(|value| cmd_quote_arg(value)));
     command_line.join(" ")
 }
 
-fn launch_terminal(spec: AgentSpec, executable: &Path, cwd: &Path) -> Result<(), String> {
+/// Launch a terminal running the provider CLI. `extra_args` carries the
+/// R54 session-resume flags (`claude --resume <id>`, `codex resume <id>`,
+/// `opencode -s <id>`, ...); an empty slice launches a fresh session.
+pub(crate) fn launch_terminal(
+    spec: AgentSpec,
+    executable: &Path,
+    cwd: &Path,
+    extra_args: &[String],
+) -> Result<(), String> {
+    let mut launch_args: Vec<String> = agent_launch_args(spec)
+        .iter()
+        .map(|arg| (*arg).to_string())
+        .collect();
+    launch_args.extend(extra_args.iter().cloned());
     #[cfg(target_os = "windows")]
     {
-        let launch_args = agent_launch_args(spec);
+        let launch_args = launch_args;
         if let Some(wt) = which("wt.exe").or_else(|| which("wt")) {
             let mut command = Command::new(wt);
             command
@@ -3335,9 +3358,9 @@ fn launch_terminal(spec: AgentSpec, executable: &Path, cwd: &Path) -> Result<(),
                 command
                     .arg("cmd.exe")
                     .args(["/D", "/S", "/K"])
-                    .raw_arg(cmd_launch_call(executable, launch_args));
+                    .raw_arg(cmd_launch_call(executable, &launch_args));
             } else {
-                command.arg(executable).args(launch_args.iter().copied());
+                command.arg(executable).args(launch_args.iter().cloned());
             }
             if command.spawn().is_ok() {
                 return Ok(());
@@ -3347,7 +3370,7 @@ fn launch_terminal(spec: AgentSpec, executable: &Path, cwd: &Path) -> Result<(),
         // process, not `cmd /C start`, and receives only an absolute allowlisted
         // executable path plus provider-owned static arguments.
         let command_line = if is_windows_script(executable) {
-            cmd_launch_call(executable, launch_args)
+            cmd_launch_call(executable, &launch_args)
         } else {
             let mut parts = vec![format!(
                 "\"{}\"",
@@ -3377,7 +3400,7 @@ fn launch_terminal(spec: AgentSpec, executable: &Path, cwd: &Path) -> Result<(),
             format!("'{}'", value.replace('\'', "'\"'\"'"))
         }
         let mut command = vec![shell_quote(&executable.to_string_lossy())];
-        command.extend(agent_launch_args(spec).iter().map(|arg| shell_quote(arg)));
+        command.extend(launch_args.iter().map(|arg| shell_quote(arg)));
         let shell = format!(
             "cd {} && exec {}",
             shell_quote(&cwd.to_string_lossy()),
@@ -3393,9 +3416,9 @@ fn launch_terminal(spec: AgentSpec, executable: &Path, cwd: &Path) -> Result<(),
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        let provider_args = agent_launch_args(spec)
+        let provider_args = launch_args
             .iter()
-            .map(|arg| OsString::from(*arg))
+            .map(|arg| OsString::from(arg.as_str()))
             .collect::<Vec<_>>();
         let terminal_args = |prefix: &str| {
             let mut args = vec![OsString::from(prefix), executable.as_os_str().to_owned()];

@@ -1,4 +1,5 @@
 use crate::model::{home_dir, now_ms, ProviderStatus, Runtime, APP_DIR_NAME};
+use crate::plugin_sources::opencode_plugin_source;
 use crate::secure_file::read_regular_bounded;
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
@@ -86,16 +87,38 @@ const CLAUDE_EVENTS: [&str; 23] = [
     "TaskCreated",
     "TaskCompleted",
     "TeammateIdle",
-    // R27 (2026-07-30): 5 new observer events added in Claude Code v2.1.219+.
+    // R54 (2026-09-22): intro versions per event re-verified from the Claude
+    // Code CHANGELOG (research subagent R54-a, all 24 names REAL and spelled
+    // exactly as documented): Setup=v2.1.10, InstructionsLoaded=v2.1.69,
+    // CwdChanged=v2.1.83, WorktreeRemove=v2.1.50 — only DirectoryAdded is
+    // actually v2.1.219 (the old 5-events-in-2.1.219 comment was wrong).
     // These are non-blocking observer events — the hook runs in background
     // and the result is discarded. PermissionRequest is NOT here because it
-    // is already installed separately with a 600s timeout and --permission flag.
+    // is already installed separately with a 600s timeout and --permission
+    // flag. Not installed (documented upstream, excluded on purpose):
+    // UserPromptExpansion, PostToolBatch, MessageDisplay, ConfigChange,
+    // FileChanged, WorktreeCreate, PreModelSwitch, PostModelSwitch.
     "Setup",
     "InstructionsLoaded",
     "CwdChanged",
     "WorktreeRemove",
     "DirectoryAdded",
 ];
+// All 12 names are verified REAL codex hook events as of codex-cli 0.155.1
+// (2026-09-22): openai/codex source at tag rust-v0.151.0 —
+// codex-rs/hooks/src/lib.rs `HOOK_EVENT_NAMES: [&str; 12]` and
+// protocol/src/protocol.rs `HookEventName` (the engine is literally named
+// ClaudeHooksEngine: Claude-compatible PascalCase is codex's own design),
+// cross-verified by the official docs (developers.openai.com/codex/hooks,
+// fetched via web-reader because the host 403-bot-blocks datacenter IPs) and
+// by the live smoke capture in reports/provider-smoke/0.6.4/
+// codex-hooks-capture.jsonl (SessionStart/SessionEnd/UserPromptSubmit/
+// PreToolUse/PostToolUse/Stop all fired with matching payload
+// hook_event_name fields against the real binary).
+// R54 refuted the R51-era suspicion that Stop/UserPromptSubmit were absent:
+// they exist since codex 0.126 (first named-event release); the 10-event
+// string cluster that fed that suspicion matches HOOK_EVENT_NAMES_WITH_
+// MATCHERS, a different const. SessionEnd/Interrupt exist only on 0.150+.
 const CODEX_EVENTS: [&str; 12] = [
     "SessionStart",
     "SessionEnd",
@@ -181,11 +204,16 @@ const AIDER_MARKERS: &[(&str, &str)] = &[
     (AIDER_BEGIN, AIDER_END),
     (AIDER_LEGACY_BEGIN, AIDER_LEGACY_END),
 ];
-const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v4";
+const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v5";
 const OPENCODE_MARKER_LEGACY: &[&str] = &[
     "re-llmpet-opencode-plugin-v1",
     "octopus-opencode-plugin-v2",
     "octopus-opencode-plugin-v3",
+    // R54 (2026-09-22): v4 translated native events into Claude-spelled
+    // names at the source; v5 sends provider-native event_type and the
+    // Rust dictionary (hook_client::normalize_opencode_native) translates.
+    // Old installs carry the v4 file until the next install cycle.
+    "octopus-opencode-plugin-v4",
 ];
 
 #[derive(Debug, Default)]
@@ -939,7 +967,14 @@ fn provider_capabilities(id: &str) -> (&'static str, Value) {
         ),
         "aider" => (
             "terminal-native",
-            json!({"lifecycle":"turn-end-only","permissionBubble":false,"metering":false,"trustReview":false,"bypassWarning":"Aider exposes completion notifications, not an external permission contract"}),
+            // R54 (2026-09-22, verified against real aider 0.86.2 + upstream
+            // io.py ring_bell): aider's notifications-command is a SINGLE
+            // indistinguishable signal — "LLM turn finished, waiting for
+            // user input" — fired with ZERO argv and no payload (a mid-turn
+            // confirm_ask question is indistinguishable from a turn end).
+            // The old "turn-end-only" label implied an upstream option that
+            // does not exist; this is the honest capability description.
+            json!({"lifecycle":"single-signal-waiting-for-input","permissionBubble":false,"metering":false,"trustReview":false,"bypassWarning":"Aider exposes a single completion notification (fired with no argv), not an external permission contract"}),
         ),
         _ => ("none", json!({})),
     }
@@ -2114,193 +2149,6 @@ pub fn read_install_receipts() -> Map<String, Value> {
         }
     }
     out
-}
-
-fn opencode_plugin_source() -> &'static str {
-    r#"// octopus-opencode-plugin-v4
-// R40 (2026-08-01): rewrite of the OpenCode plugin event mapping.
-//
-// Root-cause analysis (systematic-debugging Phase 1):
-//   The v2 plugin mapped `session.status` -> `UserPromptSubmit`. OpenCode
-//   emits `session.status` for EVERY status transition (thinking → running
-//   → tool-use → thinking → idle), so every tool call indirectly fired
-//   `UserPromptSubmit`. The Rust http_server maps `UserPromptSubmit` to
-//   `{kind:"user-turn"}`, which the pet renders as the "📨 收到新任务！"
-//   bubble. Net effect: every tool call → "received new task" spam.
-//
-//   There is NO dedicated "user submitted prompt" event in OpenCode's
-//   plugin API (verified via web-search of opencode.ai/docs and
-//   smithery.ai skills). The closest semantic is `session.idle` AFTER
-//   user input, but that is itself fired whenever the agent goes idle
-//   (including after every assistant turn). So any mapping to
-//   `UserPromptSubmit` will over-fire.
-//
-// Fix:
-//   - DROP the `session.status -> UserPromptSubmit` mapping entirely.
-//     The pet still gets thinking/working/attention transitions via the
-//     dedicated `tool.execute.before/after` and `session.idle` hooks.
-//   - Map `session.status` to a generic `state` event with the raw
-//     status string, so the Rust server can do state aggregation without
-//     raising a fake "user-turn".
-//   - `tool.execute.before/after` are kept; they already produce the
-//     correct `{kind:"operation"}` payload on the Rust side.
-//   - `permission.asked/replied` are kept; they drive the waiting /
-//     needsinput UI.
-//   - Read the canonical top-level tool-hook `input.sessionID`, retaining
-//     the historical metadata fallback and stable directory fallback.
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
-
-async function send(payload) {
-  try {
-    const runtime = JSON.parse(await readFile(join(homedir(), ".re-llmpet", "runtime.json"), "utf8"));
-    if (runtime.app !== "re-llmpet" || runtime.port < 41330 || runtime.port > 41334) return;
-    await fetch(`http://127.0.0.1:${runtime.port}/state`, {
-      method: "POST", headers: { "content-type": "application/json", "x-re-llmpet-token": runtime.token, "x-re-llmpet-server": "re-llmpet" },
-      // R53: this plugin runs INSIDE the opencode process, so process.pid is
-      // exactly the terminal process that owns the session. Reporting it lets
-      // the desktop app focus that terminal when the user clicks the session
-      // ("Cannot focus terminal: session did not report a source process"
-      // was the reported bug for every OpenCode session — HTTP-delivered
-      // events used to arrive without any pid at all).
-      body: JSON.stringify({ provider: "opencode", source_pid: process.pid, ...payload }), signal: AbortSignal.timeout(500)
-    });
-  } catch {}
-}
-function sidFromEvent(event, directory) {
-  return event?.properties?.info?.id
-    || event?.properties?.sessionID
-    || event?.properties?.sessionId
-    || event?.sessionID
-    || event?.metadata?.sessionID
-    || `opencode:${directory}`;
-}
-function sidFromToolInput(input, directory) {
-  // Current OpenCode sends { tool, sessionID, callID }; patched/older builds
-  // may nest it under metadata. Prefer the canonical field, accept both.
-  return input?.sessionID
-    || input?.metadata?.sessionID
-    || input?.sessionId
-    || `opencode:${directory}`;
-}
-export const LLMPETPlugin = async ({ directory }) => ({
-  event: async ({ event }) => {
-    // R40: `session.status` MUST NOT be mapped to `UserPromptSubmit` —
-    // that caused the "every tool call = received new task" regression.
-    //
-    // R40.1 (audit P1-2): the 0.5.19 plugin hardcoded `state: "thinking"`
-    // for every `session.status` event, ignoring the actual status. This
-    // made idle/retry/busy transitions all look like "thinking" and could
-    // overwrite correct working/attention/error states. Fix: read the
-    // actual status from `event.properties.status` (OpenCode v0.9.x
-    // payload shape, verified via opencode.school lessons/plugins docs
-    // and the smithery.ai opencode-sdk-development skill). Map the raw
-    // status string to our internal state vocabulary; unknown values
-    // are forwarded as-is so the server can decide.
-    const fixedMap = {
-      "session.created": ["SessionStart", "idle"],
-      "session.compacted": ["PreCompact", "sweeping"],
-      "session.deleted": ["SessionEnd", "sleeping"],
-      "session.error": ["StopFailure", "error"],
-      "session.idle": ["Stop", "attention"],
-      "permission.asked": ["Notification", "needsinput"],
-      "permission.replied": ["PreToolUse", "working"]
-    };
-    if (event.type === "session.status") {
-      // R40.5 (audit P1-2): OpenCode v0.9.x SDK sends `properties.status`
-      // as an OBJECT, not a string. The shape is:
-      //   { type: "idle" }
-      //   { type: "busy" }
-      //   { type: "retry", attempt: number, message: string, next: number }
-      // The previous code did `stateMap[raw]` where `raw` was the object,
-      // producing `[object Object]` as the key and failing to map. Fix:
-      // extract `.type` from the object; fall back to string for older
-      // builds that sent a bare string.
-      const status = event?.properties?.status ?? event?.status;
-      const raw = typeof status === "string"
-        ? status
-        : (status?.type ?? "unknown");
-      const retryMeta = (typeof status === "object" && status?.type === "retry")
-        ? { attempt: status.attempt, message: status.message, next: status.next }
-        : null;
-      // Map known OpenCode statuses to our internal state vocabulary.
-      const stateMap = {
-        busy: "working",
-        working: "working",
-        running: "working",
-        idle: "attention",
-        waiting: "waiting",
-        retry: "error",
-        error: "error"
-      };
-      const mapped = stateMap[raw] || raw;
-      const payload = {
-        hook_event_name: "SessionStatus",
-        state: mapped,
-        status_raw: raw,
-        session_id: sidFromEvent(event, directory),
-        cwd: directory
-      };
-      if (retryMeta) payload.retry = retryMeta;
-      await send(payload);
-      return;
-    }
-    const value = fixedMap[event.type]; if (!value) return;
-    const parentID = event?.properties?.info?.parentID || null;
-    await send({
-      hook_event_name: value[0],
-      state: value[1],
-      session_id: sidFromEvent(event, directory),
-      cwd: directory,
-      parent_id: parentID,
-      headless: Boolean(parentID)
-    });
-  },
-  "tool.execute.before": async (input) => {
-    // R50: subagent tools must not look like ordinary parent work, and child
-    // tool streams must carry parent metadata when OpenCode exposes it.
-    // - The `task`/`agent` tool dispatches a subagent: map it to SubagentStart
-    //   so the pet shows the parent's "派出子代理" (juggling + summon sidekick)
-    //   expression; tool.execute.after maps the matching SubagentStop.
-    // - Any other tool keeps the normal PreToolUse/working path (unknown
-    //   tools degrade to generic work on the renderer side).
-    // - When the hook input exposes a parentID (child session streams), send
-    //   it so the backend marks the row headless instead of creating a
-    //   top-level pseudo session per tool call.
-    const tool = input?.tool || input?.toolName || "tool";
-    const parent = input?.parentID || input?.metadata?.parentID || input?.info?.parentID || null;
-    const base = {
-      session_id: sidFromToolInput(input, directory),
-      cwd: directory,
-      tool_name: tool
-    };
-    if (parent) { base.parent_id = parent; base.headless = true; }
-    if (tool === "task" || tool === "agent") {
-      await send({ ...base, hook_event_name: "SubagentStart", state: "juggling" });
-      return;
-    }
-    await send({ ...base, hook_event_name: "PreToolUse", state: "working" });
-  },
-  "tool.execute.after": async (input) => {
-    const tool = input?.tool || input?.toolName || "tool";
-    const parent = input?.parentID || input?.metadata?.parentID || input?.info?.parentID || null;
-    const base = {
-      session_id: sidFromToolInput(input, directory),
-      cwd: directory,
-      tool_name: tool
-    };
-    if (parent) { base.parent_id = parent; base.headless = true; }
-    if (tool === "task" || tool === "agent") {
-      await send({ ...base, hook_event_name: "SubagentStop", state: "working" });
-      return;
-    }
-    await send({ ...base, hook_event_name: "PostToolUse", state: "working" });
-  }
-});
-// R13: also export as default for opencode plugin loader compatibility
-export default LLMPETPlugin;
-"#
 }
 
 #[cfg(test)]

@@ -306,9 +306,24 @@ fn handle_client(
             let _ = respond(&mut stream, 200, "application/json", br#"{"ok":true}"#);
         }
         "/state" => {
-            let session = runtime.ingest(&body);
-            emit_stats(&app, &runtime);
-            emit_hook_event(&app, &body, &session);
+            // R54 (2026-09-22): the OpenCode plugin v5 POSTs provider-native
+            // payloads (event_type). Normalize (and, for unmapped native
+            // events, drop) before ingest. All other providers arrive
+            // pre-normalized from the octopus-hook binary; v4 plugin bodies
+            // pass through unchanged for upgrade compatibility.
+            match crate::hook_client::prepare_http_state_body(body) {
+                Some(body) => {
+                    let session = runtime.ingest(&body);
+                    emit_stats(&app, &runtime);
+                    emit_hook_event(&app, &body, &session);
+                }
+                None => {
+                    runtime.write_log(
+                        "state",
+                        "dropped unmapped opencode native event (no pet-state semantics)",
+                    );
+                }
+            }
             let _ = respond(&mut stream, 200, "application/json", br#"{"ok":true}"#);
         }
         "/permission" => handle_permission(stream, runtime, app, body, false),

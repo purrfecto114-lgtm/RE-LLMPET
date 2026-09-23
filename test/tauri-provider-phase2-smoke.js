@@ -74,17 +74,23 @@ for (const needle of [
 assert(!installer.includes('timeoutSec'), 'obsolete guessed Codex timeoutSec schema retained');
 assert(!installer.includes('hooks = "./hooks.json"'), 'Codex should auto-discover ~/.codex/hooks.json');
 
-// OpenCode: official ESM plugin form, current events, no external permission steering.
+// OpenCode: official ESM plugin form, current events, no external permission
+// steering. R54: the plugin source lives in plugin_sources.rs now (the
+// install/receipt/marker machinery stays in hook_install.rs).
+const pluginSources = read('src-tauri/src/plugin_sources.rs');
 for (const needle of [
   'export const LLMPETPlugin', '"tool.execute.before"', '"tool.execute.after"',
   'permission.asked', 'permission.replied', 'session.idle', 'session.error',
-  'permissionBubble":false', 'llmpet-hook.js',
-]) assert(installer.includes(needle), `OpenCode migration missing: ${needle}`);
-assert(!installer.includes('module.exports'));
+  'session.created', 'session.status', 'message.updated', 'event_type: type',
+]) assert(pluginSources.includes(needle), `OpenCode migration missing: ${needle}`);
+assert(installer.includes('permissionBubble":false'), 'install still disables the permission bubble');
+assert(installer.includes('llmpet-hook.js'), 'plugin file name still routed by the installer');
+assert(!pluginSources.includes('module.exports'));
+assert(!pluginSources.includes('hook_event_name: "Stop"'), 'v5 must not translate to Claude spellings at the source');
 // R40: plugin marker was bumped from v2 -> v3 to flag the
 // session.status mapping rewrite. Accept either marker so the test
 // doesn't break on future version bumps.
-const pluginMatch = installer.match(/r#"(\/\/ octopus-opencode-plugin-v\d+[\s\S]*?)"#\n}/);
+const pluginMatch = pluginSources.match(/r#"(\/\/ octopus-opencode-plugin-v\d+[\s\S]*?)"#\n}/);
 assert(pluginMatch, 'embedded OpenCode plugin source not found');
 const temp = path.join(os.tmpdir(), `llmpet-opencode-${process.pid}.mjs`);
 fs.writeFileSync(temp, pluginMatch[1]);

@@ -62,7 +62,8 @@ const expected = [
   'territoryToggleAuto', 'startTravel', 'startWander', 'cancelTravel', 'quit', 'getWinPos', 'setWinPos', 'commitWinPos', 'launchClaude',
   'launchCodeWhale', 'launchCodex', 'launchOpenCode', 'launchAider', 'diagnoseAgent', 'cancelDiagnostic', 'launchAgent', 'launchAgentChecked', 'launchAgentGui',
   'decidePermission', 'decideCwPermission',
-  'decideCwPermissionBatch', 'focusSession', 'primaryAction', 'setIgnoreMouse',
+  // R54: direct session-resume surface (provider-native resume flags).
+  'decideCwPermissionBatch', 'focusSession', 'resumeSession', 'primaryAction', 'setIgnoreMouse',
   'setPetTall', 'setPetBig', 'setPetSize', 'setPanelHeight', 'focusPet',
   'blurPet', 'openLog', 'petLog', 'uiBusy', 'petVisualBounds',
   // R44 0.5.40 (Roadmap v6 P0-01): config recovery closure.

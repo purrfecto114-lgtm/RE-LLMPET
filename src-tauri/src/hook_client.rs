@@ -157,37 +157,17 @@ fn run() -> Result<(), String> {
 
     // R29 (2026-07-31): detect emotion from the message text and inject
     // it into the event body. The frontend (pet.js) already consumes
-    // ev.emotion to show matching expressions. This is a lightweight
-    // keyword-based sniffer — never blocks, returns None when in doubt.
-    let event_name_str = object
+    // ev.emotion to show matching expressions. R54: extracted into
+    // inject_emotion so the HTTP /state path (OpenCode plugin) shares it.
+    let object = body.as_object_mut().ok_or("stdin JSON must be an object")?;
+    inject_emotion(object);
+
+    let event = object
         .get("hook_event_name")
         .or_else(|| object.get("event"))
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let text = object
-        .get("text")
-        .or_else(|| object.get("message"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-    let role = if event_name_str == "UserPromptSubmit" || event_name_str == "message_submit" {
-        "user"
-    } else if event_name_str == "PostToolUse"
-        || event_name_str == "turn_end"
-        || event_name_str == "Stop"
-    {
-        "assistant"
-    } else {
-        ""
-    };
-    if !text.is_empty() && !role.is_empty() {
-        if let Some(emotion) = crate::emotion::detect_emotion(&text, role) {
-            object.insert("emotion".into(), Value::from(emotion.as_str()));
-        }
-    }
-
-    let event = event_name_str;
     if provider == "codewhale"
         && event == "PreToolUse"
         && object
@@ -323,6 +303,17 @@ fn normalize_provider_body(
             .or_insert(Value::String(billing_provider));
     }
     let native_event = event_arg
+        // R54 (2026-09-22): the OpenCode plugin v5 posts provider-native
+        // event names under `event_type` (dotted lowercase namespace —
+        // never Claude's PascalCase, never CodeWhale's snake_case). This
+        // field is read for opencode only so no other provider's payload
+        // can be reinterpreted through the opencode dictionary.
+        .or_else(|| {
+            (provider == "opencode")
+                .then(|| object.get("event_type"))
+                .flatten()
+                .and_then(Value::as_str)
+        })
         .or_else(|| object.get("hook_event_name").and_then(Value::as_str))
         .or_else(|| object.get("event").and_then(Value::as_str))
         .unwrap_or("")
@@ -407,12 +398,236 @@ fn normalize_provider_body(
                 .entry("state".to_string())
                 .or_insert(Value::String("attention".into()));
         }
+    } else if provider == "opencode" {
+        // R54 (2026-09-22): OpenCode's event namespace is translated HERE —
+        // at the Rust normalize layer — never inside the provider plugin.
+        // The v4 plugin translated at the source (session.idle -> "Stop",
+        // permission.asked -> "Notification", ...), which is exactly the
+        // cross-provider name mixing this round removes: the pet pipeline
+        // received Claude-spelled names from an OpenCode process with no way
+        // to recover the native event. v5 plugin bodies carry `event_type`
+        // (native) and this dictionary is the single translator. v4 bodies
+        // (no `event_type`, already translated) pass through unchanged for
+        // upgrade compatibility.
+        if object.contains_key("event_type") {
+            object.insert("native_event".into(), Value::String(native_event.clone()));
+            normalize_opencode_native(object);
+        }
     } else {
         if !object.contains_key("hook_event_name") && !native_event.is_empty() {
             object.insert("hook_event_name".into(), Value::String(native_event));
         }
     }
     Ok(body)
+}
+
+/// R54 (2026-09-22): OpenCode native event dictionary — the third namespace
+/// in this codebase after Claude's PascalCase (also codex's, by codex's own
+/// `ClaudeHooksEngine` design — verified from openai/codex source at tag
+/// rust-v0.151.0) and CodeWhale's snake_case. Every provider's events are
+/// kept in their own spelling; this table is the only place OpenCode's
+/// dotted names meet the internal canonical vocabulary.
+///
+/// Ground truth (2026-09-22, two independent sources):
+///  1. Live smoke tap of opencode 1.18.32 driven against a mock model —
+///     raw event manifest captured in the provider-real-opencode evidence
+///     (session.created/updated/idle/status/diff, message.updated,
+///     message.part.updated/delta, permission.asked/replied observed).
+///  2. Upstream schema cross-check (subagent R54-c):
+///     sst/opencode@1.18.32 packages/schema/src — `message.updated` is the
+///     role-discriminated user/assistant message event (the true
+///     UserPromptSubmit + turn-end equivalents R40 wrongly believed absent);
+///     `session.status` union is ONLY idle|busy|retry (no waiting/error);
+///     `session.idle` is upstream-deprecated but still published;
+///     `permission.v2.*`/`question.*` are the newer permission surfaces.
+///
+/// Deliberately NOT mapped (verified to exist upstream, no pet-state value):
+///   session.updated (metadata churn, ~7 fires/turn), message.part.*
+///   (streaming deltas — the say-bubble already fires at turn completion),
+///   session.diff, todo.updated, pty.*, file.*, tui.*, catalog.*.
+/// Unmapped native events are dropped by [`prepare_http_state_body`] so the
+/// ingest state machine never sees noise it would flatten to "idle".
+fn normalize_opencode_native(object: &mut Map<String, Value>) -> bool {
+    let native_event = object
+        .get("event_type")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    // Owned: `role` is read again after the mutable `object.insert` below, so
+    // an &str borrow here would violate E0502 across the mutation.
+    let role = object
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let completed = object
+        .get("completed")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let tool_name = object
+        .get("tool_name")
+        .or_else(|| object.get("tool"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let status_raw = object
+        .get("status_raw")
+        .or_else(|| object.get("status"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let (event, state): (&str, Option<&str>) = match native_event.as_str() {
+        "session.created" => ("SessionStart", Some("idle")),
+        "session.deleted" => ("SessionEnd", Some("sleeping")),
+        "session.error" => ("StopFailure", Some("error")),
+        // Deprecated upstream (status.idle still publishes it); keep for
+        // pre-1.18 builds and as the plain idle signal.
+        "session.idle" => ("Stop", Some("attention")),
+        "session.compacted" => ("PreCompact", Some("sweeping")),
+        // status union is idle|busy|retry — the v4 plugin's waiting/error
+        // branches were dead code, removed here.
+        "session.status" => (
+            "SessionStatus",
+            Some(match status_raw {
+                "busy" | "working" | "running" => "working",
+                "retry" => "error",
+                _ => "attention",
+            }),
+        ),
+        // The real user-prompt / turn-end pair R40 could not find: role-
+        // discriminated message lifecycle. `completed` is the assistant
+        // turn-completion marker (time.completed upstream).
+        "message.updated" => {
+            if role == "user" {
+                ("UserPromptSubmit", Some("thinking"))
+            } else if role == "assistant" && completed {
+                ("Stop", Some("attention"))
+            } else {
+                ("", None)
+            }
+        }
+        "permission.asked" | "permission.v2.asked" => ("Notification", Some("needsinput")),
+        "permission.replied" | "permission.v2.replied" => ("PreToolUse", Some("working")),
+        "question.asked" | "question.v2.asked" => ("Notification", Some("needsinput")),
+        "question.replied" | "question.v2.replied" => ("PreToolUse", Some("working")),
+        "tool.execute.before" => {
+            if tool_name == "task" || tool_name == "agent" {
+                ("SubagentStart", Some("juggling"))
+            } else {
+                ("PreToolUse", Some("working"))
+            }
+        }
+        "tool.execute.after" => {
+            if tool_name == "task" || tool_name == "agent" {
+                ("SubagentStop", Some("working"))
+            } else {
+                ("PostToolUse", Some("working"))
+            }
+        }
+        _ => ("", None),
+    };
+    if event.is_empty() {
+        return false;
+    }
+    object.insert("hook_event_name".into(), Value::String(event.into()));
+    if let Some(state) = state {
+        object
+            .entry("state".to_string())
+            .or_insert(Value::String(state.into()));
+    }
+    // Metering: assistant turn completion carries opencode's tokens object
+    // ({input, output, reasoning, cache{read, write}}). Normalize it into the
+    // same `turn_usage` shape codewhale turn_end uses so the ledger accepts
+    // both without provider branching.
+    if native_event == "message.updated" && role == "assistant" && completed {
+        if let Some(tokens) = object.get("tokens").and_then(Value::as_object) {
+            let read_u64 = |name: &str| tokens.get(name).and_then(Value::as_u64).unwrap_or(0);
+            let cache_read = tokens
+                .get("cache")
+                .and_then(Value::as_object)
+                .and_then(|cache| cache.get("read"))
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            let cache_write = tokens
+                .get("cache")
+                .and_then(Value::as_object)
+                .and_then(|cache| cache.get("write"))
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            object.insert(
+                "turn_usage".into(),
+                serde_json::json!({
+                    "input": read_u64("input"),
+                    "output": read_u64("output"),
+                    "reasoning": read_u64("reasoning"),
+                    "cache_read": cache_read,
+                    "cache_write": cache_write,
+                }),
+            );
+            object
+                .entry("turn_duration_ms")
+                .or_insert(Value::from(0_u64));
+        }
+    }
+    true
+}
+
+/// R54 (2026-09-22): HTTP `/state` ingest normalization. The OpenCode plugin
+/// (v5) is the only integration that POSTs provider-native payloads straight
+/// to the control plane (every other provider arrives pre-normalized from
+/// the octopus-hook binary). Translate native events here and drop the ones
+/// with no pet-state semantics; then run the shared emotion sniffer so
+/// OpenCode message text gets the same expression treatment as claude/
+/// codewhale prompts (R29 previously only ran on the hook-binary path).
+pub fn prepare_http_state_body(body: Value) -> Option<Value> {
+    let mut body = body;
+    let object = body.as_object_mut()?;
+    let is_opencode = object
+        .get("provider")
+        .and_then(Value::as_str)
+        .map(|value| value.eq_ignore_ascii_case("opencode"))
+        .unwrap_or(false);
+    if !is_opencode {
+        return Some(body);
+    }
+    if !object.contains_key("event_type") {
+        // v4 plugin compatibility: already-translated bodies pass through.
+        return Some(body);
+    }
+    if !normalize_opencode_native(object) {
+        return None;
+    }
+    inject_emotion(object);
+    Some(body)
+}
+
+/// R29 (2026-07-31) emotion sniffer, extracted in R54 so both the
+/// hook-binary path and the HTTP `/state` path share one implementation.
+/// Detects emotion from message text and injects it into the event body;
+/// never blocks, returns nothing when in doubt.
+fn inject_emotion(object: &mut Map<String, Value>) {
+    let event_name = object
+        .get("hook_event_name")
+        .or_else(|| object.get("event"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let text = object
+        .get("text")
+        .or_else(|| object.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let role = if event_name == "UserPromptSubmit" || event_name == "message_submit" {
+        "user"
+    } else if event_name == "PostToolUse" || event_name == "turn_end" || event_name == "Stop" {
+        "assistant"
+    } else {
+        ""
+    };
+    if !text.is_empty() && !role.is_empty() {
+        if let Some(emotion) = crate::emotion::detect_emotion(&text, role) {
+            object.insert("emotion".into(), Value::from(emotion.as_str()));
+        }
+    }
 }
 
 fn normalize_codewhale_turn_end(object: &mut Map<String, Value>) {
@@ -841,6 +1056,7 @@ fn post_json(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn codewhale_turn_fixture() -> Value {
         serde_json::from_str(include_str!("../../test/fixtures/codewhale-turn-end.json"))
@@ -1032,5 +1248,195 @@ mod tests {
             pretool_decision("WebFetch", input.as_object()),
             Some("deny")
         );
+    }
+
+    // ── R54 (2026-09-22): OpenCode native event dictionary ────────────────
+    // Every case below mirrors the live 1.18.32 smoke tap and the upstream
+    // schema manifest (see normalize_opencode_native for sources).
+
+    fn opencode_body(event_type: &str, extra: Value) -> Value {
+        let mut body = serde_json::json!({
+            "provider": "opencode",
+            "event_type": event_type,
+            "session_id": "ses_test",
+            "cwd": "/tmp/work",
+        });
+        if let (Some(target), Some(source)) = (body.as_object_mut(), extra.as_object()) {
+            for (key, value) in source {
+                target.insert(key.clone(), value.clone());
+            }
+        }
+        body
+    }
+
+    #[test]
+    fn opencode_lifecycle_native_events_map_to_canonical() {
+        // (native, extra, expected canonical, expected state)
+        let cases: Vec<(&str, Value, &str, &str)> = vec![
+            ("session.created", json!({}), "SessionStart", "idle"),
+            ("session.deleted", json!({}), "SessionEnd", "sleeping"),
+            ("session.error", json!({}), "StopFailure", "error"),
+            ("session.idle", json!({}), "Stop", "attention"),
+            ("session.compacted", json!({}), "PreCompact", "sweeping"),
+            (
+                "session.status",
+                json!({"status_raw": "busy"}),
+                "SessionStatus",
+                "working",
+            ),
+            (
+                "session.status",
+                json!({"status_raw": "retry"}),
+                "SessionStatus",
+                "error",
+            ),
+            (
+                "session.status",
+                json!({"status_raw": "idle"}),
+                "SessionStatus",
+                "attention",
+            ),
+            ("permission.asked", json!({}), "Notification", "needsinput"),
+            (
+                "permission.v2.asked",
+                json!({}),
+                "Notification",
+                "needsinput",
+            ),
+            ("permission.replied", json!({}), "PreToolUse", "working"),
+            ("permission.v2.replied", json!({}), "PreToolUse", "working"),
+            ("question.asked", json!({}), "Notification", "needsinput"),
+            ("question.replied", json!({}), "PreToolUse", "working"),
+            (
+                "tool.execute.before",
+                json!({"tool_name": "read"}),
+                "PreToolUse",
+                "working",
+            ),
+            (
+                "tool.execute.before",
+                json!({"tool_name": "task"}),
+                "SubagentStart",
+                "juggling",
+            ),
+            (
+                "tool.execute.before",
+                json!({"tool_name": "agent"}),
+                "SubagentStart",
+                "juggling",
+            ),
+            (
+                "tool.execute.after",
+                json!({"tool_name": "bash"}),
+                "PostToolUse",
+                "working",
+            ),
+            (
+                "tool.execute.after",
+                json!({"tool_name": "task"}),
+                "SubagentStop",
+                "working",
+            ),
+        ];
+        for (native, extra, event, state) in cases {
+            let body = opencode_body(native, extra);
+            let normalized =
+                normalize_provider_body("opencode", None, body).expect("opencode body");
+            assert_eq!(normalized["native_event"], *native, "native {native}");
+            assert_eq!(normalized["hook_event_name"], *event, "event {native}");
+            assert_eq!(normalized["state"], *state, "state {native}");
+        }
+    }
+
+    #[test]
+    fn opencode_message_updated_role_discriminates_user_vs_assistant() {
+        // role=user is the REAL user-prompt producer (R40 believed absent).
+        let user = opencode_body("message.updated", json!({"role": "user", "text": "fix it"}));
+        let normalized = normalize_provider_body("opencode", None, user).unwrap();
+        assert_eq!(normalized["hook_event_name"], "UserPromptSubmit");
+        assert_eq!(normalized["state"], "thinking");
+
+        // assistant without completed = streaming — dropped, not ingested.
+        let streaming = opencode_body(
+            "message.updated",
+            json!({"role": "assistant", "completed": false}),
+        );
+        assert!(prepare_http_state_body(streaming).is_none());
+
+        // assistant with completed = turn end + metering payload.
+        let done = opencode_body(
+            "message.updated",
+            json!({
+                "role": "assistant",
+                "completed": true,
+                "last_assistant_message": "done",
+                "tokens": {"input": 10, "output": 5, "reasoning": 1,
+                           "cache": {"read": 2, "write": 3}},
+            }),
+        );
+        let normalized = normalize_provider_body("opencode", None, done).unwrap();
+        assert_eq!(normalized["hook_event_name"], "Stop");
+        assert_eq!(normalized["state"], "attention");
+        assert_eq!(normalized["turn_usage"]["input"], 10);
+        assert_eq!(normalized["turn_usage"]["cache_read"], 2);
+        assert_eq!(normalized["turn_usage"]["cache_write"], 3);
+    }
+
+    #[test]
+    fn opencode_v4_bodies_pass_through_without_event_type() {
+        // Upgrade compatibility: the v4 plugin posts Claude-spelled
+        // hook_event_name with no event_type field — untouched.
+        let v4_body = serde_json::json!({
+            "provider": "opencode",
+            "hook_event_name": "Stop",
+            "state": "attention",
+            "session_id": "ses_old",
+            "cwd": "/tmp/work",
+        });
+        let normalized = normalize_provider_body("opencode", None, v4_body.clone()).unwrap();
+        assert_eq!(normalized["hook_event_name"], "Stop");
+        assert_eq!(normalized["state"], "attention");
+        // The HTTP wrapper must keep it (no drop).
+        assert!(prepare_http_state_body(normalized).is_some());
+    }
+
+    #[test]
+    fn opencode_unknown_native_events_are_dropped() {
+        // session.updated / message.part.* / catalog.* have no pet-state
+        // semantics — dropping keeps the state machine from flattening a
+        // working session to idle.
+        for noise in ["session.updated", "message.part.delta", "catalog.updated"] {
+            let body = opencode_body(noise, json!({}));
+            assert!(
+                prepare_http_state_body(body).is_none(),
+                "{noise} must be dropped"
+            );
+        }
+    }
+
+    #[test]
+    fn opencode_state_is_never_overwritten_by_dictionary() {
+        // entry().or_insert: an explicit state from the plugin wins.
+        let body = opencode_body(
+            "session.status",
+            json!({"status_raw": "busy", "state": "working"}),
+        );
+        let normalized = normalize_provider_body("opencode", None, body).unwrap();
+        assert_eq!(normalized["state"], "working");
+    }
+
+    #[test]
+    fn non_opencode_providers_never_read_event_type() {
+        // The event_type hook is opencode-only: a (hypothetical) claude body
+        // carrying event_type must not be reinterpreted through the opencode
+        // dictionary.
+        let body = serde_json::json!({
+            "provider": "claude",
+            "event_type": "session.idle",
+            "hook_event_name": "Stop",
+        });
+        let normalized = normalize_provider_body("claude", None, body).unwrap();
+        assert_eq!(normalized["hook_event_name"], "Stop");
+        assert!(normalized.get("native_event").is_none());
     }
 }

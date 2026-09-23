@@ -76,7 +76,7 @@ async function fetchContract(contract) {
   try {
     const response = await fetch(contract.url, {
       redirect: 'follow',
-      headers: { 'user-agent': 'Octopus-protocol-drift-check/0.6.3', accept: 'text/html,application/json,text/plain;q=0.9,*/*;q=0.1' },
+      headers: { 'user-agent': 'Octopus-protocol-drift-check/0.6.4', accept: 'text/html,application/json,text/plain;q=0.9,*/*;q=0.1' },
       signal: controller.signal,
     });
     const text = await readBoundedResponse(response);
@@ -109,12 +109,19 @@ async function fetchContract(contract) {
 async function main() {
   const installer = fs.readFileSync(path.join(root, 'src-tauri', 'src', 'hook_install.rs'), 'utf8');
   const nodeInstaller = fs.readFileSync(path.join(root, 'scripts', 'install-native-hooks.js'), 'utf8');
+  // R54 (2026-09-22): the OpenCode plugin source moved to plugin_sources.rs
+  // (hook_install.rs growth budget) and its native event dictionary lives in
+  // hook_client.rs (normalize_opencode_native). The opencode needles must be
+  // found across that pair — install + translate — not in hook_install.rs.
+  const opencodeSources =
+    fs.readFileSync(path.join(root, 'src-tauri', 'src', 'plugin_sources.rs'), 'utf8')
+    + fs.readFileSync(path.join(root, 'src-tauri', 'src', 'hook_client.rs'), 'utf8');
   const local = [
     compareArray('claude-rust-events', parseRustStringArray(installer, 'CLAUDE_EVENTS'), baseline.localContracts.claudeEvents),
     compareArray('claude-node-events', parseNodeEvents(nodeInstaller), baseline.localContracts.claudeEvents),
     compareArray('codewhale-events', parseRustStringArray(installer, 'CODEWHALE_EVENTS'), baseline.localContracts.codewhaleEvents),
     compareArray('codex-events', parseRustStringArray(installer, 'CODEX_EVENTS'), baseline.localContracts.codexEvents),
-    checkNeedles('opencode-contract', installer, baseline.localContracts.opencodeNeedles),
+    checkNeedles('opencode-contract', opencodeSources, baseline.localContracts.opencodeNeedles),
     checkNeedles('aider-contract', installer, baseline.localContracts.aiderNeedles),
   ];
   const cliVersions = baseline.cliVersionCommands.map(cliVersion);

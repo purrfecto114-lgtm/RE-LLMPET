@@ -37,9 +37,12 @@ assert(!pet.includes("img.style.opacity = '0'"), 'image swap must not blank the 
 assert(pet.includes('requestRadialViewport'), 'radial opening must request its viewport before measuring');
 assert(pet.includes('patchSessionDots'), 'session dots must use keyed patching');
 
-const hook = read('src-tauri/src/hook_install.rs');
-assert(hook.includes('event?.properties?.info?.parentID'), 'OpenCode child session parent must be retained');
-assert(hook.includes('headless: Boolean(parentID)'), 'OpenCode child sessions must be marked headless');
+// R54: the OpenCode plugin source moved to plugin_sources.rs (hook_install.rs
+// growth budget); the v5 body keeps parent/headless metadata on every surface.
+const hook = read('src-tauri/src/plugin_sources.rs');
+assert(hook.includes('info.parentID'), 'OpenCode child session parent must be retained');
+assert(hook.includes('if (info.parentID) { base.parent_id = info.parentID; base.headless = true; }'),
+  'OpenCode child sessions must be marked headless');
 assert(hook.includes('input?.sessionID\n    || input?.metadata?.sessionID'),
   'current OpenCode top-level sessionID must be preferred with legacy metadata fallback');
 

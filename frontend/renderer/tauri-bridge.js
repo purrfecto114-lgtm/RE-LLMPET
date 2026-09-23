@@ -249,6 +249,10 @@ function currentPetAgent() {
     decideCwPermission: (permId, behavior) => call('decide_permission', { permId, behavior }),
     decideCwPermissionBatch: (permId, mode) => call('decide_permission_batch', { permId, mode }),
     focusSession: (sessionId) => send('focus_session', { sessionId }),
+    // R54: direct "reopen this conversation" surface (provider-native resume
+    // flags). focus_session already falls back to this automatically when the
+    // owning terminal is gone.
+    resumeSession: (sessionId) => call('resume_session', { sessionId }),
     primaryAction: () => send('primary_action'),
     setIgnoreMouse: (ignore) => call('set_ignore_mouse', { ignore, agent: currentPetAgent() }),
     setPetTall: (tall) => send('set_pet_tall', { tall, agent: currentPetAgent() }),

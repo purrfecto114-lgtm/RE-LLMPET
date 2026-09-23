@@ -1,0 +1,1 @@
+codex exec resume 01a0c946-897d... "Reply with exactly: RESUME-OK" -> rc=0, hooks SessionStart+UserPromptSubmit+Stop fired, output: RESUME-OK codex (codex-cli 0.155.1, mock LLM)

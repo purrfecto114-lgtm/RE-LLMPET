@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "status": "failed",
+  "error": "contract command did not write /tmp/octopus-aider-q3v7k0/provider-evidence.json"
+}

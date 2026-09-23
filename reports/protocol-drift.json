@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-13T07:51:01.997Z",
-  "baselineUpdatedAt": "2026-09-13",
+  "generatedAt": "2026-09-23T05:03:06.370Z",
+  "baselineUpdatedAt": "2026-09-22",
   "sourceFork": {
     "repository": "https://github.com/purrfecto114-lgtm/LLMPET",
     "publishedTag": "v0.1.2-pre",
@@ -218,9 +218,8 @@
     },
     {
       "id": "codewhale",
-      "installed": true,
-      "status": 0,
-      "version": "codewhale 0.9.12 (dcd4c200f72f)"
+      "installed": false,
+      "error": "ENOENT"
     },
     {
       "id": "codex",

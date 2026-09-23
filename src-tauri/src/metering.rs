@@ -578,7 +578,13 @@ impl UsageLedger {
         let object = body.as_object()?;
         let provider = text(object, &["provider"], 32).unwrap_or_else(|| "claude".into());
         let native_event = text(object, &["native_event", "event"], 96).unwrap_or_default();
-        if provider != "codewhale" || native_event != "turn_end" {
+        // R54 (2026-09-22): opencode's message.updated (assistant, completed)
+        // carries the per-turn tokens object; normalize_opencode_native
+        // reshapes it into the same `turn_usage` fields codewhale turn_end
+        // uses, so this gate accepts both producers.
+        let is_usage_event = (provider == "codewhale" && native_event == "turn_end")
+            || (provider == "opencode" && native_event == "message.updated");
+        if !is_usage_event {
             return None;
         }
 

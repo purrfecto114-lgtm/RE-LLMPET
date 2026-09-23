@@ -96,12 +96,25 @@ assert.strictEqual(
   'running children are hidden; blocked children must surface');
 
 // ── 7. OpenCode task tool → subagent dispatch expression ────────────────────
-const hookInstall = read('src-tauri/src/hook_install.rs');
-const plugin = hookInstall.slice(hookInstall.indexOf('octopus-opencode-plugin-v4'));
-assert(plugin.includes('if (tool === "task" || tool === "agent")'), 'task/agent tools must map to SubagentStart/Stop');
-assert(/"tool\.execute\.before"[\s\S]*?hook_event_name: "SubagentStart", state: "juggling"/.test(plugin),
+// R54 (2026-09-22): the v5 plugin forwards provider-native event names and
+// tool identity (no Claude-spelled translation at the source); the
+// task/agent → SubagentStart/juggling mapping now lives in the Rust
+// dictionary — hook_client::normalize_opencode_native. The plugin source
+// itself moved to plugin_sources.rs (hook_install.rs growth budget).
+const pluginSources = read('src-tauri/src/plugin_sources.rs');
+const plugin = pluginSources.slice(pluginSources.indexOf('octopus-opencode-plugin-v5'));
+assert(plugin.includes('"tool.execute.before"'),
+  'the plugin must export the native tool.execute.before hook');
+assert(plugin.includes('tool_name: tool'),
+  'tool identity must travel in the body so the Rust dictionary can classify subagents');
+assert(plugin.includes('event_type: type'),
+  'the native event name must travel as event_type (no source-side translation)');
+const hookClient = read('src-tauri/src/hook_client.rs');
+assert(hookClient.includes('if tool_name == "task" || tool_name == "agent"'),
+  'task/agent tools must map to SubagentStart/Stop in the Rust dictionary');
+assert(/"tool\.execute\.before" => \{[\s\S]*?\("SubagentStart", Some\("juggling"\)\)/.test(hookClient),
   'dispatching a subagent must raise the juggling (subagent) expression');
-assert(/"tool\.execute\.before"[\s\S]*?hook_event_name: "PreToolUse", state: "working"/.test(plugin),
+assert(/"tool\.execute\.before" => \{[\s\S]*?\("PreToolUse", Some\("working"\)\)/.test(hookClient),
   'non-task tools must degrade to the ordinary working path');
 assert(plugin.includes('base.parent_id = parent; base.headless = true;'),
   'child tool streams must carry parent metadata so they stay headless rows');

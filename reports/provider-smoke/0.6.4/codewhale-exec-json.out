@@ -1,0 +1,13 @@
+{
+  "mode": "one-shot",
+  "provider": "mock",
+  "model": "mock-mini",
+  "success": true,
+  "output": "RESUME-OK opencode",
+  "stop_reason": "stop",
+  "usage": {
+    "input_tokens": 20,
+    "output_tokens": 5
+  },
+  "error": null
+}

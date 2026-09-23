@@ -37,33 +37,39 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.6.3',
+assert.strictEqual(packageJson.version, '0.6.4',
   'R40: package.json version must be 0.5.57');
 
 // ──────────────────────────────────────────────────────────────────────────
 // R40-1: OpenCode plugin — `session.status` must NOT map to UserPromptSubmit
 // ──────────────────────────────────────────────────────────────────────────
 
-// The plugin source is a raw string in hook_install.rs.
-// R50: marker bumped v3 -> v4 (2026-08-29 subagent/parent metadata rework);
-// v3 (and older) markers now live in the OPENCODE_MARKER_LEGACY list.
+// R54 (2026-09-22): the plugin source moved to plugin_sources.rs and the
+// current marker is v5 (native event names; translation in the Rust
+// dictionary). v4/v3/v2 markers live in the OPENCODE_MARKER_LEGACY list.
+const pluginSources = read('src-tauri/src/plugin_sources.rs');
+assert(hookInstall.includes('octopus-opencode-plugin-v5'),
+  'R40-1: opencode plugin marker must use the current Octopus v5 identity');
 assert(hookInstall.includes('octopus-opencode-plugin-v4'),
-  'R40-1: opencode plugin marker must use the current Octopus v4 identity');
+  'R54: the retired v4 marker must be retained in the legacy overwrite list');
 assert(hookInstall.includes('octopus-opencode-plugin-v3'),
   'R50: the retired v3 marker must be retained in the legacy overwrite list');
-assert(!hookInstall.includes('"session.status": ["UserPromptSubmit", "thinking"]'),
+assert(!pluginSources.includes('"session.status": ["UserPromptSubmit", "thinking"]'),
   'R40-1: session.status MUST NOT map to UserPromptSubmit (causes "收到新任务" on every tool call)');
 // R40.1: session.status now uses a dynamic handler that reads the actual
 // status from event.properties.status, not a hardcoded fixedMap entry.
-assert(hookInstall.includes('SessionStatus'),
+// R54: the SessionStatus name is produced by the Rust dictionary
+// (hook_client::normalize_opencode_native), not the plugin.
+const hookClient = read('src-tauri/src/hook_client.rs');
+assert(hookClient.includes('"session.status" => (') && hookClient.includes('"SessionStatus"'),
   'R40-1: session.status should map to a SessionStatus event name');
-assert(hookInstall.includes('event?.properties?.status'),
+assert(pluginSources.includes('properties.status'),
   'R40-1/R40.1: plugin must read actual status from event.properties.status');
 // The Rust http_server maps UserPromptSubmit to kind=user-turn; ensure
 // the plugin no longer raises that event for session.status transitions.
-assert(hookInstall.includes('sidFromToolInput'),
+assert(pluginSources.includes('sidFromToolInput'),
   'R40-1: plugin must use sidFromToolInput helper for tool hooks');
-assert(hookInstall.includes('input?.metadata?.sessionID'),
+assert(pluginSources.includes('input?.metadata?.sessionID'),
   'R40-1: plugin must read session ID from input.metadata.sessionID (OpenCode v0.9.x)');
 
 // ──────────────────────────────────────────────────────────────────────────

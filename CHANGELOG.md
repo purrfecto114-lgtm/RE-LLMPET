@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.6.4 — R54 provider 事件词汇隔离 + 会话恢复实证（2026-09-22/23）
+
+> 用户指令（原文）：「每个 agent provider 的事件名称都是不一样的请勿混用，
+> 另外，其它 provider 的其它事件没有完全引用。联网验证。辨证讨论，下载
+> provider 冒烟测试(注意空间回收)。已知 opencode 可以通过 `opencode -s
+> [session id]` 继续会话（用于通过桌宠按钮进入会话），其它 provider 自己
+> 搜索，实事求是避免幻觉，大量调用 subagent 多个方面，自主验证。push」
+> 
+> 四个研究 subagent（R54-a/b/c/e）分别对 Claude Code / Codex / OpenCode /
+> Aider 做了多源地面真相核查（官方文档 + 上游源码 + live 冒烟），结论：
+> Claude 24 事件全部真实（官方全集 33，9 个未装是有意排除）；Codex 12/12
+> 与上游 0.151 完全一致（引擎名就叫 ClaudeHooksEngine，与 Claude 同名是
+> codex 官方设计，**不是**本项目混用）；Aider 通知面只有
+> notifications-command 一个事件（无 --resume/--continue，恢复=历史文件）；
+> **真正的混用在本仓 OpenCode 插件**——v4 及之前把 OpenCode 原生事件在
+> 源头硬译成 Claude 拼写（session.idle→"Stop"、permission.asked→
+> "Notification"……），宠物管线收到的名义来源不可恢复，且只覆盖 10/82+
+> 个事件。
+
+### HIGH: OpenCode 插件 v5 —— 原生事件名直传，翻译收敛到 Rust 单点
+- **修复**: 插件 v5 只转发 provider 原生 `event_type`（dotted lowercase
+  命名空间，与 Claude 的 PascalCase、CodeWhale 的 snake_case 彻底隔离），
+  词典 `hook_client::normalize_opencode_native` 是唯一翻译点；HTTP /state
+  路径经 `prepare_http_state_body` 归一化，未映射原生事件防御性丢弃（不再
+  把噪声拍平成 idle）。v4 旧事件体（已翻译、无 event_type 字段）原样透传
+  保持升级兼容。
+- **事件覆盖补全**（10 → 15 转发面 + 上游 82+ 事件全表核对）：
+  message.updated（role 判别——**真正的 UserPromptSubmit + turn-end 生产
+  者**，R40 曾误判 OpenCode 没有等价物）、session.status（联合类型只有
+  idle|busy|retry，v4 的 waiting/error 分支是死代码，已删）、
+  permission.v2.asked/replied、question.asked/replied、session.compacted。
+  有意不转发（上游核实无宠物状态价值）：session.updated（元数据抖动，每
+  turn ~7 次）、message.part.*（流式增量）、session.diff、todo.updated、
+  pty.*/file.*/tui.*/catalog.*。
+- **计量**: assistant 完成（message.updated + time.completed）带 tokens
+  对象，归一化成 codewhale turn_end 同款 `turn_usage` 形状，账本同时接受
+  两个生产者。
+- **证据**: 真实 opencode 1.18.32 + mock 模型的事件清单 tap
+  （reports/provider-smoke/0.6.4/opencode-native-events-tap.jsonl，160 条
+  原生事件）+ sst/opencode@1.18.32 schema manifest 交叉核对（R54-c）。
+
+### HIGH: 六 provider 会话恢复 —— 逐家实证，杜绝臆造
+- `provider_resume_args`（新模块 session_resume.rs）：
+  claude `--resume <id>`（E2E: mock Anthropic 下 `-p --resume` 续聊成功，
+  claude-resume-proof.txt，claude 2.1.278）｜codex `resume <id>`（E2E:
+  `codex exec resume` 续聊且 SessionStart/UserPromptSubmit/Stop hook 全
+  触发，codex-resume-proof.txt，codex 0.155.1）｜opencode `-s <id>`（用户
+  已知 + `opencode run --session` E2E，opencode-resume-proof.txt，1.18.32）
+  ｜codewhale `--continue`（--resume <PREFIX> 存在但 hook 上报的 sess_ id
+  是每次启动新铸的独立命名空间——上游 executor.rs + 实机 sessions/
+  <uuid>/runtime 证实；--continue 是工作区最近会话的诚实近似）｜aider
+  `--restore-chat-history` + `--chat-history-file`（21 个上游 tag + 全 git
+  史证明 --resume/--continue 从未存在，恢复是文件机制不是 id 机制；桌宠
+  按会话 cwd 有界向上找 .aider.chat.history.md，找不到就开新会话不报错）
+  ｜dsh 无恢复面（观察者文件协议，返回空参数不臆造旗标）。
+- **入口**: 新 IPC `resume_session`（ACL/桥接/命令注册三处同步）；
+  `focus_session` 的终端消失兜底现在先走 provider 恢复再谈错误；resume
+  成功有本地化气泡反馈（「已为你重新打开这个会话。」）。
+- **取证过程**: 冒烟后回收——provider CLI 安装在隔离前缀，跑完即删
+  （`which claude/codex/opencode/aider/codewhale` 全空），磁盘清理含
+  npm 缓存与旧 playwright/puppeteer 浏览器缓存。
+
+### 维护性: 增长预算门禁触发的两次正规拆分
+- commands.rs 3791 行 > 3600 预算 → 会话恢复整块抽到 session_resume.rs
+  （207 行，含 2 个实证测试）；hook_install.rs 2434 > 2400 → OpenCode
+  插件源码抽到 plugin_sources.rs（204 行）。8 个锁旧版拼写的回归测试
+  同步更新到 v5 契约（R50/R53/R40/systemic/phase2/bridge/ACL/R6/R35）。
+- 门禁: npm test 全绿（83 个测试文件）、cargo test --lib 137/137
+  （+8：恢复旗标、aider 历史发现、opencode 词典）、clippy -D warnings 0、
+  cargo fmt --check 干净、protocol-drift 本地契约全 ok（needles 更新为
+  原生事件名，注明地面真相来源）、SOURCE_MANIFEST 重生成（0.6.4）。
+
 ## 0.6.3 — R53 闲逛/会话聚焦/表情适配修复 + CodeWhale 15 事件契约（2026-09-13）
 
 > 用户实机报告（附两张截图）：①闲逛失败——codewhale 被喂了 Codex 专属旗标，

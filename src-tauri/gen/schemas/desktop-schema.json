@@ -351,6 +351,12 @@
           "markdownDescription": "Enables the refresh_model_prices command without any pre-configured scope."
         },
         {
+          "description": "Enables the resume_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-resume-session",
+          "markdownDescription": "Enables the resume_session command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_budget command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-budget",
@@ -661,6 +667,12 @@
           "type": "string",
           "const": "deny-refresh-model-prices",
           "markdownDescription": "Denies the refresh_model_prices command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the resume_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-resume-session",
+          "markdownDescription": "Denies the resume_session command without any pre-configured scope."
         },
         {
           "description": "Denies the set_budget command without any pre-configured scope.",

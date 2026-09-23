@@ -22,6 +22,8 @@ const root = path.resolve(__dirname, '..');
 const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
 
 const hookInstall = read('src-tauri/src/hook_install.rs');
+const pluginSources = read('src-tauri/src/plugin_sources.rs');
+const hookClient = read('src-tauri/src/hook_client.rs');
 const commands = read('src-tauri/src/commands.rs');
 const httpServer = read('src-tauri/src/http_server.rs');
 const model = read('src-tauri/src/model.rs');
@@ -34,7 +36,7 @@ const packageJson = JSON.parse(read('package.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.6.3',
+assert.strictEqual(packageJson.version, '0.6.4',
   'R40.1: package.json version must be 0.5.21');
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -164,7 +166,7 @@ assert(Number.isFinite(dateEpoch) && dateEpoch > 1_000_000_000,
 
 // Manifest must be valid JSON with the right structure
 const manifest = JSON.parse(read('SOURCE_MANIFEST.json'));
-assert.strictEqual(manifest.version, '0.6.3',
+assert.strictEqual(manifest.version, '0.6.4',
   'P0-5: manifest version must be 0.5.57');
 // R40.5: manifest.source_commit is optional (CI sets it to GITHUB_SHA;
 // local dev may set an octopus-* label; legacy re-llmpet-* remains accepted.
@@ -178,8 +180,8 @@ assert(manifest.file_count > 200,
   `P0-5: manifest must list >200 files (got ${manifest.file_count})`);
 assert(manifest.sha256_of_manifest,
   'P0-5: manifest must have sha256_of_manifest field');
-assert.strictEqual(manifest.root, `Octopus-0.6.3`,
-  `P0-5: manifest.root must be Octopus-0.6.3 (got ${manifest.root})`);
+assert.strictEqual(manifest.root, `Octopus-0.6.4`,
+  `P0-5: manifest.root must be Octopus-0.6.4 (got ${manifest.root})`);
 
 // R40.4: run manifest verifier (exact file set + hash check)
 const { execSync } = require('child_process');
@@ -206,18 +208,21 @@ assert(commands.includes('REVERTED the 0.5.19'),
 // ──────────────────────────────────────────────────────────────────────────
 
 // The plugin must NOT hardcode "thinking" for session.status
+// R54: the plugin source lives in plugin_sources.rs; the status→state mapping
+// now lives in the Rust dictionary (hook_client::normalize_opencode_native).
 assert(!hookInstall.includes('"session.status": ["SessionStatus", "thinking"]'),
   'P1-2: session.status must NOT hardcode "thinking" state');
 // The plugin must read event.properties.status
-assert(hookInstall.includes('event?.properties?.status'),
+assert(pluginSources.includes('properties.status'),
   'P1-2: plugin must read event.properties.status from OpenCode payload');
-assert(hookInstall.includes('stateMap'),
-  'P1-2: plugin must have a stateMap for known OpenCode statuses');
-assert(hookInstall.includes('busy: "working"'),
-  'P1-2: stateMap must map busy → working');
-assert(hookInstall.includes('idle: "attention"'),
-  'P1-2: stateMap must map idle → attention');
-assert(hookInstall.includes('retry: "error"'),
-  'P1-2: stateMap must map retry → error');
+assert(hookClient.includes('"session.status" => ('),
+  'P1-2: the Rust dictionary must classify session.status');
+assert(hookClient.includes('"busy" | "working" | "running" => "working"'),
+  'P1-2: status mapping must map busy → working');
+assert(hookClient.includes('"retry" => "error"'),
+  'P1-2: status mapping must map retry → error');
+// idle falls to the attention arm (the `_` fallback).
+assert(/"session\.status" => \([\s\S]*?_ => "attention"/.test(hookClient),
+  'P1-2: status mapping must map idle → attention');
 
 console.log('✓ R40.1 (0.5.21) carpet audit closure smoke: all 30 assertions passed');

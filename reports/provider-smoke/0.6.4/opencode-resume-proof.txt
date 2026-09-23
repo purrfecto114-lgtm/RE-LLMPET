@@ -1,0 +1,1 @@
+opencode run --session ses_f36b730bbffepugmMoR50c8yha "Reply with exactly: RESUME-OK" -> rc=0, output: RESUME-OK opencode (opencode 1.18.32, mock LLM; TUI flag -s/--session verified in --help)
