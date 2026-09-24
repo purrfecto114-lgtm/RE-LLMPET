@@ -30,18 +30,29 @@ const rightPointer = {
   preventDefault: () => radialEvents.push('prevent-pointer'),
   stopPropagation: () => radialEvents.push('stop-pointer'),
 };
+// R56: right-clicking the open radial now TOGGLES it closed (same semantics
+// as right-clicking the pet — WebView2/GTK builds suppress contextmenu, so
+// the pointerdown path must be complete). claimRightPointer also notes the
+// right-click timestamp so the late contextmenu of the SAME physical click
+// cannot double-toggle.
 assert.strictEqual(radialOwner.claimRightPointer(rightPointer, {
   claimInput: () => radialEvents.push('claim'),
-}), true, 'right pointer helper must claim the overlay input');
+  toggle: () => radialEvents.push('toggle-open-menu'),
+  noteRightClick: () => radialEvents.push('note-pointer'),
+}), true, 'right pointer helper must claim the overlay input and toggle');
 const rightMenu = {
   preventDefault: () => radialEvents.push('prevent-menu'),
   stopPropagation: () => radialEvents.push('stop-menu'),
 };
 assert.strictEqual(radialOwner.toggleRadialContext(rightMenu, {
   toggle: () => radialEvents.push('toggle'),
+  noteRightClick: () => radialEvents.push('note-menu'),
+  // no rightClickHandledRecently: legacy owners without the guard callback
+  // still get the plain toggle behavior
 }), true, 'second overlay right-click must toggle the radial');
 assert.deepStrictEqual(radialEvents,
-  ['prevent-pointer', 'stop-pointer', 'claim', 'prevent-menu', 'stop-menu', 'toggle']);
+  ['prevent-pointer', 'stop-pointer', 'claim', 'note-pointer', 'toggle-open-menu',
+   'prevent-menu', 'stop-menu', 'note-menu', 'toggle']);
 
 const pointerStart = pet.indexOf("el.addEventListener('pointerdown'");
 const pointerEnd = pet.indexOf("el.addEventListener('pointermove'", pointerStart);

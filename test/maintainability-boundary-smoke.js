@@ -112,13 +112,23 @@ for (const [name, source, maxLines] of [
   // R53 (2026-09-13): roam expression mapping + wander-active state override
   // (+11 lines, audited 2605) — the roam state finally has a producer, so the
   // mascot/cat tables and the aggregate ladder each gained one guarded branch.
+  // R56: the meme skin packs (cat + whale state tables, lazy asset caches,
+  // dir-aware asset matching, pose rotation) were extracted from pet.js so
+  // the whale skin didn't push it over budget. Focused owner, small budget.
+  ["frontend/renderer/pet-skin-packs.js",
+    read('frontend/renderer/pet-skin-packs.js'), 220],
   ["frontend/renderer/pet.js", pet, 2640],
   ['frontend/renderer/panel.js', panel, 1760],
   // R51 (2026-08-30): cargo fmt with the 2024 style edition re-wrapped this
   // file (same statements, more lines): 3360 -> 3572 with zero logic growth.
   // Budget recalibrated to the formatted baseline; the guard still fires on
   // any new stateful accretion.
-  ['src-tauri/src/commands.rs', commands, 3600],
+  // R56 (2026-09-24): +41 audited lines — refresh_tray_menu added to the five
+  // renderer-driven config commands (set_skin/set_mode/set_budget/toggle_mute/
+  // set_providers: the tray submenu check marks stayed stale after panel-side
+  // changes, user-reported) + the pet-codex first-show default position
+  // (offset from the main pet instead of WM-cascade stacking).
+  ['src-tauri/src/commands.rs', commands, 3660],
   ['src-tauri/src/hook_install.rs', hooks, 2400],
   ['frontend/shared/latest-value-controller.js', read('frontend/shared/latest-value-controller.js'), 220],
   ['frontend/shared/panel-fit-controller.js', read('frontend/shared/panel-fit-controller.js'), 220],

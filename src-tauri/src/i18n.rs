@@ -63,6 +63,7 @@ pub const TRAY_LABELS: &[(&str, &str, &str, &str)] = &[
     ("skin.mascot",         "章鱼",                                "Octopus",                                 "タコ"),
     ("skin.pixel",          "像素怪兽",                            "Pixel monster",                           "ドット怪獣"),
     ("skin.cat",            "月薪喵",                              "Payday Cat",                              "給料ニャン"),
+    ("skin.whale",          "鲸鱼女仆",                            "Whale Maid",                              "クジラメイド"),
     ("lang.zh",             "简体中文",                            "简体中文",                                "简体中文"),
     ("lang.en",             "English",                             "English",                                 "English"),
     ("lang.ja",             "日本語",                              "日本語",                                  "日本語"),

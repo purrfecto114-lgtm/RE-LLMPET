@@ -22,7 +22,7 @@ assert(html.indexOf('pet-session-lifecycle.js') < html.indexOf('pet.js'), 'sessi
 
 const skinInit = pet.indexOf("let skin = 'mascot'");
 const idleSchedule = Math.min(
-  ...['requestIdleCallback(maybePreloadCatAssets', 'setTimeout(maybePreloadCatAssets']
+  ...['requestIdleCallback(maybePreloadMemeAssets', 'setTimeout(maybePreloadMemeAssets']
     .map((token) => pet.indexOf(token))
     .filter((index) => index >= 0),
 );

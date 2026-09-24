@@ -19,9 +19,9 @@ const panel = read('frontend/renderer/panel.js');
 const panelHtml = read('frontend/renderer/panel.html');
 const claudeFixture = JSON.parse(read('test/fixtures/claude-transcript-assistant.jsonl').trim());
 
-assert.strictEqual(pkg.version, '0.6.4');
-assert.strictEqual(tauri.version, '0.6.4');
-assert.match(cargo, /version = "0.6.4"/);
+assert.strictEqual(pkg.version, '0.6.5');
+assert.strictEqual(tauri.version, '0.6.5');
+assert.match(cargo, /version = "0.6.5"/);
 
 // Modules must be part of the active Tauri build and runtime, not dead drafts.
 assert.match(lib, /mod pricing_sync;/);
@@ -155,7 +155,12 @@ assert.match(panel, /t\('panel\.estimatedRounds'/);
 assert.match(panel, /estimatedPrice/);
 // R17: 'models.dev 缓存' was also i18n-ized; just assert the pricing source reference exists.
 assert.match(panel, /models\.dev/);
+// R56: Stop still emits the safe reply (say) BEFORE the completion signal;
+// the completion signal is now chosen between big-done (>=5 ops since the
+// last user prompt, upstream adapter.js:448-453) and plain turn-done.
 const stopBlock = server.slice(server.indexOf('if event == "Stop"'), server.indexOf('let payload = match event'));
-assert.ok(stopBlock.indexOf('"kind":"say"') >= 0 && stopBlock.indexOf('"kind":"turn-done"') > stopBlock.indexOf('"kind":"say"'));
+assert.ok(stopBlock.indexOf('"kind":"say"') >= 0
+  && stopBlock.indexOf('"turn-done"') > stopBlock.indexOf('"kind":"say"')
+  && stopBlock.indexOf('"big-done"') > stopBlock.indexOf('"kind":"say"'));
 
 console.log('tauri-transcript-pricing-phase2-smoke: ok');

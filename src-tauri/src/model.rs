@@ -280,6 +280,25 @@ pub struct Session {
     pub ended_at: Option<u64>,
     #[serde(default, skip_serializing)]
     pub parent_id: Option<String>,
+    // R56 (upstream adapter.js:395-484 parity — the three dead expression
+    // producers): greet_pending_at marks an accepted fresh SessionStart so
+    // the FIRST UserPromptSubmit within 5 minutes can fire the greet
+    // transient (30-minute per-project debounce, see RuntimeState.greet_sent).
+    // user_prompt_at + ops_since_prompt drive the Stop-time big-done (≥5 ops
+    // since the prompt → confetti big-done, else plain turn-done).
+    // last_op_done_at anchors the loafing gap synthesis in stats(): a session
+    // that COMPLETED a tool op and then sat idle >5s shows the gap-loafing
+    // state. greet_due is the one-shot handoff to http_server::emit_hook_event.
+    #[serde(default, skip_serializing)]
+    pub greet_pending_at: Option<u64>,
+    #[serde(default, skip_serializing)]
+    pub user_prompt_at: Option<u64>,
+    #[serde(default, skip_serializing)]
+    pub ops_since_prompt: u32,
+    #[serde(default, skip_serializing)]
+    pub last_op_done_at: Option<u64>,
+    #[serde(default, skip_serializing)]
+    pub greet_due: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -379,6 +398,10 @@ pub struct Runtime {
     pub config_write_lock: Mutex<()>,
     pub sessions: Mutex<HashMap<String, Session>>,
     recent_ops: Mutex<VecDeque<RecentOperation>>,
+    // R56: per-project timestamp of the last emitted greet transient —
+    // upstream adapter.js GREET_DEBOUNCE_MS (30 min) so restarting a session
+    // in the same project doesn't spam the wake-up animation.
+    greet_sent: Mutex<HashMap<String, u64>>,
     pub pending: Mutex<HashMap<String, PendingPermission>>,
     pub batch_rules: Mutex<Vec<BatchRule>>,
     pub provider_status: Mutex<HashMap<String, ProviderStatus>>,
@@ -517,6 +540,7 @@ impl AppState {
                 config_write_lock: Mutex::new(()),
                 sessions: Mutex::new(HashMap::new()),
                 recent_ops: Mutex::new(VecDeque::with_capacity(50)),
+                greet_sent: Mutex::new(HashMap::new()),
                 pending: Mutex::new(HashMap::new()),
                 batch_rules: Mutex::new(Vec::new()),
                 provider_status: Mutex::new(HashMap::new()),
@@ -918,6 +942,11 @@ impl Runtime {
                 last_event_key: None,
                 ended_at: None,
                 parent_id: parent_id.clone().or_else(|| adopted_parent.clone()),
+                greet_pending_at: None,
+                user_prompt_at: None,
+                ops_since_prompt: 0,
+                last_op_done_at: None,
+                greet_due: false,
             });
             let accepted =
                 should_accept_event(entry, event_at, event_seq, event_rank, event_key.as_deref());
@@ -973,6 +1002,50 @@ impl Runtime {
                     None
                 };
                 entry.updated_at = now;
+                // R56: the three upstream expression producers — greet
+                // (SessionStart pending → first UserPromptSubmit ≤5min with a
+                // 30min per-project debounce), ops-since-prompt (big-done
+                // threshold), and op-completion time (loafing gap anchor).
+                // Claude SessionStart source=resume is an old session
+                // continuing, not a fresh arrival — no greet for it.
+                match event.as_str() {
+                    "SessionStart" => {
+                        let source = body.get("source").and_then(Value::as_str).unwrap_or("");
+                        entry.greet_pending_at = if source == "resume" {
+                            None
+                        } else {
+                            Some(event_at)
+                        };
+                        entry.user_prompt_at = None;
+                        entry.ops_since_prompt = 0;
+                    }
+                    "UserPromptSubmit" => {
+                        let fresh = entry
+                            .greet_pending_at
+                            .is_some_and(|start| event_at.saturating_sub(start) <= 300_000);
+                        entry.greet_pending_at = None;
+                        entry.user_prompt_at = Some(event_at);
+                        entry.ops_since_prompt = 0;
+                        if fresh && !entry.headless {
+                            let project = project_name(&entry.cwd, &entry.id);
+                            let mut greet_sent =
+                                self.greet_sent.lock().unwrap_or_else(|e| e.into_inner());
+                            let last = greet_sent.get(&project).copied().unwrap_or(0);
+                            if event_at.saturating_sub(last) > 1_800_000 {
+                                greet_sent.insert(project, event_at);
+                                entry.greet_due = true;
+                            }
+                        }
+                    }
+                    "PreToolUse" | "SubagentStart" | "TaskCreated" => {
+                        entry.ops_since_prompt = entry.ops_since_prompt.saturating_add(1);
+                    }
+                    "PostToolUse" | "PostToolUseFailure" | "SubagentStop" | "TaskCompleted" => {
+                        entry.ops_since_prompt = entry.ops_since_prompt.saturating_add(1);
+                        entry.last_op_done_at = Some(event_at);
+                    }
+                    _ => {}
+                }
             }
             // Usage/context is monotonic data and remains eligible even when a stale
             // lifecycle event is rejected. The ledger itself handles idempotency.
@@ -1351,6 +1424,11 @@ impl Runtime {
                 last_event_key: None,
                 ended_at: None,
                 parent_id: None,
+                greet_pending_at: None,
+                user_prompt_at: None,
+                ops_since_prompt: 0,
+                last_op_done_at: None,
+                greet_due: false,
             });
         if let Some((provider, tool_name, permission_id)) = pending_meta {
             entry.provider = provider;
@@ -1467,6 +1545,27 @@ impl Runtime {
                 } else {
                     (session.state.clone(), Value::Null, Value::Null)
                 };
+            // R56 (upstream adapter.js:251-262): loafing gap synthesis — a
+            // non-headless session whose state is still a work-family state
+            // but whose last op COMPLETED >5s ago (and nothing has arrived
+            // since) is in the "上一步干完、等下一步" gap: show loafing, the
+            // expression that previously almost never fired. Stricter than
+            // upstream on purpose: the anchor is op COMPLETION, so a
+            // long-running tool that only fired its start event never loafs.
+            let state = if !session.headless
+                && matches!(
+                    state.as_str(),
+                    "working" | "thinking" | "juggling" | "carrying"
+                )
+                && session
+                    .last_op_done_at
+                    .is_some_and(|done| now.saturating_sub(done) > 5_000)
+                && now.saturating_sub(session.updated_at) > 5_000
+            {
+                "loafing".to_string()
+            } else {
+                state
+            };
             // R50: waiting/needsinput MUST count headless children too. A
             // blocked subagent (permission.asked lands on the child session)
             // blocks the whole task; excluding headless rows from these two
@@ -2814,9 +2913,17 @@ fn event_rank(event: &str, state: &str) -> u8 {
             "Stop" | "SessionEnd" | "turn_end" | "TurnEnd" | "TaskCompleted" => 90,
             "Notification" | "PermissionRequest" | "PermissionDenied" | "Elicitation" => 80,
             "PostToolUse" | "PostToolUseFailure" | "SubagentStop" | "ElicitationResult" => 70,
-            "PreToolUse" | "SubagentStart" | "TaskCreated" => 60,
+            "PreToolUse" | "SubagentStart" | "TaskCreated" | "TaskStarted" => 60,
             "UserPromptSubmit" | "message_start" => 50,
             "SessionStart" => 10,
+            // R56: dsh watcher emits ApiError for turn/end(error) and
+            // llm/retry, and TurnAborted for aborted turns — before these
+            // arms existed they fell to the generic 40 bucket and
+            // normalize_state mapped them to "idle", so a failing dsh
+            // session looked calm while it was actually crashing (STATES.md
+            // §dsh has required ApiError→error since the observer landed).
+            "ApiError" => 94,
+            "TurnAborted" => 62,
             _ => 40,
         },
     }
@@ -2878,8 +2985,11 @@ fn normalize_state(explicit: &str, event: &str) -> String {
         "Notification" => "notification",
         "PermissionDenied" | "Elicitation" => "needsinput",
         "TeammateIdle" => "loafing",
-        "StopFailure" | "PostToolUseFailure" => "error",
-        "SessionStart" | "Stop" => "idle",
+        "StopFailure" | "PostToolUseFailure" | "ApiError" => "error",
+        // R56: dsh turn/start previously fell to "idle" — the watcher's
+        // tracker intended "thinking" but the name had no arm here.
+        "TaskStarted" => "thinking",
+        "SessionStart" | "Stop" | "TurnAborted" => "idle",
         _ => "idle",
     }
     .into()
@@ -3035,6 +3145,11 @@ mod session_order_tests {
             last_event_key: key.map(str::to_string),
             ended_at: None,
             parent_id: None,
+            greet_pending_at: None,
+            user_prompt_at: None,
+            ops_since_prompt: 0,
+            last_op_done_at: None,
+            greet_due: false,
         }
     }
 

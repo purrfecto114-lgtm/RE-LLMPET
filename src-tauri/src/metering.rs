@@ -582,8 +582,12 @@ impl UsageLedger {
         // carries the per-turn tokens object; normalize_opencode_native
         // reshapes it into the same `turn_usage` fields codewhale turn_end
         // uses, so this gate accepts both producers.
+        // R56: dsh turn/end now carries a per-turn turn_usage delta with its
+        // native_event name attached (dsh_watch.rs) — same gate shape as the
+        // other native producers.
         let is_usage_event = (provider == "codewhale" && native_event == "turn_end")
-            || (provider == "opencode" && native_event == "message.updated");
+            || (provider == "opencode" && native_event == "message.updated")
+            || (provider == "dsh" && native_event == "turn_end");
         if !is_usage_event {
             return None;
         }

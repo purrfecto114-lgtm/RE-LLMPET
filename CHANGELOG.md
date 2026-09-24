@@ -1,5 +1,139 @@
 # Changelog
 
+## 0.6.5 — R56 卸载器修复 + 鲸鱼女仆皮肤 + GUI 根因修复 + 表情补全（2026-09-24）
+
+> 用户指令（原文）：「整理上下文后修复：你把安装程序搞坏了，无法正常卸载，
+> 另外皮肤也少了上游的 dsh 皮肤，有几个表情根本没用上需要补全。桌宠右键
+> 无法正常操作具体表现为右键后菜单出现一下就消失，桌宠右键的形象按钮被
+> 点击后托盘右键选项显示的还是旧选项。部分GUI存在未处理干净的窗口显示
+> 错误，比如叠加错误，黑底面覆盖层等问题需要彻头彻尾排查。托盘右键菜单
+> 还几个按钮按下无反馈(比如卸载钩子)需要地毯式搜索并优化。另外每个
+> provider的事件名称不同不可混用！联网搜索。发布。尽可能调用技能，工具」
+>
+> 四个调查 subagent（R56-a/b/c/d）取证：上游 0.1.1/main 对比、事件词汇
+> 审计+联网复核、GUI 五类 bug 根因链、安装器链路（含对已发布
+> Octopus_0.6.3_x64-setup.exe 的 NSIS 产物解包实证）。
+
+### HIGH: 卸载器 —— 真正的病根是「卸载从不清理 provider hooks」
+- 实证（R56-d，解包已发布 0.6.3 安装器逐串核对）：卸载器本身能杀进程、
+  删文件、删注册表；病灶有四：① 卸载后 6 家 agent 配置仍指向已删除的
+  exe（CodeWhale 权限钩子 fail-closed → 卸完即坏 agent）；②「删除应用
+  数据」删的是 $APPDATA 占位目录而不是真实的 ~/.re-llmpet；③ PREINSTALL
+  旧版闸门 ExecWait+无条件 Abort——NSIS 卸载器自复制异步执行，键还没删
+  就返回 → 重跑即死循环（「无法正常卸载/安装」的字面体验）；④ 硬杀绕过
+  app 的退出清理。
+- **修复**: 新增 `octopus.exe --uninstall-hooks` headless CLI
+  （hook_install::uninstall_all_hooks_headless，回执驱动+env 兜底，逐
+  provider 清理并打印结果，退出码 0/1）；NSIS PREUNINSTALL 重写——先
+  nsis_tauri_utils::KillProcessCurrentUser 杀 octopus/octopus-hook/
+  re-llmpet-hook（插到模板 CheckIfAppIsRunning 之前，绕过 tao 0.35.3
+  不响应 WM_ENDSESSION 的 Restart Manager 雷），再 ExecWait
+  `--uninstall-hooks` 修复 provider 配置（此时二进制尚在），后删别名；
+  PREINSTALL 闸门重写——卸载器不存在时提供注册表清尸选项 + 存在时
+  `ExecWait '$0 _?=$INSTDIR'` + 30 秒注册表轮询替代无条件 Abort。
+  macOS/Linux 文档化同一 CLI 旗标作拖废纸篓后的手动清理步骤。
+
+### HIGH: 皮肤 —— 上游 main(v1.2.0) 鲸鱼女仆（whale）移植
+- 上游 0.1.1/0.1/v0.1.2-pre **没有**名为 dsh 的皮肤（防幻觉核实）；用户
+  所指「上游的 dsh 皮肤」= 上游 main 的 whale 鲸鱼女仆（README 标题即
+  「DeepSeek Harness（dsh）已接入：给它一只鲸鱼娘桌宠」）。23 张 360px
+  GIF（~21MB，自有原创角色，图生视频产出，Apache/创意来源见
+  assets/whale/CREDITS.md）按原样移植。
+- 架构：抽出 `frontend/renderer/pet-meme-packs.js`（R56 新模块，198 行，
+  含预算门禁）——cat/whale 同构（共用 #cat DOM 节点与同一渲染分支），
+  MEME_PACKS 表收纳全部差异；目录感知的 assetMatches 防两套皮肤同名误
+  判；姿态轮换（working×4/sleeping×2/loafing×3）与懒加载（21MB 不可
+  启动即载）同表收口。applySkin 白名单+skin-whale 类+180px 呈现
+  （pet.css），toggleSkin 顺序 [mascot,pixel,cat,whale]，i18n.rs +
+  shared/i18n.js 三语 `skin.whale`，托盘形象子菜单第 4 项（skin_whale
+  CheckMenuItem + handler + 勾选随 refresh_tray_menu 跟随）。
+- 会话 HUD：PROVIDER_ICONS/PROVIDER_LABELS 补 dsh 条目（深蓝方块+鲸背
+  波浪 DSH_ICON，上游 main 同款）——dsh 会话不再显示 `•`+裸名。
+
+### HIGH: 桌宠右键菜单「出现一下就消失」——三条根因全修
+- ① focusPet() 抢焦点自噬：syncUiBusy busy 分支对 always-on-top+skipTaskbar
+  窗口调 set_focus → X11/Wayland/WebView2 焦点窃取防护反弹
+  Focused(false) → native blur → dismissTransientUi 秒杀刚开的菜单。上游
+  从不抢焦点。**移除该调用**。
+- ② 瞬态 UI blur 宽限：syncUiBusy 在 not-busy→busy 沿记录
+  transientUiOpenedAt，dismissTransientUi 对 <300ms 内到达的 dom/native
+  blur 判定为焦点抖动不关菜单（上游 main radialOpenSeq 守卫同思路）；
+  native blur 另加 document.hasFocus() 复核。
+- ③ 同一次右键双触发：radial 自身 contextmenu 无守卫（petAnchor 有
+  400ms 守卫而菜单没有），pointerdown 已 toggle 后迟到的 contextmenu 再
+  toggle → 开+关。claimRightPointer 现在与 petAnchor 同语义（菜单上
+  右键=关闭），toggleRadialContext 加共享 400ms 守卫；另 duo 模式下
+  window.blur 广播（window.emit 全局广播）改为 emit_to 定向到失焦窗口。
+
+### HIGH: 托盘陈旧状态 + 无反馈按钮（同一根类，一次修全）
+- 根类：「渲染端/命令侧改了 config，托盘原生菜单不重建」。set_skin/
+  set_mode/set_budget/toggle_mute/set_providers 五命令补
+  crate::refresh_tray_menu（与 set_language 对称；上游 main.js 每次配置
+  变更都 refreshTrayMenu）→ 修复「形象按钮点击后托盘还是旧选项」。
+- 托盘「卸载钩子」零反馈：lib.rs 发的 `{"kind":"toast"}` 前端无 case——
+  死信事件。pet.js onEvent 加 case 'toast'（气泡+音效）；卸载后
+  refresh_tray_menu（「新开 Agent」子菜单按构建时 providers 过滤，不重建
+  则 launch_claude 变静默 no-op）。价格刷新同享反馈。
+
+### HIGH: GUI 窗口显示错误（叠加/黑底覆盖层）
+- 黑底面覆盖层：.provider-chooser 全窗 rgba(0,0,0,.45) 遮罩画在透明置顶
+  窗上=悬浮黑矩形。改透明遮罩+卡片外阴影（0 18px 48px）承载模态层级感。
+- panel 置顶滞留：open_panel 抬 always_on_top，原生关闭路径（Alt+F4/
+  任务栏）只 hide 不回退 → topmost panel 与恒 topmost pet 互相压层级
+  （叠加错乱）。CloseRequested 分支补 set_always_on_top(false)。
+- 双宠完全叠加：pet-codex 无保存位置时 WM 默认（居中/级联）与主宠同位。
+  sync_pet_windows 首次 duo 显示时锚定主宠位 +140/+48 偏移（DPI 换算）。
+- 缩窗踩踏：hideBubble 的缩窗守卫漏 radialOpen/providerChooserOpen——
+  气泡超时缩窗会把按大视口布置的 radial item 裁掉。补齐守卫。
+
+### HIGH: 事件词汇隔离收尾（R54 遗留的元数据/标签混用）+ 事件补全
+- 联网复核（2026-09-24 实抓 code.claude.com / developers.openai.com /
+  opencode.ai / CodeWhale HOOKS.md）：R54 结论全部维持；新发现 CodeWhale
+  官方 15 事件文档（本仓 14+shell_env 排除一致）。
+- provider_registry.rs 六个 spec.events 全部改为真实词汇（旧表是虚构的
+  混血列表：codewhale 用 dsh 风味 snake_case、codex 含不存在的
+  notification、opencode 残留 v4 Claude 拼写、aider 虚构 turn_*、claude
+  过时 8 项、dsh 点名近似）——运行时无消费者但自称 single source of
+  truth，如实对齐 hook_install.rs 常量/插件白名单/DshEvent 枚举。
+- aider 安装标签盗用 codewhale 的 `turn_end` 作位置参数→改中性
+  `notification`（回执同步；旧回执是不 inert 字符串，标记不变迁移干净）；
+  安装日志 "(v4)"→"(v5)"。
+- OpenCode 插件补转发 question.v2.asked/replied（词典有臂、插件侧静默
+  丢弃——v2 模式下问题往返全丢）与 todo.updated（todos 面板有消费端、
+  OpenCode 无生产者；PostToolUse+working 映射，todos 走 direct 快照路径）。
+- **dsh 状态正确性**（R56-b P1）：normalize_state/event_rank 补
+  ApiError→error（94）/TaskStarted→thinking/TurnAborted→idle 臂——
+  STATES.md §dsh 自观察器落地起就要求 ApiError→error，缺臂让 dsh 出错
+  永远显示 idle；dsh_watch 事件补 state 字段、turn/end(completed) 带
+  assistant 文本（say 气泡）+ 逐回合 turn_usage 增量（计量门加 dsh
+  turn_end 臂，激活 context%）、approval/decided 发射 PreToolUse（宠物
+  不再卡 notification）、compaction/end 发射 PostCompact（sweeping 及时
+  清除）。
+
+### MED: 表情补全——上游 adapter.js 的三个死生产者 + emotion 字段链
+- user-turn/say 的 emotion 字段：hook_client inject_emotion 早已把嗅探
+  情绪注入事件 body，但 http_server emit_hook_event 重建 payload 时丢弃
+  → 前端 loved/sorry/puzzled/excited 分支全是死代码。两个字段补上，四类
+  情绪表情直接复活。
+- greet 发射器：SessionStart 置 greet_pending（claude source=resume 除外）
+  → 首条 UserPromptSubmit ≤5 分钟窗 + 项目级 30 分钟频控（上游
+  adapter.js:395-431 同款常量）→ {"kind":"greet"}；cat-greet.gif/
+  whale-greet.gif 终于有触发者。
+- big-done 发射器：ops_since_prompt ≥5（PreToolUse/PostToolUse/
+  SubagentStart/TaskCreated 计数，UserPromptSubmit 清零）→ Stop 时发
+  {"kind":"big-done","ops":N} 替代 turn-done（彩带+大完成音效；上游
+  adapter.js:448-453 阈值同款）。
+- loafing 间隙合成：stats() 对「完成过工具操作且 >5s 无新事件」的工作族
+  会话显示 loafing（上游 adapter.js:251-262；比上游更严——锚定操作
+  **完成**时间，只发过开始事件的长时间工具不会误报摸鱼）。
+
+### 其他
+- 文档：PROVIDER_CAPABILITY_MATRIX.md 更新（CodeWhale 15 事件、aider
+  单信号如实描述）。
+- 门禁预算：commands.rs 3600→3660（+41 审计行：5×refresh_tray_menu +
+  codex 默认位，R50/R53 审计微调先例）；pet-meme-packs.js 新模块预算
+  220；pet.js 2580（whale 移植零增长——同构抽取）。
+
 ## 0.6.4 — R54 provider 事件词汇隔离 + 会话恢复实证（2026-09-22/23）
 
 > 用户指令（原文）：「每个 agent provider 的事件名称都是不一样的请勿混用，

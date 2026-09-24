@@ -39,9 +39,12 @@ const petHtml = read('frontend/renderer/pet.html');
 const panelCss = read('frontend/renderer/panel.css');
 const petCss = read('frontend/renderer/pet.css');
 
-// ── P0-1: pet.js cat lazy preload uses `skin`, not `config.skin` ──────────
-assert(petJs.includes("if (skin === 'cat' && catAssetCache.size === 0)"),
-  'pet.js maybePreloadCatAssets must reference `skin` (not `config.skin`)');
+// ── P0-1: pet.js meme-skin lazy preload uses `skin`, not `config.skin` ────
+// R56: cat preload generalized into skin packs (cat+whale); the wrapper still
+// reads the live `skin` variable and defers to the per-pack cache.
+assert(petJs.includes('function maybePreloadMemeAssets()')
+  && petJs.includes('if (isMeme()) skinPacks.ensurePreloaded(skin)'),
+  'pet.js maybePreloadMemeAssets must reference `skin` (not `config.skin`)');
 assert(!petJs.includes('config.skin === \'cat\''),
   'pet.js must NOT reference the undefined `config.skin`');
 

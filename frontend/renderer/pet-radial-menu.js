@@ -6,12 +6,26 @@ window.OctoPetRadialMenu = (() => {
     event.preventDefault();
     event.stopPropagation();
     owner.claimInput();
+    // R56: right-click on an open radial toggles it closed — same semantics
+    // as right-clicking the pet itself (R50). Before, the radial's own
+    // pointerdown only claimed input and never toggled, so right-clicking
+    // the menu (or the pet behind it, on WebView2/GTK builds where
+    // contextmenu is suppressed) was a complete no-op.
+    if (owner.noteRightClick) owner.noteRightClick();
+    owner.toggle();
     return true;
   }
 
   function toggleRadialContext(event, owner) {
     event.preventDefault();
     event.stopPropagation();
+    // R56: 400ms guard mirrors pet.js's petAnchor contextmenu guard — a
+    // single physical right-click can deliver BOTH pointerdown (which
+    // already toggled above) and a late contextmenu. Without the guard the
+    // same click opens then instantly closes the menu — one of the causes
+    // of "菜单出现一下就消失".
+    if (owner.rightClickHandledRecently && owner.rightClickHandledRecently()) return true;
+    if (owner.noteRightClick) owner.noteRightClick();
     owner.toggle();
     return true;
   }

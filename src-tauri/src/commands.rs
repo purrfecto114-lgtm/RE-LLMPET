@@ -27,11 +27,35 @@ pub(crate) fn sync_pet_windows(app: &AppHandle, config: &crate::model::AppConfig
         let _ = if hidden { window.hide() } else { window.show() };
     }
     if let Some(window) = app.get_webview_window("pet-codex") {
-        let _ = if !hidden && config.pet_mode == "duo" {
-            window.show()
+        if !hidden && config.pet_mode == "duo" {
+            // R56: first duo show without a saved codex-pet position — the WM
+            // default (centered/cascaded) lands the second pet exactly on top
+            // of the first one ("双宠完全叠加" until the user drags it apart).
+            // Anchor it diagonally offset from the main pet instead.
+            if config.pet_position_codex.is_none() {
+                let base = config
+                    .pet_position
+                    .as_ref()
+                    .map(|p| (p.x, p.y))
+                    .or_else(|| {
+                        app.get_webview_window("pet")
+                            .and_then(|w| w.outer_position().ok())
+                            .map(|p| (p.x, p.y))
+                    });
+                if let Some((bx, by)) = base {
+                    let scale = window.scale_factor().unwrap_or(1.0);
+                    let offset = (140.0 * scale) as i32;
+                    let drop = (48.0 * scale) as i32;
+                    let _ = window.set_position(PhysicalPosition::new(
+                        bx.saturating_add(offset),
+                        by.saturating_add(drop),
+                    ));
+                }
+            }
+            let _ = window.show();
         } else {
-            window.hide()
-        };
+            let _ = window.hide();
+        }
     }
 }
 
@@ -319,6 +343,10 @@ pub fn set_mode(app: AppHandle, state: State<'_, AppState>, mode: String) -> Res
         }
     }
     emit_config(&app, &state);
+    // R56: renderer-driven mode change (panel UI) must rebuild the tray so
+    // the shape-submenu check mark tracks the new mode — only the tray-side
+    // handler refreshed before, leaving a stale check after panel switches.
+    crate::refresh_tray_menu(&app);
     Ok(())
 }
 
@@ -573,6 +601,11 @@ pub fn set_skin(
         }
     })?;
     emit_config(&app, &state);
+    // R56: renderer-driven skin change (radial「形象」/panel) must rebuild the
+    // tray so the skin submenu check mark tracks the new skin. Only the
+    // tray-side handler refreshed before, so after the pet's own 形象 button
+    // the tray still showed the OLD selection (user-reported bug).
+    crate::refresh_tray_menu(&app);
     Ok(())
 }
 
@@ -680,6 +713,8 @@ pub fn set_budget(app: AppHandle, state: State<'_, AppState>, value: f64) -> Res
         .runtime
         .update_config(|config| config.budget5h = value)?;
     emit_config(&app, &state);
+    // R56: keep the tray budget check mark in sync with panel changes.
+    crate::refresh_tray_menu(&app);
     Ok(())
 }
 
@@ -702,6 +737,9 @@ pub fn toggle_mute(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
         .runtime
         .update_config(|config| config.muted = !config.muted)?;
     emit_config(&app, &state);
+    // R56: mute flips the tray label between tray.mute/tray.unmute — rebuild
+    // so the label matches after renderer-side toggles.
+    crate::refresh_tray_menu(&app);
     Ok(())
 }
 
@@ -761,6 +799,10 @@ pub fn set_providers(
         Err(e) => (Vec::new(), Some(e)),
     };
     emit_config(&app, &state);
+    // R56: the provider set drives the tray's "新开 Agent" submenu build —
+    // rebuild so newly enabled/disabled providers appear/disappear instead
+    // of leaving silent no-op launch items.
+    crate::refresh_tray_menu(&app);
 
     let providers: Vec<Value> = statuses
         .iter()

@@ -702,16 +702,52 @@ fn emit_hook_event(app: &AppHandle, body: &Value, session: &Session) {
             .as_deref()
             .filter(|value| !value.is_empty())
         {
-            let _ = app.emit(
-                "pet:event",
-                json!({"kind":"say","text":text,"sessionId":session.id.clone(),"provider":session.provider.clone()}),
-            );
+            let mut say = json!({"kind":"say","text":text,"sessionId":session.id.clone(),"provider":session.provider.clone()});
+            // R56: hook_client inject_emotion sniffed the assistant text and
+            // put `emotion` on the event body — but this rebuild dropped it,
+            // so the frontend's say→loved/sorry/puzzled/excited branches were
+            // dead code and those expressions never showed (upstream parity:
+            // adapter.js:454-456 attaches it to the say payload).
+            if let Some(emotion) = body.get("emotion").and_then(Value::as_str) {
+                say["emotion"] = Value::from(emotion);
+            }
+            let _ = app.emit("pet:event", say);
         }
-        let _ = app.emit("pet:event", json!({"kind":"turn-done","sessionId":session.id.clone(),"provider":session.provider.clone()}));
+        // R56 (upstream adapter.js:448-453): a turn that ran ≥5 ops since the
+        // last user prompt is a BIG task — confetti + big-done instead of the
+        // plain turn-done (the big-done frontend case existed but nothing
+        // ever produced the event).
+        let big = session.ops_since_prompt >= 5;
+        let kind = if big { "big-done" } else { "turn-done" };
+        let mut payload =
+            json!({"kind":kind,"sessionId":session.id.clone(),"provider":session.provider.clone()});
+        if big {
+            payload["ops"] = json!(session.ops_since_prompt);
+        }
+        let _ = app.emit("pet:event", payload);
         return;
     }
+    // R56: greet transient — SessionStart armed greet_pending_at, ingest
+    // consumed it on this UserPromptSubmit (5min window + 30min project
+    // debounce) and flagged greet_due. Emit BEFORE the user-turn so the
+    // frontend plays the wake-up transient first (upstream adapter.js:405-431).
+    if session.greet_due && event == "UserPromptSubmit" {
+        let _ = app.emit(
+            "pet:event",
+            json!({"kind":"greet","sessionId":session.id.clone(),"provider":session.provider.clone()}),
+        );
+    }
     let mut payload = match event {
-        "UserPromptSubmit" => json!({"kind":"user-turn"}),
+        "UserPromptSubmit" => {
+            let mut turn = json!({"kind":"user-turn"});
+            // R56: forward the sniffed user-text emotion (loved/sad/excited) —
+            // the frontend branch exists (pet.js user-turn case) but the field
+            // was never carried here, so those reactions never fired.
+            if let Some(emotion) = body.get("emotion").and_then(Value::as_str) {
+                turn["emotion"] = Value::from(emotion);
+            }
+            turn
+        }
         "PreToolUse" | "PostToolUse" => json!({
             "kind":"operation",
             "tool":tool,

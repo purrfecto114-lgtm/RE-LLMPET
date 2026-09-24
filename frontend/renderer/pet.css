@@ -242,7 +242,7 @@ html, body {
 @keyframes chipFlash { 0% { background: #d97757; } 100% { background: rgba(81,52,38,0.92); } }
 .chip-sep { opacity: 0.5; }
 
-/* ---------- 皮肤切换：默认图标款章鱼（mascot），可切像素怪兽（pixel）/ 月薪喵（cat） ---------- */
+/* ---------- 皮肤切换：默认图标款章鱼（mascot），可切像素怪兽（pixel）/ 月薪喵（cat）/ 鲸鱼女仆（whale） ---------- */
 #pixel { display: none; }
 #cat { display: none; }
 #mascot { display: flex; }
@@ -250,6 +250,10 @@ body.skin-pixel #mascot { display: none; }
 body.skin-pixel #pixel { display: flex; }
 body.skin-cat #mascot { display: none; }
 body.skin-cat #cat { display: flex; }
+/* R56: whale 与 cat 共用 #cat DOM 节点（上游 main 同构），180px 呈现，
+   Retina 屏用真实 2x 源；会话 HUD 同步加宽避免窄行换行。 */
+body.skin-whale #mascot { display: none; }
+body.skin-whale #cat { display: flex; }
 
 /* ====================================================================
    形象二：Claude Code 像素小怪兽
@@ -670,6 +674,9 @@ body.skin-cat #cat { display: flex; }
 }
 #cat img { width: 100%; height: 100%; object-fit: contain; -webkit-user-drag: none;
   /* Keep the decoded GIF visible while the next state is preloaded. */ }
+/* R56: 鲸鱼女仆 GIF 原生 360px，180px 呈现（上游 main pet.css:782 同款） */
+body.skin-whale #cat { width: 180px; height: 180px; }
+body.skin-whale .sessions { width: 180px; }
 
 /* GIF 自带动效，容器不加任何位移动画；只保留「需要你出手」的发光提示 */
 #cat.waiting,
@@ -1074,7 +1081,10 @@ body.skin-cat #cat { display: flex; }
   justify-content: center;
   padding: 14px;
   pointer-events: auto;
-  background: rgba(0,0,0,0.45);
+  /* R56: 去掉全窗半透明黑遮罩——pet 窗口是透明置顶窗，rgba(0,0,0,.45)
+    在它上面就是一块悬浮在桌面上的「黑底面覆盖层」（用户报告的黑底面）。
+    改为透明遮罩，视觉聚焦交给卡片自身的深色底 + 阴影。 */
+  background: transparent;
   -webkit-app-region: no-drag;
 }
 .provider-chooser.hidden { display: none; }
@@ -1084,7 +1094,9 @@ body.skin-cat #cat { display: flex; }
   background: rgba(36, 24, 20, 0.97);
   border: 1px solid rgba(217, 119, 87, 0.35);
   border-radius: 14px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    /* R56: 遮罩改透明后，模态层级感全靠外阴影支撑 */
+    0 18px 48px rgba(0, 0, 0, 0.55);
   filter: none;
   overflow: hidden;
 }

@@ -97,96 +97,19 @@ function updateMascotEyes(s) {
   if (!mascotImg.getAttribute('src').endsWith(f)) fadeSwapImg(mascotImg, '../assets/' + f);
 }
 const catImg = document.getElementById('cat-img');
-const CAT_STATES = {
-  idle: 'cat-idle.gif',           // 转椅上冰淇淋+手机摸鱼：待命
-  roam: 'cat-roam.gif',           // 撒腿跑着玩：闲逛
-  working: 'cat-working.gif',     // 戴耳机猛拍「上号」按钮：干活
-  thinking: 'cat-thinking.gif',   // 对着笔记本挠头：思考
-  talking: 'cat-talking.gif',     // 对着笔记本疯狂输出喵喵喵：回应中
-  juggling: 'cat-juggling.gif',   // 趴键盘上还同时刷手机：并行子任务
-  sweeping: 'cat-sweeping.gif',   // 喷消毒水打扫：压缩/清理
-  waiting: 'cat-waiting.gif',     // 冒汗紧张等待：等你授权
-  needsinput: 'cat-needsinput.gif', // 头顶冒问号挠头：等你回复
-  happy: 'cat-happy.gif',         // 摸小猫的头夸夸：完成庆祝
-  greet: 'cat-greet.gif',         // 被闹钟炸醒弹射到工位：新会话火速上线
-  attention: 'cat-attention.gif', // 从工位起身够手机看消息：需要注意
-  sleeping: 'cat-sleeping.gif',   // 被窝里睡成一坨：睡觉
-  error: 'cat-error.gif',         // 抱头崩溃大叫：出错
-  loafing: 'cat-loafing.gif',     // 躺地上刷手机：上一步干完、等下一步的间隙摸鱼
-  // 情绪短暂态 → 就近映射，别回落到摸鱼 idle 图（表情和文案会打架）
-  loved: 'cat-happy.gif',         // 被夸 → 摸头开心
-  excited: 'cat-happy.gif',
-  sad: 'cat-sad.gif',             // 惹你生气了 → 嚎啕大哭
-  sorry: 'cat-waiting.gif',       // 道歉 → 冒冷汗心虚
-  puzzled: 'cat-needsinput.gif',  // 疑惑 → 头顶问号
-};
-// working/thinking stay longest → multi-pose rotation every 60s (avoids "stuck" look).
-const CAT_POOLS = {
-  working: [
-    'cat-working.gif',   // 猛拍「上号」按钮
-    'cat-working-2.gif', // 熬夜冠军：戴耳机对着显示器
-    'cat-working-3.gif', // 捂着耳朵埋头猛敲键盘
-    'cat-working-4.gif', // 边吃零食边敲键盘
-  ],
-  thinking: [
-    'cat-thinking.gif',   // 对着笔记本挠头
-    'cat-thinking-2.gif', // 躺着想：头顶「浮云」思考泡
-  ],
-  sleeping: [
-    'cat-sleeping.gif',   // 被窝里睡成一坨
-    'cat-sleeping-2.gif', // 坐椅子上拔下肚子毛当眼罩睡
-  ],
-  loafing: [
-    'cat-loafing.gif',   // 躺地上刷手机
-    'cat-loafing-2.gif', // 沙发上点外卖
-    'cat-loafing-3.gif', // 靠着枕头奶瓶+手机
-  ],
-};
-const CAT_ASSET_FILES = Array.from(new Set([
-  ...Object.values(CAT_STATES),
-  ...Object.values(CAT_POOLS).flat(),
-]));
-const catAssetCache = new Map();
-// R30: lazy-load cat assets only when cat skin is selected (was ~2.4MB startup waste).
-function preloadCatAssets() {
-  for (const file of CAT_ASSET_FILES) {
-    const image = new Image();
-    image.decoding = 'async';
-    image.src = `../assets/cat/${file}`;
-    catAssetCache.set(file, image);
-  }
+// R56: meme skin packs (cat/whale tables, lazy caches, pose rotation) moved to
+// pet-skin-packs.js — pet.js keeps only these thin wrappers so call sites are
+// unchanged. whale (鲸鱼女仆) is the upstream main(v1.2.0) dsh-companion skin.
+const skinPacks = window.OctoPetSkinPacks;
+skinPacks.configure({ img: catImg, swap: fadeSwapImg });
+const isMeme = () => skinPacks.isMeme(skin);
+function updateCat(s) { skinPacks.update(skin, s); }
+function maybePreloadMemeAssets() {
+  if (isMeme()) skinPacks.ensurePreloaded(skin);
 }
-function maybePreloadCatAssets() {
-  if (skin === 'cat' && catAssetCache.size === 0) {
-    preloadCatAssets();
-  }
-}
-if (typeof requestIdleCallback === 'function') requestIdleCallback(maybePreloadCatAssets, { timeout: 1600 });
-else setTimeout(maybePreloadCatAssets, 250);
+if (typeof requestIdleCallback === 'function') requestIdleCallback(maybePreloadMemeAssets, { timeout: 1600 });
+else setTimeout(maybePreloadMemeAssets, 250);
 
-const POOL_ROTATE_MS = 60 * 1000;
-let poolIdx = 0;
-let poolRot = null;
-function updateCat(s) {
-  if (!catImg) return;
-  const pool = CAT_POOLS[s];
-  const f = pool ? pool[poolIdx % pool.length] : (CAT_STATES[s] || CAT_STATES.idle);
-  if (!catImg.getAttribute('src').endsWith(f)) fadeSwapImg(catImg, '../assets/cat/' + f);
-  if (pool) {
-    if (!poolRot) {
-      poolRot = setInterval(() => {
-        const cur = CAT_POOLS[state];
-        if (!cur || skin !== 'cat') return;
-        poolIdx++;
-        fadeSwapImg(catImg, '../assets/cat/' + cur[poolIdx % cur.length]);
-      }, POOL_ROTATE_MS);
-    }
-  } else if (poolRot) {
-    clearInterval(poolRot);
-    poolRot = null;
-    poolIdx++; // 下次进入轮换态直接是下一张
-  }
-}
 const bubble = document.getElementById('bubble');
 const bubbleText = document.getElementById('bubble-text');
 const chipCost = document.getElementById('chip-cost');
@@ -258,6 +181,10 @@ const mouseIgnoreController = window.OctoLatestValue.createLatestValueController
   onError: (error) => rlog('mouse-ignore', String(error && error.message || error || 'unknown')),
 });
 let lastUiBusy = null;
+// R56: 瞬态 HUD（radial/chooser/sesslist/todopop）刚刚打开的时间戳。
+// 所有 open 路径都汇入 syncUiBusy，在 busy→true 的沿上记录一次，
+// dismissTransientUi 用它做 blur 宽限判定（防焦点抖动秒杀刚开的菜单）。
+let transientUiOpenedAt = 0;
 function syncUiBusy(force = false) {
   // R35.2 (2026-07-31): added providerChooserOpen to the busy union.
   // The 0.5.12 carpet audit (P0-1 证据A) flagged that the chooser was
@@ -266,11 +193,17 @@ function syncUiBusy(force = false) {
   // the chooser being treated as non-interactive while it was visible.
   const busy = !!(radialOpen || todoPopOpen || sessListOpen || askActive || providerChooserOpen || isInteracting());
   if (!force && busy === lastUiBusy) return;
+  if (busy && !lastUiBusy) transientUiOpenedAt = perfNow();
   lastUiBusy = busy;
   void nativeUiBusyController.request(busy);
   if (busy) {
     setMouseIgnore(false);
-    try { window.pet.focusPet(); } catch {}
+    // R56: focusPet() removed — stealing focus right after the radial/chooser
+    // opens triggers a native Focused(false) bounce on X11/Wayland/WebView2
+    // (focus-steal protection), which flows back as pet:window-blur and
+    // dismisses the just-opened menu ("菜单出现一下就消失"). Upstream shows
+    // radial synchronously without any set_focus; the right-click itself
+    // already activated the window.
   } else {
     setMouseIgnore(true);
   }
@@ -1014,8 +947,13 @@ const CODEX_ICON =
   '<svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="#3b82f6"/>' +
   '<path d="M7 8l4 4-4 4" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
   '<path d="M13 16.5h4.5" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>';
-const PROVIDER_ICONS = { claude: CLAUDE_ICON, codewhale: '🐋', codex: CODEX_ICON, opencode: '🧩', aider: '🛠️' };
-const PROVIDER_LABELS = { claude: 'Claude', codewhale: 'CodeWhale', codex: 'Codex', opencode: 'OpenCode', aider: 'Aider' };
+// dsh（DeepSeek Harness）深蓝方块 + 鲸背波浪（上游 main pet.js 同款）
+const DSH_ICON =
+  '<svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="#4d6bfe"/>' +
+  '<circle cx="8.6" cy="9" r="1.5" fill="#fff"/><path d="M12 9h5.4" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>' +
+  '<path d="M5 15c1.6 0 1.6-1.7 3.3-1.7S9.9 15 11.5 15s1.6-1.7 3.3-1.7S16.4 15 18 15" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>';
+const PROVIDER_ICONS = { claude: CLAUDE_ICON, codewhale: '🐋', codex: CODEX_ICON, opencode: '🧩', aider: '🛠️', dsh: DSH_ICON };
+const PROVIDER_LABELS = { claude: 'Claude', codewhale: 'CodeWhale', codex: 'Codex', opencode: 'OpenCode', aider: 'Aider', dsh: 'DSH' };
 const SESS_META = {
   waiting: '✋ 等你授权', needsinput: '💬 等你回复',
   working: '⚙️ 干活中', juggling: '🤹 并行子任务', sweeping: '🧹 清理上下文',
@@ -1322,7 +1260,7 @@ function setState(s) {
   // 注意：不要在这里 hideAsk()！面板显隐只由 refreshAsk(按是否有待答事项) 管。
   // 之前「s!=='waiting' 就 hideAsk」会在聚合态变 working/thinking 时把 needsinput 的面板闪掉。
   if (skin === 'mascot') updateMascotEyes(s);
-  if (skin === 'cat') updateCat(s);
+  if (isMeme()) updateCat(s);
   requestAnimationFrame(reportPetVisualBounds);
 }
 
@@ -1467,7 +1405,9 @@ function hideBubble() {
   bubble.classList.add('hidden');
   // R50: 只有本气泡真的撑大过窗口才缩回，短气泡不再引发 resize 抖动。
   // 若没有其它弹层占用大窗口尺寸，恢复原始尺寸（避免 pet 一直停在加大窗口里）
-  if (bubbleOwnsResize && !askActive && !sessListOpen && !todoPopOpen) {
+  // R56: radial/chooser 打开时也不能缩窗——radial item 的绝对坐标按当前
+  // 大视口布置，中途缩窗会把菜单项裁掉/错位（叠加错位的一种）。
+  if (bubbleOwnsResize && !askActive && !sessListOpen && !todoPopOpen && !radialOpen && !providerChooserOpen) {
     bubbleOwnsResize = false;
     resetPetSize();
   }
@@ -1505,7 +1445,7 @@ function scheduleIdleAction() {
 }
 scheduleIdleAction();
 
-const curSkinEl = () => (skin === 'pixel' ? pixel : skin === 'cat' ? cat : mascot);
+const curSkinEl = () => (skin === 'pixel' ? pixel : isMeme() ? cat : mascot);
 
 // ---------- 事件 ----------
 window.pet.onEvent((ev) => {
@@ -1709,6 +1649,17 @@ window.pet.onEvent((ev) => {
         if (!hold && (stickyHi || perfNow() >= transientUntil)) {
           clearTransient(); setState(ev.state); // F1: 穿透稳态须清短暂态窗口，防下个快照借 transientUntil 盖回 happy/talking
         }
+      }
+      break;
+    }
+    // R56: tray-origin feedback toasts (uninstall hooks, price refresh, …).
+    // lib.rs emits {"kind":"toast","message":…} for tray actions that have no
+    // window of their own; before this case existed those events were dead
+    // letters — clicking "卸载钩子" in the tray gave zero visible feedback.
+    case 'toast': {
+      if (ev.message) {
+        showBubble(String(ev.message), 4500, true);
+        SOUND.done();
       }
       break;
     }
@@ -2153,17 +2104,16 @@ window.addEventListener('keydown', (e) => {
 // R35.1: blur closes the chooser too (consistent with radial/sesslist).
 
 function applySkin(s) {
-  skin = ['pixel', 'mascot', 'cat'].includes(s) ? s : 'mascot';
+  skin = ['pixel', 'mascot', 'cat', 'whale'].includes(s) ? s : 'mascot';
   document.body.classList.toggle('skin-pixel', skin === 'pixel');
   document.body.classList.toggle('skin-mascot', skin === 'mascot');
   document.body.classList.toggle('skin-cat', skin === 'cat');
-  // R30: lazy-load cat assets when switching to cat skin
-  if (skin === 'cat' && catAssetCache.size === 0) {
-    preloadCatAssets();
-  }
+  document.body.classList.toggle('skin-whale', skin === 'whale');
+  // R30/R56: lazy-load meme assets when switching to cat/whale skin
+  skinPacks.ensurePreloaded(skin);
   if (skin === 'mascot') updateMascotEyes(state);
-  if (skin === 'cat') updateCat(state);
-  else if (poolRot) { clearInterval(poolRot); poolRot = null; }
+  // updateCat no-ops (and stops its rotation timer) for non-meme skins.
+  updateCat(state);
   requestAnimationFrame(reportPetVisualBounds);
 }
 
@@ -2421,7 +2371,7 @@ todopop.querySelectorAll('.tp-ops button').forEach((b) => {
 let territorySupported = false; // 由 pet:config 下发(仅 macOS true)
 
 function toggleSkin() {
-  const order = ['mascot', 'pixel', 'cat'];
+  const order = ['mascot', 'pixel', 'cat', 'whale'];
   const next = order[(order.indexOf(skin) + 1) % order.length];
   applySkin(next);
   void configWrites.request('skin', next, (value) => window.pet.setSkin(value));
@@ -2446,6 +2396,10 @@ const radialMenu = window.OctoPetRadialMenu.create({
   muted: () => muted, currency: () => currentCurrency,
   currencyLabel: () => currentLang === 'en' ? 'Currency' : currentLang === 'ja' ? '通貨' : '货币',
   waitingCount: () => lastWaiting, backgroundCount: () => lastBgZombie,
+  // R56: share the petAnchor right-click timestamp with the radial so one
+  // physical right-click can't double-toggle (pointerdown + late contextmenu).
+  noteRightClick: () => { rightClickHandledAt = perfNow(); },
+  rightClickHandledRecently: () => perfNow() - rightClickHandledAt < 400,
 });
 
 // R35.1 (2026-07-31): a SINGLE pending radial intent flag, replacing the
@@ -2515,7 +2469,19 @@ radial.addEventListener('click', () => closeRadial());
 // R35.1: blur must also clear the pending intent — otherwise a window
 // that loses focus mid-resize would reopen the radial when it regains
 // focus and the busy timer settles.
+// R56: transient-UI blur grace — set_ignore_mouse / window re-activation can
+// bounce Focused(false)→(true) on X11/WebView2 right after a menu opens.
+// A blur arriving <300ms after we opened a transient HUD is treated as
+// focus jitter, not a real "user switched apps" signal (upstream main
+// pet.js:4372 radialOpenSeq guard is the same idea). The timestamp is
+// recorded by syncUiBusy on the not-busy→busy edge.
 function dismissTransientUi(reason = 'blur') {
+  const openedRecently = perfNow() - transientUiOpenedAt < 300;
+  const anyOpen = radialOpen || todoPopOpen || sessListOpen || providerChooserOpen;
+  if (openedRecently && anyOpen && (reason === 'dom-blur' || reason === 'native-blur')) {
+    rlog('dismiss', 'grace:' + reason);
+    return;
+  }
   pendingRadialOpen = false;
   if (providerChooserOpen) closeProviderChooser();
   if (radialOpen) closeRadial();
@@ -2525,7 +2491,15 @@ function dismissTransientUi(reason = 'blur') {
 }
 window.addEventListener('blur', () => dismissTransientUi('dom-blur'));
 if (window.pet && typeof window.pet.onWindowBlur === 'function') {
-  window.pet.onWindowBlur(() => dismissTransientUi('native-blur'));
+  window.pet.onWindowBlur(() => {
+    // R56: 双保险——原生层 Focused(false) 但文档层仍持有焦点时是焦点
+    // 抖动而非真切换，不关菜单（X11 焦点守护/穿透恢复都可能触发）。
+    if (typeof document.hasFocus === 'function' && document.hasFocus()) {
+      rlog('dismiss', 'native-blur-ignored:doc-focused');
+      return;
+    }
+    dismissTransientUi('native-blur');
+  });
 }
 
 // ---------- 初始化 ----------
@@ -2594,7 +2568,8 @@ window.addEventListener('beforeunload', () => {
   configWrites.dispose();
   nativeUiBusyController.dispose();
   mouseIgnoreController.dispose();
-  clearInterval(poolRot); poolRot = null;
+  // R56: pose-rotation timer ownership moved to pet-skin-packs.js; it stops
+  // itself on non-meme updates, and pagehide ends the document anyway.
   if (visualBoundsObserver) visualBoundsObserver.disconnect();
   clearTimeout(bubbleTimer); bubbleTimer = null;
   clearTimeout(transientTimer); transientTimer = null;

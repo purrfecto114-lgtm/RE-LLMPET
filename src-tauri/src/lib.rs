@@ -195,6 +195,12 @@ pub fn run() {
                     // the same lifecycle as the in-app close button; otherwise
                     // later open_panel calls would target a destroyed window.
                     api.prevent_close();
+                    // R56: open_panel() raises the panel to always-on-top;
+                    // close_panel() lowers it back. The native close path
+                    // bypassed that restore, leaving a topmost panel that
+                    // fights the (also topmost) pet window for z-order —
+                    // one of the "叠加错误" symptoms. Restore parity here.
+                    let _ = window.set_always_on_top(false);
                     match window.hide() {
                         Ok(()) => {
                             let _ = window.app_handle().emit("panel:hidden", ());
@@ -210,7 +216,12 @@ pub fn run() {
             } else if window.label().starts_with("pet")
                 && matches!(event, WindowEvent::Focused(false))
             {
-                let _ = window.emit("pet:window-blur", ());
+                // R56: emit_to this window only — the old `window.emit` was a
+                // process-wide broadcast, so in duo mode either pet losing
+                // focus dismissed BOTH pets' transient HUDs.
+                let _ = window
+                    .app_handle()
+                    .emit_to(window.label(), "pet:window-blur", ());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -317,6 +328,14 @@ pub fn run() {
         }
         _ => {}
     });
+}
+
+/// R56: bin-only entry point for the --uninstall-hooks CLI flag
+/// (NSIS PREUNINSTALL / manual macOS-Linux cleanup). Thin wrapper keeps
+/// hook_install crate-private so its Runtime signatures cannot leak
+/// crate-private types through a public module boundary.
+pub fn uninstall_all_hooks_cli() -> i32 {
+    hook_install::uninstall_all_hooks_headless()
 }
 
 fn build_tray_menu<R: tauri::Runtime>(
@@ -445,7 +464,8 @@ fn build_tray_menu<R: tauri::Runtime>(
         .item(&lang_ja)
         .build()?;
 
-    // Skin submenu — 3 skins, only the active one is checked.
+    // Skin submenu — 4 skins, only the active one is checked.
+    // R56: whale (鲸鱼女仆) is the upstream main(v1.2.0) dth-companion skin.
     let skin_mascot = CheckMenuItem::with_id(
         app,
         "skin_mascot",
@@ -470,10 +490,19 @@ fn build_tray_menu<R: tauri::Runtime>(
         config.skin == "cat",
         None::<&str>,
     )?;
+    let skin_whale = CheckMenuItem::with_id(
+        app,
+        "skin_whale",
+        i18n::tray_label(lang, "skin.whale"),
+        true,
+        config.skin == "whale",
+        None::<&str>,
+    )?;
     let skin_menu = SubmenuBuilder::new(app, i18n::tray_label(lang, "tray.skin"))
         .item(&skin_mascot)
         .item(&skin_pixel)
         .item(&skin_cat)
+        .item(&skin_whale)
         .build()?;
 
     // 5h budget submenu — Off + 5 preset values. The upstream Electron
@@ -774,11 +803,12 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             "lang_ja" => {
                 let _ = set_language(app.clone(), app.state::<AppState>(), "ja".into());
             }
-            "skin_mascot" | "skin_pixel" | "skin_cat" => {
+            "skin_mascot" | "skin_pixel" | "skin_cat" | "skin_whale" => {
                 let skin = match event.id.as_ref() {
                     "skin_mascot" => "mascot",
                     "skin_pixel" => "pixel",
                     "skin_cat" => "cat",
+                    "skin_whale" => "whale",
                     _ => return,
                 };
                 let _ = set_skin(app.clone(), app.state::<AppState>(), skin.into(), None);
@@ -840,6 +870,12 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                     Err(e) => format!("卸载失败: {}", e),
                 };
                 let _ = app.emit("pet:event", json!({"kind":"toast","message":msg}));
+                // R56: uninstall removes the provider from config.providers —
+                // the "新开 Agent" submenu is filtered by that list at build
+                // time, so without a rebuild the launch_claude item stays as
+                // a silent no-op (its provider guard just returns). Rebuild
+                // so the tray reflects the shrunken provider set.
+                refresh_tray_menu(app);
             }
             // R10: settings submenu handlers
             "settings_refresh_price" => {

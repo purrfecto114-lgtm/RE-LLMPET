@@ -1360,7 +1360,9 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
     );
     runtime.write_log(
         "hooks",
-        "OpenCode ESM plugin synced (v4); auto-discovered via plugins/ directory scan",
+        // R56: this actually installs the v5 native-name plugin — the log line
+        // still said "(v4)" from the pre-R54 world.
+        "OpenCode ESM plugin synced (v5); auto-discovered via plugins/ directory scan",
     );
     Ok(InstallResult {
         added: 1,
@@ -1430,7 +1432,14 @@ fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
         ));
     }
     let executable = current_exe_clean().map_err(|e| e.to_string())?;
-    let command = hook_command(&executable, "aider", Some("turn_end"), false);
+    // R56: the positional label is a neutral tag for our own shim argv —
+    // aider's notification callback has NO event name upstream (one signal:
+    // "turn finished / attention needed", see hook_client.rs aider folding).
+    // The old label borrowed CodeWhale's `turn_end` — cross-provider
+    // vocabulary reuse the user explicitly banned. Receipts from installs
+    // made by <=0.6.4 carry the old label; they are inert strings and
+    // migrate cleanly because the block marker is unchanged.
+    let command = hook_command(&executable, "aider", Some("notification"), false);
     // R51 (2026-08-30): aider (configargparse YAMLConfigFileParser) turns the
     // yaml key VERBATIM into a CLI flag. The flag is --notifications-command,
     // so the key must use a dash. The underscore spelling made real aider
@@ -1446,7 +1455,7 @@ fn install_aider(runtime: &Runtime) -> Result<InstallResult, String> {
         runtime,
         "aider",
         &path,
-        &["turn_end".to_string()],
+        &["notification".to_string()],
         backup_path.as_deref(),
     );
     runtime.write_log("hooks", "Aider notification bridge synced");
@@ -2113,6 +2122,77 @@ fn prune_receipts(dir: &Path, provider: &str) -> Result<(), String> {
 /// Phase 0D will use this to show the user "you installed Claude on
 /// 2026-08-03 14:23; backup at /home/.../.settings.octopus-bak-...json"
 /// before confirming a destructive uninstall.
+/// R56: headless hook cleanup for the OS uninstaller (NSIS PREUNINSTALL
+/// runs `octopus.exe --uninstall-hooks`; macOS/Linux users can run the same
+/// flag after drag-to-trash / dpkg -r). Removes our hook blocks from every
+/// provider config BEFORE the app files are deleted — otherwise every
+/// provider CLI is left pointing at a nonexistent binary, and CodeWhale's
+/// fail-closed permission hook rejects every tool call ("卸载完 agent 全坏了").
+/// Receipt-driven cleanup first (survives env-var drift), env fallback second.
+/// Returns a process exit code: 0 = all clean (removed / not-found / unowned
+/// are all acceptable end states), 1 = at least one provider needs attention.
+pub fn uninstall_all_hooks_headless() -> i32 {
+    let receipts = read_install_receipts();
+    let mut failures = 0u32;
+    for id in ["claude", "codewhale", "codex", "opencode", "aider"] {
+        // dsh is observer-only (no installed hooks) — nothing to clean.
+        let receipt_path = receipts
+            .get(id)
+            .and_then(|value| value.get("path"))
+            .and_then(Value::as_str)
+            .map(PathBuf::from);
+        let result = match receipt_path.as_deref() {
+            Some(path) => uninstall_provider_hooks_with_path(id, path),
+            None => uninstall_provider_hooks(id),
+        };
+        let line = match &result {
+            CleanupResult::Removed { path } => {
+                format!("{id}: removed ({})", path.display())
+            }
+            CleanupResult::NotFound { path } => {
+                format!("{id}: not-found ({})", path.display())
+            }
+            CleanupResult::Unowned { path } => {
+                format!("{id}: unowned, left intact ({})", path.display())
+            }
+            CleanupResult::Changed { path } => {
+                failures += 1;
+                format!("{id}: CHANGED — residue possible ({})", path.display())
+            }
+            CleanupResult::PathDrift { expected, actual } => {
+                failures += 1;
+                format!(
+                    "{id}: PATH DRIFT expected {} actual {}",
+                    expected.display(),
+                    actual.display()
+                )
+            }
+            CleanupResult::Unreadable { path, error } => {
+                failures += 1;
+                format!("{id}: UNREADABLE ({}) — {error}", path.display())
+            }
+            CleanupResult::Residue { path, detail } => {
+                failures += 1;
+                format!("{id}: RESIDUE ({}) — {detail}", path.display())
+            }
+            CleanupResult::ManualActionRequired { path, detail } => {
+                failures += 1;
+                format!("{id}: MANUAL ACTION ({}) — {detail}", path.display())
+            }
+        };
+        println!("[octopus:uninstall-hooks] {line}");
+    }
+    if failures == 0 {
+        println!("[octopus:uninstall-hooks] all provider hooks clean");
+        0
+    } else {
+        println!(
+            "[octopus:uninstall-hooks] {failures} provider(s) need manual attention (see above)"
+        );
+        1
+    }
+}
+
 pub fn read_install_receipts() -> Map<String, Value> {
     let dir = receipts_dir();
     let mut out: Map<String, Value> = Map::new();

@@ -72,7 +72,11 @@ assert(html.includes('id="agent-tag"'), 'multi-provider identity tag missing');
 assert(css.includes('.ask-scroll'), 'ask scroll visuals missing');
 assert(css.includes('.ask-toolbar'), 'ask toolbar visuals missing');
 assert(css.includes('.agent-tag.provider-codex'), 'provider-specific visual identity missing');
-assert(pet.includes('function preloadCatAssets()'), 'cat GIF skin assets should preload to preserve smooth visual transitions');
+// R56: preloadCatAssets generalized into the skin-pack module (lazy per-pack
+// caches) — pet.js keeps the wrapper and the idle-preload scheduling.
+assert(pet.includes('function maybePreloadMemeAssets()')
+  && read('frontend/renderer/pet-skin-packs.js').includes('function ensurePreloaded(skin)'),
+  'cat/whale GIF skin assets should preload to preserve smooth visual transitions');
 assert(!html.includes('sl-meme-view') && !html.includes('meme-player'), 'removed meme UI must not return');
 assert(!pet.includes('alignMemePlayer') && !pet.includes('MEME_WINDOW_W'), 'removed meme runtime must not return');
 assert(!css.includes('.sl-meme-grid') && !css.includes('.meme-player'), 'removed meme styles must not return');

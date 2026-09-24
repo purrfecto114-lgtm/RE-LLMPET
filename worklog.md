@@ -1578,3 +1578,21 @@ Phase A 的 A2 项：整理 v0.5.58-v0.5.60 修复的真机验证步骤，写入
 install_aider 下划线键导致 aider exit(2) 的真 bug 修复（连字符发射）；
 CODEX_EVENTS+Interrupt；drift 检查器 blocked 分类；CodeWhale env 表补 3 变量；
 Rust 工具链 1.98.0 沙箱自建；全门禁绿（npm 80/80、static 22/22、clippy -D、test --lib 115/115）。
+
+---
+Task ID: R56
+Agent: main-orchestrator (+4 research subagents R56-a/b/c/d)
+Task: 用户指令「安装程序坏了无法卸载/dsh 皮肤缺失/表情未用全/右键菜单闪消/形象按钮后托盘旧选项/GUI 叠加黑底/托盘无反馈/provider 事件名不可混用/发布」
+
+Work Log:
+- 环境恢复：沙箱又重置（.git/test//Rust/GTK 再丢）→ PAT 克隆 RE-LLMPET main(e1dda7e) 重植 .git、git checkout 恢复 86 文件、rustup 1.98.1+fmt/clippy、GTK 闭包 589 deb 解压到 ~/.local/gtk-dev（.pc 全量补丁，pkg-config gtk/webkit 全通）
+- 并行四 subagent：R56-a 上游 0.1.1/main 对比（0.1.1 无 dsh 皮肤——防幻觉；用户所指=main v1.2.0 whale 鲸鱼女仆 23 GIF 21MB）；R56-b 事件词汇审计+联网复核（运行时主链路无混用，provider_registry 元数据六表虚构/陈旧、aider 标签盗 codewhale turn_end、dsh ApiError/TaskStarted 无归一化臂）；R56-c GUI 五类 bug 根因链（focusPet 抢焦点→native blur 秒杀菜单、set_skin 不刷托盘、chooser 黑遮罩、panel 置顶滞留、toast 死信）；R56-d 安装器审计（解包已发布 0.6.3 setup.exe 实证：病根=卸载不清理 provider hooks+PREINSTALL Abort 死循环）
+- 修复 22 文件：whale 皮肤移植（pet-skin-packs.js 新模块 198 行：MEME_PACKS 同构表+懒加载+目录感知比对+姿态轮换；pet.html/css/js+i18n.rs/js 三语+托盘第 4 项）+dsh 图标；右键三根因（去 focusPet、blur 300ms 宽限+hasFocus 复核、radial 400ms 守卫+pointerdown toggle、emit_to 定向）；托盘五命令补 refresh_tray_menu+卸载后重建+toast case 救活死信；黑遮罩透明化+卡片阴影、panel 原生关闭回退置顶、codex 首显偏移位、hideBubble 守卫补全；--uninstall-hooks CLI+uninstall_all_hooks_headless+NSIS 三钩子重写（KillProcessCurrentUser×3+ExecWait 清理+注册表轮询闸门）；provider_registry 六表对齐真实词汇、aider 标签改 notification、日志 v5；opencode 插件补 question.v2/todo.updated 转发+词典臂；dsh state 字段/ApiError 臂/say 文本/approval→PreToolUse/compaction→PostCompact/逐回合 usage 增量（metering 加 dsh 门）；表情三生产者（emotion 字段透传、greet 5min+30min 频控、big-done ≥5 ops、loafing 间隙合成锚定操作完成）
+- 门禁更新：版本锁 14 文件 0.6.4→0.6.5；budget commands 3660（+41 审计行）+pet-skin-packs 220；octopus-fix blur 契约、r50 缩窗守卫、phase1 radial toggle 契约、r51 转义版本号、r32/startup 预载名、phase3 预载、transcript-pricing Stop 块、supply-chain lock 顶层版本；SOURCE_MANIFEST 421 文件重生成
+- 门禁全绿：npm test exit=0（82 文件全链）、static-checks 22/22、cargo fmt --check 干净、clippy --all-targets -D warnings 0、cargo test --lib 137/137、migration-todo/protocol-drift ok
+- 空间回收：target 3.8G+debs 0.4G+临时克隆清理 → 磁盘 94%→50%
+
+Stage Summary:
+- v0.6.5 = 卸载器修复（--uninstall-hooks+NSIS 重写）+ whale 皮肤 + 右键/托盘/覆盖层五类 GUI 根因修复 + 六 provider 事件词汇元数据收尾 + greet/big-done/loafing/emotion 表情补全 + dsh 状态正确性
+- 关键证据：插件 KillProcessCurrentUser 命令名从 nsis-tauri-utils 源码克隆实证；tauri 2.11.5 模板 un 顺序（PREUNINSTALL→CheckIfAppIsRunning）实证；上游 0.1.1 无 dsh 皮肤（0.1/0.1.1/v0.1.2-pre/v1.2.0 全 ref 检查）
+- 待办移交：①duo 模式 skin_codex 与托盘勾选的错配（上游 main 三套 per-agent 子菜单方案，后续任务）②whale 21MB 进包体积（上游同款；懒加载已保证运行时零成本）③dsh 会话 resume CLI 语法外部 UNVERIFIED ④glib Dependabot 告警（R55 遗留）

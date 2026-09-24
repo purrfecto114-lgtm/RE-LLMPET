@@ -160,12 +160,28 @@ export const LLMPETPlugin = async ({ directory }) => ({
       case "session.compacted":
       case "permission.asked":
       case "permission.replied":
+      // R56: the Rust dictionary has had question.v2 arms since R54; the
+      // plugin never forwarded them, so a v2-mode OpenCode silently dropped
+      // every question round-trip (pet stuck, no needsinput transient).
       case "permission.v2.asked":
       case "permission.v2.replied":
       case "question.asked":
       case "question.replied":
+      case "question.v2.asked":
+      case "question.v2.replied":
         await send(base);
         return;
+      // R56: todo.updated carries the live todos board ({todos: [...]}) —
+      // the sessions HUD has a todos consumer (model.rs extract_todo_snapshot
+      // reads body.todos via the `direct` path) but OpenCode never had a
+      // producer. tool_name "todo" keeps the row out of the TaskList shape.
+      case "todo.updated": {
+        const todos = Array.isArray(properties.todos) ? properties.todos : null;
+        base.tool_name = "todo";
+        if (todos) base.todos = todos;
+        await send(base);
+        return;
+      }
       default:
         return;
     }

@@ -224,6 +224,15 @@ struct SessionTracker {
     assistant_last_output: Option<String>,
     context_used: Option<u64>,
     context_limit: Option<u64>,
+    // R56: per-turn usage accumulators for the metering ledger. dsh's
+    // usage.input_tokens/output_tokens are CUMULATIVE session totals, so the
+    // per-turn delta = latest total - total at the previous assistant
+    // message; turn/start resets nothing (deltas are computed per message),
+    // turn/end(completed) emits the accumulated turn_usage.
+    usage_input_total: u64,
+    usage_output_total: u64,
+    turn_input: u64,
+    turn_output: u64,
 }
 
 pub struct DshWatcher {
@@ -370,6 +379,10 @@ impl DshWatcher {
                     assistant_last_output: None,
                     context_used: None,
                     context_limit: None,
+                    usage_input_total: 0,
+                    usage_output_total: 0,
+                    turn_input: 0,
+                    turn_output: 0,
                 },
             );
         }
@@ -530,6 +543,11 @@ impl DshWatcher {
                 last_event_key: None,
                 ended_at: None,
                 parent_id: None,
+                greet_pending_at: None,
+                user_prompt_at: None,
+                ops_since_prompt: 0,
+                last_op_done_at: None,
+                greet_due: false,
             };
 
             // Use the runtime's session ingestion - directly insert into sessions map
@@ -563,11 +581,15 @@ impl DshWatcher {
         match event_type {
             "turn/start" => {
                 tracker.session_state = "thinking".to_string();
+                // R56: carry the explicit state — before this the event body
+                // had no `state` field, so normalize_state fell to "idle" for
+                // TaskStarted (which had no arm either): a dsh turn starting
+                // looked like nothing happened.
                 Self::emit_session_event_static(
                     runtime,
                     &tracker.session_id,
                     "TaskStarted",
-                    json!({}),
+                    json!({ "state": "thinking" }),
                     time,
                     seq,
                 )?;
@@ -659,7 +681,8 @@ impl DshWatcher {
                     .unwrap_or("");
                 tracker.assistant_last_output = Some(content.to_string());
 
-                // Extract usage for context %
+                // Extract usage for context % (cumulative) and the per-turn
+                // delta emitted at turn/end (R56).
                 if let Some(usage) = data.and_then(|d| d.get("usage")) {
                     if let (Some(input), Some(output)) = (
                         usage.get("input_tokens").and_then(|v| v.as_u64()),
@@ -667,6 +690,15 @@ impl DshWatcher {
                     ) {
                         let total = input + output;
                         tracker.context_used = Some(total);
+                        // Per-turn DELTA (usage is cumulative per session).
+                        tracker.turn_input = tracker
+                            .turn_input
+                            .saturating_add(input.saturating_sub(tracker.usage_input_total));
+                        tracker.turn_output = tracker
+                            .turn_output
+                            .saturating_add(output.saturating_sub(tracker.usage_output_total));
+                        tracker.usage_input_total = input;
+                        tracker.usage_output_total = output;
                     }
                 }
             }
@@ -681,11 +713,24 @@ impl DshWatcher {
                 match reason {
                     "completed" => {
                         tracker.session_state = "attention".to_string();
+                        // R56: Stop WITH explicit state (attention) + the
+                        // collected assistant text (say bubble) + a per-turn
+                        // usage delta (metering; dsh's own native_event name
+                        // is attached so the ledger can attribute it). Before
+                        // this, dsh Stop mapped to "idle", never said
+                        // anything, and never fed usage.
+                        let turn_input = tracker.turn_input;
+                        let turn_output = tracker.turn_output;
                         Self::emit_session_event_static(
                             runtime,
                             &tracker.session_id,
                             "Stop",
-                            json!({}),
+                            json!({
+                                "state": "attention",
+                                "assistant_last_output": tracker.assistant_last_output.clone(),
+                                "turn_usage": { "input": turn_input, "output": turn_output },
+                                "native_event": "turn_end",
+                            }),
                             time,
                             seq,
                         )?;
@@ -696,7 +741,7 @@ impl DshWatcher {
                             runtime,
                             &tracker.session_id,
                             "ApiError",
-                            json!({}),
+                            json!({ "state": "error" }),
                             time,
                             seq,
                         )?;
@@ -708,7 +753,7 @@ impl DshWatcher {
                             runtime,
                             &tracker.session_id,
                             "TurnAborted",
-                            json!({}),
+                            json!({ "state": "idle" }),
                             time,
                             seq,
                         )?;
@@ -727,9 +772,20 @@ impl DshWatcher {
                 tracker.session_state = "notification".to_string();
             }
             "approval/decided" => {
-                // Back to working or idle
+                // Back to working or idle. R56: EMIT the transition — before
+                // this the watcher only flipped its internal tracker state,
+                // so the pet stayed stuck on notification/waiting until some
+                // later event happened to arrive.
                 if tracker.session_state == "notification" {
                     tracker.session_state = "working".to_string();
+                    Self::emit_session_event_static(
+                        runtime,
+                        &tracker.session_id,
+                        "PreToolUse",
+                        json!({ "state": "working", "tool_name": "approved" }),
+                        time,
+                        seq,
+                    )?;
                 }
             }
             "compaction/start" => {
@@ -745,13 +801,24 @@ impl DshWatcher {
             }
             "compaction/end" => {
                 tracker.session_state = "thinking".to_string();
+                // R56: emit the end of compaction — otherwise sweeping
+                // (started by compaction/start → PreCompact) never cleared
+                // until some unrelated next event arrived.
+                Self::emit_session_event_static(
+                    runtime,
+                    &tracker.session_id,
+                    "PostCompact",
+                    json!({ "state": "thinking" }),
+                    time,
+                    seq,
+                )?;
             }
             "llm/retry" => {
                 Self::emit_session_event_static(
                     runtime,
                     &tracker.session_id,
                     "ApiError",
-                    json!({}),
+                    json!({ "state": "error" }),
                     time,
                     seq,
                 )?;

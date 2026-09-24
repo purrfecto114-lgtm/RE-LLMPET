@@ -21,7 +21,11 @@ assert(css.includes('.provider-chooser {') && css.includes('position: fixed;') &
 assert(css.includes('filter: none;'), 'transparent popup must not use compositor drop-shadow');
 
 const pet = read('frontend/renderer/pet.js');
-assert(pet.includes("window.pet.onWindowBlur(() => dismissTransientUi('native-blur'))"), 'native blur must dismiss transient UI');
+// R56: native blur still dismisses transient UI, now behind two anti-jitter
+// guards (the raw set_focus bounce after a menu opens used to insta-kill it):
+// a document.hasFocus() re-check and the <300ms transient-open grace window.
+assert(pet.includes("dismissTransientUi('native-blur')"), 'native blur must dismiss transient UI');
+assert(pet.includes('native-blur-ignored:doc-focused'), 'native blur must be ignored while the document still holds focus');
 assert(pet.includes('availableProviders') && pet.includes('openProviderChooser'), 'new Agent must have a provider chooser path');
 assert(pet.includes("['claude', 'codewhale', 'codex', 'opencode', 'aider']"), 'chooser must know every supported provider');
 

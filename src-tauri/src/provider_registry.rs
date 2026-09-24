@@ -362,15 +362,36 @@ impl ProviderRegistry {
                     .join("settings.json")
                     .to_string_lossy()
                     .to_string(),
+                // R56: registry metadata now mirrors the REAL install surface
+                // (hook_install.rs CLAUDE_EVENTS + the two opt-in adds), not an
+                // outdated subset. Source of truth: hook_install.rs:71-106 +
+                // install_claude PreToolUse/PermissionRequest.
                 events: vec![
+                    "SessionStart".to_string(),
+                    "SessionEnd".to_string(),
+                    "UserPromptSubmit".to_string(),
                     "PreToolUse".to_string(),
                     "PostToolUse".to_string(),
-                    "UserPromptSubmit".to_string(),
+                    "PostToolUseFailure".to_string(),
                     "Stop".to_string(),
-                    "Notification".to_string(),
-                    "PreCompact".to_string(),
+                    "StopFailure".to_string(),
                     "SubagentStart".to_string(),
                     "SubagentStop".to_string(),
+                    "PreCompact".to_string(),
+                    "PostCompact".to_string(),
+                    "Notification".to_string(),
+                    "Elicitation".to_string(),
+                    "ElicitationResult".to_string(),
+                    "PermissionRequest".to_string(),
+                    "PermissionDenied".to_string(),
+                    "TaskCreated".to_string(),
+                    "TaskCompleted".to_string(),
+                    "TeammateIdle".to_string(),
+                    "Setup".to_string(),
+                    "InstructionsLoaded".to_string(),
+                    "CwdChanged".to_string(),
+                    "WorktreeRemove".to_string(),
+                    "DirectoryAdded".to_string(),
                 ],
                 markers: MarkerSet {
                     begin: "# octopus:claude-hooks:begin".to_string(),
@@ -434,17 +455,27 @@ impl ProviderRegistry {
                     .join("config.toml")
                     .to_string_lossy()
                     .to_string(),
+                // R56: the real CodeWhale vocabulary is the 14-event snake_case
+                // contract (hook_install.rs CODEWHALE_EVENTS / HOOKS.md "The 15
+                // events" minus shell_env which is a transport, not a pet event).
+                // The old list (turn_start/tool_call/user_message…) was a
+                // fabricated dsh-flavored snake_case set — cross-provider
+                // vocabulary mixing in metadata form.
                 events: vec![
-                    "turn_start".to_string(),
+                    "session_start".to_string(),
+                    "session_end".to_string(),
+                    "tool_call_before".to_string(),
+                    "tool_call_after".to_string(),
                     "turn_end".to_string(),
-                    "tool_call".to_string(),
-                    "tool_result".to_string(),
-                    "user_message".to_string(),
-                    "assistant_message".to_string(),
-                    "approval_asked".to_string(),
-                    "approval_decided".to_string(),
-                    "compaction_start".to_string(),
-                    "compaction_end".to_string(),
+                    "on_error".to_string(),
+                    "mode_change".to_string(),
+                    "subagent_spawn".to_string(),
+                    "subagent_complete".to_string(),
+                    "message_submit".to_string(),
+                    "session_idle".to_string(),
+                    "session_error".to_string(),
+                    "waiting_for_user".to_string(),
+                    "session_busy".to_string(),
                 ],
                 markers: MarkerSet {
                     begin: "# octopus:codewhale-hooks:v5".to_string(),
@@ -511,17 +542,23 @@ impl ProviderRegistry {
                     .join("hooks.json")
                     .to_string_lossy()
                     .to_string(),
+                // R56: the real Codex vocabulary is the 12 PascalCase upstream
+                // names (hook_install.rs CODEX_EVENTS == codex-rs
+                // HOOK_EVENT_NAMES exactly). The old snake_case list (with a
+                // nonexistent "notification") was fabricated.
                 events: vec![
-                    "session_start".to_string(),
-                    "turn_start".to_string(),
-                    "turn_end".to_string(),
-                    "tool_call".to_string(),
-                    "tool_result".to_string(),
-                    "user_message".to_string(),
-                    "assistant_message".to_string(),
-                    "pre_tool_use".to_string(),
-                    "post_tool_use".to_string(),
-                    "notification".to_string(),
+                    "SessionStart".to_string(),
+                    "SessionEnd".to_string(),
+                    "UserPromptSubmit".to_string(),
+                    "PreToolUse".to_string(),
+                    "PostToolUse".to_string(),
+                    "PermissionRequest".to_string(),
+                    "Stop".to_string(),
+                    "SubagentStart".to_string(),
+                    "SubagentStop".to_string(),
+                    "PreCompact".to_string(),
+                    "PostCompact".to_string(),
+                    "Interrupt".to_string(),
                 ],
                 markers: MarkerSet {
                     begin: "# octopus:codex-hooks:begin".to_string(),
@@ -587,14 +624,26 @@ impl ProviderRegistry {
                     .join("llmpet-hook.js")
                     .to_string_lossy()
                     .to_string(),
+                // R56: OpenCode events are its NATIVE dotted names — the v5
+                // plugin forwards exactly these 15 (plugin_sources.rs
+                // forwarding switch). The old Claude-spelled list here was the
+                // v4 hard-translation vocabulary left behind in metadata.
                 events: vec![
-                    "PreToolUse".to_string(),
-                    "PostToolUse".to_string(),
-                    "UserPromptSubmit".to_string(),
-                    "Stop".to_string(),
-                    "Notification".to_string(),
-                    "SubagentStart".to_string(),
-                    "SubagentStop".to_string(),
+                    "session.created".to_string(),
+                    "session.deleted".to_string(),
+                    "session.error".to_string(),
+                    "session.idle".to_string(),
+                    "session.compacted".to_string(),
+                    "session.status".to_string(),
+                    "message.updated".to_string(),
+                    "permission.asked".to_string(),
+                    "permission.replied".to_string(),
+                    "permission.v2.asked".to_string(),
+                    "permission.v2.replied".to_string(),
+                    "question.asked".to_string(),
+                    "question.replied".to_string(),
+                    "tool.execute.before".to_string(),
+                    "tool.execute.after".to_string(),
                 ],
                 markers: MarkerSet {
                     begin: "// octopus:opencode-hooks:begin".to_string(),
@@ -642,12 +691,11 @@ impl ProviderRegistry {
                 command: "aider".to_string(),
                 companion: None,
                 config_path: home.join(".aider.conf.yml").to_string_lossy().to_string(),
-                events: vec![
-                    "turn_start".to_string(),
-                    "turn_end".to_string(),
-                    "tool_call".to_string(),
-                    "tool_result".to_string(),
-                ],
+                // R56: Aider has NO event enum — its only event surface is the
+                // --notifications-command callback (ring_bell at turn end /
+                // confirm_ask / prompt_ask). The old turn_* list was
+                // fabricated. See hook_client.rs aider folding + R54-e research.
+                events: vec!["notifications-command".to_string()],
                 markers: MarkerSet {
                     begin: "# octopus:aider-hooks:begin".to_string(),
                     end: "# octopus:aider-hooks:end".to_string(),
@@ -700,18 +748,27 @@ impl ProviderRegistry {
                     .unwrap_or_default()
                     .to_string_lossy()
                     .to_string(),
+                // R56: dsh wire vocabulary is the dotted DshEvent set in
+                // dsh_watch.rs (append-only session log contract; externally
+                // UNVERIFIED at the name level — documented in
+                // docs/DSH_OBSERVER_DELIVERY_2026-08-29.md).
                 events: vec![
-                    "turn_start".to_string(),
-                    "turn_end".to_string(),
-                    "tool_call".to_string(),
-                    "tool_result".to_string(),
-                    "user_message".to_string(),
-                    "assistant_message".to_string(),
-                    "approval_asked".to_string(),
-                    "approval_decided".to_string(),
-                    "compaction_start".to_string(),
-                    "compaction_end".to_string(),
-                    "session_title".to_string(),
+                    "session".to_string(),
+                    "turn/start".to_string(),
+                    "user/message".to_string(),
+                    "step/start".to_string(),
+                    "tool/call".to_string(),
+                    "tool/code-dispatch-start".to_string(),
+                    "tool/result".to_string(),
+                    "tool/code-dispatch".to_string(),
+                    "assistant/message".to_string(),
+                    "turn/end".to_string(),
+                    "approval/asked".to_string(),
+                    "approval/decided".to_string(),
+                    "compaction/start".to_string(),
+                    "compaction/end".to_string(),
+                    "llm/retry".to_string(),
+                    "session/title".to_string(),
                 ],
                 markers: MarkerSet {
                     begin: "# octopus:dsh-hooks:begin".to_string(),

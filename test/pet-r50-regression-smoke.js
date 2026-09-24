@@ -49,7 +49,10 @@ assert(pet.includes('await-free radial settle: petSizeController.request') || /P
 // ── 3. bubbles do not resize the window when they fit ───────────────────────
 assert(pet.includes('function fitBubbleToViewport'), 'bubble fit helper missing');
 assert(pet.includes('let bubbleOwnsResize = false'), 'bubble resize ownership flag missing');
-assert(/if \(bubbleOwnsResize && !askActive && !sessListOpen && !todoPopOpen\)/.test(pet),
+// R56: guard extended with !radialOpen && !providerChooserOpen — the radial
+// lays its items out against the CURRENT viewport, so a mid-menu shrink
+// would clip them (same ownership semantics, two more occupants).
+assert(/if \(bubbleOwnsResize && !askActive && !sessListOpen && !todoPopOpen && !radialOpen && !providerChooserOpen\)/.test(pet),
   'window must only shrink when THIS bubble grew it');
 
 // ── 4/5/6. runtime policy: oneshot leases + headless blocked visibility ─────

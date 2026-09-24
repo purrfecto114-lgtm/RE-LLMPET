@@ -508,6 +508,12 @@ fn normalize_opencode_native(object: &mut Map<String, Value>) -> bool {
         "permission.replied" | "permission.v2.replied" => ("PreToolUse", Some("working")),
         "question.asked" | "question.v2.asked" => ("Notification", Some("needsinput")),
         "question.replied" | "question.v2.replied" => ("PreToolUse", Some("working")),
+        // R56: todo.updated now arrives from the plugin (todos board refresh).
+        // It carries no pet-state semantics of its own — the agent is busy
+        // managing its list, so "working" mirrors every other mid-turn
+        // observer; the todos array itself flows through the model.rs
+        // `direct` snapshot path (body.todos).
+        "todo.updated" => ("PostToolUse", Some("working")),
         "tool.execute.before" => {
             if tool_name == "task" || tool_name == "agent" {
                 ("SubagentStart", Some("juggling"))
