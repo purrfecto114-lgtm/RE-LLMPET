@@ -1596,3 +1596,19 @@ Stage Summary:
 - v0.6.5 = 卸载器修复（--uninstall-hooks+NSIS 重写）+ whale 皮肤 + 右键/托盘/覆盖层五类 GUI 根因修复 + 六 provider 事件词汇元数据收尾 + greet/big-done/loafing/emotion 表情补全 + dsh 状态正确性
 - 关键证据：插件 KillProcessCurrentUser 命令名从 nsis-tauri-utils 源码克隆实证；tauri 2.11.5 模板 un 顺序（PREUNINSTALL→CheckIfAppIsRunning）实证；上游 0.1.1 无 dsh 皮肤（0.1/0.1.1/v0.1.2-pre/v1.2.0 全 ref 检查）
 - 待办移交：①duo 模式 skin_codex 与托盘勾选的错配（上游 main 三套 per-agent 子菜单方案，后续任务）②whale 21MB 进包体积（上游同款；懒加载已保证运行时零成本）③dsh 会话 resume CLI 语法外部 UNVERIFIED ④glib Dependabot 告警（R55 遗留）
+
+---
+Task ID: R56-final
+Agent: main-orchestrator
+Task: v0.6.5 发布收尾
+
+Work Log:
+- 首次 tag 触发 Release 失败：worklog 追加发生在 manifest 重生成后 → 哈希漂移被 release 源验证门禁拦截（门禁起效的证据）→ 重生成 manifest + 补提交 0d5b8cd + 删重打 v0.6.5 tag
+- 二次触发：CI success + Release 七段全绿（资产闭环 verify-release-assets 4 manifests × 6 artifacts + attest）
+- 手工收尾（0.6.1-0.6.3 惯例）：git archive 生成 Octopus-0.6.5-source.zip（23.8MB）+ SHA256SUMS.txt → PATCH release 395894570 重绑 tag v0.6.5/转正式/改标题/写 release notes → 上传 2 资产 → 删孤立 draft-216 tag
+- 脚手架 / 路由 Agent Browser 验证：干净渲染无错误（页面为用户已否决的旧发布页，未改动）
+- glib Dependabot 工作流仍失败（R55 已知遗留，PAT 无权限建分支，非门禁）
+
+Stage Summary:
+- https://github.com/purrfecto114-lgtm/RE-LLMPET/releases/tag/v0.6.5 —— 17 资产（7 平台二进制 + 4 SBOM + 4 平台校验和 + 源码 zip + 源码校验和），正式发布（非 prerelease）
+- main = 0d5b8cd = v0.6.5；门禁：npm test 82 文件 / static 22/22 / clippy 0 / cargo test 137/137 / Release 流水线全绿
