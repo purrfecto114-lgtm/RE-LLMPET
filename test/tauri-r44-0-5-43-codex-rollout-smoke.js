@@ -25,8 +25,8 @@ const changelog = read('CHANGELOG.md');
 const packageJson = JSON.parse(read('package.json'));
 
 // Version
-assert.strictEqual(packageJson.version, '0.6.5',
-  '0.5.57: package.json version must be 0.5.57');
+assert.strictEqual(packageJson.version, '0.6.7',
+  '0.6.7: package.json version must be 0.6.7');
 
 // ── 1. codex_rollout module ──────────────────────────────────────────────
 assert.ok(lib.includes('mod codex_rollout;'),

@@ -80,12 +80,16 @@ const focusFn = commands.slice(
 // R54: focus now falls back to RESUMING the conversation through the
 // provider CLI (session_resume module) before surfacing any error, so the
 // localized bubble says "cannot reopen" instead of "cannot focus".
-assert(focusFn.includes('无法重新打开会话'), 'focus fallback bubble must be localized');
-assert(focusFn.includes('已为你打开详情面板'), 'focus fallback must name the dashboard fallback');
-assert(!focusFn.includes('Cannot focus terminal'),
+// R57: the error/feedback emission moved from the focus_session wrapper
+// (commands.rs) into process_probe.rs's focus_session_guarded — assert the
+// same contract at its new owner.
+const processProbe = read('src-tauri/src/process_probe.rs');
+assert(processProbe.includes('无法重新打开会话'), 'focus fallback bubble must be localized');
+assert(processProbe.includes('已为你打开详情面板'), 'focus fallback must name the dashboard fallback');
+assert(!processProbe.includes('Cannot focus terminal'),
   'the English focus error must be gone');
-assert(focusFn.includes('.chars().take(80)'), 'focus error excerpt must be bounded to 80 chars');
-assert(focusFn.includes('crate::session_resume::resume_session_inner'),
+assert(processProbe.includes('.chars().take(80)'), 'focus error excerpt must be bounded to 80 chars');
+assert(processProbe.includes('crate::session_resume::resume_session_inner'),
   'focus fallback must try the provider resume path before erroring');
 const sessionResume = read('src-tauri/src/session_resume.rs');
 assert(sessionResume.includes('已为你重新打开这个会话。'),

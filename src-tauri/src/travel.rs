@@ -1206,9 +1206,9 @@ fn is_wander_supported(value: &str) -> bool {
 /// R58-IMPL-C: wander provider selection WITHOUT the historical "claude"
 /// hard fallback (user report: "闲逛功能还是硬编码claudecode"). Preference
 /// order:
-///   1. the requester's provider, when it has a runner;
-///   2. config-enabled providers that have a runner;
-///   3. the remaining supported runners.
+///     1. the requester's provider, when it has a runner;
+///     2. config-enabled providers that have a runner;
+///     3. the remaining supported runners.
 /// Every candidate is pre-checked with find_executable (upstream Electron
 /// main.js findCli approach) so we never pick a provider whose CLI is not
 /// installed; `None` means no supported CLI exists and the caller surfaces a
@@ -1241,16 +1241,12 @@ fn pick_wander_provider(runtime: &Runtime, requested: Option<&str>) -> Option<St
 /// the app's trilingual UI; the frontend bubble renders the raw message.
 fn wander_no_cli_message(lang: &str) -> String {
     match lang {
-        "en" => {
-            "no wander-capable CLI is installed (install claude, codex or \
+        "en" => "no wander-capable CLI is installed (install claude, codex or \
              codewhale and make sure it is in PATH)"
-                .into()
-        }
-        "ja" => {
-            "ウェブ散歩できる CLI が見つかりません（claude / codex / codewhale \
+            .into(),
+        "ja" => "ウェブ散歩できる CLI が見つかりません（claude / codex / codewhale \
              のいずれかを PATH にインストールしてください）"
-                .into()
-        }
+            .into(),
         _ => "未安装可用于闲逛的 CLI（请在 PATH 中安装 claude / codex / codewhale 之一）".into(),
     }
 }

@@ -80,11 +80,7 @@ fn codex_home() -> PathBuf {
         .unwrap_or_else(|| home_dir().join(".codex"))
 }
 
-fn seed_candidates(
-    runtime: &Arc<Runtime>,
-    provider: &str,
-    candidates: &[SeedCandidate],
-) -> usize {
+fn seed_candidates(runtime: &Arc<Runtime>, provider: &str, candidates: &[SeedCandidate]) -> usize {
     let mut seeded = 0;
     for candidate in candidates {
         if session_exists(runtime, &candidate.session_id) {
@@ -137,7 +133,7 @@ fn collect_claude_candidates(root: &Path, now_ms: u64) -> Vec<SeedCandidate> {
         for project_entry in project_entries.flatten() {
             if !project_entry
                 .file_type()
-                .map_or(false, |file_type| file_type.is_dir())
+                .is_ok_and(|file_type| file_type.is_dir())
             {
                 continue;
             }
@@ -354,9 +350,7 @@ fn read_codex_session_meta(path: &Path) -> Option<CodexMeta> {
         .and_then(|source| source.get("subagent"))
         .and_then(Value::as_bool)
         == Some(true);
-    if payload.get("thread_source").and_then(Value::as_str) == Some("subagent")
-        || subagent_source
-    {
+    if payload.get("thread_source").and_then(Value::as_str) == Some("subagent") || subagent_source {
         return None;
     }
     let session_id = json_text(payload, &["id", "session_id", "sessionId"], 256)?;
@@ -461,7 +455,11 @@ mod tests {
             &padded,
             format!(
                 "{padding}\n{}\n",
-                claude_transcript("seed-session-padded", "/home/z/re-llmpet", "claude-sonnet-4-6")
+                claude_transcript(
+                    "seed-session-padded",
+                    "/home/z/re-llmpet",
+                    "claude-sonnet-4-6"
+                )
             ),
         )
         .unwrap();
@@ -485,7 +483,10 @@ mod tests {
         fs::write(&sidechain, format!("{side}\n")).unwrap();
 
         let candidates = collect_claude_candidates(&root, now_ms());
-        let ids: Vec<&str> = candidates.iter().map(|row| row.session_id.as_str()).collect();
+        let ids: Vec<&str> = candidates
+            .iter()
+            .map(|row| row.session_id.as_str())
+            .collect();
         assert!(
             ids.contains(&"seed-session-a"),
             "fresh transcript must seed: {ids:?}"
@@ -534,8 +535,8 @@ mod tests {
         let day = root.join("2026").join("10").join("02");
         fs::create_dir_all(&day).unwrap();
 
-        let live = day
-            .join("rollout-2026-10-02T10-00-00-11111111-2222-3333-4444-555555555555.jsonl");
+        let live =
+            day.join("rollout-2026-10-02T10-00-00-11111111-2222-3333-4444-555555555555.jsonl");
         fs::write(
             &live,
             concat!(
@@ -547,17 +548,20 @@ mod tests {
         )
         .unwrap();
 
-        let stale = day
-            .join("rollout-2026-10-02T09-00-00-99999999-2222-3333-4444-555555555555.jsonl");
-        fs::write(&stale, concat!(
-            r#"{"type":"session_meta","payload":{"id":"codex-stale","cwd":"/tmp/old"}}"#,
-            "\n",
-        ))
+        let stale =
+            day.join("rollout-2026-10-02T09-00-00-99999999-2222-3333-4444-555555555555.jsonl");
+        fs::write(
+            &stale,
+            concat!(
+                r#"{"type":"session_meta","payload":{"id":"codex-stale","cwd":"/tmp/old"}}"#,
+                "\n",
+            ),
+        )
         .unwrap();
         age_file(&stale, 2 * 60 * 60);
 
-        let guardian = day
-            .join("rollout-2026-10-02T09-30-00-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl");
+        let guardian =
+            day.join("rollout-2026-10-02T09-30-00-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl");
         fs::write(&guardian, concat!(
             r#"{"type":"session_meta","payload":{"id":"codex-guardian","cwd":"/tmp/g","thread_source":"subagent"}}"#,
             "\n",
@@ -600,8 +604,11 @@ mod tests {
         let project = home.join(".claude").join("projects").join("-tmp-glue");
         fs::create_dir_all(&project).unwrap();
         let fresh = project.join("glue-claude-1.jsonl");
-        fs::write(&fresh, claude_transcript("glue-claude-1", "/tmp/glue", "claude-sonnet-4-6"))
-            .unwrap();
+        fs::write(
+            &fresh,
+            claude_transcript("glue-claude-1", "/tmp/glue", "claude-sonnet-4-6"),
+        )
+        .unwrap();
         let stale = project.join("glue-claude-stale.jsonl");
         fs::write(
             &stale,
@@ -610,7 +617,12 @@ mod tests {
         .unwrap();
         age_file(&stale, 2 * 60 * 60);
 
-        let day = home.join(".codex").join("sessions").join("2026").join("10").join("02");
+        let day = home
+            .join(".codex")
+            .join("sessions")
+            .join("2026")
+            .join("10")
+            .join("02");
         fs::create_dir_all(&day).unwrap();
         let rollout =
             day.join("rollout-2026-10-02T11-00-00-22222222-3333-4444-5555-666666666666.jsonl");

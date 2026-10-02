@@ -38,11 +38,19 @@ assert(pet.includes('requestRadialViewport'), 'radial opening must request its v
 assert(pet.includes('patchSessionDots'), 'session dots must use keyed patching');
 
 // R54: the OpenCode plugin source moved to plugin_sources.rs (hook_install.rs
-// growth budget); the v5 body keeps parent/headless metadata on every surface.
+// growth budget). R58-1c (v6): the plugin NEVER reads Message.Info.parentID
+// (that is the parent MESSAGE id upstream — v5 misread it as a session
+// parent and headless-ified every top-level session after turn one);
+// child lineage is learned from session.created's info.parentID into a
+// childSessions map and stamped on every later frame via stampParent().
 const hook = read('src-tauri/src/plugin_sources.rs');
 assert(hook.includes('info.parentID'), 'OpenCode child session parent must be retained');
-assert(hook.includes('if (info.parentID) { base.parent_id = info.parentID; base.headless = true; }'),
-  'OpenCode child sessions must be marked headless');
+assert(hook.includes('childSessions.set(base.session_id, info.parentID)'),
+  'OpenCode child sessions must be learned into the lineage map');
+assert(hook.includes('stampParent(base)'),
+  'later child frames must be stamped from the lineage map');
+assert(!hook.includes('msg?.parentID'),
+  'message-level parentID must never be read as a session parent (R54 v5 regression)');
 assert(hook.includes('input?.sessionID\n    || input?.metadata?.sessionID'),
   'current OpenCode top-level sessionID must be preferred with legacy metadata fallback');
 

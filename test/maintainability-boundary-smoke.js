@@ -137,7 +137,17 @@ for (const [name, source, maxLines] of [
   // pairing: whitelist + transactional persist + window re-sync) and
   // sync_duo_provider_url (guarded URL query sync via webview eval), plus the
   // config-aware pet_label_for_agent router. Audited 3740.
-  ['src-tauri/src/commands.rs', commands, 3745],
+  // R58-IMPL-D merge: +17 audited lines — toggle_mute now emits a muted/
+  // unmuted tray toast (the radial mute toggle and the tray checkbox both
+  // funnel through this command; previously zero feedback). Audited 3757.
+  ['src-tauri/src/commands.rs', commands, 3760],
+  // R58 (2026-10-02): the headless uninstall pipeline + shell/backup residue
+  // sweep moved here from hook_install.rs (2679 > 2330 guard) — same
+  // extraction pattern as plugin_sources.rs in R54.
+  ['src-tauri/src/hook_uninstall.rs', read('src-tauri/src/hook_uninstall.rs'), 570],
+  // R58-IMPL-E: cold-start session seeding (claude transcripts + codex
+  // rollouts, 30min window, replay-quiet discipline). New focused owner.
+  ['src-tauri/src/session_seed.rs', read('src-tauri/src/session_seed.rs'), 680],
   ['src-tauri/src/hook_install.rs', hooks, 2400],
   ['frontend/shared/latest-value-controller.js', read('frontend/shared/latest-value-controller.js'), 220],
   ['frontend/shared/panel-fit-controller.js', read('frontend/shared/panel-fit-controller.js'), 220],

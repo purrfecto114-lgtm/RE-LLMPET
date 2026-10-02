@@ -228,6 +228,9 @@ struct SessionTracker {
     session_state: String,
     session_cwd: String,
     session_title: Option<String>,
+    // R58-1d Part B: the request model (request/header or request/context) —
+    // stamped onto turn/end usage events so metering can price dsh rows.
+    model: String,
     assistant_last_output: Option<String>,
     context_used: Option<u64>,
     context_limit: Option<u64>,
@@ -480,6 +483,7 @@ impl DshWatcher {
                     session_state: "idle".to_string(),
                     session_cwd: String::new(),
                     session_title: None,
+                    model: String::new(),
                     assistant_last_output: None,
                     context_used: None,
                     context_limit: None,

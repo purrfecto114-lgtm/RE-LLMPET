@@ -369,6 +369,12 @@
           "markdownDescription": "Enables the set_currency command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_duo_provider command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-duo-provider",
+          "markdownDescription": "Enables the set_duo_provider command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_ignore_mouse command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-ignore-mouse",
@@ -685,6 +691,12 @@
           "type": "string",
           "const": "deny-set-currency",
           "markdownDescription": "Denies the set_currency command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_duo_provider command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-duo-provider",
+          "markdownDescription": "Denies the set_duo_provider command without any pre-configured scope."
         },
         {
           "description": "Denies the set_ignore_mouse command without any pre-configured scope.",

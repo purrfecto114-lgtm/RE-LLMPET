@@ -58,12 +58,12 @@ const tauriConf = JSON.parse(read('src-tauri/tauri.conf.json'));
 // Version bump
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.6.5',
-  'P0C: package.json version must be 0.5.57');
-assert.ok(cargoToml.includes('version = "0.6.5"'),
-  'P0C: Cargo.toml version must be 0.5.57');
-assert.strictEqual(tauriConf.version, '0.6.5',
-  'P0C: tauri.conf.json version must be 0.5.57');
+assert.strictEqual(packageJson.version, '0.6.7',
+  'P0C: package.json version must be 0.6.7');
+assert.ok(cargoToml.includes('version = "0.6.7"'),
+  'P0C: Cargo.toml version must be 0.6.7');
+assert.strictEqual(tauriConf.version, '0.6.7',
+  'P0C: tauri.conf.json version must be 0.6.7');
 assert.ok(changelog.includes('0.5.57'),
   'P0C: CHANGELOG must have 0.5.57 entry');
 
@@ -238,8 +238,11 @@ assert.ok(hookInstall.includes('found.iter().skip(RECEIPT_RETENTION)'),
 // P0C-8: read_install_receipts is pub
 // ──────────────────────────────────────────────────────────────────────────
 
+// R58: the uninstall/receipt pipeline moved to hook_uninstall.rs
+// (hook_install.rs growth budget); same pub fn, new focused owner.
+const hookUninstall = read('src-tauri/src/hook_uninstall.rs');
 assert.ok(
-  hookInstall.includes('pub fn read_install_receipts() -> Map<String, Value>'),
+  hookUninstall.includes('pub fn read_install_receipts() -> Map<String, Value>'),
   'P0C-8: read_install_receipts must be pub fn returning Map<String, Value>'
 );
 

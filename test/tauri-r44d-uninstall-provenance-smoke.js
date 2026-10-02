@@ -50,8 +50,8 @@ const packageJson = JSON.parse(read('package.json'));
 // Version (still 0.5.57 — Phase 0D ships in the same release as 0C)
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.6.5',
-  'P0D: package.json version must remain 0.5.57 (Phase 0C+0D ship together)');
+assert.strictEqual(packageJson.version, '0.6.7',
+  'P0D: package.json version must remain 0.6.7 (Phase 0C+0D ship together)');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0D-1: get_install_receipts IPC command registered
@@ -63,9 +63,9 @@ assert.ok(commands.includes('pub fn get_install_receipts() -> Value'),
 // It must be registered in the invoke_handler
 assert.ok(lib.includes('get_install_receipts'),
   'P0D-1: get_install_receipts must be registered in tauri::generate_handler!');
-// It must call the hook_install::read_install_receipts() pub fn
-assert.ok(commands.includes('crate::hook_install::read_install_receipts()'),
-  'P0D-1: get_install_receipts must call hook_install::read_install_receipts()');
+// It must call the hook_uninstall::read_install_receipts() pub fn
+assert.ok(commands.includes('crate::hook_uninstall::read_install_receipts()'),
+  'P0D-1: get_install_receipts must call hook_uninstall::read_install_receipts()');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0D-2: uninstall_hooks response carries receipt fields
@@ -78,7 +78,7 @@ const runOneSection = commands.slice(
   commands.indexOf('let run_one = |id: &str|'),
   commands.indexOf('let targets:')
 );
-assert.ok(runOneSection.includes('let prior_receipt = crate::hook_install::read_install_receipts()'),
+assert.ok(runOneSection.includes('let prior_receipt = crate::hook_uninstall::read_install_receipts()'),
   'P0D-2: run_one helper must snapshot prior_receipt');
 assert.ok(runOneSection.includes('crate::hook_install::current_drift_signature'),
   'P0D-2: run_one helper must compute drift signature');

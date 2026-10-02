@@ -24,9 +24,9 @@ const providerGate = read('.github/workflows/provider-real-cli.yml');
 const desktopGate = read('.github/workflows/desktop-real-machine.yml');
 const realDesktopScript = read('scripts/real-desktop-gate.js');
 
-assert.strictEqual(pkg.version, '0.6.5');
-assert.strictEqual(tauri.version, '0.6.5');
-assert.match(cargo, /^version = "0.6.5"/m);
+assert.strictEqual(pkg.version, '0.6.7');
+assert.strictEqual(tauri.version, '0.6.7');
+assert.match(cargo, /^version = "0.6.7"/m);
 assert.strictEqual(tauri.bundle.createUpdaterArtifacts, false);
 
 for (const retired of ['main.js', 'preload.js', 'backend', 'providers', 'renderer', 'hook', 'shared']) {
@@ -56,9 +56,14 @@ assert.match(claudePayload, /updatedPermissions/);
 assert.doesNotMatch(codexPayload, /map\.insert\("(?:updatedInput|updatedPermissions)"/);
 
 // Focus is tied to source PID ancestry; Wayland degradation is explicit.
-assert.match(commands, /platform::focus_session/);
+// R57: focus_session was thinned into focus_session_guarded →
+// process_probe.rs (plan_focus owns the pid identity gate). The commands
+// wrapper still routes there; the platform primitives remain in platform.rs.
+assert.match(commands, /focus_session_guarded|platform::focus_session/);
+const processProbe = read('src-tauri/src/process_probe.rs');
+assert.match(processProbe, /platform::focus_pid/);
 assert.match(platform, /MAX_PARENT_DEPTH/);
-assert.match(platform, /process_chain\(source_pid\)/);
+assert.match(platform, /process_chain\(pid\)/); // R57: focus_pid passes the probed pid
 assert.match(platform, /SetForegroundWindow/);
 assert.match(platform, /application process whose unix id/);
 assert.match(platform, /xdotool/);

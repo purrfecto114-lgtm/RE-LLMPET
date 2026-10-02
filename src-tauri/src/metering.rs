@@ -179,9 +179,7 @@ impl Aggregate {
         }
         if matches!(
             event.cost_kind.as_deref(),
-            Some("api-equivalent-estimate")
-                | Some("normalized-priced")
-                | Some("approx-priced")
+            Some("api-equivalent-estimate") | Some("normalized-priced") | Some("approx-priced")
         ) {
             // R58: normalized/approx matches count as estimates so the panel's
             // existing ≈ / 含估算 presentation separates them from exact hits.
@@ -1498,10 +1496,7 @@ fn split_model_modifier(model: &str) -> (String, String) {
         .find(|segment| !segment.is_empty())
         .unwrap_or(head.trim());
     let bare = strip_dated_suffix(bare.trim());
-    (
-        bare.split('@').next().unwrap_or(bare).to_string(),
-        modifier,
-    )
+    (bare.split('@').next().unwrap_or(bare).to_string(), modifier)
 }
 
 /// Remove a trailing `-YYYY-MM-DD` or `-YYYYMMDD` version date.
@@ -1935,13 +1930,11 @@ mod tests {
         let line = fs::read_to_string(dir.join(LEDGER_FILE_NAME)).unwrap();
         let event: UsageEvent = serde_json::from_str(line.trim()).unwrap();
         assert_eq!(event.cost_kind.as_deref(), Some("token-priced-free"));
-        assert!(
-            event
-                .price_source
-                .as_deref()
-                .unwrap()
-                .ends_with(":free-variant")
-        );
+        assert!(event
+            .price_source
+            .as_deref()
+            .unwrap()
+            .ends_with(":free-variant"));
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -1996,10 +1989,6 @@ mod tests {
             split_model_modifier("model@2026-01-01"),
             ("model".into(), String::new())
         );
-        assert_eq!(
-            split_model_modifier(""),
-            (String::new(), String::new())
-        );
+        assert_eq!(split_model_modifier(""), (String::new(), String::new()));
     }
-
 }

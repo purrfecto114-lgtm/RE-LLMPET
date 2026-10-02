@@ -45,9 +45,7 @@ fn sync_duo_provider_url(app: &AppHandle, config: &crate::model::AppConfig) {
     let last = LAST_APPLIED.lock().unwrap_or_else(|e| e.into_inner());
     // Fresh start with the default pairing = the static conf URL (no agent
     // query) — nothing to do; the label identity already resolves it.
-    if last.as_deref() == Some(provider.as_str())
-        || (last.is_none() && provider == "codex")
-    {
+    if last.as_deref() == Some(provider.as_str()) || (last.is_none() && provider == "codex") {
         return;
     }
     drop(last);
@@ -61,10 +59,7 @@ fn sync_duo_provider_url(app: &AppHandle, config: &crate::model::AppConfig) {
         } else {
             format!("?agent={provider}")
         };
-        let script = format!(
-            "window.location.replace('/renderer/pet.html{}')",
-            query
-        );
+        let script = format!("window.location.replace('/renderer/pet.html{}')", query);
         let _ = window.eval(&script);
         *LAST_APPLIED.lock().unwrap_or_else(|e| e.into_inner()) = Some(provider);
     }
@@ -464,7 +459,7 @@ pub fn uninstall_hooks(
         //   unreadable — file exists but can't be read
         //   noReceipt — no install receipt for this provider
         //   invalidReceipt — receipt exists but lacks path/signature
-        let prior_receipt = crate::hook_install::read_install_receipts()
+        let prior_receipt = crate::hook_uninstall::read_install_receipts()
             .get(id)
             .cloned();
         let drift_status = match &prior_receipt {
@@ -660,7 +655,7 @@ pub fn uninstall_hooks(
 /// map — the frontend treats absent key as "no provenance info".
 #[tauri::command]
 pub fn get_install_receipts() -> Value {
-    let map = crate::hook_install::read_install_receipts();
+    let map = crate::hook_uninstall::read_install_receipts();
     // Convert Map<String, Value> to a JSON object Value.
     Value::Object(map.into_iter().collect())
 }
@@ -1247,6 +1242,7 @@ pub fn commit_win_pos(
 
 #[tauri::command]
 pub fn set_ignore_mouse(
+    app: AppHandle,
     platform_state: State<'_, Arc<platform::PlatformState>>,
     ignore: bool,
     agent: Option<String>,
@@ -3430,6 +3426,7 @@ pub fn ui_busy(platform_state: State<'_, Arc<platform::PlatformState>>, on: bool
 
 #[tauri::command]
 pub fn pet_visual_bounds(
+    app: AppHandle,
     platform_state: State<'_, Arc<platform::PlatformState>>,
     rect: Value,
     agent: Option<String>,

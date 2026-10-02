@@ -9,6 +9,7 @@ mod dsh_zstd;
 mod emotion;
 pub mod hook_client;
 mod hook_install;
+mod hook_uninstall;
 mod hook_watcher;
 mod http_server;
 mod i18n;
@@ -363,9 +364,9 @@ pub fn run() {
 /// hook_install crate-private so its Runtime signatures cannot leak
 /// crate-private types through a public module boundary.
 /// R58-IMPL-D (A1): `--purge-data` additionally removes `~/.re-llmpet` after
-/// the hooks are clean (see hook_install::uninstall_all_hooks_headless).
+/// the hooks are clean (see hook_uninstall::uninstall_all_hooks_headless).
 pub fn uninstall_all_hooks_cli(purge: bool) -> i32 {
-    hook_install::uninstall_all_hooks_headless(purge)
+    hook_uninstall::uninstall_all_hooks_headless(purge)
 }
 
 /// R58-IMPL-D (B5): emit a tray-origin toast to every window that can render
@@ -973,16 +974,13 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                     Ok(val) => {
                         let all_clean = val
                             .get("allHooksVerifiedAbsent")
-                            .map_or(true, |v| v.as_bool().unwrap_or(true));
+                            .is_none_or(|v| v.as_bool().unwrap_or(true));
                         if all_clean {
                             // R58-IMPL-D (B9): was hard-coded Chinese
                             // ("卸载完成" / fallback summary text).
                             i18n::tray_label(&lang, "tray.toastUninstallDone").to_string()
                         } else {
-                            let detail = val
-                                .get("message")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("");
+                            let detail = val.get("message").and_then(|v| v.as_str()).unwrap_or("");
                             format!(
                                 "{}: {}",
                                 i18n::tray_label(&lang, "tray.toastUninstallFail"),
