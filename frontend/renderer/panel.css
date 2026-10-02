@@ -297,6 +297,14 @@ body.window-fullscreen #card {
 }
 .seg-row { display: flex; align-items: center; gap: 8px; }
 .seg-label { font-size: 11px; color: #a9826f; white-space: nowrap; flex-shrink: 0; }
+/* R58-IMPL-C: 副宠 Agent 自由搭配选择器（桌宠模式块内） */
+#duo-provider {
+  border: 1px solid rgba(255, 216, 191, .16); border-radius: 7px;
+  background: rgba(20, 12, 10, .58); color: #e8c7b6;
+  font: inherit; font-size: 11px; padding: 6px 8px;
+  outline: none; cursor: pointer;
+}
+#duo-provider:focus { border-color: rgba(255, 185, 145, .48); }
 .set-hint { font-size: 10px; color: #8c6a5a; margin-left: auto; }
 .seg { display: flex; background: rgba(255,255,255,0.06); border-radius: 9px; padding: 2px; }
 .seg-btn { border: none; background: transparent; color: #c79b86; font-size: 11.5px; padding: 10px 10px; border-radius: 7px; cursor: pointer; min-height: 44px; }

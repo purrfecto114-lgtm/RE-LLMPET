@@ -14,13 +14,18 @@
     return row && (row.providerId || row.provider) || null;
   }
 
-  function resolveProvider(sessions, enabled, bucket) {
-    if (bucket === 'codex') return 'codex';
+  function resolveProvider(sessions, enabled, bucket, duo) {
+    // R58-IMPL-C: the second pet (window identity 'pet-codex', or the legacy
+    // 'codex' bucket value) is paired with config.duoProvider — default
+    // 'codex' keeps the 0.6.6 behavior bit-identical when the caller omits
+    // the argument. The primary pet resolves from every OTHER provider.
+    const second = duo || 'codex';
+    if (bucket === 'pet-codex' || bucket === second) return second;
     const live = (sessions || [])
-      .filter((row) => !row.headless && providerId(row) !== 'codex')
+      .filter((row) => !row.headless && providerId(row) !== second)
       .reduce((best, row) => !best || (Number(row.idleMs) || Infinity) < (Number(best.idleMs) || Infinity) ? row : best, null);
     if (live) return providerId(live) || 'claude';
-    return (enabled || []).find((id) => id && id !== 'codex') || null;
+    return (enabled || []).find((id) => id && id !== second) || null;
   }
 
   function projectVisibleSessions(sessions) {

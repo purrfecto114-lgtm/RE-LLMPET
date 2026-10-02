@@ -4,7 +4,7 @@ const $ = (id) => document.getElementById(id);
 const i18n = window.OctoI18n;
 const t = (key, vars) => i18n ? i18n.t(key, vars) : key;
 const LOCALES = { zh: 'zh-CN', en: 'en-US', ja: 'ja-JP' };
-let config = { lang: 'zh', mode: 'pet', petMode: 'single', skin: 'mascot', skinCodex: 'pixel', budget5h: 0, currency: 'USD', fxRate: 7.2 };
+let config = { lang: 'zh', mode: 'pet', petMode: 'single', skin: 'mascot', skinCodex: 'pixel', duoProvider: 'codex', budget5h: 0, currency: 'USD', fxRate: 7.2 };
 
 // Task C (2026-08-09): flash a stat-value when its text changes. Restarts
 // the .flash CSS animation via class toggle + forced reflow. No-op on no-op.
@@ -1346,6 +1346,12 @@ function applyConfigUI() {
   document.querySelectorAll('#pet-mode-seg .seg-btn').forEach((b) =>
     b.classList.toggle('active', b.dataset.petMode === (config.petMode || 'single'))
   );
+  // R58-IMPL-C: second-pet free pairing — reflect config.duoProvider
+  // (default 'codex') in the selector without clobbering an in-flight edit.
+  const duoSelect = $('duo-provider');
+  if (duoSelect && document.activeElement !== duoSelect) {
+    duoSelect.value = config.duoProvider || 'codex';
+  }
   const bi = $('budget');
   if (bi && document.activeElement !== bi) bi.value = config.budget5h || '';
   renderProviders();
@@ -1490,6 +1496,19 @@ document.querySelectorAll('#pet-mode-seg .seg-btn').forEach((b) =>
     void configWrites.request('petMode', b.dataset.petMode, (value) => window.pet.setPetMode(value));
   })
 );
+
+// R58-IMPL-C: 副宠 Agent 自由搭配 — the panel select drives set_duo_provider;
+// the backend re-points the pet-codex window at the paired provider and
+// re-emits config/stats so both pets re-slice sessions immediately.
+{
+  const duoSelect = $('duo-provider');
+  if (duoSelect) duoSelect.addEventListener('change', (e) => {
+    const value = e.target.value || 'codex';
+    config.duoProvider = value;
+    applyConfigUI();
+    void configWrites.request('duoProvider', value, (v) => window.pet.setDuoProvider(v));
+  });
+}
 
 document.querySelectorAll('#mode-seg .seg-btn').forEach((b) =>
   b.addEventListener('click', () => {

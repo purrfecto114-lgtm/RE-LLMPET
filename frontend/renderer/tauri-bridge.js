@@ -25,31 +25,62 @@ function getCurrentTauriWindow() {
 
 // Cache the config snapshot so currentPetAgent() can resolve a config-driven
 // default (the first enabled provider) instead of hardcoding 'claude'.
-// Populated by getConfig() below.
+// Populated by getConfig() below and refreshed by pet:config/panel:config
+// pushes (R58: the second-pet pairing can change without a page reload).
 let cachedConfig = null;
 
-// The aggregate pet window (label 'pet') owns every non-codex provider. Resolve
-// its default agent from the enabled providers in config rather than hardcoding
-// 'claude'. Falls back to a neutral default only when config has not loaded yet.
+// R58-IMPL-C: the second pet window (label 'pet-codex') is paired with
+// config.duoProvider (serde default "codex" on the Rust side). Missing field
+// in a stale payload keeps the 0.6.6 behavior.
+function duoPetProvider() {
+  try {
+    if (cachedConfig && typeof cachedConfig.duoProvider === 'string' && cachedConfig.duoProvider) {
+      return cachedConfig.duoProvider;
+    }
+  } catch (_) {}
+  return 'codex';
+}
+
+// The aggregate pet window (label 'pet') owns every provider EXCEPT the one
+// paired with the second pet. Resolve its default agent from the enabled
+// providers in config rather than hardcoding 'claude'. Falls back to a
+// neutral default only when config has not loaded yet.
 function defaultPetAgent() {
   try {
     const active = cachedConfig && cachedConfig.providers && cachedConfig.providers.active;
     if (Array.isArray(active) && active.length) {
-      const nonCodex = active.find((p) => p !== 'codex');
-      if (nonCodex) return nonCodex;
+      const duo = duoPetProvider();
+      const primary = active.find((p) => p !== duo);
+      if (primary) return primary;
     }
   } catch (_) {}
   return 'aggregate'; // window bucket, not a fabricated provider identity
 }
 
+// R58-IMPL-C: owner label for start_wander — the initiating window owns the
+// trip even when the provider degrades, so the initiator keeps its cancel
+// button / roam expression / postcard feedback.
+function currentOwnerLabel() {
+  try {
+    const current = getCurrentTauriWindow();
+    if (current && (current.label === 'pet-codex' || current.label === 'pet')) {
+      return current.label;
+    }
+  } catch (_) {}
+  const agent = currentPetAgent();
+  return agent === 'codex' || agent === 'pet-codex' ? 'pet-codex' : 'pet';
+}
+
 function currentPetAgent() {
   try {
-    const fromQuery = new URLSearchParams(window.location.search).get('agent');
-    if (fromQuery === 'codex') return 'codex';
-    if (fromQuery && fromQuery !== 'codex') return fromQuery;
     const current = getCurrentTauriWindow();
-    if (current && current.label === 'pet-codex') return 'codex';
+    // R58-IMPL-C: the window label is authoritative. The second pet window
+    // is paired with config.duoProvider (not hardcoded codex); the primary
+    // window resolves its agent from config.
+    if (current && current.label === 'pet-codex') return duoPetProvider();
     if (current && current.label === 'pet') return defaultPetAgent();
+    const fromQuery = new URLSearchParams(window.location.search).get('agent');
+    if (fromQuery) return fromQuery;
   } catch (_) {}
   return defaultPetAgent();
 }
@@ -90,6 +121,16 @@ function currentPetAgent() {
   if (global && typeof global.addEventListener === 'function') {
     global.addEventListener('beforeunload', disposeSubscriptions, { once: true });
   }
+
+  // R58-IMPL-C: track config pushes so the cached default agent and the
+  // second-pet pairing stay fresh without a page reload (the main pet
+  // window must re-slice sessions when the pairing changes).
+  subscribe('pet:config', (cfg) => {
+    if (cfg && typeof cfg === 'object') cachedConfig = cfg;
+  });
+  subscribe('panel:config', (cfg) => {
+    if (cfg && typeof cfg === 'object') cachedConfig = cfg;
+  });
 
   function call(command, args) {
     if (typeof invoke !== 'function') {
@@ -200,6 +241,8 @@ function currentPetAgent() {
     closePanel: () => call('close_panel'),
     setMode: (mode) => call('set_mode', { mode }),
     setPetMode: (petMode) => call('set_pet_mode', { petMode }),
+    // R58-IMPL-C: duo free pairing — set the second pet's provider.
+    setDuoProvider: (duoProvider) => call('set_duo_provider', { duoProvider }),
     setSkin: (skin) => call('set_skin', { skin, agent: currentPetAgent() }),
     setBudget: (value) => call('set_budget', { value }),
     setCurrency: (currency) => call('set_currency', { currency }),
@@ -217,7 +260,9 @@ function currentPetAgent() {
     territoryToggleAuto: () => call('territory_toggle_auto'),
     getTravel: () => call('get_travel'),
     startTravel: (sessionId, mission) => call('start_travel', { sessionId, mission }),
-    startWander: (mission, provider) => call('start_wander', { mission, provider }),
+    // R58-IMPL-C: owner = initiating window label — the trip stays on this
+    // window even when the backend degrades the provider.
+    startWander: (mission, provider) => call('start_wander', { mission, provider, owner: currentOwnerLabel() }),
     cancelTravel: () => call('cancel_travel'),
     quit: () => send('quit_app'),
     getWinPos: () => call('get_win_pos', { agent: currentPetAgent() }).then((pos) => {

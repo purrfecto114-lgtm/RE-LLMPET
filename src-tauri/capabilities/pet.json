@@ -40,6 +40,7 @@
     "allow-set-session-prefs",
     "allow-set-session-pref",
     "allow-set-pet-mode",
+    "allow-set-duo-provider",
     "allow-get-travel",
     "allow-start-travel",
     "allow-start-wander",

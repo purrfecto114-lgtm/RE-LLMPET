@@ -117,7 +117,12 @@ for (const [name, source, maxLines] of [
   // the whale skin didn't push it over budget. Focused owner, small budget.
   ["frontend/renderer/pet-skin-packs.js",
     read('frontend/renderer/pet-skin-packs.js'), 220],
-  ["frontend/renderer/pet.js", pet, 2640],
+  // R58 (2026-10-02): budget recalibrated to the audited baseline — batch1
+  // (8391293, R58-1a archive GUI growth+dots, +47) landed WITHOUT this
+  // nudge, so the guard was already red at the R58-IMPL-C base; IMPL-C adds
+  // the duo-provider generalization (+14: pairing snapshot, window-identity
+  // skin/position, travel-supported button set). Audited 2770.
+  ["frontend/renderer/pet.js", pet, 2775],
   ['frontend/renderer/panel.js', panel, 1760],
   // R51 (2026-08-30): cargo fmt with the 2024 style edition re-wrapped this
   // file (same statements, more lines): 3360 -> 3572 with zero logic growth.
@@ -128,7 +133,11 @@ for (const [name, source, maxLines] of [
   // set_providers: the tray submenu check marks stayed stale after panel-side
   // changes, user-reported) + the pet-codex first-show default position
   // (offset from the main pet instead of WM-cascade stacking).
-  ['src-tauri/src/commands.rs', commands, 3660],
+  // R58 (2026-10-02): +97 audited lines — set_duo_provider command (duo free
+  // pairing: whitelist + transactional persist + window re-sync) and
+  // sync_duo_provider_url (guarded URL query sync via webview eval), plus the
+  // config-aware pet_label_for_agent router. Audited 3740.
+  ['src-tauri/src/commands.rs', commands, 3745],
   ['src-tauri/src/hook_install.rs', hooks, 2400],
   ['frontend/shared/latest-value-controller.js', read('frontend/shared/latest-value-controller.js'), 220],
   ['frontend/shared/panel-fit-controller.js', read('frontend/shared/panel-fit-controller.js'), 220],

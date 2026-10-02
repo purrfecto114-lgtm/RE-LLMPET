@@ -18,7 +18,9 @@ assert(
 );
 assert(!commands.includes('launch_terminal(provider.as_str())'), 'renderer input must not become an executable name');
 assert(commands.includes('platform_state.set_ui_busy(on)'), 'ui_busy must update native state');
-assert(commands.includes('platform_state.set_visual_bounds(pet_label_for_agent(agent.as_deref()), &rect)'), 'pet_visual_bounds must update native state per pet window');
+// R58-IMPL-C: pet_label_for_agent gained the AppHandle param (config-driven
+// duo pairing); the per-window routing semantics are unchanged.
+assert(commands.includes('platform_state.set_visual_bounds(pet_label_for_agent(&app, agent.as_deref()), &rect)'), 'pet_visual_bounds must update native state per pet window');
 assert(commands.includes('platform_state.is_ui_busy()'), 'territory action must respect active UI interaction');
 assert(platform.includes('ui_busy: AtomicBool'), 'native platform state must retain UI busy state');
 assert(platform.includes('visual_bounds: Mutex<HashMap<String, VisualBounds>>'), 'native platform state must retain per-window visual bounds');

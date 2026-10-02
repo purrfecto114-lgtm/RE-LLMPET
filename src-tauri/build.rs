@@ -17,6 +17,8 @@ const COMMANDS: &[&str] = &[
     "get_install_receipts",
     "set_skin",
     "set_pet_mode",
+    // R58-IMPL-C: duo free pairing — second pet ↔ any provider.
+    "set_duo_provider",
     "set_session_prefs",
     "set_session_pref",
     "set_budget",

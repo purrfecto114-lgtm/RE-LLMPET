@@ -225,6 +225,8 @@ pub fn run() {
                     .emit_to(window.label(), "pet:window-blur", ());
             }
         })
+        // R58-IMPL-C: set_duo_provider registers the duo free pairing
+        // (second pet ↔ any provider) alongside set_pet_mode.
         .invoke_handler(tauri::generate_handler![
             get_config,
             get_config_state,
@@ -244,6 +246,7 @@ pub fn run() {
             get_install_receipts,
             set_skin,
             set_pet_mode,
+            set_duo_provider,
             set_session_prefs,
             set_session_pref,
             set_budget,

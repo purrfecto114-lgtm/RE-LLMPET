@@ -166,8 +166,8 @@ impl TravelManager {
         if session.headless {
             return Err("headless sessions cannot start travel".into());
         }
-        if !matches!(session.provider.as_str(), "claude" | "codex") {
-            return Err("travel currently supports Claude and Codex sessions".into());
+        if !is_wander_supported(&session.provider) {
+            return Err("travel currently supports Claude, Codex and CodeWhale sessions".into());
         }
         let cwd = PathBuf::from(&session.cwd);
         if !cwd.is_dir() {
@@ -179,6 +179,9 @@ impl TravelManager {
             runtime,
             "travel",
             &session.provider,
+            // R58-IMPL-C: project travel keeps the provider-derived owner
+            // (the session's provider decides which pet window owns it).
+            None,
             Some(session_id),
             project,
             cwd,
@@ -192,45 +195,57 @@ impl TravelManager {
         runtime: Arc<Runtime>,
         mission: String,
         provider: Option<String>,
+        owner: Option<String>,
     ) -> Result<Value, String> {
         let requested = provider
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_ascii_lowercase);
-        // R50: degrade instead of erroring. The pet resolves its "current
-        // provider" from live sessions, which can legitimately be opencode /
-        // aider / the neutral aggregate bucket — none of which have a wander
-        // runner yet. Previously that surfaced as a raw "wander currently
-        // supports … only" error on click. Fall back to the first enabled
-        // supported provider, then to the historical default, and log the
-        // degradation so the choice stays diagnosable.
-        let supported_by_config = || {
-            runtime
-                .config()
-                .providers
-                .into_iter()
-                .find(|value| matches!(value.as_str(), "claude" | "codex" | "codewhale"))
-        };
-        let provider = match requested {
-            Some(value) if matches!(value.as_str(), "claude" | "codex" | "codewhale") => value,
-            Some(rejected) => {
-                let fallback = supported_by_config().unwrap_or_else(|| "claude".into());
+        // R50 (kept): degrade unsupported/neutral resolutions (opencode,
+        // aider, the aggregate bucket) to a supported provider instead of
+        // erroring on click; the degradation is logged so the choice stays
+        // diagnosable.
+        //
+        // R58-IMPL-C: the historical unconditional "claude" fallback is
+        // GONE. Candidate selection now prefers the requester's provider,
+        // then config-enabled providers, then the remaining runners — and
+        // every candidate is pre-checked with find_executable (upstream
+        // main.js findCli approach), so we never silently pick a CLI that is
+        // not installed. When nothing is available we return a localized
+        // error instead of launching "claude" and failing later.
+        let rejected = requested
+            .clone()
+            .filter(|value| !is_wander_supported(value));
+        let provider = pick_wander_provider(&runtime, requested.as_deref())
+            .ok_or_else(|| wander_no_cli_message(&runtime.config().lang))?;
+        if let Some(rejected) = rejected {
+            if rejected != provider {
                 runtime.write_log(
                     "travel",
                     &format!(
-                        "wander provider '{rejected}' has no runner; degrading to '{fallback}'"
+                        "wander provider '{rejected}' has no runner; degrading to '{provider}'"
                     ),
                 );
-                fallback
             }
-            None => supported_by_config().unwrap_or_else(|| "claude".into()),
+        }
+        // R58-IMPL-C: the INITIATING window owns the trip even when the
+        // provider degrades — previously a single-mode wander that degraded
+        // to codex landed the trip on the hidden "pet-codex" window, so the
+        // main pet lost its cancel button / roam expression / postcard
+        // (defect A), and in duo mode the initiator lost all feedback
+        // (defect B). Legacy callers without an owner keep the
+        // provider-derived label.
+        let owner_label: String = match owner.as_deref() {
+            Some(label @ ("pet" | "pet-codex")) => label.to_string(),
+            _ => owner_for_provider(&provider).to_string(),
         };
         self.start(
             app,
             runtime,
             "wander",
             &provider,
+            Some(&owner_label),
             None,
             "Web Wander".into(),
             crate::model::home_dir(),
@@ -245,6 +260,7 @@ impl TravelManager {
         runtime: Arc<Runtime>,
         mode: &str,
         provider: &str,
+        owner: Option<&str>,
         session_id: Option<String>,
         project: String,
         cwd: PathBuf,
@@ -255,9 +271,11 @@ impl TravelManager {
             return Err("travel mission cannot be empty".into());
         }
         let executable = find_executable(provider)?;
-        // Derive the owner (pet window label) from the provider so each pet
-        // window can run its own concurrent trip.
-        let owner = owner_for_provider(provider);
+        // Derive the owner (pet window label). R58-IMPL-C: an explicit owner
+        // (the initiating window) wins so each pet window can run its own
+        // concurrent trip and keep its feedback; None falls back to the
+        // provider-derived label for legacy callers (start_project).
+        let owner = owner.unwrap_or_else(|| owner_for_provider(provider));
         let mut active_guard = self.active.lock().unwrap_or_else(|e| e.into_inner());
         if active_guard.get(owner).is_some() {
             return Err("another trip is already running".into());
@@ -1166,12 +1184,74 @@ fn project_name(cwd: &Path) -> String {
 
 /// Map a provider to the pet window label that owns its trips. Codex runs in
 /// the "pet-codex" window (duo mode); all other providers share the "pet"
-/// window. This is the per-owner key for concurrent wandering.
+/// window. This is the per-owner key for concurrent wandering. R58-IMPL-C:
+/// this is only the LEGACY derivation (no explicit owner supplied); wander
+/// trips now carry the initiating window label from the frontend.
 fn owner_for_provider(provider: &str) -> &'static str {
     if provider == "codex" {
         "pet-codex"
     } else {
         "pet"
+    }
+}
+
+/// R58-IMPL-C: providers with a headless wander/travel runner implemented in
+/// provider_args. Single source of truth for the start_project whitelist and
+/// the wander candidate order; the frontend mirrors this set (frontend's
+/// WANDER_SUPPORTED in pet-travel-view.js).
+fn is_wander_supported(value: &str) -> bool {
+    matches!(value, "claude" | "codex" | "codewhale")
+}
+
+/// R58-IMPL-C: wander provider selection WITHOUT the historical "claude"
+/// hard fallback (user report: "闲逛功能还是硬编码claudecode"). Preference
+/// order:
+///   1. the requester's provider, when it has a runner;
+///   2. config-enabled providers that have a runner;
+///   3. the remaining supported runners.
+/// Every candidate is pre-checked with find_executable (upstream Electron
+/// main.js findCli approach) so we never pick a provider whose CLI is not
+/// installed; `None` means no supported CLI exists and the caller surfaces a
+/// localized error.
+fn pick_wander_provider(runtime: &Runtime, requested: Option<&str>) -> Option<String> {
+    const SUPPORTED: [&str; 3] = ["claude", "codex", "codewhale"];
+    let mut order: Vec<String> = Vec::with_capacity(SUPPORTED.len() + 1);
+    if let Some(value) = requested {
+        if SUPPORTED.contains(&value) {
+            order.push(value.to_string());
+        }
+    }
+    for value in runtime.config().providers {
+        if SUPPORTED.contains(&value.as_str()) && !order.contains(&value) {
+            order.push(value);
+        }
+    }
+    for value in SUPPORTED {
+        let value = value.to_string();
+        if !order.contains(&value) {
+            order.push(value);
+        }
+    }
+    order
+        .into_iter()
+        .find(|value| find_executable(value).is_ok())
+}
+
+/// R58-IMPL-C: localized "no wander-capable CLI installed" error. Follows
+/// the app's trilingual UI; the frontend bubble renders the raw message.
+fn wander_no_cli_message(lang: &str) -> String {
+    match lang {
+        "en" => {
+            "no wander-capable CLI is installed (install claude, codex or \
+             codewhale and make sure it is in PATH)"
+                .into()
+        }
+        "ja" => {
+            "ウェブ散歩できる CLI が見つかりません（claude / codex / codewhale \
+             のいずれかを PATH にインストールしてください）"
+                .into()
+        }
+        _ => "未安装可用于闲逛的 CLI（请在 PATH 中安装 claude / codex / codewhale 之一）".into(),
     }
 }
 

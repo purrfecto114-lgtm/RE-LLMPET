@@ -38,8 +38,12 @@ assert(primary && codex, 'dual-pet mode requires pet and pet-codex windows');
 // fix, so PET_AGENT was stuck on 'claude'. Identity is now config-driven for
 // the primary pet; only the dedicated codex pet pins its agent via query.
 assert(!primary.url.includes('agent='), 'primary pet window URL must not hardcode a provider identity (config-driven defaultAgent)');
-assert(codex.url.includes('agent=codex'), 'the codex pet window must keep its stable provider identity');
-for (const token of ['pub pet_mode: String', 'pub skin_codex: String', 'pub pet_position_codex: Option<Point>']) {
+// R58-IMPL-C: the second pet window no longer pins ?agent=codex either —
+// its identity is the window label ('pet-codex') and its paired provider is
+// config.duoProvider (default "codex"), applied at runtime via
+// sync_duo_provider_url navigation.
+assert(!codex.url.includes('agent='), 'the second pet window must not hardcode a provider identity (config-driven duoProvider pairing)');
+for (const token of ['pub pet_mode: String', 'pub duo_provider: String', 'pub skin_codex: String', 'pub pet_position_codex: Option<Point>']) {
   assert(model.includes(token), `dual-pet config field missing: ${token}`);
 }
 assert(commands.includes('pub fn set_pet_mode') && commands.includes('sync_pet_windows'), 'dual-pet mode command/synchronizer missing');

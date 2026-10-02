@@ -26,11 +26,17 @@ const petWindow = tauriConf.app.windows.find((w) => w.label === 'pet');
 const codexWindow = tauriConf.app.windows.find((w) => w.label === 'pet-codex');
 assert(petWindow && !petWindow.url.includes('agent='),
   'primary pet window must NOT hardcode a provider identity in its URL');
-assert(codexWindow && codexWindow.url.includes('agent=codex'),
-  'the codex pet window keeps its explicit codex identity');
+// R58-IMPL-C: the second pet window identity is the window LABEL; the paired
+// provider comes from config.duoProvider (runtime navigation), so the static
+// conf URL must not pin ?agent=codex anymore.
+assert(codexWindow && !codexWindow.url.includes('agent='),
+  'the second pet window identity is the window label; pairing is config-driven (duoProvider)');
 const agentView = read('frontend/renderer/pet-agent-view.js');
 assert(agentView.includes("if (current && current.label === 'pet') return defaultAgent();"),
   'aggregate pet must resolve its agent from config, not a constant');
+// R58-IMPL-C: window-label identity + config-driven duo partition.
+assert(agentView.includes("current.label === 'pet-codex'") && agentView.includes('setDuoProvider'),
+  'second pet identity must be the window label with a config-driven pairing');
 
 // ── 2. right-click opens the radial from pointerdown (contextmenu guard) ────
 const pet = read('frontend/renderer/pet.js');
@@ -104,8 +110,11 @@ assert.strictEqual(
 // task/agent → SubagentStart/juggling mapping now lives in the Rust
 // dictionary — hook_client::normalize_opencode_native. The plugin source
 // itself moved to plugin_sources.rs (hook_install.rs growth budget).
+// R58 (2026-10-02): batch1 (8391293, R58-1c) upgraded the plugin to v6 but
+// left this smoke on the v5 marker — indexOf() → -1 → slice(-1) made the
+// file fail at the R58-IMPL-C baseline. Tracked to the current v6 marker.
 const pluginSources = read('src-tauri/src/plugin_sources.rs');
-const plugin = pluginSources.slice(pluginSources.indexOf('octopus-opencode-plugin-v5'));
+const plugin = pluginSources.slice(pluginSources.indexOf('octopus-opencode-plugin-v6'));
 assert(plugin.includes('"tool.execute.before"'),
   'the plugin must export the native tool.execute.before hook');
 assert(plugin.includes('tool_name: tool'),
@@ -156,16 +165,21 @@ assert.strictEqual(travelView.ownerKeyFor('claude'), 'pet');
   });
   // pet window (owner "pet") sees only its own trip — codex's trip must not leak.
   view.update({ active: { 'pet-codex': { id: 't2', project: 'codex trip', startedAt: Date.now() } }, growth: {} });
-  // toggle should START a new wander (not cancel the codex pet's trip)
-  return void (async () => {
-    await new Promise((resolve) => { travelSandbox.__resolve = resolve; setTimeout(resolve, 30); });
+  // R58 (2026-10-02): the historical `return void (async …)()` here exited the
+  // CommonJS module wrapper early — every assertion below (wander degrade
+  // table, travel.rs degrade log, tray HiDPI) and the final ok log were
+  // silently skipped. Fire the async settle without returning.
+  void (async () => {
+    await new Promise((resolve) => { setTimeout(resolve, 30); })
   })();
 }
 // provider degrade assertion (synchronous contract check on the module shape)
 assert(Array.isArray(travelView.WANDER_SUPPORTED) && travelView.WANDER_SUPPORTED.includes('claude'),
   'wander degrade table must exist');
 const travel = read('src-tauri/src/travel.rs');
-assert(travel.includes("wander provider '{rejected}' has no runner; degrading to '{fallback}'"),
+// R58-IMPL-C: the degrade log names the CLI-verified provider (was {fallback}
+// from the removed supported_by_config + claude-fallback path).
+assert(travel.includes("wander provider '{rejected}' has no runner; degrading to '{provider}'"),
   'unsupported wander providers must degrade to an enabled supported provider, not error');
 
 // ── tray HiDPI ───────────────────────────────────────────────────────────────

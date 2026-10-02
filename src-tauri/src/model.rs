@@ -28,6 +28,14 @@ pub struct Point {
     pub y: i32,
 }
 
+/// R58-IMPL-C: serde default for `AppConfig::duo_provider`. Old configs
+/// without the field deserialize to "codex" — bit-identical to the 0.6.6
+/// hardcoded second-pet pairing, so no migration is needed (schema_version
+/// stays 2; unknown-field preservation via `extras` covers downgrades).
+fn default_duo_provider() -> String {
+    "codex".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppConfig {
@@ -42,8 +50,13 @@ pub struct AppConfig {
     pub lang: String,
     pub mode: String,
     pub skin: String,
-    /// single = one aggregated pet; duo = independent Claude + Codex pets.
+    /// single = one aggregated pet; duo = two pets.
     pub pet_mode: String,
+    /// R58-IMPL-C: provider paired with the second pet window (label
+    /// "pet-codex"). "codex" = the 0.6.6 hardcoded pairing (default, zero
+    /// migration); the panel exposes all five providers for free pairing.
+    #[serde(default = "default_duo_provider")]
+    pub duo_provider: String,
     pub skin_codex: String,
     pub pet_position: Option<Point>,
     pub pet_position_codex: Option<Point>,
@@ -97,6 +110,7 @@ impl Default for AppConfig {
             mode: "pet".into(),
             skin: "mascot".into(),
             pet_mode: "single".into(),
+            duo_provider: default_duo_provider(),
             skin_codex: "pixel".into(),
             pet_position: None,
             pet_position_codex: None,
@@ -138,6 +152,16 @@ impl AppConfig {
         }
         if !matches!(self.pet_mode.as_str(), "single" | "duo") {
             self.pet_mode = "single".into();
+        }
+        // R58-IMPL-C: the second-pet pairing must be one of the five known
+        // providers (same registry as config_view's `all` list). Anything
+        // else — manual edits, typos, future unknown ids — falls back to the
+        // 0.6.6 default "codex" instead of silently breaking window routing.
+        if !matches!(
+            self.duo_provider.as_str(),
+            "claude" | "codewhale" | "codex" | "opencode" | "aider"
+        ) {
+            self.duo_provider = default_duo_provider();
         }
         if !matches!(
             self.skin_codex.as_str(),
@@ -591,6 +615,18 @@ impl Runtime {
         self.config
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// R58-IMPL-C: lightweight read of the second-pet pairing provider for
+    /// the per-agent command router (`pet_label_for_agent`). Avoids a full
+    /// AppConfig clone on hot paths such as window drag (set_win_pos) —
+    /// mirrors the reply-privacy lightweight reader below.
+    pub fn duo_provider(&self) -> String {
+        self.config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .duo_provider
             .clone()
     }
 

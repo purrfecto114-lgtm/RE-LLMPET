@@ -4,6 +4,10 @@ const petAgentView = window.OctoPetAgentView;
 const runtimePolicy = window.OctoPetRuntimePolicy;
 const PET_AGENT = petAgentView.currentAgent();
 let petMode = 'single';
+// R58-IMPL-C: second-pet pairing provider (config.duoProvider, default
+// 'codex' = 0.6.6 behavior). Fed into the agent view partition and the
+// runtime policy by applyConfigSnapshot on every config push.
+let duoProvider = 'codex';
 
 function eventBelongsToThisPet(ev) {
   return petAgentView.eventBelongs(ev, petMode, PET_AGENT);
@@ -1118,7 +1122,10 @@ function renderSessList() {
     const archiveBtn = isArchived
       ? `<button class="sl-action sl-unarchive" title="${t('sess.unarchive')}"${prefDisabled}>📥</button>`
       : `<button class="sl-action sl-archive" title="${t('sess.archive')}"${prefDisabled}>📤</button>`;
-    const travelBtn = !s.headless && ['claude', 'codex'].includes(s.providerId || s.provider)
+    // R58-IMPL-C: travel-capable providers mirror travel.rs's supported
+    // set (claude/codex/codewhale) — the old ['claude','codex'] literal hid
+    // the 🧳 button on codewhale sessions even though wander supported them.
+    const travelBtn = !s.headless && window.OctoPetTravelView.WANDER_SUPPORTED.includes(s.providerId || s.provider)
       ? `<button class="sl-action sl-travel" title="项目旅行">🧳</button>` : '';
     // R57 (upstream main.js:1553-1560)：会话 ID 尾 8 位一键复制，跨 agent
     // resume 协作刚需（终端里 `claude --resume <paste>` / `opencode -s <paste>`）。
@@ -1257,7 +1264,7 @@ const sessionLifecycle = window.OctoPetSessionLifecycle.create({ element: sessli
   visibleCount: () => visibleSessions().length, fit: fitPopup, resetSize: resetPetSize });
 const { open: openSessList, close: closeSessList, toggle: toggleSessList } = sessionLifecycle;
 function activeProviderForPet() {
-  return runtimePolicy.resolveProvider(curSessions, activeProviders, PET_AGENT);
+  return runtimePolicy.resolveProvider(curSessions, activeProviders, PET_AGENT, duoProvider);
 }
 const travelView = window.OctoPetTravelView.create({
   api: window.pet,
@@ -1975,9 +1982,16 @@ function applyConfigSnapshot(cfg) {
   if (!cfg) return;
   muted = !!cfg.muted;
   petMode = cfg.petMode === 'duo' ? 'duo' : 'single';
+  // R58-IMPL-C: sync the second-pet pairing to the partition views.
+  // A missing/stale duoProvider field falls back to 'codex' (0.6.6).
+  duoProvider = typeof cfg.duoProvider === 'string' && cfg.duoProvider ? cfg.duoProvider : 'codex';
+  petAgentView.setDuoProvider(duoProvider);
   if (cfg.lang) applyLanguage(cfg.lang);
   territorySupported = !!cfg.territorySupported;
-  const effectiveSkin = PET_AGENT === 'codex' && petMode === 'duo' ? cfg.skinCodex : cfg.skin;
+  // R58-IMPL-C: window identity ('pet-codex') decides which skin/position
+  // fields apply — the semantic provider is config-driven, but the
+  // skinCodex/petPositionCodex field names stay (data compatibility).
+  const effectiveSkin = PET_AGENT === 'pet-codex' && petMode === 'duo' ? cfg.skinCodex : cfg.skin;
   if (effectiveSkin) applySkin(effectiveSkin);
   // R40.5: providers.active + statuses applied in BOTH paths
   if (cfg.providers && Array.isArray(cfg.providers.active)) {
@@ -2006,7 +2020,7 @@ function applyConfigSnapshot(cfg) {
     archivedSet = new Set(cfg.archivedSessions);
   }
   // 从配置推送同步权威窗口位置
-  const savedPosition = PET_AGENT === 'codex' && petMode === 'duo' ? cfg.petPositionCodex : cfg.petPosition;
+  const savedPosition = PET_AGENT === 'pet-codex' && petMode === 'duo' ? cfg.petPositionCodex : cfg.petPosition;
   if (savedPosition && Number.isFinite(savedPosition.x) && Number.isFinite(savedPosition.y)) {
     lastWinPos = [savedPosition.x, savedPosition.y];
   }

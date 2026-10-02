@@ -14,43 +14,72 @@
     return 'aggregate'; // window bucket, not a fabricated provider identity
   }
 
+  // R58-IMPL-C: the second pet's pairing provider (config.duoProvider).
+  // Snapshotted from pet:config pushes by pet.js (setDuoProvider below);
+  // missing field keeps the 0.6.6 hardcoded 'codex' behavior.
+  let duoProviderValue = 'codex';
+
+  function setDuoProvider(value) {
+    if (typeof value === 'string' && value) duoProviderValue = value;
+  }
+
+  function duoProvider() {
+    return duoProviderValue;
+  }
+
   function currentAgent() {
     try {
-      const fromQuery = new URLSearchParams(global.location.search).get('agent');
-      if (fromQuery === 'codex') return 'codex';
-      if (fromQuery && fromQuery !== 'codex') return fromQuery;
       // Derive from the window label (authoritative, synchronous).
+      // R58-IMPL-C: the second pet window's identity is its LABEL
+      // ('pet-codex') — an infrastructure identity that never changes —
+      // while its semantic provider (session partition, wander target) is
+      // resolved from config.duoProvider. Identity ≠ provider.
       const api = global.__TAURI__ && global.__TAURI__.window;
       const current = api && typeof api.getCurrentWindow === 'function' ? api.getCurrentWindow() : null;
-      if (current && current.label === 'pet-codex') return 'codex';
+      if (current && current.label === 'pet-codex') return 'pet-codex';
       if (current && current.label === 'pet') return defaultAgent();
+      // No window API (tests / non-Tauri shells): the URL query is the
+      // identity source; the legacy ?agent=codex deep link still maps to the
+      // second pet.
+      const fromQuery = new URLSearchParams(global.location.search).get('agent');
+      if (fromQuery === 'codex') return 'pet-codex';
+      if (fromQuery && fromQuery !== 'codex') return fromQuery;
     } catch (_) {}
     return defaultAgent();
   }
 
   function eventBelongs(event, petMode, agent) {
     if (!event || typeof event !== 'object') return false;
+    // R58-IMPL-C: travel lifecycle events carry the trip's OWNER (initiating
+    // window label). Routing by owner keeps completed/failed/cancelled
+    // feedback on the initiator even when the backend degraded the trip's
+    // provider to the OTHER pet's pairing (research defect B).
+    if (petMode === 'duo' && event.trip && typeof event.trip.owner === 'string') {
+      const ownOwner = agent === 'pet-codex' ? 'pet-codex' : 'pet';
+      return event.trip.owner === ownOwner;
+    }
     const provider = event.provider || (event.trip && event.trip.provider);
     if (petMode !== 'duo') return true;
     if (!provider) return true;
-    // P4-1 fix (R1): in duo mode, the 'claude' pet is the AGGREGATE bucket —
-    // it owns every event that is NOT codex (claude, codewhale, opencode,
-    // aider, and any future provider). The 'codex' pet owns only codex
-    // events. Previously codewhale/opencode/aider events matched neither pet
-    // and were silently dropped in duo mode, making those providers appear
-    // "dead" until the user switched back to single mode.
-    if (agent === 'codex') return provider === 'codex';
-    return provider !== 'codex';
+    // P4-1 fix (R1): in duo mode, the primary pet is the AGGREGATE bucket —
+    // it owns every event that is NOT the second pet's paired provider. The
+    // second pet (window identity 'pet-codex') owns only its paired
+    // provider's events. R58-IMPL-C: the split is config-driven
+    // (config.duoProvider) instead of the hardcoded codex literal.
+    const duo = duoProvider();
+    if (agent === 'pet-codex') return provider === duo;
+    return provider !== duo;
   }
 
   function filterStats(snapshot, petMode, agent) {
     if (!snapshot || petMode !== 'duo') return snapshot;
     // P4-1 fix (R1): partition sessions the same way as eventBelongs —
-    // claude pet gets every non-codex session, codex pet gets only codex.
+    // R58-IMPL-C: the paired provider (config.duoProvider) decides the split.
+    const duo = duoProvider();
     const sessions = (snapshot.sessions || []).filter((row) => {
       const pid = row.providerId || 'claude';
-      if (agent === 'codex') return pid === 'codex';
-      return pid !== 'codex';
+      if (agent === 'pet-codex') return pid === duo;
+      return pid !== duo;
     });
     const count = (state) => sessions.filter((row) => row.state === state).length;
     // 后端已经按状态优先级与活跃度排序；双宠只做 provider 投影，不重排。
@@ -86,8 +115,11 @@
     const window5h = snapshot.window5h
       ? { ...snapshot.window5h, cost: windowCost, tokens: windowTokens }
       : { cost: windowCost, tokens: windowTokens };
-    // P4-10 fix (R1): strip codex-specific rollout fields from the claude pet
-    // (and vice-versa) so each pet shows only its own usage/limits.
+    // P4-10 fix (R1): strip codex-specific rollout fields from the primary
+    // pet (and vice-versa) so each pet shows only its own usage/limits.
+    // R58-IMPL-C: the window identity decides — only the second pet window
+    // keeps the codex rollout surfaces (they exist when the pairing IS
+    // codex; other pairings simply have no such sessions).
     const result = {
       ...snapshot,
       sessions,
@@ -114,15 +146,16 @@
       today,
       window5h,
     };
-    if (agent !== 'codex') {
+    if (agent !== 'pet-codex') {
       delete result.codexUsage;
       delete result.codexLimits;
     } else {
-      // codex pet: clear the aggregate usage fields that belong to claude pet
-      // (they were already overridden above with the codex slice, but be explicit)
+      // second pet: clear the aggregate usage fields that belong to the
+      // primary pet (they were already overridden above with its slice, but
+      // be explicit)
     }
     return result;
   }
 
-  global.OctoPetAgentView = Object.freeze({ currentAgent, eventBelongs, filterStats });
+  global.OctoPetAgentView = Object.freeze({ currentAgent, eventBelongs, filterStats, setDuoProvider, duoProvider });
 })(window);

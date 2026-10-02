@@ -31,7 +31,7 @@
       {
         "label": "pet-codex",
         "title": "Octopus · Codex",
-        "url": "renderer/pet.html?agent=codex",
+        "url": "renderer/pet.html",
         "width": 320,
         "height": 340,
         "minWidth": 240,

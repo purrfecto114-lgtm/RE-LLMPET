@@ -14,11 +14,16 @@ window.OctoPetTravelView = (() => {
   // opencode and aider are launched differently and are rejected there.
   // When the pet resolves to one of those (or the neutral 'aggregate'
   // bucket), degrade to the first ENABLED supported provider instead of
-  // failing the click.
+  // failing the click. R58-IMPL-C: this mirror of travel.rs's
+  // is_wander_supported set is the frontend's fast-path degrade table; the
+  // backend re-checks (and pre-checks CLI existence) authoritatively.
   const WANDER_SUPPORTED = ['claude', 'codex', 'codewhale'];
 
   function ownerKeyFor(agent) {
-    return agent === 'codex' ? 'pet-codex' : 'pet';
+    // R58-IMPL-C: window-identity aware — the second pet is 'pet-codex'
+    // (label semantics); the legacy 'codex' bucket value still maps to the
+    // second window for pre-R58 callers.
+    return agent === 'codex' || agent === 'pet-codex' ? 'pet-codex' : 'pet';
   }
 
   function create({ api, bubble, close, provider, agent, enabledProviders }) {
@@ -69,6 +74,11 @@ window.OctoPetTravelView = (() => {
           bubble('⏹ 正在取消旅行…', 2400, true);
           return;
         }
+        // R58-IMPL-C: provider() resolves this pet's own provider (the
+        // second pet resolves to config.duoProvider via
+        // runtime-policy.resolveProvider in pet.js); the bridge attaches the
+        // initiating window label as the trip owner, so degraded trips stay
+        // on THIS window.
         let target = typeof provider === 'function' ? provider() : provider;
         // R50: degrade unsupported/neutral resolutions to the first
         // supported enabled provider instead of erroring out.

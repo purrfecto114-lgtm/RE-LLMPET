@@ -83,8 +83,20 @@
           <span class="seg-label" data-i18n="panel.window">窗口</span>
           <div class="seg" id="pet-mode-seg">
             <button class="seg-btn" data-pet-mode="single" data-i18n="panel.single">单宠</button>
-            <button class="seg-btn" data-pet-mode="duo" data-i18n="panel.duo">双宠 · Claude + Codex</button>
+            <button class="seg-btn" data-pet-mode="duo" data-i18n="panel.duo">双宠 · 自由搭配</button>
           </div>
+        </div>
+        <!-- R58-IMPL-C: second-pet free pairing — select any provider for the
+             pet-codex window (default codex = 0.6.6 behavior). -->
+        <div class="seg-row">
+          <span class="seg-label" data-i18n="panel.duoProvider">副宠 Agent</span>
+          <select id="duo-provider" aria-label="Second pet agent">
+            <option value="codex">Codex</option>
+            <option value="claude">Claude</option>
+            <option value="codewhale">CodeWhale</option>
+            <option value="opencode">OpenCode</option>
+            <option value="aider">Aider</option>
+          </select>
         </div>
       </section>
 

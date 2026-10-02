@@ -8,20 +8,72 @@ use serde_json::{json, Value};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, State};
 
-fn pet_label_for_agent(agent: Option<&str>) -> &'static str {
-    if agent == Some("codex") {
+/// R58-IMPL-C: map a semantic provider (the value the bridge sends as the
+/// per-agent identity) to the pet window label. The second pet window is
+/// paired with `config.duo_provider` (default "codex" — pre-R58 payloads
+/// sending agent="codex" stay equivalent); every other agent value routes
+/// to the primary "pet" window. The window label itself is an
+/// infrastructure identity (capabilities, platform.rs, territory.rs address
+/// it) and is intentionally NOT renamed.
+fn pet_label_for_agent(app: &AppHandle, agent: Option<&str>) -> &'static str {
+    let duo = app
+        .try_state::<crate::model::AppState>()
+        .map(|state| state.runtime.duo_provider())
+        .unwrap_or_else(|| "codex".into());
+    if agent == Some(duo.as_str()) {
         "pet-codex"
     } else {
         "pet"
     }
 }
 
+/// R58-IMPL-C: keep the second-pet window's URL query in sync with the
+/// configured duo provider. The window label is the authoritative renderer
+/// identity, but the URL query stays a secondary identity source (and keeps
+/// non-Tauri deep links meaningful), so navigation keeps both in agreement.
+/// Guarded by the last applied value so toggling pet mode / repeated
+/// sync_pet_windows calls never reload the window unnecessarily. The
+/// default pairing ("codex") maps to the plain un-queried conf URL.
+fn sync_duo_provider_url(app: &AppHandle, config: &crate::model::AppConfig) {
+    static LAST_APPLIED: Mutex<Option<String>> = Mutex::new(None);
+    let provider = config.duo_provider.clone();
+    let last = LAST_APPLIED.lock().unwrap_or_else(|e| e.into_inner());
+    // Fresh start with the default pairing = the static conf URL (no agent
+    // query) — nothing to do; the label identity already resolves it.
+    if last.as_deref() == Some(provider.as_str())
+        || (last.is_none() && provider == "codex")
+    {
+        return;
+    }
+    drop(last);
+    if let Some(window) = app.get_webview_window("pet-codex") {
+        // duo_provider is whitelisted to the five registry ids by
+        // sanitize()/set_duo_provider, so the query is injection-safe; the
+        // absolute path works on every Tauri scheme (tauri:// and
+        // http://tauri.localhost both serve the dist root).
+        let query = if provider == "codex" {
+            String::new()
+        } else {
+            format!("?agent={provider}")
+        };
+        let script = format!(
+            "window.location.replace('/renderer/pet.html{}')",
+            query
+        );
+        let _ = window.eval(&script);
+        *LAST_APPLIED.lock().unwrap_or_else(|e| e.into_inner()) = Some(provider);
+    }
+}
+
 pub(crate) fn sync_pet_windows(app: &AppHandle, config: &crate::model::AppConfig) {
+    // R58-IMPL-C: entering duo mode (or a provider change while paired)
+    // re-points the second-pet window at the configured provider.
+    sync_duo_provider_url(app, config);
     let hidden = config.mode == "hidePet";
     if let Some(window) = app.get_webview_window("pet") {
         let _ = if hidden { window.hide() } else { window.show() };
@@ -237,12 +289,17 @@ pub fn start_wander(
     state: State<'_, AppState>,
     mission: Option<String>,
     provider: Option<String>,
+    owner: Option<String>,
 ) -> Result<Value, String> {
     state.runtime.travel.start_wander(
         app,
         state.runtime.clone(),
         mission.unwrap_or_else(|| pick_wander_mission().into()),
         provider,
+        // R58-IMPL-C: the initiating window label ("pet" / "pet-codex") —
+        // optional for legacy callers; travel.rs falls back to the
+        // provider-derived owner when absent.
+        owner,
     )
 }
 
@@ -616,7 +673,11 @@ pub fn set_skin(
     agent: Option<String>,
 ) -> Result<(), String> {
     state.runtime.update_config(|config| {
-        if agent.as_deref() == Some("codex") {
+        // R58-IMPL-C: the second pet's skin is selected by the SEMANTIC
+        // provider (config.duo_provider, default "codex") instead of the
+        // hardcoded codex literal. Old payloads sending agent="codex" with
+        // the default config remain equivalent.
+        if agent.as_deref() == Some(config.duo_provider.as_str()) {
             config.skin_codex = skin;
         } else {
             config.skin = skin;
@@ -647,6 +708,42 @@ pub fn set_pet_mode(
     emit_config(&app, &state);
     // P4-3 (R3): re-emit stats so the new layout gets correct data immediately.
     emit_stats_now(&app, &state);
+    Ok(())
+}
+
+/// R58-IMPL-C: pair the second pet window (label "pet-codex") with any of
+/// the five known providers ("duo free pairing"). Default is "codex" — the
+/// pre-R58 hardcoded pairing — so existing users see zero change until they
+/// actively pick another agent in the panel. Mirrors set_pet_mode:
+/// update_config (transactional persist) + sync_pet_windows (re-points the
+/// second-pet window URL at the paired provider) + emit_config (renderer
+/// snapshots refresh without a reload on the main pet side).
+#[tauri::command]
+pub fn set_duo_provider(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    duo_provider: String,
+) -> Result<(), String> {
+    let provider = duo_provider.trim().to_ascii_lowercase();
+    // Whitelist mirrors the provider registry (config_view's `all` list).
+    if !matches!(
+        provider.as_str(),
+        "claude" | "codewhale" | "codex" | "opencode" | "aider"
+    ) {
+        return Err(format!("unsupported duo provider: {provider}"));
+    }
+    let config = state
+        .runtime
+        .update_config(|config| config.duo_provider = provider.clone())?;
+    // Re-sync the second-pet window URL and duo visibility. When the app is
+    // in duo mode the paired window reloads into the new identity; in single
+    // mode the window is hidden and the URL sync simply stages the identity
+    // for the next duo entry.
+    sync_pet_windows(&app, &config);
+    // The session partition (which pet owns which provider's events) changes
+    // with the pairing — re-emit stats so both pets re-slice immediately.
+    emit_stats_now(&app, &state);
+    emit_config(&app, &state);
     Ok(())
 }
 
@@ -1071,7 +1168,7 @@ pub fn close_panel(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn get_win_pos(app: AppHandle, agent: Option<String>) -> Result<[i32; 2], String> {
-    let label = pet_label_for_agent(agent.as_deref());
+    let label = pet_label_for_agent(&app, agent.as_deref());
     let window = app.get_webview_window(label).ok_or("pet window missing")?;
     // R22 (2026-07-30): return LOGICAL position so the renderer's screenX
     // delta (also logical) can be added directly without DPI mismatch.
@@ -1090,7 +1187,7 @@ pub fn set_win_pos(app: AppHandle, x: i32, y: i32, agent: Option<String>) -> Res
     // uses e.screenX — CSS/logical pixels) and convert to physical internally.
     // The old code used PhysicalPosition directly, causing DPI mismatch on
     // scaled displays (pet moved slower/faster than mouse).
-    let label = pet_label_for_agent(agent.as_deref());
+    let label = pet_label_for_agent(&app, agent.as_deref());
     let window = app.get_webview_window(label).ok_or("pet window missing")?;
     let scale = window.scale_factor().unwrap_or(1.0);
     let physical_x = (x as f64 * scale).round() as i32;
@@ -1108,7 +1205,7 @@ pub fn commit_win_pos(
     state: State<'_, AppState>,
     agent: Option<String>,
 ) -> Result<[i32; 2], String> {
-    let label = pet_label_for_agent(agent.as_deref());
+    let label = pet_label_for_agent(&app, agent.as_deref());
     let window = app.get_webview_window(label).ok_or("pet window missing")?;
     let position = window.outer_position().map_err(|error| error.to_string())?;
     let scale = window.scale_factor().unwrap_or(1.0);
@@ -1139,7 +1236,7 @@ pub fn set_ignore_mouse(
     // Electron supported `forward: true`, allowing ignored windows to keep
     // receiving mousemove events. Tauri intentionally exposes only a strict
     // ignore toggle, so the native cursor hit-test loop owns the applied state.
-    platform_state.request_mouse_ignore(pet_label_for_agent(agent.as_deref()), ignore);
+    platform_state.request_mouse_ignore(pet_label_for_agent(&app, agent.as_deref()), ignore);
     Ok(())
 }
 
@@ -1326,7 +1423,7 @@ pub fn set_pet_size(
     } else {
         (width.clamp(240.0, 1200.0), height.clamp(240.0, 1200.0))
     };
-    let label = pet_label_for_agent(agent.as_deref());
+    let label = pet_label_for_agent(&app, agent.as_deref());
     let window = app.get_webview_window(label).ok_or("pet window missing")?;
     resize_pet_anchored(&window, width, height)
 }
@@ -1346,7 +1443,7 @@ pub fn set_panel_height(app: AppHandle, height: f64) -> Result<[f64; 2], String>
 
 #[tauri::command]
 pub fn focus_pet(app: AppHandle, agent: Option<String>) -> Result<(), String> {
-    let label = pet_label_for_agent(agent.as_deref());
+    let label = pet_label_for_agent(&app, agent.as_deref());
     let window = app.get_webview_window(label).ok_or("pet window missing")?;
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())
@@ -3319,7 +3416,7 @@ pub fn pet_visual_bounds(
     rect: Value,
     agent: Option<String>,
 ) -> Result<(), String> {
-    platform_state.set_visual_bounds(pet_label_for_agent(agent.as_deref()), &rect)
+    platform_state.set_visual_bounds(pet_label_for_agent(&app, agent.as_deref()), &rect)
 }
 
 #[tauri::command]

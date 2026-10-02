@@ -429,7 +429,9 @@
     'panel.petMode': '桌宠模式',
     'panel.window': '窗口',
     'panel.single': '单宠',
-    'panel.duo': '双宠 · Claude + Codex',
+    // R58-IMPL-C: 双宠自由搭配 — the second pet pairs with any provider.
+    'panel.duo': '双宠 · 自由搭配',
+    'panel.duoProvider': '副宠 Agent',
     'panel.travelGrowth': '🧳 旅行与成长',
     'panel.noTravel': '当前没有旅行',
     'panel.machineGrowth': '🤖 本机成长',
@@ -859,7 +861,9 @@
     'panel.petMode': 'Pet Mode',
     'panel.window': 'Window',
     'panel.single': 'Single',
-    'panel.duo': 'Duo · Claude + Codex',
+    // R58-IMPL-C: duo free pairing.
+    'panel.duo': 'Duo · Free Pairing',
+    'panel.duoProvider': 'Second Pet Agent',
     'panel.travelGrowth': '🧳 Travel & Growth',
     'panel.noTravel': 'No active travel',
     'panel.machineGrowth': '🤖 Machine Growth',
@@ -1287,7 +1291,9 @@
     'panel.petMode': 'ペットモード',
     'panel.window': 'ウィンドウ',
     'panel.single': 'シングル',
-    'panel.duo': 'デュオ · Claude + Codex',
+    // R58-IMPL-C: デュオ自由組み合わせ。
+    'panel.duo': 'デュオ · 自由組み合わせ',
+    'panel.duoProvider': 'サブペット Agent',
     'panel.travelGrowth': '🧳 旅行と成長',
     'panel.noTravel': '旅行なし',
     'panel.machineGrowth': '🤖 マシン成長',
