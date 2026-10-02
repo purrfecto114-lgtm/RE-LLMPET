@@ -13,10 +13,14 @@
 ;                 missing uninstaller).
 ;   POSTINSTALL — alias exe for legacy hook commands (unchanged).
 ;   PREUNINSTALL— kill every Octopus process (tray app + hook shims can be
-;                 mid-flight in an agent session and lock the files), then
-;                 run `octopus.exe --uninstall-hooks` to repair the provider
-;                 configs, then delete the alias. Files are removed by the
-;                 template right after, so the binary still exists here.
+;                 mid-flight in an agent session and lock the files), ask
+;                 whether user data should go too, then run
+;                 `octopus.exe --uninstall-hooks [--purge-data]` to repair
+;                 the provider configs, then delete the alias. Files are
+;                 removed by the template right after, so the binary still
+;                 exists here.
+;   POSTUNINSTALL— R58-IMPL-D: remove the WebView2 browser data directories
+;                 the Tauri runtime leaves under the app identifier.
 ; ---------------------------------------------------------------------------
 !macro NSIS_HOOK_PREINSTALL
   StrCpy $0 ""
@@ -95,8 +99,41 @@
   ; so no agent CLI is left pointing at a deleted exe. Exit code 1 means a
   ; provider needs manual attention — logged, not fatal.
   IfFileExists "$INSTDIR\octopus.exe" 0 octopus_uninstall_hooks_skip
-    ExecWait '"$INSTDIR\octopus.exe" --uninstall-hooks' $0
-    DetailPrint "octopus --uninstall-hooks exit code: $0"
+    ; R58-IMPL-D (A2): ask whether the user data should be deleted too.
+    ; --purge-data makes the binary also remove ~/.re-llmpet (config, usage
+    ; history, receipts) after cleaning the hooks. /SD IDNO is the silent-
+    ; uninstall (/S) answer — silent runs keep the hooks-only default so a
+    ; scripted uninstall never deletes user data without an explicit answer.
+    MessageBox MB_ICONQUESTION|MB_YESNO "是否同时删除 Octopus 的用户数据（配置 / 用量历史 / 钩子安装记录）？$\n选择「否」仅卸载 Provider 钩子，保留用户数据。" /SD IDNO IDYES octopus_purge_data IDNO octopus_hooks_only
+    octopus_purge_data:
+      ExecWait '"$INSTDIR\octopus.exe" --uninstall-hooks --purge-data' $0
+      DetailPrint "octopus --uninstall-hooks --purge-data exit code: $0"
+      Goto octopus_uninstall_hooks_done
+    octopus_hooks_only:
+      ExecWait '"$INSTDIR\octopus.exe" --uninstall-hooks' $0
+      DetailPrint "octopus --uninstall-hooks exit code: $0"
+    octopus_uninstall_hooks_done:
   octopus_uninstall_hooks_skip:
   Delete "$INSTDIR\re-llmpet-hook.exe"
+!macroend
+
+!macro NSIS_HOOK_POSTUNINSTALL
+  ; R58-IMPL-D (R8): the Tauri runtime leaves WebView2 browser data
+  ; (EBWebView caches) under the app identifier. The identifier must match
+  ; tauri.conf.json (io.github.purrfecto114.octopus).
+  ;
+  ; Deviation note (R58-IMPL-D): the planned tauri.conf.json
+  ; "deleteAppDataOnUninstall": true was REJECTED after checking the
+  ; tauri-v2.11.5 / tauri-utils 2.9.3 NsisConfig schema
+  ; (crates/tauri-utils/src/config.rs): the struct is
+  ; #[serde(deny_unknown_fields)] and has NO such key — the config would
+  ; fail to parse and break `cargo tauri build`. The stock template
+  ; already RmDirs both dirs when the user ticks the built-in "delete app
+  ; data" checkbox, but passive (/P) and silent (/S) uninstalls skip the
+  ; confirm page, so this unconditional hook is the reliable path.
+  ; Our own app data never uses these dirs (it lives in ~/.re-llmpet,
+  ; covered by the --purge-data question above), so nothing user-owned
+  ; can be lost here.
+  RMDir /r "$LOCALAPPDATA\io.github.purrfecto114.octopus"
+  RMDir /r "$APPDATA\io.github.purrfecto114.octopus"
 !macroend

@@ -118,11 +118,28 @@ window.OctopusExport = (() => {
     }, 100);
   }
 
+  // R58-IMPL-D (B11): surface the export result as a toast. Downloads were
+  // silent before — the WebView2 download bar is not a reliable surface, so
+  // the click looked like a no-op. Uses window.OctoI18n directly (this
+  // module is self-contained by design) and the shared toast host in
+  // panel.html (#re-llmpet-toast, populated by ../shared/toast.js).
+  function notifyExported(filename) {
+    const i18n = window.OctoI18n;
+    const t = (i18n && typeof i18n.t === 'function')
+      ? (key, vars) => i18n.t(key, vars)
+      : (key) => key;
+    if (window.reLlmpetToast && typeof window.reLlmpetToast.show === 'function') {
+      window.reLlmpetToast.show(t('toast.exportDone', { file: filename }), { timeout: 4500 });
+    }
+  }
+
   function exportData(format) {
     const data = buildExportObject();
     const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     if (format === 'json') {
-      download(`octopus-usage-${ts}.json`, JSON.stringify(data, null, 2), 'application/json');
+      const filename = `octopus-usage-${ts}.json`;
+      download(filename, JSON.stringify(data, null, 2), 'application/json');
+      notifyExported(filename);
       return;
     }
     // CSV: flat key-value rows for easy spreadsheet import
@@ -169,6 +186,7 @@ window.OctopusExport = (() => {
         : s;
     }).join(',')).join('\n');
     download(`octopus-usage-${ts}.csv`, csv, 'text/csv');
+    notifyExported(`octopus-usage-${ts}.csv`);
   }
 
   // Auto-init on DOMContentLoaded

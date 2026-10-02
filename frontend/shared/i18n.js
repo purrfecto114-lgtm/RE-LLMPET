@@ -43,7 +43,8 @@
     'tray.launchAider': '🤝 唤起 Aider',
     'tray.launchAgent': '新开 Agent',
     'tray.openLog': '📄 打开日志',
-    'tray.uninstallHook': '🧹 卸载 Claude 钩子',
+    // R58-IMPL-D (A5): tray item now cleans ALL five providers.
+    'tray.uninstallHook': '🧹 卸载全部钩子',
     'tray.quit': '⏻ 退出',
     'tray.budgetOff': '关闭',
     'tray.settingsMenu': '⚙️ 设置',
@@ -470,6 +471,23 @@
     'bubble.travelFail': '⚠️ 无法出发',
     'bubble.currencyCny': '💴 切换为 ¥（人民币）',
     'bubble.currencyUsd': '💲 切换为 $（美元）',
+    // ── R58-IMPL-D (B6/B9/B10/B11): toast labels, mirrored in src-tauri/src/i18n.rs
+    // (tauri-tray-i18n-r11-smoke asserts Rust/JS parity for every key).
+    // Rust consumes launchFail/openLogFail/openDirFail/openPanelFail/saveFail/
+    // muted/unmuted + tray.toast*; panel.js/panel-export.js consume
+    // rebuildDone/exportDone with {count}/{delta}/{file} interpolation.
+    'toast.launchFail': '🚀 启动失败',
+    'toast.openLogFail': '📄 打开日志失败',
+    'toast.openDirFail': '📁 打开数据目录失败',
+    'toast.openPanelFail': '📊 打开面板失败',
+    'toast.saveFail': '⚠️ 设置保存失败',
+    'toast.muted': '🔇 已静音',
+    'toast.unmuted': '🔔 已取消静音',
+    'toast.rebuildDone': '✅ 重算完成：{count} 个事件，花费变化 {delta}',
+    'toast.exportDone': '✅ 已导出：{file}',
+    'tray.toastPriceQueued': '💰 价格刷新已入队',
+    'tray.toastUninstallDone': '🧹 全部 Provider 钩子已卸载',
+    'tray.toastUninstallFail': '🧹 卸载失败',
   };
 
   const en = {
@@ -495,7 +513,8 @@
     'tray.launchAider': '🤝 Launch Aider',
     'tray.launchAgent': 'Launch agent',
     'tray.openLog': '📄 Open log',
-    'tray.uninstallHook': '🧹 Uninstall Claude hooks',
+    // R58-IMPL-D (A5): tray item now cleans ALL five providers.
+    'tray.uninstallHook': '🧹 Uninstall all hooks',
     'tray.quit': '⏻ Quit',
     'tray.budgetOff': 'Off',
     'tray.settingsMenu': '⚙️ Settings',
@@ -902,6 +921,20 @@
     'bubble.travelFail': '⚠️ Cannot start',
     'bubble.currencyCny': '💴 Switched to ¥ (CNY)',
     'bubble.currencyUsd': '💲 Switched to $ (USD)',
+    // ── R58-IMPL-D (B6/B9/B10/B11): toast labels, mirrored in src-tauri/src/i18n.rs
+    // (tauri-tray-i18n-r11-smoke asserts Rust/JS parity for every key).
+    'toast.launchFail': '🚀 Launch failed',
+    'toast.openLogFail': '📄 Failed to open log',
+    'toast.openDirFail': '📁 Failed to open data directory',
+    'toast.openPanelFail': '📊 Failed to open panel',
+    'toast.saveFail': '⚠️ Failed to save settings',
+    'toast.muted': '🔇 Muted',
+    'toast.unmuted': '🔔 Unmuted',
+    'toast.rebuildDone': '✅ Rebuilt: {count} events, cost delta {delta}',
+    'toast.exportDone': '✅ Exported: {file}',
+    'tray.toastPriceQueued': '💰 Price refresh queued',
+    'tray.toastUninstallDone': '🧹 All provider hooks uninstalled',
+    'tray.toastUninstallFail': '🧹 Uninstall failed',
   };
 
   const ja = {
@@ -927,7 +960,8 @@
     'tray.launchAider': '🤝 Aider を起動',
     'tray.launchAgent': 'エージェントを起動',
     'tray.openLog': '📄 ログを開く',
-    'tray.uninstallHook': '🧹 Claude フックを削除',
+    // R58-IMPL-D (A5): tray item now cleans ALL five providers.
+    'tray.uninstallHook': '🧹 すべてのフックを削除',
     'tray.quit': '⏻ 終了',
     'tray.budgetOff': 'オフ',
     'tray.settingsMenu': '⚙️ 設定',
@@ -1332,6 +1366,20 @@
     'bubble.travelFail': '⚠️ 出発できません',
     'bubble.currencyCny': '💴 ¥（人民元）に切替',
     'bubble.currencyUsd': '💲 $（ドル）に切替',
+    // ── R58-IMPL-D (B6/B9/B10/B11): toast labels, mirrored in src-tauri/src/i18n.rs
+    // (tauri-tray-i18n-r11-smoke asserts Rust/JS parity for every key).
+    'toast.launchFail': '🚀 起動に失敗しました',
+    'toast.openLogFail': '📄 ログを開けませんでした',
+    'toast.openDirFail': '📁 データディレクトリを開けませんでした',
+    'toast.openPanelFail': '📊 パネルを開けませんでした',
+    'toast.saveFail': '⚠️ 設定の保存に失敗しました',
+    'toast.muted': '🔇 ミュートしました',
+    'toast.unmuted': '🔔 ミュートを解除しました',
+    'toast.rebuildDone': '✅ 再計算完了：{count} イベント、費用変化 {delta}',
+    'toast.exportDone': '✅ エクスポート済み：{file}',
+    'tray.toastPriceQueued': '💰 価格更新をキューに入れました',
+    'tray.toastUninstallDone': '🧹 すべてのプロバイダーフックを削除しました',
+    'tray.toastUninstallFail': '🧹 削除に失敗しました',
   };
 
   const DICT = { zh, en, ja };

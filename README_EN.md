@@ -74,7 +74,7 @@ Useful commands:
 npm test                 # full headless regression suite
 npm run package:mac:dev  # local ad-hoc-signed macOS package
 npm run package:win      # Windows installer + portable ZIP
-npm run uninstall:hooks  # remove LLMPET's Claude hooks safely
+octopus --uninstall-hooks          # remove all provider hooks safely (add --purge-data to also delete ~/.re-llmpet)
 ```
 
 ## How the integrations work
@@ -123,6 +123,23 @@ Scheduled local backup is **off by default**. When the user explicitly enables i
 - Background network access is limited to the optional daily LiteLLM pricing download. `OCTOPUS_NO_NET=1` disables LLMPET's pricing fetch, but does not override a CLI trip you explicitly start.
 - Electron runs with `contextIsolation` enabled and `nodeIntegration` disabled.
 - Claude hook installation is merge-safe, atomic, reversible, and backed up before uninstall.
+
+## Uninstall and residue cleanup (R58)
+
+The tray item **🧹 Uninstall all hooks** cleans every one of the five providers in one click (since R58 it is no longer Claude-only), or use the CLI:
+
+```bash
+# hooks only — user data is kept; empty config shells and .octopus-bak-* backups we created are also swept
+octopus --uninstall-hooks
+# additionally remove ~/.re-llmpet (config / usage history / logs / install receipts)
+octopus --uninstall-hooks --purge-data
+```
+
+**macOS / Linux note (R58):** there is no uninstaller. You MUST run the command above BEFORE dragging the .app to Trash (or `dpkg -r`) — once the application is deleted the binary is gone and the provider configs keep pointing at a nonexistent path (CodeWhale's fail-closed permission hook then rejects every tool call). Older docs suggesting the flag "after drag-to-trash" described a dead path; do not do that.
+
+The Windows uninstaller (NSIS) handles this automatically: it kills the processes, asks "also delete user data?" (answering Yes runs the cleanup with `--purge-data`; silent `/S` uninstalls default to hooks-only), repairs the provider configs while the binary still exists, and removes the WebView2 data directory (`%LOCALAPPDATA%\io.github.purrfecto114.octopus`) afterwards.
+
+Cleanup principle: only sections/files/directories we wrote are removed; anything whose ownership cannot be proven is left in place (residue is preferred over deleting user data).
 
 ## Configuration and development flags
 

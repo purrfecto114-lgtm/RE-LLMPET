@@ -25,6 +25,13 @@
 /// `refresh_tray_menu`. Each row is `(key, zh, en, ja)`. Add a new row
 /// when the tray grows a new label.
 ///
+/// R58-IMPL-D (B9): rows below the divider are TOAST labels (not menu
+/// labels). They share the same table + parity smoke because the r11
+/// contract covers every key in this module; the toast.* keys are consumed
+/// by `tray_toast_error` / `emit_tray_toast` (lib.rs) and `toggle_mute`
+/// (commands.rs), and mirrored frontend keys (toast.rebuildDone /
+/// toast.exportDone) are consumed by panel.js / panel-export.js.
+///
 /// R22 (2026-07-30): `#[rustfmt::skip]` keeps the table on single lines
 /// so it stays human-readable (29 rows, one per line) and the smoke-test
 /// regex can parse each row. Without this, `cargo fmt`'s default
@@ -52,7 +59,9 @@ pub const TRAY_LABELS: &[(&str, &str, &str, &str)] = &[
     ("tray.mute",           "　🔇 静音",                           "　🔇 Mute",                               "　🔇 ミュート"),
     ("tray.unmute",         "　🔔 取消静音",                       "　🔔 Unmute",                             "　🔔 ミュート解除"),
     ("tray.openLog",        "📄 打开日志",                         "📄 Open log",                             "📄 ログを開く"),
-    ("tray.uninstallHook",  "🧹 卸载 Claude 钩子",                 "🧹 Uninstall Claude hooks",               "🧹 Claude フックを削除"),
+    // R58-IMPL-D (A5): the tray item now cleans ALL five providers, not
+    // just Claude — the label says so.
+    ("tray.uninstallHook",  "🧹 卸载全部钩子",                     "🧹 Uninstall all hooks",                  "🧹 すべてのフックを削除"),
     ("tray.quit",           "⏻ 退出",                             "⏻ Quit",                                 "⏻ 終了"),
     ("tray.launchAgent",    "新开 Agent",                          "Launch agent",                            "エージェントを起動"),
     ("tray.launchClaude",   "🚀 唤起 Claude",                     "🚀 Launch Claude",                        "🚀 Claude を起動"),
@@ -70,6 +79,19 @@ pub const TRAY_LABELS: &[(&str, &str, &str, &str)] = &[
     ("shape.pet",           "浮游桌宠",                            "Floating pet",                            "浮遊ペット"),
     ("shape.panel",         "角落面板",                            "Corner panel",                            "隅のパネル"),
     ("shape.hidePet",       "仅托盘（隐藏桌宠）",                  "Tray only (hide pet)",                    "トレイのみ（ペット非表示）"),
+    // ── R58-IMPL-D (B6/B9): toast labels (see the module comment) ──────────
+    ("toast.launchFail",    "🚀 启动失败",                         "🚀 Launch failed",                         "🚀 起動に失敗しました"),
+    ("toast.openLogFail",   "📄 打开日志失败",                     "📄 Failed to open log",                    "📄 ログを開けませんでした"),
+    ("toast.openDirFail",   "📁 打开数据目录失败",                 "📁 Failed to open data directory",         "📁 データディレクトリを開けませんでした"),
+    ("toast.openPanelFail", "📊 打开面板失败",                     "📊 Failed to open panel",                  "📊 パネルを開けませんでした"),
+    ("toast.saveFail",      "⚠️ 设置保存失败",                     "⚠️ Failed to save settings",               "⚠️ 設定の保存に失敗しました"),
+    ("toast.muted",         "🔇 已静音",                           "🔇 Muted",                                 "🔇 ミュートしました"),
+    ("toast.unmuted",       "🔔 已取消静音",                       "🔔 Unmuted",                               "🔔 ミュートを解除しました"),
+    ("toast.rebuildDone",   "✅ 重算完成：{count} 个事件，花费变化 {delta}", "✅ Rebuilt: {count} events, cost delta {delta}", "✅ 再計算完了：{count} イベント、費用変化 {delta}"),
+    ("toast.exportDone",    "✅ 已导出：{file}",                    "✅ Exported: {file}",                       "✅ エクスポート済み：{file}"),
+    ("tray.toastPriceQueued",    "💰 价格刷新已入队",               "💰 Price refresh queued",                  "💰 価格更新をキューに入れました"),
+    ("tray.toastUninstallDone",  "🧹 全部 Provider 钩子已卸载",     "🧹 All provider hooks uninstalled",        "🧹 すべてのプロバイダーフックを削除しました"),
+    ("tray.toastUninstallFail",  "🧹 卸载失败",                     "🧹 Uninstall failed",                      "🧹 削除に失敗しました"),
 ];
 
 /// Return the localized value for `key` in `lang`, falling back to `zh`

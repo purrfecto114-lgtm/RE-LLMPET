@@ -37,7 +37,27 @@ window.OctoPetRadialMenu = (() => {
       { ic: 'hand', key: 'menu.pending', badge: true, act: () => window.pet.openPanel() },
       { ic: 'zombie', key: 'menu.background', badgeBg: true, act: () => window.pet.openPanel() },
       { ic: 'doc', key: 'menu.log', act: () => window.pet.openLog() },
-      { ic: 'search', key: 'menu.patrol', when: owner.territorySupported, act: () => window.pet.territoryRunNow() },
+      { ic: 'search', key: 'menu.patrol', when: owner.territorySupported, act: () => {
+        // R58-IMPL-D (B7): territoryRunNow is a call() — the returned
+        // promise was previously dropped, so a rejection became an
+        // unhandled rejection and the deferred:true (UI busy) return had
+        // no event, no bubble: the radial item looked like a dead button.
+        // The territory 'busy' EVENT path (pet.js case 'busy') only fires
+        // when territory::run_now itself defers — not when the command
+        // short-circuits before it.
+        const run = window.pet.territoryRunNow();
+        if (run && typeof run.then === 'function') {
+          run.then((r) => {
+            if (r && r.deferred && typeof owner.bubble === 'function' && typeof owner.t === 'function') {
+              owner.bubble(owner.t('bubble.patrolBusy'), 2600);
+            }
+          }).catch((err) => {
+            window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
+              detail: { command: 'territory_run_now', message: String(err && (err.message || err) || 'unknown') }
+            }));
+          });
+        }
+      } },
       { ic: 'bell', key: 'menu.mute', act: () => window.pet.toggleMute() },
       { ic: 'coins', key: 'currency', act: owner.toggleCurrency },
       { ic: 'power', key: 'menu.quit', act: () => window.pet.quit() },

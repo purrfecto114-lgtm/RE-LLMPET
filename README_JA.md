@@ -74,7 +74,7 @@ npm start
 npm test                 # ヘッドレス回帰テスト一式
 npm run package:mac:dev  # ローカル用 ad-hoc 署名 macOS パッケージ
 npm run package:win      # Windows インストーラー + ZIP
-npm run uninstall:hooks  # LLMPET の Claude hook を安全に削除
+octopus --uninstall-hooks          # 全 provider の hook を安全に削除（--purge-data で ~/.re-llmpet も削除）
 ```
 
 ## 連携の仕組み
@@ -123,6 +123,23 @@ $DSH_HOME|~/.dsh/sessions/--<プロジェクト>--/<セッション>/session.jso
 - バックグラウンド通信は、任意の LiteLLM 公開価格表の日次取得だけです。「旅するカエル」はユーザーが **出発**を押した場合にだけ Anthropic / OpenAI へ接続します。`OCTOPUS_NO_NET=1` は LLMPET の価格取得を止めますが、明示的に開始した CLI 旅行までは無効化しません。
 - Electron は `contextIsolation` を有効、`nodeIntegration` を無効にしています。
 - Claude hook の追加は既存設定を上書きせず、原子的かつ取り消し可能で、削除前にはバックアップを作成します。
+
+## アンインストールと残留クリーンアップ（R58）
+
+トレイの **🧹 すべてのフックを削除** で五つの provider の hook をワンクリックでまとめて削除できます（R58 から Claude 単体ではなくなりました）。CLI でも同じことができます：
+
+```bash
+# hook のみ削除 — ユーザーデータは保持。作成した空の設定シェルと .octopus-bak-* バックアップも掃除されます
+octopus --uninstall-hooks
+# ~/.re-llmpet（設定 / 利用量履歴 / ログ / インストール記録）も削除する場合
+octopus --uninstall-hooks --purge-data
+```
+
+**macOS / Linux への注意（R58）：** アンインストーラーはありません。.app をゴミ箱へ入れる（または `dpkg -r`）**前に**必ず上のコマンドを実行してください。アプリ削除後はバイナリがなくなり、各 provider の設定は存在しないパスを指し続けます（CodeWhale の fail-closed 権限 hook はすべてのツール呼び出しを拒否します）。「削除後に --uninstall-hooks を実行」という旧記述は到達不能な手順でした。行わないでください。
+
+Windows のアンインストーラー（NSIS）は自動で処理します：プロセスを終了し、「ユーザーデータも削除しますか？」と確認し（「はい」なら --purge-data 付きでクリーンアップ、サイレント /S アンインストールは hook のみが既定）、バイナリがまだ存在するうちに provider 設定を修復し、最後に WebView2 データディレクトリ（`%LOCALAPPDATA%\io.github.purrfecto114.octopus`）を削除します。
+
+クリーンアップの原則：削除するのは LLMPET が書き込んだセクション・ファイル・ディレクトリのみ。帰属を証明できないものは残します（誤削除より残渣を優先）。
 
 ## 設定・開発用フラグ
 
