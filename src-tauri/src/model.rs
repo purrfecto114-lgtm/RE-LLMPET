@@ -128,13 +128,21 @@ impl AppConfig {
         if !matches!(self.mode.as_str(), "pet" | "panel" | "menubar" | "hidePet") {
             self.mode = "pet".into();
         }
-        if !matches!(self.skin.as_str(), "mascot" | "pixel" | "cat") {
+        // R57-RV-C13 P1: whale was missing from this whitelist since the
+        // skin shipped in 0.6.5 — set_skin("whale") passed the command-side
+        // validation but update_config's sanitize reverted it to mascot on
+        // persist, so the pet bounced back and the tray checkmark never
+        // stuck. The user-visible "鲸鱼女仆皮肤不正确" root cause.
+        if !matches!(self.skin.as_str(), "mascot" | "pixel" | "cat" | "whale") {
             self.skin = "mascot".into();
         }
         if !matches!(self.pet_mode.as_str(), "single" | "duo") {
             self.pet_mode = "single".into();
         }
-        if !matches!(self.skin_codex.as_str(), "mascot" | "pixel" | "cat") {
+        if !matches!(
+            self.skin_codex.as_str(),
+            "mascot" | "pixel" | "cat" | "whale"
+        ) {
             self.skin_codex = "pixel".into();
         }
         if !self.budget5h.is_finite() || self.budget5h < 0.0 {
@@ -280,23 +288,36 @@ pub struct Session {
     pub ended_at: Option<u64>,
     #[serde(default, skip_serializing)]
     pub parent_id: Option<String>,
-    // R56 (upstream adapter.js:395-484 parity — the three dead expression
-    // producers): greet_pending_at marks an accepted fresh SessionStart so
-    // the FIRST UserPromptSubmit within 5 minutes can fire the greet
-    // transient (30-minute per-project debounce, see RuntimeState.greet_sent).
-    // user_prompt_at + ops_since_prompt drive the Stop-time big-done (≥5 ops
-    // since the prompt → confetti big-done, else plain turn-done).
-    // last_op_done_at anchors the loafing gap synthesis in stats(): a session
-    // that COMPLETED a tool op and then sat idle >5s shows the gap-loafing
-    // state. greet_due is the one-shot handoff to http_server::emit_hook_event.
+    // R57 (upstream adapter.js 8858788 “restore lifecycle expressions across
+    // agents”): greet fires AT SessionStart — waiting for the first prompt
+    // meant a newly opened/resumed session with no immediate text never
+    // greeted, and the old 30-minute per-PROJECT debounce hid every second
+    // parallel session in the same repo (exactly where users open parallel
+    // tasks). greeted_at is the session-level one-shot; greet_due is the
+    // one-frame handoff to http_server::emit_hook_event (armed on the
+    // SessionStart that created the row, consumed by the next accepted
+    // event). task_visual_at + user_prompt_at drive the TaskStarted↔
+    // UserPromptSubmit dedupe (upstream TASK_VISUAL_DEDUPE_MS): codex/dsh
+    // turn-start rows land 1-2s before the user row and already showed the
+    // thinking transient. user_prompt_at + ops_since_prompt drive the
+    // Stop-time big-done (≥5 ops → confetti big-done). last_op_done_at
+    // anchors the loafing gap synthesis in stats(). turn_done_at/
+    // last_failure_at drive the done/interrupted session badges (upstream
+    // core.js deriveBadge parity; focusing the session acks “done”).
     #[serde(default, skip_serializing)]
-    pub greet_pending_at: Option<u64>,
+    pub greeted_at: Option<u64>,
     #[serde(default, skip_serializing)]
     pub user_prompt_at: Option<u64>,
+    #[serde(default, skip_serializing)]
+    pub task_visual_at: Option<u64>,
     #[serde(default, skip_serializing)]
     pub ops_since_prompt: u32,
     #[serde(default, skip_serializing)]
     pub last_op_done_at: Option<u64>,
+    #[serde(default, skip_serializing)]
+    pub turn_done_at: Option<u64>,
+    #[serde(default, skip_serializing)]
+    pub last_failure_at: Option<u64>,
     #[serde(default, skip_serializing)]
     pub greet_due: bool,
 }
@@ -398,10 +419,6 @@ pub struct Runtime {
     pub config_write_lock: Mutex<()>,
     pub sessions: Mutex<HashMap<String, Session>>,
     recent_ops: Mutex<VecDeque<RecentOperation>>,
-    // R56: per-project timestamp of the last emitted greet transient —
-    // upstream adapter.js GREET_DEBOUNCE_MS (30 min) so restarting a session
-    // in the same project doesn't spam the wake-up animation.
-    greet_sent: Mutex<HashMap<String, u64>>,
     pub pending: Mutex<HashMap<String, PendingPermission>>,
     pub batch_rules: Mutex<Vec<BatchRule>>,
     pub provider_status: Mutex<HashMap<String, ProviderStatus>>,
@@ -540,7 +557,6 @@ impl AppState {
                 config_write_lock: Mutex::new(()),
                 sessions: Mutex::new(HashMap::new()),
                 recent_ops: Mutex::new(VecDeque::with_capacity(50)),
-                greet_sent: Mutex::new(HashMap::new()),
                 pending: Mutex::new(HashMap::new()),
                 batch_rules: Mutex::new(Vec::new()),
                 provider_status: Mutex::new(HashMap::new()),
@@ -784,7 +800,14 @@ impl Runtime {
         Ok(guard.clone())
     }
 
-    pub fn ingest(&self, body: &Value) -> Session {
+    /// R57-RV-A3: callers that also EMIT pet events need to know whether the
+    /// row actually accepted this frame (out-of-order / duplicate frames
+    /// used to be re-emitted as fresh traffic — the dsh replay storm).
+    pub fn ingest_with_ack(&self, body: &Value) -> (Session, bool) {
+        self.ingest_inner(body)
+    }
+
+    fn ingest_inner(&self, body: &Value) -> (Session, bool) {
         let event = clean_text(
             body.get("hook_event_name").or_else(|| body.get("event")),
             96,
@@ -918,6 +941,7 @@ impl Runtime {
             } else {
                 None
             };
+            let was_new = !sessions.contains_key(&id);
             let entry = sessions.entry(id.clone()).or_insert_with(|| Session {
                 id: id.clone(),
                 provider: provider.clone(),
@@ -942,10 +966,13 @@ impl Runtime {
                 last_event_key: None,
                 ended_at: None,
                 parent_id: parent_id.clone().or_else(|| adopted_parent.clone()),
-                greet_pending_at: None,
+                greeted_at: None,
                 user_prompt_at: None,
+                task_visual_at: None,
                 ops_since_prompt: 0,
                 last_op_done_at: None,
+                turn_done_at: None,
+                last_failure_at: None,
                 greet_due: false,
             });
             let accepted =
@@ -1002,49 +1029,98 @@ impl Runtime {
                     None
                 };
                 entry.updated_at = now;
-                // R56: the three upstream expression producers — greet
-                // (SessionStart pending → first UserPromptSubmit ≤5min with a
-                // 30min per-project debounce), ops-since-prompt (big-done
-                // threshold), and op-completion time (loafing gap anchor).
-                // Claude SessionStart source=resume is an old session
-                // continuing, not a fresh arrival — no greet for it.
+                // R57 (upstream adapter.js 8858788 “restore lifecycle
+                // expressions across agents”): greet fires AT the SessionStart
+                // that created the board row. Waiting for the first prompt
+                // meant a newly opened/resumed session with no immediate text
+                // never greeted; the old 30-min per-PROJECT debounce hid every
+                // second parallel session in the same repo. Session identity
+                // is the debounce boundary; source=resume no longer
+                // disqualifies (a session new to the board IS a new arrival
+                // in the pet's world — the row itself dedupes re-resumes).
+                // One-shot host launcher dirs stay filtered, narrowed to
+                // hidden app-data session roots only (is_one_shot_host_-
+                // session_cwd): the old blanket `/." check also matched real
+                // projects like ~/.dotfiles and ~/.codex/worktrees.
                 match event.as_str() {
                     "SessionStart" => {
-                        let source = body.get("source").and_then(Value::as_str).unwrap_or("");
-                        entry.greet_pending_at = if source == "resume" {
-                            None
-                        } else {
-                            Some(event_at)
-                        };
+                        let tool_spawned = is_one_shot_host_session_cwd(&entry.cwd);
+                        // R57-RV-A2: re-arm semantics — a SessionStart that
+                        // does NOT qualify must CLEAR any stale greet_due, or
+                        // a second header frame (dsh generation roll, re-run)
+                        // re-emits the first frame's greet.
+                        entry.greet_due = was_new && !tool_spawned && entry.greeted_at.is_none();
+                        if entry.greet_due {
+                            entry.greeted_at = Some(event_at);
+                        }
                         entry.user_prompt_at = None;
                         entry.ops_since_prompt = 0;
                     }
+                    "TaskStarted" => {
+                        // R57 (upstream 8858788): dsh turn/start emits this
+                        // explicit turn-start row (codex's 12-hook vocabulary
+                        // has no TaskStarted — its UserPromptSubmit arrives
+                        // directly). The user row that lands 1-2s later
+                        // dedupes against task_visual_at in http_server
+                        // (neutral visuals only, never emotion-bearing
+                        // prompts). Also treated as a WORK_START: the green
+                        // "just done" badge of the PREVIOUS turn retires.
+                        entry.task_visual_at = Some(event_at);
+                        entry.ops_since_prompt = 0;
+                        entry.turn_done_at = None;
+                    }
                     "UserPromptSubmit" => {
-                        let fresh = entry
-                            .greet_pending_at
-                            .is_some_and(|start| event_at.saturating_sub(start) <= 300_000);
-                        entry.greet_pending_at = None;
                         entry.user_prompt_at = Some(event_at);
                         entry.ops_since_prompt = 0;
-                        if fresh && !entry.headless {
-                            let project = project_name(&entry.cwd, &entry.id);
-                            let mut greet_sent =
-                                self.greet_sent.lock().unwrap_or_else(|e| e.into_inner());
-                            let last = greet_sent.get(&project).copied().unwrap_or(0);
-                            if event_at.saturating_sub(last) > 1_800_000 {
-                                greet_sent.insert(project, event_at);
-                                entry.greet_due = true;
-                            }
+                        // R57-RV-C13: a new prompt is a WORK_START for badge
+                        // purposes too (upstream clears on every work row).
+                        entry.turn_done_at = None;
+                    }
+                    "Stop" => {
+                        // R57 (upstream core.js deriveBadge): a real turn
+                        // completion arms the green “刚完成” badge; focusing
+                        // the session (ack_session_completion) clears it.
+                        // R57-RV-A2 P1: a user ABORT (codex Interrupt is
+                        // mapped to Stop/attention at the hook_client layer)
+                        // is a failure row, not a completion — otherwise Esc
+                        // lights the green “just done” badge for 5 minutes
+                        // (STATES.md:158: ESC 中断 = 中断徽标).
+                        let aborted = body
+                            .get("native_event")
+                            .and_then(Value::as_str)
+                            .is_some_and(|native| native == "Interrupt")
+                            || body.get("turn_aborted").and_then(Value::as_bool) == Some(true);
+                        if aborted {
+                            entry.last_failure_at = Some(event_at);
+                        } else {
+                            entry.turn_done_at = Some(event_at);
                         }
+                    }
+                    "StopFailure" | "PostToolUseFailure" | "TurnAborted" => {
+                        // R57: failure rows arm the red “被中断” badge (45s
+                        // display lease, mirroring the error state lease).
+                        entry.last_failure_at = Some(event_at);
                     }
                     "PreToolUse" | "SubagentStart" | "TaskCreated" => {
                         entry.ops_since_prompt = entry.ops_since_prompt.saturating_add(1);
+                        // R57-RV-C13 (upstream core.js WORK_START clears
+                        // requiresCompletionAck): any work event retires the
+                        // green "just done" badge — a fresh turn started, the
+                        // completion notice is stale.
+                        entry.turn_done_at = None;
                     }
-                    "PostToolUse" | "PostToolUseFailure" | "SubagentStop" | "TaskCompleted" => {
+                    "PostToolUse" | "SubagentStop" | "TaskCompleted" => {
                         entry.ops_since_prompt = entry.ops_since_prompt.saturating_add(1);
                         entry.last_op_done_at = Some(event_at);
                     }
                     _ => {}
+                }
+                // R57: greet_due is one-shot — armed by the arming
+                // SessionStart, consumed by the next accepted event of any
+                // kind (the old flag was never cleared, so every
+                // UserPromptSubmit after the first re-emitted greet).
+                if event != "SessionStart" {
+                    entry.greet_due = false;
                 }
             }
             // Usage/context is monotonic data and remains eligible even when a stale
@@ -1088,7 +1164,7 @@ impl Runtime {
         if event == "SessionEnd" && snapshot.ended_at == Some(event_at) {
             self.close_session_pending(&snapshot.id, "Session ended");
         }
-        snapshot
+        (snapshot, accepted)
     }
 
     pub fn register_permission(&self, permission: PendingPermission) -> (PendingPermission, bool) {
@@ -1424,10 +1500,13 @@ impl Runtime {
                 last_event_key: None,
                 ended_at: None,
                 parent_id: None,
-                greet_pending_at: None,
+                greeted_at: None,
                 user_prompt_at: None,
+                task_visual_at: None,
                 ops_since_prompt: 0,
                 last_op_done_at: None,
+                turn_done_at: None,
+                last_failure_at: None,
                 greet_due: false,
             });
         if let Some((provider, tool_name, permission_id)) = pending_meta {
@@ -1471,6 +1550,21 @@ impl Runtime {
             .unwrap_or_else(|e| e.into_inner())
             .get(session_id)
             .cloned()
+    }
+
+    /// R57 (upstream core.js `requiresCompletionAck` — focus acks the badge):
+    /// the user just entered/focused this conversation, so retire the green
+    /// "刚完成" dot. Called from the focus/resume path; a no-op when there is
+    /// nothing to ack.
+    pub fn ack_session_completion(&self, session_id: &str) {
+        if let Some(session) = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_mut(session_id)
+        {
+            session.turn_done_at = None;
+        }
     }
 
     pub fn stats(&self) -> Value {
@@ -1552,7 +1646,13 @@ impl Runtime {
             // expression that previously almost never fired. Stricter than
             // upstream on purpose: the anchor is op COMPLETION, so a
             // long-running tool that only fired its start event never loafs.
+            // R57 (upstream adapter.js:473-490 注释原意): claude ONLY — codex/
+            // dsh/codewhale/opencode all have explicit turn-end/idle markers
+            // (Stop/turn_end/session.idle), so their mid-turn silent gaps
+            // (long reasoning, long tool runs) were being mis-reported as
+            // "躺平摸鱼" while the agent was verifiably still busy.
             let state = if !session.headless
+                && session.provider == "claude"
                 && matches!(
                     state.as_str(),
                     "working" | "thinking" | "juggling" | "carrying"
@@ -1598,7 +1698,19 @@ impl Runtime {
                 "parentId":session.parent_id.clone(),
                 "provider":if session.provider == "claude" { Value::Null } else { json!(session.provider) },
                 "providerId":session.provider,
-                "badge":if session.state == "error" { "error" } else { "idle" },
+                "badge": if session.state == "error" { "error" }
+                    // R57 (upstream core.js deriveBadge parity): the frontend
+                    // has had `done`/`interrupted` branches since R44 — they
+                    // were dead code because the backend only ever sent
+                    // error|idle. A real Stop completion arms "done" (green
+                    // dot, "刚完成") for 5 minutes or until the user focuses
+                    // the session (ack); failure rows arm "interrupted"
+                    // (red dot, "被中断") for 45s, mirroring the error lease.
+                    else if session.last_failure_at
+                        .is_some_and(|t| now.saturating_sub(t) <= 45_000) { "interrupted" }
+                    else if session.turn_done_at
+                        .is_some_and(|t| now.saturating_sub(t) <= 300_000) { "done" }
+                    else { "idle" },
                 "model":session.model,
                 "contextPercent":session.context_percent,
                 "contextUsed":session.context_used,
@@ -2956,6 +3068,28 @@ fn should_accept_event(
     true
 }
 
+/// R57 (upstream adapter.js 8858788 `isOneShotHostSessionCwd`): known host
+/// launchers (ccd/openloomi 类) create disposable entry sessions under a
+/// hidden app-data root such as `~/.openloomi/sessions/<id>`. A blanket
+/// "path contains /." check also matched legitimate projects like
+/// `~/.dotfiles` and `~/.codex/worktrees`, suppressing their real greetings.
+/// Mirrors the upstream regex `(?:^|/)\.[^/]+/sessions/[^/]+(?:/|$)` without
+/// pulling in a regex dependency: split into components and match
+/// [dot-segment, "sessions", non-empty-tail].
+fn is_one_shot_host_session_cwd(cwd: &str) -> bool {
+    let parts: Vec<&str> = cwd.split('/').filter(|p| !p.is_empty()).collect();
+    for window in parts.windows(3) {
+        if window[0].starts_with('.')
+            && window[0].len() > 1
+            && window[1] == "sessions"
+            && !window[2].is_empty()
+        {
+            return true;
+        }
+    }
+    false
+}
+
 fn normalize_state(explicit: &str, event: &str) -> String {
     let valid = [
         "idle",
@@ -2989,7 +3123,14 @@ fn normalize_state(explicit: &str, event: &str) -> String {
         // R56: dsh turn/start previously fell to "idle" — the watcher's
         // tracker intended "thinking" but the name had no arm here.
         "TaskStarted" => "thinking",
-        "SessionStart" | "Stop" | "TurnAborted" => "idle",
+        // R57 (STATES.md §3 line 51 "Stop | attention → 落定 idle + done 角标"):
+        // a finished round lands on attention ("需要注意") — the ONE_SHOT
+        // lease in the frontend aggregator decays it to idle after 15s.
+        // The old `Stop → idle` arm made claude/codex rounds skip the
+        // attention expression entirely (their attention GIFs were dead —
+        // only codewhale/opencode/aider ever produced the state).
+        "Stop" => "attention",
+        "SessionStart" | "TurnAborted" => "idle",
         _ => "idle",
     }
     .into()
@@ -3145,10 +3286,13 @@ mod session_order_tests {
             last_event_key: key.map(str::to_string),
             ended_at: None,
             parent_id: None,
-            greet_pending_at: None,
+            greeted_at: None,
             user_prompt_at: None,
+            task_visual_at: None,
             ops_since_prompt: 0,
             last_op_done_at: None,
+            turn_done_at: None,
+            last_failure_at: None,
             greet_due: false,
         }
     }

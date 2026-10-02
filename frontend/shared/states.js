@@ -47,9 +47,11 @@
   const VALID_STATES = Array.from(new Set([...Object.keys(STATE_PRIORITY), ...SLEEP_SEQUENCE]));
 
   // Renderer-only synthesized states + emotion tints (no backend priority entry).
+  // R57: lookout = 驱逐入侵者后望向战果的短暂姿态（upstream loot 词汇，我们由
+  // territory 胜利相位触发；cat/whale 皮肤有专属 GIF）。
   const RENDER_EXTRA = [
     'loafing', 'happy', 'waiting', 'needsinput', 'greet', 'talking',
-    'loved', 'sad', 'sorry', 'excited', 'puzzled',
+    'loved', 'sad', 'sorry', 'excited', 'puzzled', 'lookout',
   ];
 
   // Every class word the renderer may put on a skin element. classList.remove

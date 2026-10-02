@@ -341,7 +341,12 @@ fn normalize_provider_body(
             "on_error" => ("StopFailure".into(), "error"),
             "subagent_spawn" => ("SubagentStart".into(), "juggling"),
             "subagent_complete" => ("SubagentStop".into(), "working"),
-            "mode_change" => ("Notification".into(), "idle"),
+            // R57 (M2): mode_change used to map to Notification, and
+            // http_server emits Notification as kind:needsinput — so merely
+            // SWITCHING MODES flashed "💬 等你回复" + a done sound. It carries
+            // no pet-state semantics of its own; a distinct event name keeps
+            // it out of the needsinput arm while still refreshing the row.
+            "mode_change" => ("ModeChange".into(), "idle"),
             "session_idle" => ("SessionIdle".into(), "loafing"),
             "session_error" => ("StopFailure".into(), "error"),
             "waiting_for_user" => {
@@ -616,13 +621,32 @@ fn inject_emotion(object: &mut Map<String, Value>) {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let text = object
-        .get("text")
-        .or_else(|| object.get("message"))
-        .and_then(Value::as_str)
+    // R57 (R57-1e 断点②): the sniffer used to read ONLY text/message — but
+    // claude/codex put the user input in `prompt`, and assistant replies live
+    // in `last_assistant_message` (opencode plugin) / `assistant_last_output`
+    // (our own turn-end path). The loved/sad/excited (user) and sorry/puzzled/
+    // excited (assistant) expressions were therefore dead for 5 of 6
+    // providers; only opencode's user summary ever matched. Look through the
+    // full field family, longest text wins (a full reply beats a summary).
+    const TEXT_FIELDS: [&str; 5] = [
+        "text",
+        "message",
+        "prompt",
+        "last_assistant_message",
+        "assistant_last_output",
+    ];
+    let text = TEXT_FIELDS
+        .iter()
+        .filter_map(|field| object.get(*field).and_then(Value::as_str))
+        .max_by_key(|candidate| candidate.chars().count())
         .unwrap_or("")
         .to_string();
-    let role = if event_name == "UserPromptSubmit" || event_name == "message_submit" {
+    // R57: TaskStarted (dsh turn-start) carries the user's task the same
+    // way UserPromptSubmit does.
+    let role = if event_name == "UserPromptSubmit"
+        || event_name == "TaskStarted"
+        || event_name == "message_submit"
+    {
         "user"
     } else if event_name == "PostToolUse" || event_name == "turn_end" || event_name == "Stop" {
         "assistant"

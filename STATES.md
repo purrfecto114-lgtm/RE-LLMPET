@@ -57,7 +57,7 @@
 ### 优先级(多会话时,主形象取最高的那个)
 `error 8 > notification 7 > sweeping 6 > attention 5 > carrying 4 = juggling 4 > working 3 > thinking 2 > idle 1 = roam 1 > sleeping 0`
 
-> 前端额外的「短暂态」(transient,2–6s 自动衰减,优先级高于聚合):`talking / happy / greet / interrupted` —— 在持续态之上盖一层显示,过期后让聚合规则接管。
+> 前端额外的「短暂态」(transient,2–6s 自动衰减,优先级高于聚合):`talking / happy / greet / interrupted / lookout` —— 在持续态之上盖一层显示,过期后让聚合规则接管。
 
 > headless 后台会话(`claude -p`)不计入主形象;每个会话各自状态显示在头顶小圆点。
 
@@ -151,8 +151,9 @@
 
 ## 6. 前端接入现状(给生成完之后接图用)
 
-- **现在已渲染**:`idle / working / juggling / sweeping / thinking / waiting / needsinput / happy / greet / talking / sleeping / error / roam / loafing` + 情绪短暂态 `loved / sad / sorry / excited / puzzled`(月薪喵皮肤有独立素材;章鱼皮肤 R53 起对共享图状态提供专属身体动画 + emoji 徽标,像素皮肤回落到就近表情)。
+- **现在已渲染**:`idle / working / juggling / sweeping / thinking / waiting / needsinput / happy / greet / talking / sleeping / error / roam / loafing / lookout` + 情绪短暂态 `loved / sad / sorry / excited / puzzled`(月薪喵皮肤有独立素材;章鱼皮肤 R53 起对共享图状态提供专属身体动画 + emoji 徽标,像素皮肤回落到就近表情)。
 - **状态机里有、但前端还没接独立形象**:`carrying / yawning / dozing / collapsing / waking`(入睡序列暂无生产者)。
+- **R57 新生产者/新语义**:① `lookout` —— territory 驱逐入侵者胜利相位(cat/whale 复用 thinking-2 素材的回望姿态,mascot/pixel 回落 happy);② 会话角标 —— 真 Stop 完成置绿「刚完成」(5 分钟或聚焦即清,`ack_session_completion`),失败行/Esc 中止置红「被中断」45 秒,角标不依赖行状态(Stop 落 attention 后旧 `state==='idle'` 门已废),任一 WORK_START 事件撤旧完成角标;③ greet 改在 SessionStart 本体发射(会话级一次性 `greeted_at`,不再等首条 prompt、不再有项目级 30 分钟频控——同仓库并行会话都会问候);④ `TaskStarted`(dsh turn/start)作为显式回合起始行,与 1-2 秒后落地的 UserPromptSubmit 做中性视觉去重(3 秒窗,带情绪的 prompt 不抑制);⑤ `Stop` 落定 `attention`(本表 §3 既有条款,claude/codex 每轮完成的 attention 表情自此可见)。
 - **R53 新生产者**:① `roam` —— 闲逛(wander)进行中,聚合结果为 idle/sleeping 时接管(pet.js applyStats);② `loafing` —— CodeWhale 新事件 `session_idle`(间隙摸鱼);③ `waiting`/`needsinput` —— CodeWhale 新事件 `waiting_for_user`（reason=approval/goal_continuation → waiting，user_input → needsinput）；④ `error` —— CodeWhale 新事件 `session_error`；⑤ `working` —— CodeWhale 新事件 `session_busy`。上游 HOOKS.md 契约 10 → 15 事件，见 `hook_install.rs` CODEWHALE_EVENTS 与 `hook_client.rs` 映射。
 - 前端聚合梯子与本文件第 3 节优先级表一致:`waiting > 短暂态 > error > needsinput > sweeping > juggling > working > thinking > loafing > idle > sleeping`(见 `frontend/renderer/pet.js` applyStats 与 `frontend/renderer/pet-runtime-policy.js` aggregateState)。oneshot 衰减(attention/carrying 15s、sweeping 20s、error 45s)由聚合器按会话 idleMs 租约实现;notification 例外,等用户行动。
 - **loafing(摸鱼)**:adapter 合成态——工具结束(PostToolUse/SubagentStop)后 >5s 无事件的间隙。间隙里模型可能在推理/流式输出/事件丢失,不硬标注为「思考」;真思考走 UserPromptSubmit → thinking 事件通道。网络重试间隙由 transcript 巡检识别为 error,ESC 中断识别为 idle+中断徽标。

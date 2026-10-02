@@ -377,6 +377,13 @@ function clearGeometryBusy(myRevision) {
     try { geometryAckUnlisten(); } catch {}
     geometryAckUnlisten = null;
   }
+  // R57（用户报告的「叠加残影/烧屏」）：透明 WebView 窗口收缩后，已停绘区域
+  //（display:none 的 HUD）的旧帧 alpha 不会被 WebView2/webkitgtk 自动清除，
+  // 下次扩窗时旧像素重新落窗显影（tauri#10306 / WebView2Feedback#5673）。
+  // 在每次尺寸确认后做一次合成层 nudge：root 提层一帧→全量重栅格化→
+  // 强制 WebView 全帧 present，替换含旧 alpha 的合成面（对扩/缩两个方向都
+  // 生效，成本仅 2 帧）。
+  nudgeWebViewRepaint();
   // After the busy window closes, re-measure and re-emit visual bounds so
   // the native hit-test region snaps to the final size.
   requestAnimationFrame(reportPetVisualBounds);
@@ -389,6 +396,18 @@ function clearGeometryBusy(myRevision) {
       showRadialNow();
     }
   }
+}
+
+// R57：透明窗表面强制重绘（见 clearGeometryBusy 注释）。translateZ(0) 是
+// 恒等变换，不产生视觉位移；两帧后释放，避免常驻合成层。reduced-motion
+// 不受影响（无动画参与）。
+function nudgeWebViewRepaint() {
+  const root = document.documentElement;
+  root.style.transform = 'translateZ(0)';
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    root.style.transform = '';
+    requestAnimationFrame(reportPetVisualBounds);
+  }));
 }
 function setRequestedPetSize(width, height) {
   let w = Number(width) || 0;
@@ -511,12 +530,17 @@ function clearAskBody() {
   askPage.textContent = '';
   askInputRow.classList.add('hidden');
   askText.value = '';
+  // R57-RV-C13 (upstream 16e8dbc): the plan-mode placeholder stayed visible
+  // after the panel switched to a non-plan card — reset it every clear.
+  if (askText.placeholder !== t('ask.placeholder')) {
+    askText.placeholder = t('ask.placeholder');
+  }
 }
 
 // ① elicitation（AskUserQuestion）：多选项卡 + Other + 分页 + Submit/Back
 function renderElicitation(c) {
   clearAskBody();
-  askLabel.textContent = 'Needs Input';
+  askLabel.textContent = t('ask.needsInput');
   const qs = elic.questions;
   const q = qs[elic.qIdx] ||
     { question: c.question || '需要你回答', options: (c.options || []).map((o) => ({ label: o.label, description: o.desc })) };
@@ -524,7 +548,7 @@ function renderElicitation(c) {
   askQ.textContent = q.question || '';
   const multi = !!q.multiSelect;
   elic.multi = multi;
-  askHint.textContent = multi ? '可多选（点选多个）' : 'Choose one option';
+  askHint.textContent = multi ? t('ask.multiHint') : t('ask.chooseOne');
 
   const prior = elic.answers[q.question];
   const opts = q.options || [];
@@ -543,7 +567,8 @@ function renderElicitation(c) {
   }
 
   for (const o of opts) askOpts.appendChild(buildRadioCard(o.label, o.description, o.label, q));
-  askOpts.appendChild(buildRadioCard('Other', '', '__other__', q));
+  // R57 (upstream 16e8dbc 同款缺陷修复)：elicitation 卡片里残留英文硬编码。
+  askOpts.appendChild(buildRadioCard(t('ask.other'), '', '__other__', q));
   if (elic.selected === '__other__' || (multi && elic.otherOn)) {
     askInputRow.classList.remove('hidden');
     if (!multi && prior && !known(prior)) askText.value = prior;
@@ -552,7 +577,7 @@ function renderElicitation(c) {
   askPage.textContent = `${elic.qIdx + 1} / ${qs.length || 1}`;
   askFoot.classList.remove('hidden');
   const last = elic.qIdx >= (qs.length || 1) - 1;
-  askSubmit.textContent = last ? 'Submit Answer' : 'Next ›';
+  askSubmit.textContent = last ? t('ask.submit') : t('ask.next');
   askBack.classList.toggle('hidden', elic.qIdx === 0);
   askTerm.classList.remove('hidden');
   updateSubmitEnabled(q);
@@ -662,7 +687,7 @@ function renderPerm(c) {
 // ③ 纯回复（无选项）：只读问题 + Go to Terminal
 function renderContinue(c) {
   clearAskBody();
-  askLabel.textContent = 'Needs Input';
+  askLabel.textContent = t('ask.needsInput');
   askQ.textContent = c.question || firstProviderLabel() + ' 在等你回复';
   askFoot.classList.add('hidden');
   askTerm.classList.remove('hidden');
@@ -965,6 +990,7 @@ const SESSION_STATE_KEYS = {
   waiting: 'state.waiting', needsinput: 'state.needsinput', working: 'state.working',
   juggling: 'state.juggling', sweeping: 'state.sweeping', thinking: 'state.thinking',
   loafing: 'state.loafingLong', error: 'state.error', idle: 'state.idle', sleeping: 'state.sleeping',
+  attention: 'state.attention', notification: 'state.notification',
 };
 function sessionStateLabel(value) {
   const key = SESSION_STATE_KEYS[value];
@@ -984,8 +1010,11 @@ const isVisibleSession = (s) => !!s && s.state !== 'sleeping'
   && (!s.headless || s.state === 'waiting' || s.state === 'needsinput' || s.state === 'notification');
 // 单一配色：小点和 HUD 用同一套（完成→绿、中断→红，否则按状态）
 function sessionDotClass(s) {
-  if (s.state === 'idle' && s.badge === 'done') return 'done';
-  if (s.state === 'idle' && s.badge === 'interrupted') return 'error';
+  // R57-RV-A2: the badge is authoritative regardless of the row state —
+  // Stop now lands on `attention` (STATES.md §3) instead of idle, so the
+  // old `state === 'idle'` gate kept both dots dead forever.
+  if (s.badge === 'done') return 'done';
+  if (s.badge === 'interrupted') return 'error';
   return s.state || 'idle';
 }
 
@@ -1035,7 +1064,10 @@ function renderSessList() {
   if (!list.length) {
     const e = document.createElement('div');
     e.className = 'sl-empty';
-    e.textContent = t('sess.empty');
+    // R57-RV-C13: an empty list after filtering/search means the rows exist
+    // but none match — "暂无" (nothing exists) is misleading.
+    const allSessions = (lastStats && lastStats.sessions) || [];
+    e.textContent = allSessions.length ? t('panel.noMatch') : t('sess.empty');
     slRows.appendChild(e);
     return;
   }
@@ -1069,19 +1101,55 @@ function renderSessList() {
       : `<button class="sl-action sl-archive" title="${t('sess.archive')}"${prefDisabled}>📤</button>`;
     const travelBtn = !s.headless && ['claude', 'codex'].includes(s.providerId || s.provider)
       ? `<button class="sl-action sl-travel" title="项目旅行">🧳</button>` : '';
+    // R57 (upstream main.js:1553-1560)：会话 ID 尾 8 位一键复制，跨 agent
+    // resume 协作刚需（终端里 `claude --resume <paste>` / `opencode -s <paste>`）。
+    const copyBtn = s.sessionId
+      ? `<button class="sl-action sl-copy" title="${t('sess.copyId')}">${esc(String(s.sessionId).slice(-8))}</button>`
+      : '';
     row.innerHTML =
       `<span class="sl-dot ${dotCls}"></span>` +
       `<span class="sl-icon">${provIcon}</span>` +
       `<div class="sl-main"><div class="sl-name">${esc(s.project)}</div>` +
       `<div class="sl-meta ${attn ? 'attn' : ''}">${esc(meta)}</div></div>` +
       ctx +
-      `<span class="sl-row-actions">${travelBtn}${pinBtn}${archiveBtn}</span>`;
+      `<span class="sl-row-actions">${copyBtn}${travelBtn}${pinBtn}${archiveBtn}</span>`;
     // Click row → focus session
     row.addEventListener('click', (e) => {
       if (e.target.closest('.sl-action')) return; // action button click handled separately
       window.pet.focusSession(s.sessionId || '');
       rlog('sesslist', 'focus ' + (s.project || ''));
       closeSessList();
+    });
+    // R57: 复制会话 ID（Clipboard API + execCommand 兜底），1.1s 已复制反馈。
+    const copyEl = row.querySelector('.sl-copy');
+    if (copyEl) copyEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = s.sessionId || '';
+      // R57-RV-B7: restore to the id tail constant — a second click inside
+      // the feedback window would otherwise snapshot "已复制" and restore it
+      // forever.
+      const tail = String(s.sessionId).slice(-8);
+      const done = () => {
+        copyEl.textContent = t('sess.copied');
+        setTimeout(() => { copyEl.textContent = tail; }, 1100);
+      };
+      const fallback = () => {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = id;
+          ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+          done();
+        } catch {}
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(id).then(done, fallback);
+      } else {
+        fallback();
+      }
     });
     const travelEl = row.querySelector('.sl-travel');
     if (travelEl) travelEl.addEventListener('click', async (e) => {
@@ -1261,6 +1329,9 @@ function setState(s) {
   // 之前「s!=='waiting' 就 hideAsk」会在聚合态变 working/thinking 时把 needsinput 的面板闪掉。
   if (skin === 'mascot') updateMascotEyes(s);
   if (isMeme()) updateCat(s);
+  // R57 (upstream pet.js:2974 syncErrorRibbons)：whale 的 error GIF 没有红色
+  // 彩带，持续 error 期间补一层独立 CSS 丝带；离开 whale/error 立即清场。
+  syncErrorRibbons();
   requestAnimationFrame(reportPetVisualBounds);
 }
 
@@ -1272,7 +1343,9 @@ function playAction(toolName, icon) {
     el.classList.remove(...ACT_CLASSES);
     el.classList.add('act-' + act); // 通用 work 也有身体动作（不再只闪图标）
   }
-  if (icon) {
+  // R57 (upstream pet.js:2984)：cat / whale 的 GIF 已经表达工具动作，
+  // 不再叠外围道具 emoji（叠加会污染皮肤画面——「皮肤不正确」的根因之一）。
+  if (!isMeme() && icon) {
     propEl.textContent = icon;
     propEl.className = 'prop';
     void propEl.offsetWidth; // 重启动画
@@ -1370,6 +1443,48 @@ function confetti() {
   }
 }
 
+// ── R57 (upstream pet.js:3105-3143)：whale 错误丝带 ──────────────────────
+// whale 的 error GIF 没有包含红色彩带，因此在错误持续期间补一层独立的 CSS
+// 丝带。离开 whale/error 会立即清场，避免效果泄漏到 cat 或普通状态。
+const errorRibbonNodes = new Set();
+let errorRibbonTimer = null;
+function clearErrorRibbons() {
+  clearTimeout(errorRibbonTimer);
+  errorRibbonTimer = null;
+  for (const node of errorRibbonNodes) node.remove();
+  errorRibbonNodes.clear();
+}
+function errorRibbonBurst() {
+  // 挂在皮肤容器里而不是 stage 上：透明窗切换 left/right 锚点时，彩带会跟着
+  // 宠物一起移动，不会留在旧的窗口坐标（upstream 同款防御）。
+  const el = curSkinEl();
+  if (!el) return;
+  for (let i = 0; i < 14; i++) {
+    const ribbon = document.createElement('span');
+    ribbon.className = `confetti error-ribbon ${i % 3 === 1 ? 'ribbon-bright' : (i % 3 === 2 ? 'ribbon-deep' : '')}`;
+    const ang = -Math.PI / 2 + (Math.random() - 0.5) * 2.25;
+    const dist = 56 + Math.random() * 78;
+    ribbon.style.left = '50%';
+    ribbon.style.top = '38%';
+    ribbon.style.setProperty('--dx', Math.cos(ang) * dist + 'px');
+    ribbon.style.setProperty('--dy', Math.sin(ang) * dist + 22 + 'px');
+    ribbon.style.setProperty('--turn', (Math.random() > 0.5 ? 1 : -1) * (180 + Math.random() * 300) + 'deg');
+    ribbon.style.animationDelay = Math.random() * 0.12 + 's';
+    el.appendChild(ribbon);
+    errorRibbonNodes.add(ribbon);
+    setTimeout(() => {
+      ribbon.remove();
+      errorRibbonNodes.delete(ribbon);
+    }, 1600);
+  }
+}
+function syncErrorRibbons() {
+  clearErrorRibbons();
+  if (skin !== 'whale' || state !== 'error') return;
+  errorRibbonBurst();
+  errorRibbonTimer = setTimeout(syncErrorRibbons, 1750);
+}
+
 // R50 (2026-08-30): bubbles must not resize the native window unless the
 // content genuinely overflows. Every showBubble→fitPopup→hideBubble→
 // resetPetSize cycle used to grow/shrink the OS window (320x340 ↔ 520xN);
@@ -1394,7 +1509,7 @@ function showBubble(text, holdMs = 3200, force = false) {
     bubbleText.textContent = text;
   }
   bubble.classList.remove('hidden');
-  bubble.scrollTop = 0; // 重置滚动到顶（上次长气泡可能滚到了下边）
+  bubbleText.scrollTop = 0; // 重置滚动到顶（上次长气泡可能滚到了下边）
   // R50: 免缩放优先 —— 气泡塞得进当前窗口就不动原生窗口；实在超屏时
   // 由 fitPopup 按屏幕封顶，#bubble 自身 overflow-y:auto 内滚动兜底。
   fitBubbleToViewport();
@@ -1564,7 +1679,11 @@ window.pet.onEvent((ev) => {
           transient('excited', 16000, '🥊 走开走开！这是我的桌面！', 3200);
           break;
         case 'victory':
-          transient('happy', 2800, '🏆 哼！把它顶到墙边啦～', 3400);
+          // R57 (upstream loot 的 lookout 姿态)：驱逐成功后望向被顶到墙边的
+          // 「战果」——cat/whale 有专属 lookout GIF（thinking-2 素材）；
+          // mascot/pixel 无 lookout 图与动画，回落 happy（RV-A1：默认皮肤
+          // 的胜利庆祝不能退化成静态底图）。
+          transient(isMeme() ? 'lookout' : 'happy', 3600, '🏆 哼！把它顶到墙边啦～', 3400);
           confetti();
           SOUND.bigDone();
           break;
@@ -1769,6 +1888,9 @@ if (window.pet.onTravel) {
     if (event.phase === 'completed') {
       transient('happy', 2600, `📮 ${event.summary || '旅行明信片已送达'}`, 8000);
       confetti();
+      // R57 (R57-1e 声音覆盖)：travel 完成有彩带无音效——补 bigDone 号角，
+      // 与 big-done/territory victory 的听觉反馈对齐。
+      SOUND.bigDone();
     } else if (event.phase === 'failed') {
       transient('error', 2600, `🧳 ${event.summary || '旅行失败'}`, 5000);
     } else if (event.phase === 'cancelled') {
@@ -1990,11 +2112,11 @@ function openProviderChooser() {
   setRequestedPetSize(520, Math.max(420, 210 + choices.length * 48));
   syncUiBusy();
   // R35.2 (2026-07-31): focus the first item for keyboard accessibility.
-  // The audit P0-1 证据E flagged the missing focus management. We move
-  // focus to the first provider button so arrow-key/Enter navigation
-  // works and screen readers announce the dialog. Full focus trap is R36.
+  // R57 (upstream GUI audit P2-6)：窗口尚未持有焦点时 focus() 会触发原生激活，
+  // 在透明置顶窗上引发一次焦点反弹（R56 同类根因的残留支线）。仅在已持焦时
+  // 直接聚焦；键盘可达性不受影响（用户点开窗口即持焦）。
   const firstItem = providerChooserList.querySelector('.pc-item');
-  if (firstItem) {
+  if (firstItem && document.hasFocus()) {
     try { firstItem.focus(); } catch {}
   }
 }
@@ -2003,7 +2125,16 @@ function closeProviderChooser() {
   providerChooserEl.classList.add('hidden');
   providerChooserOpen = false;
   syncUiBusy();
-  if (!radialOpen && !todoPopOpen && !sessListOpen && !askActive) resetPetSize();
+  // R57（upstream GUI audit P0-1b）：chooser 隐藏与窗口收缩原本同帧发生——
+  // 「display:none 的 520 宽帧」还没 present 就缩回 320，透明 WebView 的
+  // 合成面会保留 chooser 旧帧像素（用户截图中的 provider 列表残影）。
+  // 先让已清空的宽帧完成 present，再延迟两帧收缩；收缩 ack 后
+  // clearGeometryBusy 的 nudgeWebViewRepaint() 会做全帧重绘双保险。
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (!radialOpen && !todoPopOpen && !sessListOpen && !askActive && !providerChooserOpen) {
+      resetPetSize();
+    }
+  }));
   // Restore focus to element that was focused before the chooser opened
   if (providerChooserPrevFocus && providerChooserPrevFocus.isConnected) {
     try { providerChooserPrevFocus.focus(); } catch {}
@@ -2107,13 +2238,18 @@ function applySkin(s) {
   skin = ['pixel', 'mascot', 'cat', 'whale'].includes(s) ? s : 'mascot';
   document.body.classList.toggle('skin-pixel', skin === 'pixel');
   document.body.classList.toggle('skin-mascot', skin === 'mascot');
-  document.body.classList.toggle('skin-cat', skin === 'cat');
+  // R57 (upstream pet.js:3868)：两套 meme 皮肤（cat/whale）都切 skin-cat 类——
+  // 该类携带 meme 皮肤共用规则（#prop 道具隐藏、.sessions 加宽），whale 再
+  // 叠加 skin-whale 拿专属尺寸。漏切会让 whale 下这些规则失效。
+  document.body.classList.toggle('skin-cat', isMeme());
   document.body.classList.toggle('skin-whale', skin === 'whale');
   // R30/R56: lazy-load meme assets when switching to cat/whale skin
   skinPacks.ensurePreloaded(skin);
   if (skin === 'mascot') updateMascotEyes(state);
   // updateCat no-ops (and stops its rotation timer) for non-meme skins.
   updateCat(state);
+  // R57：换皮时同步错误丝带（离开 whale 时立即清场，防效果泄漏）。
+  syncErrorRibbons();
   requestAnimationFrame(reportPetVisualBounds);
 }
 

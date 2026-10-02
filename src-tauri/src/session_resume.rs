@@ -8,7 +8,7 @@ use crate::commands::{agent_spec, agent_working_directory, launch_terminal, reso
 use crate::model::AppState;
 use serde_json::json;
 use std::path::Path;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 
 /// R54 (2026-09-22): per-provider session resume arguments. Every entry was
 /// verified against the REAL CLI binaries on 2026-09-22 (isolated prefix
@@ -123,11 +123,10 @@ pub(crate) fn resume_session_inner(
         "pet:event",
         json!({"kind":"say","text":"已为你重新打开这个会话。"}),
     );
-    for label in ["pet", "pet-codex"] {
-        if let Some(pet) = app.get_webview_window(label) {
-            let _ = pet.set_always_on_top(true);
-        }
-    }
+    // R57 (R57-1d P1-3②): the blind both-window `set_always_on_top(true)`
+    // re-assert is gone — both pet windows are permanently topmost via
+    // tauri.conf, and re-asserting flipped their relative z-order on every
+    // resume (the "duo windows swap layers" glitch).
     Ok(())
 }
 

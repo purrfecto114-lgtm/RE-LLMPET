@@ -22,6 +22,7 @@ lifecycle observer. The four new state observers map onto existing pet states:
 | `waiting_for_user` (reason=approval / goal_continuation) | `WaitingForUser` | `waiting` (等你处理) |
 | `waiting_for_user` (reason=user_input) | `WaitingForUser` | `needsinput` (等你回复) |
 | `session_busy` | `SessionBusy` | `working` |
+| `mode_change` | `ModeChange` | — (no pet-state semantics; refreshes the row. R57: previously mapped to `Notification`, which the emit layer turned into a needsinput flash + sound whenever the user merely switched modes) |
 
 Delivery channel for the new events is tolerant: payloads (from/to/reason) are
 read from stdin when present; a stuck stdin pipe degrades to an env-only body

@@ -19,7 +19,7 @@ The interface is available in **Simplified Chinese, English, and Japanese**. Swi
 - **Cross-agent takeover** — hand work between Claude and Codex in either direction, or hand a dsh session to Claude or Codex; same-provider sessions use native resume or fork.
 - **Local session archive** — index user-owned sessions across all three providers, filter internal subagents, and optionally back up transcripts without overwriting an existing source during restore.
 - **Usage dashboard** — inspect real token trends, model breakdowns, Claude API-price-equivalent estimates, a local Codex token ledger, rate-limit windows, diagnostics, and live operations.
-- **Three skins** — Octopus 🐙, Pixel Monster 👾, and Salary Cat 🐱.
+- **Four skins** — Octopus 🐙, Pixel Monster 👾, and Salary Cat 🐱.
 
 LLMPET's state machine, metering, permission flow, process reconciliation, and desktop UI are implemented in this repository. Claude Code connects through its public hook system. Codex and DeepSeek Harness integrations are read-only: LLMPET tails their local session files and does not modify Agent configuration.
 

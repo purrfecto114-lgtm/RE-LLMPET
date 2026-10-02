@@ -6,7 +6,7 @@
 #![allow(dead_code)]
 
 use crate::dsh_zstd::decode_complete_frames;
-use crate::model::{Runtime, Session};
+use crate::model::Runtime;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -15,6 +15,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tauri::AppHandle;
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
@@ -59,7 +60,7 @@ enum DshEvent {
         time: u64,
         data: ToolCallData,
     },
-    #[serde(rename = "tool/code-dispatch-start")]
+    #[serde(rename = "tool/code-dispatch-start", alias = "tool/ptc-dispatch-start")]
     CodeDispatchStart {
         seq: u64,
         time: u64,
@@ -71,7 +72,7 @@ enum DshEvent {
         time: u64,
         data: ToolResultData,
     },
-    #[serde(rename = "tool/code-dispatch")]
+    #[serde(rename = "tool/code-dispatch", alias = "tool/ptc-dispatch")]
     CodeDispatch {
         seq: u64,
         time: u64,
@@ -125,6 +126,9 @@ enum DshEvent {
         time: u64,
         data: RequestContextData,
     },
+    // R57 (R57-1b): these *-chunks names match nothing in any published dsh
+    // word list we could verify (v1 streamed via assistant/chunk; v2+ embeds
+    // streams inside assistant/message). Kept for forward tolerance only.
     #[serde(rename = "text-chunks")]
     TextChunks,
     #[serde(rename = "reasoning-chunks")]
@@ -213,6 +217,9 @@ struct RequestContextData {
 struct SessionTracker {
     session_id: String,
     is_zstd: bool,
+    // R57: resolved session file name (generational roll detection — see
+    // process_session).
+    file_name: Option<String>,
     accepts_events: bool,
     file_offset: u64,
     carry: String,
@@ -235,15 +242,78 @@ struct SessionTracker {
     turn_output: u64,
 }
 
+/// R57 (R57-1b): the newest dsh persistence format generation we have
+/// verified against the upstream repo (v4 files observed live; the
+/// session-format-v2-to-v3 package documents the v3 rename wave).
+const DSH_MAX_KNOWN_VERSION: u32 = 4;
+
+/// R57-RV-A3: events older than this are treated as history replay (cold
+/// start, tracker rebuild, generation roll) — ingested for state, never
+/// emitted to the pet. 120s comfortably exceeds the 2.5s poll interval and
+/// any clock skew between the writer and this process.
+const REPLAY_QUIET_MS: u64 = 120_000;
+
+/// R57 (R57-1b, deepseek-harness persistence docs): session files are
+/// generational — v0 wrote `session.jsonl(.zstd)`, current releases write
+/// `session.vN.jsonl(.zstd)`. Match any generation and take the highest;
+/// when both formats exist at the same generation prefer the plain jsonl
+/// (the live append target). Returns (is_zstd, path).
+fn session_file_for(dir: &Path) -> Option<(bool, PathBuf)> {
+    let entries = fs::read_dir(dir).ok()?;
+    let mut best: Option<(u32, bool, PathBuf)> = None;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let (gen, is_zstd) = if name == "session.jsonl" {
+            (0, false)
+        } else if name == "session.jsonl.zstd" {
+            (0, true)
+        } else if let Some(rest) = name.strip_prefix("session.v") {
+            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            let tail = &rest[digits.len()..];
+            if digits.is_empty() {
+                continue;
+            }
+            let generation: u32 = match digits.parse() {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            if tail == ".jsonl" {
+                (generation, false)
+            } else if tail == ".jsonl.zstd" {
+                (generation, true)
+            } else {
+                continue;
+            }
+        } else {
+            continue;
+        };
+        let replace = match &best {
+            None => true,
+            Some((best_gen, best_zstd, _)) => {
+                gen > *best_gen || (gen == *best_gen && *best_zstd && !is_zstd)
+            }
+        };
+        if replace {
+            best = Some((gen, is_zstd, entry.path()));
+        }
+    }
+    best.map(|(_, is_zstd, path)| (is_zstd, path))
+}
+
 pub struct DshWatcher {
     sessions_dir: PathBuf,
     poll_interval: Duration,
     trackers: HashMap<PathBuf, SessionTracker>,
     runtime: Arc<Runtime>,
+    // R57 (断点①): the watcher used to be write-only (runtime.ingest with no
+    // emission) — dsh state changes were invisible to the pet until some
+    // OTHER provider happened to push stats. Hold the AppHandle so every
+    // accepted dsh event also reaches the pet:event/pet:stats channels.
+    app: AppHandle,
 }
 
 impl DshWatcher {
-    pub fn new(runtime: Arc<Runtime>) -> Self {
+    pub fn new(runtime: Arc<Runtime>, app: AppHandle) -> Self {
         let dsh_home = std::env::var("DSH_HOME")
             .ok()
             .map(PathBuf::from)
@@ -266,6 +336,7 @@ impl DshWatcher {
             poll_interval: Duration::from_millis(POLL_INTERVAL_MS),
             trackers: HashMap::new(),
             runtime,
+            app,
         }
     }
 
@@ -340,11 +411,11 @@ impl DshWatcher {
                     continue;
                 }
 
-                // Check for session.jsonl or session.jsonl.zstd
-                let jsonl_path = session_path.join("session.jsonl");
-                let zstd_path = session_path.join("session.jsonl.zstd");
-
-                if jsonl_path.exists() || zstd_path.exists() {
+                // R57 (R57-1b): generational session files — v0 wrote
+                // `session.jsonl(.zstd)`; current dsh releases write
+                // `session.vN.jsonl(.zstd)` (v3/v4 observed live). The old
+                // exact-name probe made every current session invisible.
+                if session_file_for(&session_path).is_some() {
                     sessions.push(session_path);
                 }
             }
@@ -368,6 +439,7 @@ impl DshWatcher {
                         .to_string_lossy()
                         .to_string(),
                     is_zstd: false,
+                    file_name: None,
                     accepts_events: false,
                     file_offset: 0,
                     carry: String::new(),
@@ -387,14 +459,9 @@ impl DshWatcher {
             );
         }
 
-        // Determine file type and path
-        let zstd_path = session_path.join("session.jsonl.zstd");
-        let jsonl_path = session_path.join("session.jsonl");
-        let (is_zstd, file_path) = if zstd_path.exists() {
-            (true, zstd_path)
-        } else if jsonl_path.exists() {
-            (false, jsonl_path)
-        } else {
+        // Determine file type and path (R57: generational names, see
+        // session_file_for).
+        let Some((is_zstd, file_path)) = session_file_for(session_path) else {
             return Ok(());
         };
 
@@ -403,13 +470,23 @@ impl DshWatcher {
         let mut file = fs::File::open(&file_path)?;
         let file_size = file.metadata()?.len();
         let tracker = self.trackers.get_mut(session_path).unwrap();
-        if tracker.is_zstd != is_zstd || file_size < tracker.file_offset {
+        // R57: a generation roll (session.v3.jsonl → v4) swaps the file under
+        // the same directory key; the offset must not survive the swap even
+        // when the new file is already larger than the old offset.
+        let file_name = file_path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned());
+        if tracker.is_zstd != is_zstd
+            || file_size < tracker.file_offset
+            || tracker.file_name.as_deref() != file_name.as_deref()
+        {
             tracker.file_offset = 0;
             tracker.carry.clear();
             tracker.last_event_seq = 0;
             tracker.accepts_events = false;
         }
         tracker.is_zstd = is_zstd;
+        tracker.file_name = file_name;
         if file_size == tracker.file_offset {
             return Ok(());
         }
@@ -438,12 +515,14 @@ impl DshWatcher {
         tracker.file_offset += committed as u64;
 
         let runtime = self.runtime.clone();
-        Self::process_new_data_static(&runtime, tracker, &plain_text).await?;
+        let app = self.app.clone();
+        Self::process_new_data_static(&app, &runtime, tracker, &plain_text).await?;
 
         Ok(())
     }
 
     async fn process_new_data_static(
+        app: &AppHandle,
         runtime: &Arc<Runtime>,
         tracker: &mut SessionTracker,
         data: &str,
@@ -470,7 +549,8 @@ impl DshWatcher {
 
             match serde_json::from_str::<Value>(line) {
                 Ok(event_value) => {
-                    if let Err(e) = Self::handle_event_static(runtime, tracker, &event_value).await
+                    if let Err(e) =
+                        Self::handle_event_static(app, runtime, tracker, &event_value).await
                     {
                         warn!("dsh event parse error: {}", e);
                     }
@@ -485,6 +565,7 @@ impl DshWatcher {
     }
 
     async fn handle_event_static(
+        app: &AppHandle,
         runtime: &Arc<Runtime>,
         tracker: &mut SessionTracker,
         event: &Value,
@@ -496,12 +577,17 @@ impl DshWatcher {
         if event_type == "session" {
             let header: DshSessionHeader = serde_json::from_value(event.clone())?;
 
-            // Fail-closed: reject unknown versions
-            if header.version != 0 {
+            // Fail-closed: reject unknown versions. R57 (R57-1b): the v0-era
+            // `!= 0` gate rejected EVERY current dsh session (live formats
+            // are v3/v4, verified against deepseek-harness
+            // packages/session/session-format-v2-to-v3 and the persistence
+            // catalog). Accept every published generation up to the newest
+            // we have verified; only future, unverified majors fail closed.
+            if header.version > DSH_MAX_KNOWN_VERSION {
                 tracker.accepts_events = false;
                 warn!(
-                    "dsh session {}: unknown version {}, ignoring",
-                    header.id, header.version
+                    "dsh session {}: unverified version {} (> {}), ignoring",
+                    header.id, header.version, DSH_MAX_KNOWN_VERSION
                 );
                 return Ok(());
             }
@@ -521,40 +607,35 @@ impl DshWatcher {
             tracker.last_event_seq = 0;
             tracker.last_event_time = header.created_at;
 
-            // Register session with Runtime
-            let session = Session {
-                id: tracker.session_id.clone(),
-                provider: PROVIDER_ID.to_string(),
-                state: "idle".to_string(),
-                cwd: header.cwd.clone(),
-                tool_name: None,
-                model: None,
-                assistant_last_output: None,
-                headless: false,
-                updated_at: header.created_at,
-                source_pid: None,
-                context_used: None,
-                context_limit: None,
-                context_percent: None,
-                todos: vec![],
-                last_event_at: header.created_at,
-                last_event_seq: Some(0),
-                last_event_rank: 0,
-                last_event_key: None,
-                ended_at: None,
-                parent_id: None,
-                greet_pending_at: None,
-                user_prompt_at: None,
-                ops_since_prompt: 0,
-                last_op_done_at: None,
-                greet_due: false,
-            };
-
-            // Use the runtime's session ingestion - directly insert into sessions map
-            {
-                let mut sessions = runtime.sessions.lock().unwrap_or_else(|e| e.into_inner());
-                sessions.insert(session.id.clone(), session);
+            // R57 (断点①+greet): route the session header through the normal
+            // ingestion path instead of hand-building a Session and inserting
+            // it directly. record_hook creates the row AND fires the greet
+            // producer (was_new → greeted_at/greet_due), which the direct
+            // insert never could — a dsh session appearing on the board now
+            // greets exactly like every other provider's new session. A
+            // re-discovered row (app restart, generation roll) is not
+            // was_new, so there is no greet spam.
+            let start_event = json!({
+                "session_id": tracker.session_id.clone(),
+                "provider": PROVIDER_ID,
+                "hook_event_name": "SessionStart",
+                "cwd": header.cwd.clone(),
+                "time": header.created_at,
+                "timestamp_ms": header.created_at,
+                "seq": 0,
+            });
+            let (session, accepted) = runtime.ingest_with_ack(&start_event);
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            // R57-RV-A3: a header created 3 days ago is history — greet only
+            // for sessions that are actually live (recent header), else every
+            // app restart plays the wake-up animation for every stale dir.
+            if accepted && now.saturating_sub(header.created_at) <= REPLAY_QUIET_MS {
+                crate::http_server::emit_hook_event(app, &start_event, &session);
             }
+            crate::http_server::emit_stats(app, runtime);
             return Ok(());
         }
 
@@ -586,6 +667,7 @@ impl DshWatcher {
                 // TaskStarted (which had no arm either): a dsh turn starting
                 // looked like nothing happened.
                 Self::emit_session_event_static(
+                    app,
                     runtime,
                     &tracker.session_id,
                     "TaskStarted",
@@ -607,6 +689,7 @@ impl DshWatcher {
                         .and_then(|c| c.as_str())
                         .unwrap_or("");
                     Self::emit_session_event_static(
+                        app,
                         runtime,
                         &tracker.session_id,
                         "UserPromptSubmit",
@@ -622,7 +705,7 @@ impl DshWatcher {
                     tracker.session_state = "working".to_string();
                 }
             }
-            "tool/call" | "tool/code-dispatch-start" => {
+            "tool/call" | "tool/code-dispatch-start" | "tool/ptc-dispatch-start" => {
                 let data = event.get("data");
                 let tool_name = data
                     .and_then(|d| d.get("name"))
@@ -630,21 +713,42 @@ impl DshWatcher {
                     .unwrap_or("");
                 tracker.session_state = "working".to_string();
 
-                // Check for Task/subagent tool
-                if tool_name.to_lowercase().contains("task") || tool_name == "agent" {
+                // R57 (upstream dsh-watch.js 8858788 TOOL_MAP): the subagent
+                // tool family is wider than task/agent — spawn_agent/delegate/
+                // followup_task/send_message all fan out children.
+                let tool_lower = tool_name.to_lowercase();
+                // R57-RV-C13 (upstream dsh-watch.js:68-89 TOOL_MAP): the
+                // family also covers the subagent*/agent_* prefixes and
+                // workflow dispatch.
+                let subagent_tool = tool_lower.contains("task")
+                    || tool_lower == "agent"
+                    || tool_lower == "spawn_agent"
+                    || tool_lower == "delegate"
+                    || tool_lower == "followup_task"
+                    || tool_lower == "send_message"
+                    || tool_lower == "subagent"
+                    || tool_lower == "subagent_report"
+                    || tool_lower == "workflow"
+                    || tool_lower.starts_with("subagent")
+                    || tool_lower.starts_with("agent_");
+                if subagent_tool {
                     tracker.session_state = "juggling".to_string();
                 }
 
                 Self::emit_session_event_static(
+                    app,
                     runtime,
                     &tracker.session_id,
                     "PreToolUse",
-                    json!({ "tool_name": tool_name }),
+                    // R57 (R57-1e 断点矩阵)：带上显式 state — 否则
+                    // normalize_state 会把 juggling 回落成 working，
+                    // dsh 的抛球表情永不出现。
+                    json!({ "tool_name": tool_name, "state": tracker.session_state }),
                     time,
                     seq,
                 )?;
             }
-            "tool/result" | "tool/code-dispatch" => {
+            "tool/result" | "tool/code-dispatch" | "tool/ptc-dispatch" => {
                 let data = event.get("data");
                 let tool_name = data
                     .and_then(|d| d.get("name"))
@@ -654,6 +758,7 @@ impl DshWatcher {
 
                 if error.is_some() {
                     Self::emit_session_event_static(
+                        app,
                         runtime,
                         &tracker.session_id,
                         "PostToolUseFailure",
@@ -664,6 +769,7 @@ impl DshWatcher {
                     tracker.session_state = "error".to_string();
                 } else {
                     Self::emit_session_event_static(
+                        app,
                         runtime,
                         &tracker.session_id,
                         "PostToolUse",
@@ -679,7 +785,12 @@ impl DshWatcher {
                     .and_then(|d| d.get("content"))
                     .and_then(|c| c.as_str())
                     .unwrap_or("");
-                tracker.assistant_last_output = Some(content.to_string());
+                // R57-RV-B9: clamp at collection — the tracker lives for the
+                // app's lifetime; the full raw reply only ever needed the
+                // bubble-sized prefix (the say path re-clamps via safe_reply
+                // before the frontend, this closes the residual in-memory
+                // retention).
+                tracker.assistant_last_output = Some(content.chars().take(2_200).collect());
 
                 // Extract usage for context % (cumulative) and the per-turn
                 // delta emitted at turn/end (R56).
@@ -722,6 +833,7 @@ impl DshWatcher {
                         let turn_input = tracker.turn_input;
                         let turn_output = tracker.turn_output;
                         Self::emit_session_event_static(
+                            app,
                             runtime,
                             &tracker.session_id,
                             "Stop",
@@ -738,6 +850,7 @@ impl DshWatcher {
                     "error" => {
                         tracker.session_state = "error".to_string();
                         Self::emit_session_event_static(
+                            app,
                             runtime,
                             &tracker.session_id,
                             "ApiError",
@@ -750,6 +863,7 @@ impl DshWatcher {
                         // aborted, blocked, etc.
                         tracker.session_state = "idle".to_string();
                         Self::emit_session_event_static(
+                            app,
                             runtime,
                             &tracker.session_id,
                             "TurnAborted",
@@ -762,6 +876,7 @@ impl DshWatcher {
             }
             "approval/asked" => {
                 Self::emit_session_event_static(
+                    app,
                     runtime,
                     &tracker.session_id,
                     "Notification",
@@ -779,6 +894,7 @@ impl DshWatcher {
                 if tracker.session_state == "notification" {
                     tracker.session_state = "working".to_string();
                     Self::emit_session_event_static(
+                        app,
                         runtime,
                         &tracker.session_id,
                         "PreToolUse",
@@ -790,6 +906,7 @@ impl DshWatcher {
             }
             "compaction/start" => {
                 Self::emit_session_event_static(
+                    app,
                     runtime,
                     &tracker.session_id,
                     "PreCompact",
@@ -805,6 +922,7 @@ impl DshWatcher {
                 // (started by compaction/start → PreCompact) never cleared
                 // until some unrelated next event arrived.
                 Self::emit_session_event_static(
+                    app,
                     runtime,
                     &tracker.session_id,
                     "PostCompact",
@@ -815,6 +933,7 @@ impl DshWatcher {
             }
             "llm/retry" => {
                 Self::emit_session_event_static(
+                    app,
                     runtime,
                     &tracker.session_id,
                     "ApiError",
@@ -855,6 +974,7 @@ impl DshWatcher {
     }
 
     fn emit_session_event_static(
+        app: &AppHandle,
         runtime: &Arc<Runtime>,
         session_id: &str,
         kind: &str,
@@ -868,13 +988,44 @@ impl DshWatcher {
             "hook_event_name": kind,
             "data": data,
             "time": time,
+            // R57-RV-B6: the model's event-time parser reads
+            // timestamp_ms/timestamp — WITHOUT this the ingest falls back to
+            // the wall clock, so a cold-start replay anchored every
+            // done/interrupted badge at NOW and lit stale dots for minutes.
+            "timestamp_ms": time,
             "seq": seq,
         });
         if let (Some(target), Some(fields)) = (event.as_object_mut(), data.as_object()) {
             target.extend(fields.clone());
         }
 
-        runtime.ingest(&event);
+        // R57 (断点①): ingest AND emit — mirror the http_server /state route
+        // (emit_stats coalesces at 150ms; emit_hook_event drives the pet's
+        // transient expressions). dsh rows previously only surfaced when
+        // another provider happened to push a snapshot.
+        //
+        // R57-RV-A3 P0 (replay storm): TWO gates on the emit side —
+        //   a) accepted: out-of-order/duplicate frames (re-reads after a
+        //      tracker rebuild or a generation roll) must not re-enter the
+        //      event stream as fresh traffic;
+        //   b) freshness: events older than REPLAY_QUIET_MS are history —
+        //      a cold-start full-file read (or an app restart discovering
+        //      days-old sessions) ingests the state but stays SILENT, else
+        //      every historical turn would replay its say/turn-done/greet
+        //      at once (and greet would fire for every stale dir).
+        let (session, accepted) = runtime.ingest_with_ack(&event);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        // R57-RV-B6: a missing/renamed `time` field must fail SILENT, not
+        // fresh — the old `time == 0 → fresh` escape hatch would replay a
+        // whole cold-start file if the field ever drifted.
+        let fresh = time != 0 && now.saturating_sub(time) <= REPLAY_QUIET_MS;
+        if accepted && fresh {
+            crate::http_server::emit_hook_event(app, &event, &session);
+        }
+        crate::http_server::emit_stats(app, runtime);
         Ok(())
     }
 
@@ -883,14 +1034,21 @@ impl DshWatcher {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        self.trackers
-            .retain(|_, tracker| now.saturating_sub(tracker.last_event_time) < IDLE_UNTRACK_MS);
+        // R57-RV-A3: dropping a tracker whose session directory still exists
+        // made the next poll rediscover it with offset=0 and re-read the
+        // whole file every 2.5s — forever (the R57 emit outlet turned that
+        // silent loop into a replay storm). Trackers are tiny; keep them for
+        // live directories and only drop them when the directory is gone
+        // (or it has been idle past the horizon, for vanished-dir latency).
+        self.trackers.retain(|path, tracker| {
+            path.is_dir() || now.saturating_sub(tracker.last_event_time) < IDLE_UNTRACK_MS
+        });
     }
 }
 
 /// Initialize and start the dsh watcher.
-pub fn start_dsh_watcher(runtime: Arc<Runtime>) {
-    let mut watcher = DshWatcher::new(runtime);
+pub fn start_dsh_watcher(runtime: Arc<Runtime>, app: AppHandle) {
+    let mut watcher = DshWatcher::new(runtime, app);
     // R52 (2026-09-05) startup-crash hotfix: `tokio::spawn` requires a live
     // Tokio reactor on the *calling* thread, but this function runs from the
     // Tauri setup callback on the GUI main thread, which owns none. The
@@ -947,10 +1105,17 @@ mod tests {
     }
 
     #[test]
-    fn test_fail_closed_unknown_version() {
-        let json = r#"{"type":"session","version":1,"id":"ses_123","cwd":"/home/user","createdAt":1234567890,"delegationDepth":0,"origin":null}"#;
-        let header: DshSessionHeader = serde_json::from_str(json).unwrap();
-        assert_ne!(header.version, 0);
+    fn test_fail_closed_only_unverified_future_versions() {
+        // R57: v1-v4 are all ACCEPTED now (live formats are v3/v4); only a
+        // future, unverified major (> DSH_MAX_KNOWN_VERSION) fails closed.
+        for accepted in [0u32, 1, 2, 3, 4] {
+            let json = format!(
+                r#"{{"type":"session","version":{accepted},"id":"ses_123","cwd":"/home/user","createdAt":1234567890,"delegationDepth":0,"origin":null}}"#
+            );
+            let header: DshSessionHeader = serde_json::from_str(&json).unwrap();
+            assert!(header.version <= DSH_MAX_KNOWN_VERSION);
+        }
+        assert_eq!(DSH_MAX_KNOWN_VERSION, 4);
     }
 
     #[test]

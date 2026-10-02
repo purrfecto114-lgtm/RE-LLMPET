@@ -44,8 +44,30 @@ pub(crate) fn sync_pet_windows(app: &AppHandle, config: &crate::model::AppConfig
                     });
                 if let Some((bx, by)) = base {
                     let scale = window.scale_factor().unwrap_or(1.0);
-                    let offset = (140.0 * scale) as i32;
-                    let drop = (48.0 * scale) as i32;
+                    // R57 (R57-1d P1-3①): 140px horizontal overlap made the two
+                    // 320px-wide pet windows cover ~48% of each other at first
+                    // show (the "duo double exposure" look). 280 logical px
+                    // fully offsets the mascot body (252px); the small
+                    // vertical drop keeps them visually paired.
+                    //
+                    // R57-RV-A4 P1-3: the base is LOGICAL (config.pet_position
+                    // stores logical units — see lib.rs restore ×scale, and the
+                    // outer_position fallback below returns PHYSICAL). Mixing
+                    // a logical base with a physical offset warped the real
+                    // separation on scale≠1 displays (at s=2 the second pet
+                    // re-overlapped the first). Normalize: convert the base
+                    // from logical to physical when it came from config, keep
+                    // the outer_position fallback physical as-is.
+                    let (bx, by) = if config.pet_position.is_some() {
+                        (
+                            ((bx as f64) * scale).round() as i32,
+                            ((by as f64) * scale).round() as i32,
+                        )
+                    } else {
+                        (bx, by)
+                    };
+                    let offset = (280.0 * scale) as i32;
+                    let drop = (16.0 * scale) as i32;
                     let _ = window.set_position(PhysicalPosition::new(
                         bx.saturating_add(offset),
                         by.saturating_add(drop),
@@ -3217,35 +3239,14 @@ pub fn focus_session(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<(), String> {
-    match platform::focus_session(&app, &state, &session_id) {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            state.runtime.write_log(
-                "focus",
-                &format!("native focus unavailable for {session_id}: {error}"),
-            );
-            // R54 (2026-09-22): the terminal that owned this session is gone
-            // (or never reported a pid). Fall back to resuming the session
-            // through the provider CLI before surfacing any error — the pet
-            // button's contract is "put me back in that conversation", not
-            // "focus a window that no longer exists" (session_resume module).
-            match crate::session_resume::resume_session_inner(&app, &state, &session_id) {
-                Ok(()) => Ok(()),
-                Err(resume_error) => {
-                    // R53: localize the fallback bubble (an English error inside a
-                    // Chinese UI was the reported issue) and keep the excerpt tight —
-                    // 80 chars is enough to name the reason without dumping paths.
-                    // Raw diagnostics stay in the app log.
-                    let safe_error: String = resume_error.chars().take(80).collect();
-                    let _ = app.emit(
-                        "pet:event",
-                        json!({"kind":"say","text":format!("无法重新打开会话：{safe_error}。已为你打开详情面板。")}),
-                    );
-                    open_panel(app)
-                }
-            }
-        }
-    }
+    // R57: entering a conversation must NEVER spawn a second provider
+    // process while one is alive. The old path treated any native-focus
+    // error as "dead" and unconditionally fell back to
+    // session_resume::resume_session_inner → duplicate `opencode -s <id>`
+    // processes writing the same session. process_probe runs the liveness
+    // decision (pid identity gate → provider binary scan → task-status
+    // lease) and only a fully Dead verdict relaunches.
+    crate::process_probe::focus_session_guarded(&app, &state, &session_id)
 }
 
 #[tauri::command]

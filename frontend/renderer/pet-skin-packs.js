@@ -38,6 +38,9 @@ window.OctoPetSkinPacks = (() => {
     sad: 'cat-sad.gif',             // 惹你生气了 → 嚎啕大哭
     sorry: 'cat-waiting.gif',       // 道歉 → 冒冷汗心虚
     puzzled: 'cat-needsinput.gif',  // 疑惑 → 头顶问号
+    // R57 (upstream main pet.js:66)：掠夺/驱逐后望向「战果」的回望姿态。我们
+    // 无掠夺系统，由 territory 胜利相位（把入侵者顶到墙边）触发。
+    lookout: 'cat-thinking-2.gif',  // 趴着望向浮云：驱逐后朝远处看战果
   };
   // working/thinking stay longest → multi-pose rotation every 60s (avoids "stuck" look).
   const CAT_POOLS = {
@@ -84,16 +87,24 @@ window.OctoPetSkinPacks = (() => {
     roam: 'whale-roam.gif',             // 原地小跑：闲逛
     sleeping: 'whale-sleeping.gif',     // 被窝鼓包随呼吸起伏：睡觉
     greet: 'whale-greet.gif',           // 飞向工位：新会话火速上线
+    // R57 (upstream main pet.js:133)：掠夺后看战果。我们由 territory 胜利相位触发。
+    lookout: 'whale-thinking-2.gif',    // 趴着望向「浮云」：驱逐后看战果
   };
-  // 与 cat 同构的姿态轮换。thinking 池里的 whale-working-3.gif 是「桌前对着
-  // 笔记本」——上游按需求把 thinking 与 working-3 的画面对调过，故它在池中
-  // 而不在 thinking 主图位。
+  // 与 cat 同构的姿态轮换。上游 main 把 whale 的 thinking 与 working-3 的画面对调过
+  //（working-3 是「桌前对着笔记本」，在 working 池中而非 thinking 主图位）。
+  // R57：补上 thinking 双姿态轮换——whale-thinking-2.gif 是「趴着望浮云」思考泡，
+  // 与 cat-thinking-2 同构，此前在本 fork 是零引用孤儿资产（上游用它做 lookout
+  // 主图；思考轮换与 lookout 共用素材互不冲突，60s 轮换时才可见第二张）。
   const WHALE_POOLS = {
     working: [
       'whale-working.gif',   // 戴耳机猛拍「上号」按钮
       'whale-working-2.gif', // 熬夜冠军：戴耳机对着显示器
       'whale-working-3.gif', // 桌前对着笔记本
       'whale-working-4.gif', // 边吃零食边敲键盘
+    ],
+    thinking: [
+      'whale-thinking.gif',   // 按着太阳穴+压力符号
+      'whale-thinking-2.gif', // 趴着望浮云思考泡
     ],
     sleeping: [
       'whale-sleeping.gif',   // 被窝鼓包随呼吸起伏

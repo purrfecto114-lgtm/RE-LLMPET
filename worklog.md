@@ -1612,3 +1612,18 @@ Work Log:
 Stage Summary:
 - https://github.com/purrfecto114-lgtm/RE-LLMPET/releases/tag/v0.6.5 —— 17 资产（7 平台二进制 + 4 SBOM + 4 平台校验和 + 源码 zip + 源码校验和），正式发布（非 prerelease）
 - main = 0d5b8cd = v0.6.5；门禁：npm test 82 文件 / static 22/22 / clippy 0 / cargo test 137/137 / Release 流水线全绿
+
+---
+Task ID: R57
+Agent: main-orchestrator (+5 research subagents R57-1a/b/c/d/e + 15 review subagents A1-A5/B6-B10/C11-C15)
+Task: 鲸鱼女仆皮肤修复 / 会话进入先查存活死了才拉起 / 表情补全 / 上游吸收 / hooks 接口验证 / 0.6.6 发布
+
+Work Log:
+- 五研究子代理：上游 v1.2.0 吸收清单、六家 hooks 联网实证（五 REAL+DSH STALE）、存活检测设计、GUI 残留五根因、表情覆盖矩阵
+- 实现+三批复审（15 子代理）两轮修复循环；关键根因：model.rs skin 白名单从未含 whale（皮肤不可持久化的真实根因，批3 C13 发现）、focus_session 聚焦失败即无条件重拉（双开根因）、dsh 观察器钉死 v0 格式+零事件出口、inject_emotion 字段错配（5/6 provider 情绪表情死）
+- 新模块 process_probe.rs（877 行，三态探测+FocusPlan+90s 租约，20 单测）；dsh_watch.rs v3/v4+ptc-dispatch+AppHandle 事件出口+回放防护（accepted+fresh+timestamp_ms+tracker 保留）
+- 门禁：npm test 81 文件 / cargo test --lib 160/160 / clippy 0 / fmt 干净 / static 22/22 / manifest 422
+- 版本 0.6.6 三处+锁文件+13 测试锁；CHANGELOG 129 行；STATES/README×3/CODEWHALE 文档更新
+
+Stage Summary:
+- 0.6.6：皮肤三重根因修复+会话双开根修+DSH 复明+表情链复活+GUI 残影/duo 根修；遗留下轮：dsh seq 取证、emit 链单测、territory/travel 气泡 i18n、duo skin_codex 错配、ending/meme/loot 立项

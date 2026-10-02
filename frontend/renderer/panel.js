@@ -562,6 +562,11 @@ const STATE_META = {
   loafing: { key: 'state.loafing', cls: 'st-idle' },
   waiting: { key: 'state.waiting', cls: 'st-waiting' },
   needsinput: { key: 'state.needsinput', cls: 'st-needsinput' },
+  // R57-RV-C11: attention/notification rows existed since R53/R54 but had no
+  // META entry — the panel showed a raw "attention" / the pet HUD the bare
+  // word while the panel said 空闲.
+  attention: { key: 'state.attention', cls: 'st-waiting' },
+  notification: { key: 'state.notification', cls: 'st-needsinput' },
   error: { key: 'state.error', cls: 'st-error' },
   done: { key: 'state.done', cls: 'st-done' },
   idle: { key: 'state.idle', cls: 'st-idle' },
@@ -680,14 +685,18 @@ function renderSessList(sessions) {
   }
   el.innerHTML = filtered
     .map((s) => {
-      const effState = s.state === 'idle' && s.badge === 'done' ? 'done'
-        : s.state === 'idle' && s.badge === 'interrupted' ? 'error'
+      // R57-RV-A2: badge is authoritative — Stop lands on attention now.
+      const effState = s.badge === 'done' ? 'done'
+        : s.badge === 'interrupted' ? 'error'
         : s.state;
       const m = STATE_META[effState] || STATE_META.idle;
+      // R57-RV-B7: the DETAIL text keys on the live state (waiting/op info
+      // must not be masked by a done/interrupted badge lease); colors and
+      // badges keep effState. pet.js renders the same split.
       const detail =
-        effState === 'waiting' ? escapeHtml(t('sess.waitFor', { reason: s.reason || t('wait.default') }))
-        : effState === 'needsinput' ? escapeHtml((s.choice && s.choice.question) || t('state.needsinput'))
-        : (effState === 'working' || effState === 'juggling' || effState === 'sweeping' || effState === 'thinking') && s.op ? escapeHtml(s.op)
+        s.state === 'waiting' ? escapeHtml(t('sess.waitFor', { reason: s.reason || t('wait.default') }))
+        : s.state === 'needsinput' ? escapeHtml((s.choice && s.choice.question) || t('state.needsinput'))
+        : (s.state === 'working' || s.state === 'juggling' || s.state === 'sweeping' || s.state === 'thinking') && s.op ? escapeHtml(s.op)
         : escapeHtml(t(m.key));
       const provider = sessionProviderId(s);
       const meta = PROVIDER_META[provider] || { icon: '•', label: provider };

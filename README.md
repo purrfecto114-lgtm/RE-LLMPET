@@ -17,7 +17,7 @@ LLMPET 是一个**以桌宠为入口、本地优先的多 Agent 工作台**。�
 
 | 能力层 | LLMPET 现在能做什么 |
 |---|---|
-| **桌面感知** | 用章鱼 🐙、像素怪兽 👾、月薪喵 🐱 三款皮肤呈现思考、工具执行、并行子任务、等待、完成和错误状态 |
+| **桌面感知** | 用章鱼 🐙、像素怪兽 👾、月薪喵 🐱、鲸鱼女仆 🐋 四款皮肤呈现思考、工具执行、并行子任务、等待、完成和错误状态 |
 | **统一会话层** | 汇总 Claude Code、Codex、dsh 的实时会话与本机历史；支持搜索、筛选、置顶、归档和回到原窗口 |
 | **跨 Agent 接管** | Claude ↔ Codex 双向交接；dsh → Claude / Codex 单向交接；同代理使用原生 resume / fork |
 | **本机档案馆** | 统一索引三类 Agent 的用户会话，过滤内部 subagent；可选增量备份，恢复时不覆盖仍存在的源文件 |
@@ -114,14 +114,15 @@ Codex CLI / Desktop ──写 rollout──► ~/.codex/sessions/YYYY/MM/DD/*.js
 第三个能盯的后端是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（CLI 名 `dsh`）。它仍处于 **developer preview**，上游明确提示会有破坏兼容的变更；LLMPET 对未知日志版本采取 fail-closed：不解析、不展示为正常会话，等待适配后再支持。
 
 ```
-dsh web / dsh --profile … ──写会话日志──► ~/.dsh/sessions/--项目--/<会话>/session.jsonl.zstd
+dsh web / dsh --profile … ──写会话日志──► ~/.dsh/sessions/--项目--/<会话>/session.vN.jsonl(.zstd)
                                                 │ (dsh-watch 增量 tail，只读)
                                                 ▼
                         同一个会话状态机 (core, agentId: 'dsh') ──► 桌宠/面板
 ```
 
 - **不装任何插件**：dsh 自带 Claude Code / Codex 两种 hook 桥接插件，但都得用户往自己的 profile 里装插件、改 `cordis.patch.yml`。为一只桌宠去改你的 agent 组合不值当——所以照 Codex 的路子读它自己的会话日志，零配置、卸载无残留。
-- **压缩日志也读得动**：dsh 的日志默认是 **zstd 分帧**（`session.jsonl.zstd`，一次落盘一帧），而 Electron 33 自带的 Node 20 没有 zstd API。桌宠自己扫帧边界、逐帧解压（内置纯 JS 解码器 [fzstd](https://github.com/101arrowz/fzstd)，MIT，见 `backend/vendor/`），末尾半帧留到下一轮。单个压缩帧有 32 MiB 的解码安全上限；超过时会记录并跳过该帧、继续后续日志，避免监听永久卡死。`compression: 'none'` 的纯文本 `session.jsonl` 同样支持。
+- **代际文件名**：会话日志为代际命名——旧版 `session.jsonl(.zstd)`，现行版本写 `session.vN.jsonl(.zstd)`（已实证 v3/v4）；观察器取最高代、同代优先纯文本，版本门仅对未验证的未来主版本（>v4）fail-closed。
+- **压缩日志也读得动**：dsh 的日志默认是 **zstd 分帧**（`session.jsonl.zstd` 及代际同款，一次落盘一帧），而 Electron 33 自带的 Node 20 没有 zstd API。桌宠自己扫帧边界、逐帧解压（内置纯 JS 解码器 [fzstd](https://github.com/101arrowz/fzstd)，MIT，见 `backend/vendor/`），末尾半帧留到下一轮。单个压缩帧有 32 MiB 的解码安全上限；超过时会记录并跳过该帧、继续后续日志，避免监听永久卡死。`compression: 'none'` 的纯文本 `session.jsonl` 同样支持。
 - 事件映射：`turn/start→思考`；首个 `tool/call` 之后整轮保持“干活中”；`turn/end completed→完成庆祝 + 💬`，`aborted/blocked→中断徽标`，`error→出错`；`approval/asked→等你回复`（授权仍在 dsh 自己的界面里答）；`compaction→打扫`；`session/title` 直接用它自己起的标题；`assistant/message.usage` 配 `request/context.contextWindow` 算上下文 %。`origin: 'subagent'` 与 `delegationDepth > 0` 的子 agent 线程整份跳过。
 - 运行时面板会把 `dsh web`、`--profile headless`、已安装的 `--profile tui`，以及 Node / `npx @deepseek-ai/dsh` 入口识别为 dsh agent。`dsh web` 是内置的通用 Web profile（默认 `http://127.0.0.1:3080`，改过端口用 `LLMPET_DSH_WEB` 覆盖），不是某一条历史会话的精确定位；会话列表的「去回复」只能打开这个通用入口，不能承诺跳回具体 session。TUI 可用 `dsh --profile tui --resume <id>` 恢复，但该 profile 需要本机先安装；只有 web / headless profile 的机器不能把 dsh 作为 LLMPET 接管目标。dsh 会话仍可作为**来源**交接给 Claude / Codex（生成本地交接单）。
 - **不做用量 / 计费**：dsh 可接任意模型供应商，本地日志没有可信的单价口径，所以只报上下文 %；**不会显示推测的价格、成本或账单**。
@@ -161,7 +162,7 @@ npm ci               # 按 package-lock.json 安装（国内网络慢可加：EL
 npm start            # 启动桌宠（首次启动会注册 Claude Code 钩子）
 ```
 
-启动后新开的 Claude Code / Codex / DeepSeek Harness 会话会被感知；近期仍活跃的 Codex rollout 与支持版本的 dsh 日志也会静默恢复到会话列表。右键桌宠可切三款皮肤，并分别开关 Codex / dsh 分身。
+启动后新开的 Claude Code / Codex / DeepSeek Harness 会话会被感知；近期仍活跃的 Codex rollout 与支持版本的 dsh 日志也会静默恢复到会话列表。右键桌宠可切四款皮肤，并分别开关 Codex / dsh 分身。
 
 **Windows 说明**
 - 命令与上面相同（PowerShell 下设镜像用 `$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'` 再 `npm ci`）。

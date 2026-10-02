@@ -1,4 +1,4 @@
-use crate::model::{AppState, Runtime};
+use crate::model::Runtime;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::process::Command;
@@ -391,35 +391,20 @@ fn ensure_window_visible(
     Ok(true)
 }
 
-pub fn focus_session(app: &AppHandle, state: &AppState, session_id: &str) -> Result<(), String> {
-    let session = state
-        .runtime
-        .session(session_id)
-        .ok_or("session no longer exists")?;
-    if session.headless {
-        return Err("headless sessions have no terminal window".into());
-    }
-    let source_pid = session
-        .source_pid
-        .ok_or("session did not report a source process")?;
-    let chain = process_chain(source_pid);
+/// R57: the process-level focus primitive. The liveness decision
+/// (pid gate → scan → lease) moved to process_probe::focus_session_guarded;
+/// this only walks the parent chain from a CONFIRMED-alive pid and raises
+/// its terminal. The blind both-pet-window `set_always_on_top(true)`
+/// re-assert that used to live here was removed with the move — re-asserting
+/// topmost on every focus flipped the two pet windows' relative z-order
+/// (the "duo windows swap layers" glitch, R57-1d P1-3②); both windows are
+/// permanently always-on-top via tauri.conf and need no re-assertion.
+pub fn focus_pid(pid: u32) -> Result<(), String> {
+    let chain = process_chain(pid);
     if chain.is_empty() {
         return Err("source process is no longer available".into());
     }
     focus_process_chain(&chain)?;
-    state.runtime.write_log(
-        "focus",
-        &format!(
-            "focused session {} from pid chain {:?}",
-            session_id.chars().take(64).collect::<String>(),
-            chain
-        ),
-    );
-    for label in ["pet", "pet-codex"] {
-        if let Some(pet) = app.get_webview_window(label) {
-            let _ = pet.set_always_on_top(true);
-        }
-    }
     Ok(())
 }
 

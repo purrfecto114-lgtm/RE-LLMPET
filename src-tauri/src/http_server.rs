@@ -313,9 +313,15 @@ fn handle_client(
             // pass through unchanged for upgrade compatibility.
             match crate::hook_client::prepare_http_state_body(body) {
                 Some(body) => {
-                    let session = runtime.ingest(&body);
+                    // R57-RV-A2/A3: gate the pet-event emission on the ingest
+                    // ACK — an out-of-order or duplicate frame updates no
+                    // state, so replaying it as fresh traffic (bubble, sound,
+                    // transient) was pure noise.
+                    let (session, accepted) = runtime.ingest_with_ack(&body);
                     emit_stats(&app, &runtime);
-                    emit_hook_event(&app, &body, &session);
+                    if accepted {
+                        emit_hook_event(&app, &body, &session);
+                    }
                 }
                 None => {
                     runtime.write_log(
@@ -550,7 +556,7 @@ fn permission_payload(provider: &str, decision: &PermissionDecision) -> Value {
     }
 }
 
-fn emit_stats(app: &AppHandle, runtime: &Arc<Runtime>) {
+pub(crate) fn emit_stats(app: &AppHandle, runtime: &Arc<Runtime>) {
     // R40.1 (audit P0-4): consolidated StatsCoalescer. The 0.5.19
     // split-mutex design had a race where dirty=true but no timer was
     // scheduled — the trailing timer cleared `scheduled` between the new
@@ -675,7 +681,7 @@ pub(crate) fn emit_stats_now(app: &AppHandle, runtime: &Arc<Runtime>) {
     let _ = app.emit("panel:stats", stats_with_rev);
 }
 
-fn emit_hook_event(app: &AppHandle, body: &Value, session: &Session) {
+pub(crate) fn emit_hook_event(app: &AppHandle, body: &Value, session: &Session) {
     let event = body
         .get("hook_event_name")
         .or_else(|| body.get("event"))
@@ -697,47 +703,84 @@ fn emit_hook_event(app: &AppHandle, body: &Value, session: &Session) {
         return;
     }
     if event == "Stop" {
-        if let Some(text) = session
-            .assistant_last_output
-            .as_deref()
-            .filter(|value| !value.is_empty())
-        {
-            let mut say = json!({"kind":"say","text":text,"sessionId":session.id.clone(),"provider":session.provider.clone()});
-            // R56: hook_client inject_emotion sniffed the assistant text and
-            // put `emotion` on the event body — but this rebuild dropped it,
-            // so the frontend's say→loved/sorry/puzzled/excited branches were
-            // dead code and those expressions never showed (upstream parity:
-            // adapter.js:454-456 attaches it to the say payload).
-            if let Some(emotion) = body.get("emotion").and_then(Value::as_str) {
-                say["emotion"] = Value::from(emotion);
+        // R57 (M3, upstream 8858788 语义)：用户中止（codex Interrupt 映射为
+        // Stop/attention）不是完成——不再 emit say/turn-done，否则用户按
+        // Esc 中止后桌宠反而庆祝「✅ 这一轮搞定啦！」+ 音效。落回默认的
+        // state 气泡（attention）即可。
+        let aborted = body
+            .get("native_event")
+            .and_then(Value::as_str)
+            .is_some_and(|native| native == "Interrupt")
+            || body.get("turn_aborted").and_then(Value::as_bool) == Some(true);
+        if !aborted {
+            if let Some(text) = session
+                .assistant_last_output
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                let mut say = json!({"kind":"say","text":text,"sessionId":session.id.clone(),"provider":session.provider.clone()});
+                // R56: hook_client inject_emotion sniffed the assistant text and
+                // put `emotion` on the event body — but this rebuild dropped it,
+                // so the frontend's say→loved/sorry/puzzled/excited branches were
+                // dead code and those expressions never showed (upstream parity:
+                // adapter.js:454-456 attaches it to the say payload).
+                if let Some(emotion) = body.get("emotion").and_then(Value::as_str) {
+                    say["emotion"] = Value::from(emotion);
+                }
+                let _ = app.emit("pet:event", say);
             }
-            let _ = app.emit("pet:event", say);
+            // R56 (upstream adapter.js:448-453): a turn that ran ≥5 ops since the
+            // last user prompt is a BIG task — confetti + big-done instead of the
+            // plain turn-done (the big-done frontend case existed but nothing
+            // ever produced the event).
+            let big = session.ops_since_prompt >= 5;
+            let kind = if big { "big-done" } else { "turn-done" };
+            let mut payload = json!({"kind":kind,"sessionId":session.id.clone(),"provider":session.provider.clone()});
+            if big {
+                payload["ops"] = json!(session.ops_since_prompt);
+            }
+            let _ = app.emit("pet:event", payload);
         }
-        // R56 (upstream adapter.js:448-453): a turn that ran ≥5 ops since the
-        // last user prompt is a BIG task — confetti + big-done instead of the
-        // plain turn-done (the big-done frontend case existed but nothing
-        // ever produced the event).
-        let big = session.ops_since_prompt >= 5;
-        let kind = if big { "big-done" } else { "turn-done" };
-        let mut payload =
-            json!({"kind":kind,"sessionId":session.id.clone(),"provider":session.provider.clone()});
-        if big {
-            payload["ops"] = json!(session.ops_since_prompt);
-        }
-        let _ = app.emit("pet:event", payload);
         return;
     }
-    // R56: greet transient — SessionStart armed greet_pending_at, ingest
-    // consumed it on this UserPromptSubmit (5min window + 30min project
-    // debounce) and flagged greet_due. Emit BEFORE the user-turn so the
-    // frontend plays the wake-up transient first (upstream adapter.js:405-431).
-    if session.greet_due && event == "UserPromptSubmit" {
+    // R57 (upstream adapter.js 8858788)：greet 直接在 SessionStart 本体发射——
+    // 等 "第一条 prompt" 意味着新开/resume 回来但暂时没输入的会话永远看不到
+    // 欢迎表情；旧 30 分钟项目级频控还会吞掉同仓库的第二个并行会话。
+    // greet_due 由 model 侧一次性置位/复位（下一帧即消耗）。
+    if session.greet_due && event == "SessionStart" {
+        // R57-RV-A2: the greet bubble reads ev.project ("👋 {project} 新会话，
+        // 你好！") — the payload never carried it, so the project name was
+        // permanently blank.
         let _ = app.emit(
             "pet:event",
-            json!({"kind":"greet","sessionId":session.id.clone(),"provider":session.provider.clone()}),
+            json!({
+                "kind":"greet",
+                "sessionId":session.id.clone(),
+                "provider":session.provider.clone(),
+                "project":crate::model::project_name(&session.cwd, &session.id),
+            }),
         );
     }
+    // R57 (upstream TASK_VISUAL_DEDUPE_MS)：codex/dsh 的 turn-start
+    //（TaskStarted）通常比 user 行早 1-2s 落地，且已经把 thinking 短暂态
+    // 演过了；这里只抑制中性的重复 user-turn，从不抑制带情绪的 prompt。
+    if event == "UserPromptSubmit"
+        && body.get("emotion").and_then(Value::as_str).is_none()
+        && session.task_visual_at.is_some_and(|t| {
+            session
+                .user_prompt_at
+                .is_some_and(|u| u.saturating_sub(t) <= 3_000)
+        })
+    {
+        return;
+    }
     let mut payload = match event {
+        "TaskStarted" => {
+            // R57 (upstream 8858788)：dsh turn/start 的显式回合起始行
+            //（codex 钩子词汇表无此事件，走 UserPromptSubmit 直达）。这是
+            // 让每个新任务可见地进入 thinking 的可靠兜底。
+            json!({"kind":"user-turn","taskStarted":true})
+        }
         "UserPromptSubmit" => {
             let mut turn = json!({"kind":"user-turn"});
             // R56: forward the sniffed user-text emotion (loved/sad/excited) —

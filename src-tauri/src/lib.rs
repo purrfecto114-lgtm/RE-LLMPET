@@ -19,6 +19,7 @@ mod model;
 mod platform;
 mod plugin_sources;
 mod pricing_sync;
+mod process_probe;
 mod provider_registry;
 mod secure_file;
 mod session_resume;
@@ -176,7 +177,7 @@ pub fn run() {
                 // triggers a re-sync of our hooks. See src-tauri/src/hook_watcher.rs.
                 hook_watcher::start_settings_watcher(runtime.clone());
             }
-            dsh_watch::start_dsh_watcher(runtime.clone());
+            dsh_watch::start_dsh_watcher(runtime.clone(), app.handle().clone());
             pricing_sync::start(runtime.clone(), app.handle().clone());
             let config = runtime.config_view();
             let stats = runtime.stats();

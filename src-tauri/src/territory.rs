@@ -333,9 +333,12 @@ pub fn run_now(
 fn run_now_inner(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
     // R2-BUGFIX: read config from runtime (was missing `config` binding).
     let config = runtime.config();
+    // R57-RV-A4 P2: the blind both-window `set_always_on_top(true)` re-assert
+    // is removed — both pet windows are permanently topmost via tauri.conf,
+    // and re-asserting in a fixed order flips their relative z-order (the
+    // "duo windows swap layers" glitch); patrol runs made it recur.
     for label in ["pet", "pet-codex"] {
         if let Some(window) = app.get_webview_window(label) {
-            let _ = window.set_always_on_top(true);
             let should_show =
                 config.mode != "hidePet" && (label == "pet" || config.pet_mode == "duo");
             if should_show {

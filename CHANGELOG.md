@@ -1,5 +1,133 @@
 # Changelog
 
+## 0.6.6 — R57 鲸鱼皮肤可持久化 + 会话双开进程根修 + DSH 观察器 v3/v4 + 表情/徽标语义（2026-10-02）
+
+> 用户指令（原文）：「读取上下文修复："鲸鱼女 maid"皮肤不正确，从桌宠进入
+> 会话（如图）应该先查找筛选（可以依靠任务状态）是否存活opencode进程，
+> 如果死亡才重新拉起。桌宠的几个表情还是没用上。检查上游并吸纳新的有利
+> 于我们项目的更新。搜索验证hooks触发接口真实存在，自主发现修复其他
+> 问题。更新文件，清理工作区。派15个subagents复审」
+
+> 5 个调查 subagent（R57-1a/b/c/d/e）+ 15 个复审 subagent（A1-A5、B6-B10、
+> C11-C15，分三批）取证与复审：上游 v1.2.0 吸收审计、六家 hooks 接口
+> 联网实证、存活检测设计、GUI 残留审计、表情覆盖矩阵。
+
+### HIGH: 鲸鱼女仆皮肤「不正确」的真正根因 —— 白名单从未加 whale
+- 实证（R57-RV-C13）：`model.rs` 配置 sanitize 白名单自 R21 起只有
+  `mascot|pixel|cat`——选 whale 后 `set_skin` 命令校验通过，但
+  `update_config` 落盘前 sanitize 当场打回 mascot，配置回声把活皮肤也翻
+  回去。鲸鱼皮肤自 0.6.5 发布起**从未可持久化**。修复：白名单加 whale
+  （`src-tauri/src/model.rs` skin 与 skin_codex 两处）。
+- 同族修复（道具/滤镜/孤儿图，R57-1a 上游对照）：`playAction` 对 meme 皮肤
+  拦截外围道具 emoji（上游 pet.js:2984 `!isMeme() && icon` 同款）+ CSS
+  `body.skin-cat #prop{display:none!important}` 双保险；waiting/needsinput/
+  error 的发光滤镜对整幅 GIF 会罩出光晕，对齐上游 `filter:none`；whale
+  双类切换（applySkin 对 cat/whale 都切 skin-cat，上游 pet.js:3868 同款，
+  漏切会让 meme 共用规则失效）。
+- 表情补全：`lookout` 短暂态（上游 loot 战果回望，我们由 territory 胜利
+  相位触发；cat/whale 用 thinking-2 素材，mascot/pixel 回落 happy——
+  `pet-skin-packs.js` 两表 + `states.js` RENDER_EXTRA）；whale thinking
+  双姿态轮换（whale-thinking-2.gif 此前是零引用孤儿资产）；whale error
+  红丝带（上游 syncErrorRibbons 移植，GIF 无彩带时 CSS 周期发射）；会话
+  点 180px 盒内居中（上游 pet.css:427）。
+
+### HIGH: 从桌宠进入会话拉起第二个 opencode 进程 —— 全新 process_probe
+- 根因（R57-1c）：`commands.rs` 的 `focus_session` 把任何原生聚焦失败
+  （窗口枚举失败/pid 缺失/pid 回收）都当「已死」，无条件走
+  `session_resume::resume_session_inner` 重新拉起 → 双进程写同一会话。
+- 修复：新增 `src-tauri/src/process_probe.rs`（877 行，约 60% 为
+  FakeProcessTable 注入式单测）：pid 身份闸（cmdline 组件含 provider 名
+  或 cwd 精确等或不可读即保守存活）→ provider 二进制名扫描（Linux 加
+  cwd 匹配、含 codewhale-tui 伴生名，Windows 用 Get-CimInstance，
+  macOS 用 ps）→ 90 秒任务状态租约（`STATE_LEASE_MS`，工作族状态+
+  未 ended+心跳新鲜才拦）；`FocusPlan` 五态（Focus/LeaseHold/Untracked/
+  Headless/Relaunch），**只有 Dead+租约过期才 Relaunch**；活进程聚焦
+  失败只提示不重拉（原始双开 bug 的根修）；codex 深链降级为聚焦失败后
+  的 best-effort 兜底（id 白名单 8-128 字符防注入，绝不按退出码 ack）。
+  `platform::focus_session`→`focus_pid` 原语化；dsh 会话 Untracked
+  （杜绝裸拉第二 harness）。
+- 用户需求原文「可以依靠任务状态」即上面的任务状态租约。
+
+### HIGH: DSH 观察器钉死 v0 格式 —— 当前会话全盲 + 接通事件出口
+- 实证（R57-1b 联网核对 deepseek-harness 源码）：现行 dsh 写
+  `session.vN.jsonl(.zstd)`（v3/v4 实况），旧精确名探测让所有现行会话
+  不可见；`version != 0` 门拒掉全部现行 header；V3 起
+  `tool/ptc-dispatch` 改名。
+- 修复（`src-tauri/src/dsh_watch.rs`）：代际文件名匹配（取最高代、滚动
+  检测重置 offset）；版本门 `> DSH_MAX_KNOWN_VERSION(=4)` 才 fail-closed；
+  ptc-dispatch serde alias + match 双臂；**事件出口**（断点①：观察器此前
+  只写不发，dsh 状态要等其它 provider 顺手推快照才可见）——DshWatcher
+  持 AppHandle，`emit_stats`（150ms 合并器）+ `emit_hook_event` 直达
+  宠物；回放防护（R57-RV-A3 P0 回放风暴）：`ingest_with_ack` accepted
+  门 + `REPLAY_QUIET_MS=120s` 新鲜度门（冷启动/重启/代际滚动只入状态
+  不回放历史气泡/庆祝/greet）+ `timestamp_ms` 事件时间锚（badge 不再
+  被回放点亮）+ tracker 保留策略改「目录在即保留」（旧策略丢弃后每
+  2.5s 全文件重读）；dsh 子代理工具族扩容（上游 TOOL_MAP：
+  subagent*/agent_*/workflow/delegate 等）+ PreToolUse 带显式 state
+  （juggling 不再被 normalize 回落 working）。
+
+### HIGH: 表情链复活（R57-1e 矩阵 + 上游 8858788 移植）
+- 情绪嗅探字段族：`inject_emotion` 只读 text/message——claude/codex 的
+  用户输入在 `prompt`、助手回复在 `last_assistant_message`/
+  `assistant_last_output`。扩展为五字段 longest-wins 后，loved/sad/
+  sorry/puzzled/excited 五情绪表情在 5/6 provider 复活（此前仅 opencode
+  用户侧一条活路）。
+- greet 生命周期（上游 adapter.js 8858788）：SessionStart 本体即发射
+  （等首条 prompt 会让无输入会话永远不问候）+ 会话级 `greeted_at` 去重
+  （旧 30 分钟**项目级**频控吞掉同仓库所有并行会话的问候）+ 一次性宿主
+  目录过滤收窄（旧 `/\.` 误伤 ~/.dotfiles 等真实项目）+ greet_due 一次
+  性消耗（旧标志永不清零，每条 prompt 重发问候——顺带修掉）+ 气泡补
+  project 字段（此前项目名恒空）。
+- Stop→attention（STATES.md §3 既有条款落地）：旧映射落 idle，
+  claude/codex 每轮结束 attention 表情从未出现；TaskStarted（dsh
+  turn/start）→ user-turn 兜底 + 3 秒中性去重（带情绪的 prompt 不抑制）。
+- done/interrupted 徽标复活（上游 core.js deriveBadge）：真实 Stop 完成置
+  绿「刚完成」（5 分钟或聚焦会话即清，`ack_session_completion`）；失败/
+  Esc 中止置红「被中断」45 秒；前端徽标权威化（旧 `state==='idle'` 门在
+  Stop 落 attention 后让两色点永久死亡）+ WORK_START 清徽标（新一轮开
+  工即撤旧完成通知）+ ack 后立即推送快照。
+- 误触修正：codewhale `mode_change` 改映射 ModeChange（切模式不再闪
+  「💬 等你回复」+完成音效）；codex Interrupt（Esc 中止）不再庆祝
+  「✅ 这一轮搞定啦！」+ 音效（落红中断徽标）；loafing 间隙合成收窄为
+  claude-only（codex/dsh/codewhale/opencode 有明确回合终止标记，长推理
+  间隙被误报「躺平摸鱼」）。
+
+### MED: GUI 显示残留（用户截图的 provider 列表残影）+ duo 双宠
+- 透明窗残影根修（R57-1d）： chooser 关闭与窗口收缩同帧发生，WebView2/
+  webkitgtk 透明合成面保留旧帧像素（tauri#10306 / WebView2Feedback#5673
+  类）。`nudgeWebViewRepaint()`（root translateZ(0) 两帧强制全帧重绘，
+  挂 geometry ack）+ chooser 延迟两帧收缩。两窗补
+  `backgroundColor #00000000` 兜底。
+- duo 双宠：首显偏移 140→280 逻辑像素（两 320px 宠曾互相遮 ~48%）+
+  逻辑/物理基准归一（scale≠1 高分屏曾叠回）；移除三处盲目双窗
+  `set_always_on_top(true)` 重断言（恒置顶窗按固定顺序重断言会翻转双宠
+  相对 z 层——「换层」闪烁的根因）。
+- 气泡 30vh 封顶+滚动（长错误/旅行摘要不再无声截断/丢后半段）；mascot
+  error 红调滤镜（替换指向不存在节点的死规则）；elicitation 卡片英文
+  硬编码清除（ask.submit/next/other/chooseOne/multiHint/back/goTerminal
+  三语 + pet.html data-i18n 接线 + zh 词典陈旧英文键遮蔽修复）；ask
+  面板 placeholder 复位；会话空态区分「无会话」与「无匹配」。
+
+### MED: 小吸收项（R57-1a 清单）
+- 会话 ID 尾 8 位一键复制（上游 main.js:1553-1560 适配，Clipboard API+
+  execCommand 兜底，连点竞态修复）；travel 完成补 bigDone 号角；
+  attention/notification 行状态标签三语补齐（两窗口显示一致）。
+
+### 验证
+- 门禁：npm test 全绿（81 个测试文件）、cargo test --lib 160/160（+23
+  本轮新增：process_probe 20 存活矩阵、dsh 版本门、TaskStarted/Stop/
+  greet 簿记）、cargo clippy --all-targets -D warnings 0、cargo fmt 干净、
+  static-checks 22/22、SOURCE_MANIFEST 422 files verify OK。
+- 复审：15 个复审 subagent 三批（A/B/C），两轮「复审→修复」循环——批 1
+  修 2 P0（macOS cfg 冲突、Windows 探测恒 Dead）+ 7 P1；批 2 修 dsh 角标
+  时间锚/askBack 接线等；批 3 发现并修复鲸鱼皮肤白名单根因（见 HIGH）。
+- 上游与接口证据：上游 v1.2.0 逐行对照（吸收 6 项/缓收 loot/meme/
+  ending 收件箱）；六家 hooks 接口联网实证五家 REAL（Claude 24 事件、
+  CodeWhale 14/14+TOML 逐字节、Codex 12 事件三重核对、OpenCode v1+v2
+  并存、Aider 连字符键），DSH 观察面 STALE→本轮修复。
+- 预算：pet.js 2740（+65 审计行）/process_probe.rs 900/pet-skin-packs.js
+  220；worklog 全程留痕。
+
 ## 0.6.5 — R56 卸载器修复 + 鲸鱼女仆皮肤 + GUI 根因修复 + 表情补全（2026-09-24）
 
 > 用户指令（原文）：「整理上下文后修复：你把安装程序搞坏了，无法正常卸载，
