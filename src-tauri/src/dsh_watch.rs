@@ -253,6 +253,15 @@ const DSH_MAX_KNOWN_VERSION: u32 = 4;
 /// any clock skew between the writer and this process.
 const REPLAY_QUIET_MS: u64 = 120_000;
 
+/// R58-IMPL-E (P2, upstream dsh-watch.js:880 `BACKFILL_MAX_AGE_MS`): session
+/// directories whose newest session file is older than this window are not
+/// scanned when a tracker is FIRST discovered (cold start / re-discovery);
+/// a session that receives new writes gets a fresh mtime and re-enters on
+/// the next poll (tracker recreated at offset 0, with REPLAY_QUIET_MS
+/// keeping the replayed history silent). Aligns the native watcher with the
+/// 30-minute backfill window shared by the claude/codex session seeds.
+const DSH_SEED_MAX_AGE_MS: u64 = 30 * 60 * 1000;
+
 /// R57 (R57-1b, deepseek-harness persistence docs): session files are
 /// generational — v0 wrote `session.jsonl(.zstd)`, current releases write
 /// `session.vN.jsonl(.zstd)`. Match any generation and take the highest;
@@ -428,6 +437,29 @@ impl DshWatcher {
         &mut self,
         session_path: &Path,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // R58-IMPL-E (P2): a NEW tracker replays the whole file from offset 0,
+        // so a cold start used to ingest days-old history for every directory
+        // under ~/.dsh/sessions. Skip directories whose session file has not
+        // been touched within the 30-minute seed window; waking sessions are
+        // rediscovered on the next poll once their mtime advances. An
+        // unreadable mtime resolves to 0 (ancient) and skips — fail-closed on
+        // unknown freshness, mirroring upstream.
+        if !self.trackers.contains_key(session_path) {
+            if let Some((_, file_path)) = session_file_for(session_path) {
+                let mtime_ms = fs::metadata(&file_path)
+                    .ok()
+                    .and_then(|metadata| metadata.modified().ok())
+                    .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+                    .map_or(0, |mtime| mtime.as_millis() as u64);
+                let now_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                if now_ms.saturating_sub(mtime_ms) > DSH_SEED_MAX_AGE_MS {
+                    return Ok(());
+                }
+            }
+        }
         // Ensure tracker exists
         if !self.trackers.contains_key(session_path) {
             self.trackers.insert(

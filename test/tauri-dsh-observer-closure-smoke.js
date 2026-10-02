@@ -30,7 +30,10 @@ assert.match(watcher, /if !tracker\.accepts_events \{\s*return Ok\(\(\)\);\s*\}/
   'unsupported and subagent headers must fail closed for the whole file');
 assert.match(watcher, /\.as_millis\(\) as u64/,
   'idle cleanup must compare milliseconds with dsh event timestamps');
-assert.match(lib, /dsh_watch::start_dsh_watcher\(runtime\.clone\(\)\)/,
+assert.match(lib, /dsh_watch::start_dsh_watcher\(runtime\.clone\(\)/,
   'Tauri setup must start the native dsh watcher');
+// R58-IMPL-E note: the regex no longer pins the closing paren — R57 gave the
+// watcher a second AppHandle argument for the emit outlet, and this stale
+// anchor has been failing since 2905dd0 while the call itself was correct.
 
 console.log('tauri-dsh-observer-closure-smoke: ok');

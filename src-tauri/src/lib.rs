@@ -23,6 +23,7 @@ mod process_probe;
 mod provider_registry;
 mod secure_file;
 mod session_resume;
+mod session_seed;
 mod territory;
 mod transcript;
 mod travel;
@@ -178,6 +179,29 @@ pub fn run() {
                 hook_watcher::start_settings_watcher(runtime.clone());
             }
             dsh_watch::start_dsh_watcher(runtime.clone(), app.handle().clone());
+            // R58-IMPL-E: cold-start session seeding. Five of six providers
+            // are pure event-pushers, so sessions that existed before this
+            // process started never appear until their NEXT hook event. Backfill
+            // the board from claude transcripts and codex rollouts (mtime within
+            // 30 min, newest 15 each) on a background thread so setup never
+            // blocks on disk scans. Seeds only go through ingest_with_ack (no
+            // pet event frames — REPLAY_QUIET); one coalesced stats snapshot
+            // afterwards puts the seeded rows on the HUD.
+            {
+                let seed_runtime = runtime.clone();
+                let seed_app = app.handle().clone();
+                std::thread::spawn(move || {
+                    let claude = session_seed::seed_claude_sessions(&seed_runtime);
+                    let codex = session_seed::seed_codex_sessions(&seed_runtime);
+                    seed_runtime.write_log(
+                        "seed",
+                        &format!("cold-start session seed: claude={claude} codex={codex}"),
+                    );
+                    if claude + codex > 0 {
+                        http_server::emit_stats(&seed_app, &seed_runtime);
+                    }
+                });
+            }
             pricing_sync::start(runtime.clone(), app.handle().clone());
             let config = runtime.config_view();
             let stats = runtime.stats();
