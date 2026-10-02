@@ -755,13 +755,31 @@ pub fn set_currency(
 
 #[tauri::command]
 pub fn toggle_mute(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    state
+    let updated = state
         .runtime
         .update_config(|config| config.muted = !config.muted)?;
     emit_config(&app, &state);
     // R56: mute flips the tray label between tray.mute/tray.unmute — rebuild
     // so the label matches after renderer-side toggles.
     crate::refresh_tray_menu(&app);
+    // R58-IMPL-D (B6): visible success feedback for BOTH mute entry points
+    // (tray item + radial bell). The radial menu closes the instant the item
+    // is clicked, so the bell-icon flip is invisible; the tray label flips
+    // behind the still-open menu. The toast.muted/toast.unmuted keys are
+    // defined in i18n.rs + frontend/shared/i18n.js (r11 parity smoke) and
+    // emitted through emit_tray_toast (pet + pet-codex + panel) so hidePet
+    // mode still shows it on the panel.
+    let lang = state.runtime.config().lang;
+    let message = crate::i18n::tray_label(
+        &lang,
+        if updated.muted {
+            "toast.muted"
+        } else {
+            "toast.unmuted"
+        },
+    )
+    .to_string();
+    crate::emit_tray_toast(&app, message);
     Ok(())
 }
 

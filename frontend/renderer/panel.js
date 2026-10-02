@@ -1216,10 +1216,26 @@ document.addEventListener('DOMContentLoaded', () => {
       const delta = Number(result.delta) || 0;
       const sign = delta >= 0 ? '+' : '';
       priceRebuild.title = `重算完成：${result.eventCount} 个事件，${sign}$${delta.toFixed(4)}`;
+      // R58-IMPL-D (B10): the result was title-only (hover) — the click had
+      // no visible feedback unless the user hovered the button. Toast it.
+      if (window.reLlmpetToast && typeof window.reLlmpetToast.show === 'function') {
+        window.reLlmpetToast.show(
+          t('toast.rebuildDone', {
+            count: Number(result.eventCount) || 0,
+            delta: `${sign}$${(Number(delta) || 0).toFixed(4)}`,
+          }),
+          { timeout: 4500 }
+        );
+      }
     }).catch((error) => {
       priceRebuild.disabled = false;
       priceRebuild.textContent = t('panel.rebuildCost');
       priceRebuild.title = '重算失败：' + String(error || '未知错误');
+      // R58-IMPL-D (B10): failures were also title-only; route through the
+      // persistent bridge-error toast so they cannot be missed.
+      window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
+        detail: { command: 'rebuild_usage_costs', message: String(error && (error.message || error) || 'unknown') }
+      }));
     });
   });
   const savePriceAuto = () => {
@@ -1358,6 +1374,20 @@ window.pet.onPanelStats((s) => {
   }
 });
 window.pet.onPrice(renderPriceInfo);
+// R58-IMPL-D (B5): tray-origin toasts were pet-window-only (pet.js
+// case 'toast' → showBubble). In mode=hidePet the pet window is hidden and
+// the toast was a dead letter — the R58-1e audit's "toast 通道结构性缺陷".
+// Rust now emits kind:"toast" to the panel window too (lib.rs
+// emit_tray_toast); route it through the shared toast helper (toast.js) so
+// the feedback stays visible regardless of the display mode. Only 'toast'
+// events are handled — every other pet:event payload is pet-window UI
+// state we deliberately ignore here.
+window.pet.onEvent((ev) => {
+  if (!ev || ev.kind !== 'toast' || !ev.message) return;
+  if (window.reLlmpetToast && typeof window.reLlmpetToast.show === 'function') {
+    window.reLlmpetToast.show(String(ev.message), { timeout: 4500 });
+  }
+});
 // R15: diagnostic progress feedback — update the loading UI with current phase
 if (window.pet.onDiagnosticProgress) {
   window.pet.onDiagnosticProgress((ev) => {

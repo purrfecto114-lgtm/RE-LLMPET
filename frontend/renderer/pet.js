@@ -2569,6 +2569,10 @@ const radialMenu = window.OctoPetRadialMenu.create({
   toggle: toggleRadial, claimInput: () => setMouseIgnore(false), toggleSkin, toggleCurrency,
   territorySupported: () => territorySupported,
   muted: () => muted, currency: () => currentCurrency,
+  // R58-IMPL-D (B7): the radial patrol item needs the bubble for its
+  // deferred/busy feedback (see pet-radial-menu.js) — same pattern as the
+  // travel view's owner contract above.
+  bubble: showBubble,
   currencyLabel: () => currentLang === 'en' ? 'Currency' : currentLang === 'ja' ? '通貨' : '货币',
   waitingCount: () => lastWaiting, backgroundCount: () => lastBgZombie,
   // R56: share the petAnchor right-click timestamp with the radial so one

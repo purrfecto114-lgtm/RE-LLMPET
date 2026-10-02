@@ -335,8 +335,45 @@ pub fn run() {
 /// (NSIS PREUNINSTALL / manual macOS-Linux cleanup). Thin wrapper keeps
 /// hook_install crate-private so its Runtime signatures cannot leak
 /// crate-private types through a public module boundary.
-pub fn uninstall_all_hooks_cli() -> i32 {
-    hook_install::uninstall_all_hooks_headless()
+/// R58-IMPL-D (A1): `--purge-data` additionally removes `~/.re-llmpet` after
+/// the hooks are clean (see hook_install::uninstall_all_hooks_headless).
+pub fn uninstall_all_hooks_cli(purge: bool) -> i32 {
+    hook_install::uninstall_all_hooks_headless(purge)
+}
+
+/// R58-IMPL-D (B5): emit a tray-origin toast to every window that can render
+/// it. The old `app.emit("pet:event", …)` broadcast was only consumed by the
+/// pet window's `case 'toast'` handler — in mode=hidePet the pet window is
+/// hidden and the toast was a dead letter (the R58-1e audit's "toast 通道
+/// 结构性缺陷"). Targeted emission keeps the pet + pet-codex bubble paths
+/// AND adds the panel, whose new onEvent listener (panel.js, R58-IMPL-D)
+/// routes kind:"toast" through the shared toast helper in toast.js.
+/// pub so commands.rs can reuse the channel (toggle_mute, B6).
+pub fn emit_tray_toast(app: &tauri::AppHandle, message: String) {
+    let payload = json!({"kind": "toast", "message": message});
+    for label in ["pet", "pet-codex", "panel"] {
+        let _ = app.emit_to(label, "pet:event", payload.clone());
+    }
+}
+
+/// R58-IMPL-D (B1-B4/B8): surface tray-side failures that were previously
+/// swallowed by `let _ =` (launch_*×5, open log/dir/panel, the settings
+/// config group) — before this, a failed tray action looked like a dead
+/// button. The localized prefix comes from the i18n table (toast.* keys in
+/// i18n.rs, mirrored in frontend/shared/i18n.js for the parity smoke);
+/// the backend error detail is appended prefix-style via format!.
+fn tray_toast_error(app: &tauri::AppHandle, key: &str, detail: &str) {
+    // Language is resolved at emission time (not menu-build time) so the
+    // toast tracks the CURRENT config language even if the user switched
+    // after the menu was built.
+    let lang = tray_lang(app);
+    let message = format!("{}: {}", i18n::tray_label(&lang, key), detail);
+    emit_tray_toast(app, message);
+}
+
+/// R58-IMPL-D: current config language for tray-origin toast text.
+fn tray_lang(app: &tauri::AppHandle) -> String {
+    app.state::<AppState>().runtime.config().lang
 }
 
 fn build_tray_menu<R: tauri::Runtime>(
@@ -757,36 +794,51 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 }
             }
             "panel" => {
-                let _ = open_panel(app.clone());
+                // R58-IMPL-D (B8): open-panel failures were swallowed by
+                // `let _ =` — the tray click looked like a dead button.
+                if let Err(e) = open_panel(app.clone()) {
+                    tray_toast_error(app, "toast.openPanelFail", &e);
+                }
             }
             "launch_claude" => {
                 let config = app.state::<AppState>().runtime.config();
                 if config.providers.iter().any(|p| p == "claude") {
-                    let _ = launch_agent("claude".into());
+                    // R58-IMPL-D (B1): surface launch failures as toasts.
+                    if let Err(e) = launch_agent("claude".into()) {
+                        tray_toast_error(app, "toast.launchFail", &e);
+                    }
                 }
             }
             "launch_codewhale" => {
                 let config = app.state::<AppState>().runtime.config();
                 if config.providers.iter().any(|p| p == "codewhale") {
-                    let _ = launch_agent("codewhale".into());
+                    if let Err(e) = launch_agent("codewhale".into()) {
+                        tray_toast_error(app, "toast.launchFail", &e);
+                    }
                 }
             }
             "launch_codex" => {
                 let config = app.state::<AppState>().runtime.config();
                 if config.providers.iter().any(|p| p == "codex") {
-                    let _ = launch_agent("codex".into());
+                    if let Err(e) = launch_agent("codex".into()) {
+                        tray_toast_error(app, "toast.launchFail", &e);
+                    }
                 }
             }
             "launch_opencode" => {
                 let config = app.state::<AppState>().runtime.config();
                 if config.providers.iter().any(|p| p == "opencode") {
-                    let _ = launch_agent("opencode".into());
+                    if let Err(e) = launch_agent("opencode".into()) {
+                        tray_toast_error(app, "toast.launchFail", &e);
+                    }
                 }
             }
             "launch_aider" => {
                 let config = app.state::<AppState>().runtime.config();
                 if config.providers.iter().any(|p| p == "aider") {
-                    let _ = launch_agent("aider".into());
+                    if let Err(e) = launch_agent("aider".into()) {
+                        tray_toast_error(app, "toast.launchFail", &e);
+                    }
                 }
             }
             // R12 (2026-07-30): tray-driven config switches. Each branch
@@ -796,13 +848,21 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             // lang_*: set_language also calls refresh_tray_menu internally,
             // so we don't double-refresh here.
             "lang_zh" => {
-                let _ = set_language(app.clone(), app.state::<AppState>(), "zh".into());
+                // R58-IMPL-D (B8): the settings config group (lang/skin/
+                // budget/shape/mute/price-auto) swallowed write failures.
+                if let Err(e) = set_language(app.clone(), app.state::<AppState>(), "zh".into()) {
+                    tray_toast_error(app, "toast.saveFail", &e);
+                }
             }
             "lang_en" => {
-                let _ = set_language(app.clone(), app.state::<AppState>(), "en".into());
+                if let Err(e) = set_language(app.clone(), app.state::<AppState>(), "en".into()) {
+                    tray_toast_error(app, "toast.saveFail", &e);
+                }
             }
             "lang_ja" => {
-                let _ = set_language(app.clone(), app.state::<AppState>(), "ja".into());
+                if let Err(e) = set_language(app.clone(), app.state::<AppState>(), "ja".into()) {
+                    tray_toast_error(app, "toast.saveFail", &e);
+                }
             }
             "skin_mascot" | "skin_pixel" | "skin_cat" | "skin_whale" => {
                 let skin = match event.id.as_ref() {
@@ -812,7 +872,9 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                     "skin_whale" => "whale",
                     _ => return,
                 };
-                let _ = set_skin(app.clone(), app.state::<AppState>(), skin.into(), None);
+                if let Err(e) = set_skin(app.clone(), app.state::<AppState>(), skin.into(), None) {
+                    tray_toast_error(app, "toast.saveFail", &e);
+                }
                 // Skin change doesn't change labels, but the check mark
                 // moves; rebuild so the new selection is visually marked.
                 refresh_tray_menu(app);
@@ -827,7 +889,9 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                     "budget_100" => 100.0,
                     _ => return,
                 };
-                let _ = set_budget(app.clone(), app.state::<AppState>(), value);
+                if let Err(e) = set_budget(app.clone(), app.state::<AppState>(), value) {
+                    tray_toast_error(app, "toast.saveFail", &e);
+                }
                 refresh_tray_menu(app);
             }
             // R14 (2026-07-30): shape submenu routes to set_mode. set_mode
@@ -840,37 +904,72 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                     "shape_hidePet" => "hidePet",
                     _ => return,
                 };
-                let _ = set_mode(app.clone(), app.state::<AppState>(), mode.into());
+                if let Err(e) = set_mode(app.clone(), app.state::<AppState>(), mode.into()) {
+                    tray_toast_error(app, "toast.saveFail", &e);
+                }
                 refresh_tray_menu(app);
             }
             "toggle_mute" => {
-                let _ = toggle_mute(app.clone(), app.state::<AppState>());
+                // R58-IMPL-D (B6): toggle_mute itself emits the muted/unmuted
+                // success toast now (commands.rs) — this covers BOTH the tray
+                // item and the radial bell, whose menu closes too fast for the
+                // icon flip to be readable feedback. Only the write error
+                // needs local handling here.
+                if let Err(e) = toggle_mute(app.clone(), app.state::<AppState>()) {
+                    tray_toast_error(app, "toast.saveFail", &e);
+                }
                 // Mute label flips between tray.mute and tray.unmute;
                 // rebuild so the label and check mark both update.
                 refresh_tray_menu(app);
             }
             "log" => {
-                let state = app.state::<AppState>();
-                let _ = open_log(state);
+                // R58-IMPL-D (B3): log-open failures were silently dropped.
+                if let Err(e) = open_log(app.state::<AppState>()) {
+                    tray_toast_error(app, "toast.openLogFail", &e);
+                }
             }
             // R13 (2026-07-30): tray-driven single-provider hook uninstall.
             // The menu id is "uninstall_claude_hooks" to match the upstream
-            // Electron label, but the underlying command accepts any of the
-            // 5 providers. Future tray revisions could expose a submenu with
-            // one entry per provider.
+            // Electron label (kept stable for test compatibility — see
+            // tauri-tray-extras-r13-smoke).
+            // R58-IMPL-D (A5): the action now uninstalls ALL five providers
+            // (was claude-only — the other four required the panel's provider
+            // checkboxes). The IPC "all" path runs the receipt-driven cleanup
+            // for every provider AND clears config.providers; no data purge
+            // here — `--purge-data` stays a CLI/NSIS-only explicit choice.
             "uninstall_claude_hooks" => {
-                let result = uninstall_hooks(app.clone(), app.state::<AppState>(), "claude".into());
-                let msg = match result {
+                let result = uninstall_hooks(app.clone(), app.state::<AppState>(), "all".into());
+                // R58-IMPL-D (B9): resolve the language at emission time so
+                // the toast tracks the current config language.
+                let lang = tray_lang(app);
+                let msg = match &result {
                     Ok(val) => {
-                        let summary = val
-                            .get("summary")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("卸载完成");
-                        format!("🧹 {}", summary)
+                        let all_clean = val
+                            .get("allHooksVerifiedAbsent")
+                            .map_or(true, |v| v.as_bool().unwrap_or(true));
+                        if all_clean {
+                            // R58-IMPL-D (B9): was hard-coded Chinese
+                            // ("卸载完成" / fallback summary text).
+                            i18n::tray_label(&lang, "tray.toastUninstallDone").to_string()
+                        } else {
+                            let detail = val
+                                .get("message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            format!(
+                                "{}: {}",
+                                i18n::tray_label(&lang, "tray.toastUninstallFail"),
+                                detail
+                            )
+                        }
                     }
-                    Err(e) => format!("卸载失败: {}", e),
+                    Err(e) => format!(
+                        "{}: {}",
+                        i18n::tray_label(&lang, "tray.toastUninstallFail"),
+                        e
+                    ),
                 };
-                let _ = app.emit("pet:event", json!({"kind":"toast","message":msg}));
+                emit_tray_toast(app, msg);
                 // R56: uninstall removes the provider from config.providers —
                 // the "新开 Agent" submenu is filtered by that list at build
                 // time, so without a rebuild the launch_claude item stays as
@@ -881,11 +980,16 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             // R10: settings submenu handlers
             "settings_refresh_price" => {
                 let result = refresh_model_prices(app.clone(), app.state::<AppState>());
+                // R58-IMPL-D (B9): was hard-coded Chinese
+                // ("💰 价格刷新已入队" / "价格刷新失败: …").
+                let lang = tray_lang(app);
                 let msg = match result {
-                    Ok(_) => "💰 价格刷新已入队".to_string(),
-                    Err(e) => format!("价格刷新失败: {}", e),
+                    Ok(_) => i18n::tray_label(&lang, "tray.toastPriceQueued").to_string(),
+                    Err(e) => {
+                        format!("{}: {}", i18n::tray_label(&lang, "toast.saveFail"), e)
+                    }
                 };
-                let _ = app.emit("pet:event", json!({"kind":"toast","message":msg}));
+                emit_tray_toast(app, msg);
             }
             "settings_price_auto" => {
                 let (new_enabled, hours) = {
@@ -893,16 +997,25 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                     let config = state.runtime.config();
                     (!config.price_auto_update, config.price_refresh_hours)
                 };
-                let _ =
-                    set_price_auto_update(app.clone(), app.state::<AppState>(), new_enabled, hours);
+                if let Err(e) =
+                    set_price_auto_update(app.clone(), app.state::<AppState>(), new_enabled, hours)
+                {
+                    tray_toast_error(app, "toast.saveFail", &e);
+                }
                 refresh_tray_menu(app);
             }
             "settings_diagnostics" => {
-                let _ = open_panel(app.clone());
+                // R58-IMPL-D (B8): same open_panel swallow as the "panel" item.
+                if let Err(e) = open_panel(app.clone()) {
+                    tray_toast_error(app, "toast.openPanelFail", &e);
+                }
             }
             "settings_data_dir" => {
+                // R58-IMPL-D (B4): data-dir open failures were silent.
                 let data_dir = app.state::<AppState>().runtime.app_dir.clone();
-                let _ = open_path(&data_dir.to_string_lossy());
+                if let Err(e) = open_path(&data_dir.to_string_lossy()) {
+                    tray_toast_error(app, "toast.openDirFail", &e);
+                }
             }
             "quit" => {
                 let state = app.state::<AppState>();

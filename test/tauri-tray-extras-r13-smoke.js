@@ -62,7 +62,11 @@ assert(lib.includes('tray.set_tooltip(Some(i18n::tray_label('),
 const handler = lib.slice(lib.indexOf('.on_menu_event'), lib.indexOf('.on_tray_icon_event'));
 assert(handler.includes('"uninstall_claude_hooks" =>'), 'on_menu_event must handle uninstall_claude_hooks');
 assert(handler.includes('uninstall_hooks('), 'uninstall_claude_hooks must call the uninstall_hooks command');
-assert(handler.includes('"claude".into()'), 'uninstall_claude_hooks must default to the claude provider');
+// R58-IMPL-D (A5): the tray item now uninstalls ALL five providers (was
+// claude-only — the other four needed the panel's provider checkboxes).
+// The menu id keeps its historical name for label/test stability.
+assert(handler.includes('"all".into()'), 'uninstall_claude_hooks must pass "all" so every provider is cleaned (R58-IMPL-D)');
+assert(handler.includes('emit_tray_toast'), 'uninstall feedback must go through the dual-window toast channel (R58-IMPL-D B5)');
 
 // ── commands.rs: uninstall_hooks Tauri command ────────────────────────────
 assert(commands.includes('#[tauri::command]\npub fn uninstall_hooks(') ||

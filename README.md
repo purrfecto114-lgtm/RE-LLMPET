@@ -175,7 +175,7 @@ npm start            # 启动桌宠（首次启动会注册 Claude Code 钩子�
 - 会话面板底部的 **📚 档案** = 打开独立的**会话档案馆**，统一查看 Claude Code / Codex / dsh 在客户端、CLI 或 Harness 日志中留下的全部用户会话（子代理会话会被过滤），并可使用已支持 provider 的官方 resume，或生成本地交接单交给另一个代理接管。macOS 上 LLMPET 会保留一个 Dock 入口，点击即可重新显示或聚焦档案馆，不会创建第二个实例。
 - 档案馆的**定期本机备份默认关闭**。用户主动开启后，会增量备份 Claude、Codex 与 DSH 会话到 `~/.octopus/session-vault`；恢复只补回已经丢失的 transcript，绝不覆盖仍存在的源文件。它能应对 provider 重装或记录被删，但不是云同步，也不能防止整块硬盘损坏。
 - **右键** = 泡泡菜单；**拖动** = 移动位置。等授权/等回复时会**自动**弹允许/拒绝气泡。
-- 托盘菜单可开详情面板、静音、唤起 Claude、打开日志、**卸载钩子**、退出。
+- 托盘菜单可开详情面板、静音、唤起 Claude、打开日志、**卸载全部钩子**、退出。
 - 详情面板里可切皮肤 / 模式 / 设 5h 预算。
 
 ### 开发 / 验证开关
@@ -206,11 +206,21 @@ npm start            # 启动桌宠（首次启动会注册 Claude Code 钩子�
 - 面板中的 Claude 金额是**按 API 公价折算的本地估算**，不是 Claude 订阅账单；可切换 token / 金额趋势，并显示扫描时间、估算模型、价格表新鲜度和流式修正数等诊断。
 - **重算历史**：改了定价、或想用最新价目纠正过去存错价的历史，跑 `npm run meter:rebuild`（从 transcript 真相源重扫重算、写回 `usage.json`；`--no-sync` 用现有缓存价、`OCTOPUS_NO_NET=1` 完全离线）。
 
-### 卸载钩子
-托盘「🧹 卸载 Claude 钩子」，或：
+### 卸载与残留清理
+托盘「🧹 卸载全部钩子」一键清理全部五家 Provider 的钩子（R58 起不再只清 Claude）；或用 CLI：
+
 ```bash
-npm run uninstall:hooks
+# 仅卸钩子（保留用户数据；同时会清掉我们创建的空壳配置与 .octopus-bak-* 备份）
+octopus --uninstall-hooks
+# 连同 ~/.re-llmpet（配置 / 用量历史 / 日志 / 安装回执）一并删除
+octopus --uninstall-hooks --purge-data
 ```
+
+**macOS / Linux 用户注意（R58）**：没有卸载器，必须在把 .app 拖进废纸篓 / `dpkg -r` **之前**先跑上面的命令——应用删掉后二进制就没了，Provider 配置会指向不存在的路径（CodeWhale 的 fail-closed 权限钩会拒绝所有工具调用）。旧文档「删完再跑 --uninstall-hooks」是死路径，请勿这样做。
+
+Windows 卸载器（NSIS）会自动：先结束进程 → 询问「是否同时删除用户数据」→ 卸钩子（答「是」时带 `--purge-data`，静默 `/S` 卸载默认只卸钩子）→ 清理 WebView2 数据目录（`%LOCALAPPDATA%\io.github.purrfecto114.octopus`）。
+
+清理原则：只删我们写入的段/文件/目录；无法证明归属的残留一律保留（宁残留勿误删）。
 
 ---
 
