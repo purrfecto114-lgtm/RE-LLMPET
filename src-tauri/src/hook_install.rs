@@ -204,7 +204,11 @@ const AIDER_MARKERS: &[(&str, &str)] = &[
     (AIDER_BEGIN, AIDER_END),
     (AIDER_LEGACY_BEGIN, AIDER_LEGACY_END),
 ];
-const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v5";
+// R58-1c: v6 stops misreading Message.Info.parentID as a session parent
+// (v5 marked every top-level opencode session headless after turn one) and
+// stamps child-session lineage on every later event. Marker roll forces
+// reinstall of the fixed plugin on the next install cycle.
+const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v6";
 const OPENCODE_MARKER_LEGACY: &[&str] = &[
     "re-llmpet-opencode-plugin-v1",
     "octopus-opencode-plugin-v2",
@@ -214,6 +218,12 @@ const OPENCODE_MARKER_LEGACY: &[&str] = &[
     // Rust dictionary (hook_client::normalize_opencode_native) translates.
     // Old installs carry the v4 file until the next install cycle.
     "octopus-opencode-plugin-v4",
+    // R58-1c (2026-10-02): v5 misread Message.Info.parentID (the parent
+    // MESSAGE id) as the parent session id → every top-level session went
+    // headless after its first completed turn, silencing all pet events for
+    // it (subagent juggling included). v5 joins the legacy list so the
+    // marker roll above reinstalls the fixed plugin.
+    "octopus-opencode-plugin-v5",
 ];
 
 #[derive(Debug, Default)]
@@ -1361,13 +1371,18 @@ fn install_opencode(runtime: &Runtime) -> Result<InstallResult, String> {
     runtime.write_log(
         "hooks",
         // R56: this actually installs the v5 native-name plugin — the log line
-        // still said "(v4)" from the pre-R54 world.
-        "OpenCode ESM plugin synced (v5); auto-discovered via plugins/ directory scan",
+        // still said "(v4)" from the pre-R54 world. R58: marker is v6.
+        "OpenCode ESM plugin synced (v6); auto-discovered via plugins/ directory scan",
     );
     Ok(InstallResult {
         added: 1,
         path,
-        message: "OpenCode ESM 插件已安装；opencode 自动扫描 plugins/ 目录加载".into(),
+        // R58-1b: plugins load when the opencode PROCESS starts. An opencode
+        // that is already running never picks the plugin up — the session
+        // then emits zero events and the pet looks broken ("provider started
+        // before the app → detection dead"). Say it in the success message.
+        message: "OpenCode ESM 插件已安装（v6）；插件随 opencode 进程启动时加载，已运行的 opencode 需重启后生效"
+            .into(),
     })
 }
 

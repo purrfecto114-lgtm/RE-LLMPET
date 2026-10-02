@@ -440,7 +440,22 @@ function fitPopup(el) {
     };
     if (Math.abs((window.innerWidth || 0) - POPUP_W) > 2) {
       setRequestedPetSize(POPUP_W, Math.max(340, window.innerHeight || 340));
-      requestAnimationFrame(() => requestAnimationFrame(measure));
+      // R58-1a: two rAF frames often run before the set_pet_size IPC lands,
+      // so rows were measured at 320px width and wrapped → height overshoot
+      // (measured +131px in sim), leaving an ever-growing dead zone at the
+      // window top. Wait until innerWidth actually reaches POPUP_W (≤12
+      // frames ≈ 200ms fallback) before measuring.
+      let waits = 0;
+      const measureWhenWide = () => {
+        if (seq !== fitPopupSeq) return;
+        if (Math.abs((window.innerWidth || 0) - POPUP_W) > 2 && waits < 12) {
+          waits += 1;
+          requestAnimationFrame(measureWhenWide);
+          return;
+        }
+        measure();
+      };
+      requestAnimationFrame(measureWhenWide);
     } else {
       measure();
     }
@@ -1007,7 +1022,11 @@ function ctxClass(p) { return p >= 90 ? 'high' : p >= 75 ? 'mid' : ''; }
 // never told me" case. Background headless sessions (claude -p) have no
 // parentId and remain visible per STATES.md §3.
 const isVisibleSession = (s) => !!s && s.state !== 'sleeping'
-  && (!s.headless || s.state === 'waiting' || s.state === 'needsinput' || s.state === 'notification');
+  && (!s.headless || s.state === 'waiting' || s.state === 'needsinput' || s.state === 'notification')
+  // R58-1a (upstream pet.js:1486-1489 parity): archived sessions never show
+  // as head status dots. This helper was dead code — renderSessions never
+  // called it — which is why archiving left the bottom dots stale.
+  && !archivedSet.has(s.sessionId);
 // 单一配色：小点和 HUD 用同一套（完成→绿、中断→红，否则按状态）
 function sessionDotClass(s) {
   // R57-RV-A2: the badge is authoritative regardless of the row state —
@@ -1175,6 +1194,11 @@ function renderSessList() {
       }
       persistSessionPref(s.sessionId, 'pin', !isPinned, previous);
       renderSessList();
+      // R58-1a: pinning un-archives, so dots must revive immediately; the
+      // HUD shrinking must resize the window now, not at the next stats push
+      // (an idle session may never push again).
+      renderSessions(curSessions);
+      if (sessListOpen) fitPopup(sesslist);
     });
     // Archive/unarchive
     const archEl = row.querySelector('.sl-archive, .sl-unarchive');
@@ -1189,6 +1213,12 @@ function renderSessList() {
       }
       persistSessionPref(s.sessionId, 'archive', !isArchived, previous);
       renderSessList();
+      // R58-1a: archive removes the dot immediately and shrinks the HUD —
+      // previously the window height stayed frozen at the pre-archive size,
+      // and with a bottom-anchored window the dead zone grew taller on every
+      // click ("GUI 越来越高"). Re-fit now instead of waiting for stats.
+      renderSessions(curSessions);
+      if (sessListOpen) fitPopup(sesslist);
     });
     slRows.appendChild(row);
   }
@@ -1213,6 +1243,11 @@ function persistSessionPref(sessionId, action, enabled, previous) {
   }).finally(() => {
     pendingSessionPrefs.delete(sessionId);
     renderSessList();
+    // R58-1a: after the IPC landed (or rolled back), converge dots and height.
+    // Guard: the list may already be closed by blur — never fit a hidden
+    // element (scrollHeight 0 would clamp the window to the 340 floor).
+    renderSessions(curSessions);
+    if (sessListOpen) fitPopup(sesslist);
   });
 }
 const sessionLifecycle = window.OctoPetSessionLifecycle.create({ element: sesslist,
@@ -1906,8 +1941,10 @@ function decorateSessionDot(d, s) {
 }
 
 function renderSessions(sessions) {
-  // 与会话列表 HUD 完全联动：同一过滤(非 headless/非睡眠)、同一配色、同一排序。
-  const list = runtimePolicy.projectVisibleSessions(sessions).sort((a, b) => {
+  // 与会话列表 HUD 完全联动：同一过滤(非 headless/非睡眠/非归档)、同一配色、同一排序。
+  const list = runtimePolicy.projectVisibleSessions(sessions)
+    .filter(isVisibleSession) // R58-1a: revive the archived filter for dots
+    .sort((a, b) => {
     const pa = SESS_SORT[a.state] != null ? SESS_SORT[a.state] : 3;
     const pb = SESS_SORT[b.state] != null ? SESS_SORT[b.state] : 3;
     return pa !== pb ? pa - pb : (a.idleMs || 0) - (b.idleMs || 0);
@@ -2467,6 +2504,7 @@ if (slSearch) {
   slSearch.addEventListener('input', (e) => {
     slQuery = e.target.value.trim();
     renderSessList();
+    if (sessListOpen) fitPopup(sesslist); // R58-1a (upstream 4112-4113 pair)
   });
 }
 document.querySelectorAll('.sl-filter').forEach((btn) => {
@@ -2476,6 +2514,7 @@ document.querySelectorAll('.sl-filter').forEach((btn) => {
     document.querySelectorAll('.sl-filter').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     renderSessList();
+    if (sessListOpen) fitPopup(sesslist); // R58-1a (upstream 4125-4131 pair)
   });
 });
 // “新开” never calls primaryAction(): existing sessions must not turn a new

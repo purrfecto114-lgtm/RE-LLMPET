@@ -977,6 +977,21 @@ impl Runtime {
             });
             let accepted =
                 should_accept_event(entry, event_at, event_seq, event_rank, event_key.as_deref());
+            // R58-1c: lineage is identity, not state. OpenCode dispatches
+            // plugin events fire-and-forget, so the child's session.created
+            // (the only parent-carrier) can land AFTER the child's first
+            // message/status frame; the same-ms rank gate (SessionStart=10
+            // < UserPromptSubmit=50) then rejects it forever and the subagent
+            // stays a top-level pseudo session (new dot on the pet). Explicit
+            // parent metadata must apply even when the state transition is
+            // rejected.
+            if !accepted && parent_id.is_some() {
+                entry.headless = entry.headless || headless;
+                if entry.parent_id.is_none() {
+                    entry.parent_id = parent_id.clone();
+                }
+                entry.updated_at = now;
+            }
             if accepted {
                 entry.provider = provider;
                 entry.state = state;
@@ -3447,5 +3462,108 @@ mod session_order_tests {
             extract_todo_patch(&delete, Some("TaskUpdate"), "PostToolUse").unwrap(),
         );
         assert!(todos.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod r58_lineage_tests {
+    use super::*;
+
+    // R58-1c: isolated Runtime against a temp dir — the same construction
+    // AppState::new() performs, minus home-dir coupling, so ingest_with_ack
+    // can be exercised directly (usage ledger / transcripts / travel all
+    // point at the temp dir).
+    fn isolated_runtime(tag: &str) -> Arc<Runtime> {
+        let dir = std::env::temp_dir().join(format!("octopus-r58-{tag}-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let (config, config_state) = load_config(&dir.join("config.json"));
+        Arc::new(Runtime {
+            config: Mutex::new(config),
+            config_write_lock: Mutex::new(()),
+            sessions: Mutex::new(HashMap::new()),
+            recent_ops: Mutex::new(VecDeque::with_capacity(50)),
+            pending: Mutex::new(HashMap::new()),
+            batch_rules: Mutex::new(Vec::new()),
+            provider_status: Mutex::new(HashMap::new()),
+            usage: Mutex::new(UsageLedger::open(&dir, 0)),
+            transcripts: Mutex::new(TranscriptScanner::open(&dir, dir.join("projects"))),
+            price_sync_status: Mutex::new(json!({})),
+            price_refresh_tx: Mutex::new(None),
+            diagnostic_control: crate::diagnostic_control::DiagnosticControl::default(),
+            travel: crate::travel::TravelManager::open(&dir),
+            stats_revision: Mutex::new(0),
+            stats_coalescer: Mutex::new(StatsCoalescerState::default()),
+            app_dir: dir.clone(),
+            config_path: dir.join("config.json"),
+            runtime_path: dir.join("runtime.json"),
+            log_path: dir.join("re-llmpet.log"),
+            pending_path: dir.join("pending-permissions.json"),
+            started_at: 0,
+            migration_report: json!(null),
+            config_state: Mutex::new(config_state),
+        })
+    }
+
+    #[test]
+    fn late_session_created_parent_still_marks_lineage() {
+        // R58-1c RC2: OpenCode dispatches plugin events fire-and-forget, so
+        // the child's session.created (the ONLY parent-carrier) can arrive
+        // AFTER the child's first user-prompt frame. The same-ms rank gate
+        // (SessionStart=10 < UserPromptSubmit=50) rejects it as a STATE
+        // transition — but lineage is identity, not state: the row must
+        // still be marked headless+parented, otherwise the subagent stays a
+        // top-level pseudo session (a phantom new session dot on the pet).
+        let runtime = isolated_runtime("late");
+        let ts = now_ms();
+        let first = json!({
+            "provider": "opencode",
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "oc_child_1",
+            "cwd": "/tmp/late",
+            "timestamp_ms": ts,
+            "text": "run the task tool"
+        });
+        let (row, accepted) = runtime.ingest_with_ack(&first);
+        assert!(accepted, "first frame must create the row");
+        assert!(!row.headless, "no parent metadata on the first frame");
+
+        let late = json!({
+            "provider": "opencode",
+            "hook_event_name": "SessionStart",
+            "session_id": "oc_child_1",
+            "parent_id": "oc_parent_0",
+            "cwd": "/tmp/late",
+            "timestamp_ms": ts
+        });
+        let (row, accepted) = runtime.ingest_with_ack(&late);
+        // The state transition is REJECTED (same ms, lower rank)…
+        assert!(
+            !accepted,
+            "same-ms lower-rank frame must not win the state slot"
+        );
+        // …but the lineage must have been applied anyway.
+        assert!(row.headless, "rejected frame still carries parent identity");
+        assert_eq!(row.parent_id.as_deref(), Some("oc_parent_0"));
+    }
+
+    #[test]
+    fn accepted_session_created_parent_marks_lineage_too() {
+        // Control: when session.created arrives in order it is accepted and
+        // the row is parented on the normal path (guards against the fix
+        // accidentally only covering the rejected branch).
+        let runtime = isolated_runtime("order");
+        let ts = now_ms();
+        let created = json!({
+            "provider": "opencode",
+            "hook_event_name": "SessionStart",
+            "session_id": "oc_child_2",
+            "parent_id": "oc_parent_9",
+            "cwd": "/tmp/order",
+            "timestamp_ms": ts
+        });
+        let (row, accepted) = runtime.ingest_with_ack(&created);
+        assert!(accepted, "first frame is always accepted");
+        assert!(row.headless);
+        assert_eq!(row.parent_id.as_deref(), Some("oc_parent_9"));
     }
 }

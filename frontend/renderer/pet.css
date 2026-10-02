@@ -750,10 +750,16 @@ body.skin-cat #prop { display: none !important; }
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   padding: 8px;
   display: flex; flex-direction: column;
+  overflow: hidden; /* R58-1a: rows never paint outside the HUD frame */
   color: #f2f2f5;
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
 }
 .sesslist.hidden { display: none; }
+/* R58-1a: when the window height is clamped, rows scroll inside the frame
+   instead of painting over the HUD boundary (upstream #sl-session-view
+   pattern). min-height:0 lets flex children shrink below content size. */
+#sl-session-view { min-height: 0; display: flex; flex-direction: column; }
+.sl-scroll { min-height: 0; flex: 1 1 auto; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .sl-top { display: flex; align-items: center; gap: 8px; padding: 4px 8px 8px; }
 .sl-title { font-size: 12px; font-weight: 700; color: #fff; }
 .sl-sub { font-size: 10.5px; color: #9a9aa0; margin-left: 2px; flex: 1; }

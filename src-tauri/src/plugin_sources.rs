@@ -7,7 +7,20 @@
 // machinery lives in hook_install.rs.
 
 pub(crate) fn opencode_plugin_source() -> &'static str {
-    r#"// octopus-opencode-plugin-v5
+    r#"// octopus-opencode-plugin-v6
+// R58-1c (2026-10-02): v6 fixes two R54 regressions around child sessions:
+//  1. v5 read Message.Info.parentID (which upstream sets to the parent
+//     MESSAGE id on EVERY assistant message — session/prompt.ts) and
+//     forwarded it as the session parent. Every top-level opencode session
+//     went headless after its first completed turn, silencing ALL pet
+//     events for it (SubagentStart juggling included). v6 never reads
+//     message-level parentID.
+//  2. OpenCode dispatches plugin events fire-and-forget (plugin/index.ts:
+//     void hook["event"]?.()), so the child's session.created — the ONLY
+//     parent-carrier — can arrive AFTER the child's first message frame and
+//     be rejected by the same-ms rank gate. v6 learns child lineage into a
+//     map and stamps every later child event, plus sends timestamp_ms so
+//     the backend can anchor event time to emission, not HTTP arrival.
 // R54 (2026-09-22): native event names — NO cross-provider translation.
 //
 // v4 (and earlier) translated OpenCode's native events into Claude Code
@@ -61,9 +74,25 @@ async function send(payload) {
       // ("Cannot focus terminal: session did not report a source process"
       // was the reported bug for every OpenCode session — HTTP-delivered
       // events used to arrive without any pid at all).
-      body: JSON.stringify({ provider: "opencode", source_pid: process.pid, ...payload }), signal: AbortSignal.timeout(500)
+      // R58-1c: timestamp_ms anchors event time to emission, not HTTP arrival
+      // — the backend freshness gate and same-ms rank ordering both key off
+      // it, and out-of-order HTTP delivery was skewing them.
+      body: JSON.stringify({ provider: "opencode", source_pid: process.pid,
+        timestamp_ms: Date.now(), ...payload }), signal: AbortSignal.timeout(500)
     });
   } catch {}
+}
+// R58-1c: child-session lineage memory. OpenCode's ONLY session-parent
+// carrier is session.created's info.parentID (a SESSION id). Message.Info
+// .parentID is the parent MESSAGE id (in-session threading: prompt.ts
+// creates every assistant message with parentID: lastUser.id) — v5 misread
+// it as a session parent and marked every top-level session headless after
+// turn one. Learn children once, stamp all their later events, regardless
+// of HTTP arrival order.
+const childSessions = new Map(); // childSessionID -> parentSessionID
+function stampParent(base) {
+  const parent = childSessions.get(base.session_id);
+  if (parent) { base.parent_id = parent; base.headless = true; }
 }
 function sidFromEvent(event, directory) {
   // R54-c: prefer the canonical properties.sessionID; properties.info.id is
@@ -103,8 +132,19 @@ export const LLMPETPlugin = async ({ directory }) => ({
     // R50: session.created carries info.parentID for child sessions
     // (subagents). Forward it so the backend marks the row headless instead
     // of creating a top-level pseudo session.
+    // R58-1c: also LEARN the mapping — session-object events (created/updated)
+    // are the only trustworthy parent carriers; remember child→parent so
+    // later child frames that arrive without any parent field (tool events,
+    // message frames, out-of-order session.created) still get stamped.
     const info = properties.info ?? {};
-    if (info.parentID) { base.parent_id = info.parentID; base.headless = true; }
+    if (info.parentID) {
+      base.parent_id = info.parentID;
+      base.headless = true;
+      if (base.session_id && base.session_id !== info.parentID) {
+        childSessions.set(base.session_id, info.parentID);
+      }
+    }
+    stampParent(base); // heals late/misordered child frames (R58-1c RC2)
     switch (type) {
       case "session.status": {
         // Upstream status union is ONLY {type:"idle"} | {type:"busy"} |
@@ -138,7 +178,12 @@ export const LLMPETPlugin = async ({ directory }) => ({
         const role = msg?.role;
         if (role !== "user" && role !== "assistant") return;
         base.role = role;
-        if (msg?.parentID) { base.parent_id = msg.parentID; base.headless = true; }
+        // R58-1c: DO NOT read msg.parentID here — upstream Message.Info
+        // .parentID is the parent MESSAGE id (session/prompt.ts sets it on
+        // every assistant message: parentID: lastUser.id). v5 forwarded it as
+        // a session parent, marking every top-level session headless after
+        // its first completed turn and silencing all pet events for it.
+        stampParent(base);
         if (role === "user") {
           base.text = clip(msg?.summary);
           if (msg?.model?.modelID) base.model = msg.model.modelID;
@@ -191,26 +236,29 @@ export const LLMPETPlugin = async ({ directory }) => ({
     // juggling (SubagentStart) expression is decided by the Rust dictionary
     // from tool_name — not translated here (R54).
     const tool = input?.tool || input?.toolName || "tool";
-    const parent = input?.parentID || input?.metadata?.parentID || input?.info?.parentID || null;
     const base = {
       event_type: "tool.execute.before",
       session_id: sidFromToolInput(input, directory),
       cwd: directory,
       tool_name: tool
     };
-    if (parent) { base.parent_id = parent; base.headless = true; }
+    // R58-1c: input.parentID reads are dead upstream (hook input is only
+    // {tool, sessionID, callID}) — the lineage map is authoritative. The
+    // task tool fires here with the PARENT session id, so juggling lands on
+    // the parent row even before session.created arrives.
+    stampParent(base);
     await send(base);
   },
   "tool.execute.after": async (input) => {
     const tool = input?.tool || input?.toolName || "tool";
-    const parent = input?.parentID || input?.metadata?.parentID || input?.info?.parentID || null;
     const base = {
       event_type: "tool.execute.after",
       session_id: sidFromToolInput(input, directory),
       cwd: directory,
       tool_name: tool
     };
-    if (parent) { base.parent_id = parent; base.headless = true; }
+    // R58-1c: same as above — lineage map authoritative, not input.parentID.
+    stampParent(base);
     await send(base);
   }
 });

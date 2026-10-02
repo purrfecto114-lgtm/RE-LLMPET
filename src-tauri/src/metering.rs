@@ -37,6 +37,38 @@ struct CostQuote {
     cost_usd: f64,
     source: String,
     updated_at: Option<String>,
+    /// R58: match tier label persisted as `cost_kind`（token-priced /
+    /// token-priced-free / normalized-priced / approx-priced），供面板区分
+    /// 精确 / 免费 / 规范化估算 / 前缀近似 / 未知。
+    kind: &'static str,
+}
+
+/// R58 (2026-10-02): price lookup match tier. The pre-R58 lookup was
+/// exact-or-fuzzy with no distinction, so OpenRouter-style ids
+/// (`deepseek/deepseek-chat:free`) missed every layer and surfaced
+/// 价格未知, while bare `:free` variants silently billed the PAID rate
+/// via the prefix-fuzzy layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PriceMatchKind {
+    /// provider-qualified / exact / case-folded catalog key hit
+    Exact,
+    /// `:free` modifier — OpenRouter free rows are billed $0 per token
+    FreeVariant,
+    /// `:modifier` / vendor prefix / dated suffix had to be stripped
+    Normalized,
+    /// longest-prefix fallback onto an adjacent catalog model
+    PrefixApprox,
+}
+
+impl PriceMatchKind {
+    fn cost_kind(self) -> &'static str {
+        match self {
+            PriceMatchKind::Exact => "token-priced",
+            PriceMatchKind::FreeVariant => "token-priced-free",
+            PriceMatchKind::Normalized => "normalized-priced",
+            PriceMatchKind::PrefixApprox => "approx-priced",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -145,7 +177,14 @@ impl Aggregate {
         if event.cost_usd.is_none() {
             self.unknown_price = self.unknown_price.saturating_add(1);
         }
-        if event.cost_kind.as_deref() == Some("api-equivalent-estimate") {
+        if matches!(
+            event.cost_kind.as_deref(),
+            Some("api-equivalent-estimate")
+                | Some("normalized-priced")
+                | Some("approx-priced")
+        ) {
+            // R58: normalized/approx matches count as estimates so the panel's
+            // existing ≈ / 含估算 presentation separates them from exact hits.
             self.estimated_price = self.estimated_price.saturating_add(1);
         }
     }
@@ -300,7 +339,7 @@ impl UsageLedger {
                 cache_create,
                 false,
             );
-            let (cost_usd, price_source, price_updated_at) = quote_parts(quote);
+            let (cost_usd, price_source, price_updated_at, _price_kind) = quote_parts(quote); // R58: import path keeps its api-equivalent-estimate label
             let mut schema_keys = object.keys().cloned().collect::<Vec<_>>();
             schema_keys.sort();
             schema_keys.truncate(64);
@@ -399,6 +438,12 @@ impl UsageLedger {
                     event.cost_usd = Some(q.cost_usd);
                     event.price_source = Some(q.source);
                     event.price_updated_at = q.updated_at;
+                    // R58: hook-sourced rows adopt the CURRENT match tier so
+                    // 重算花费 re-labels old unknown rows after a catalog
+                    // refresh; transcript estimate labels are preserved.
+                    if event.cost_kind.as_deref() != Some("api-equivalent-estimate") {
+                        event.cost_kind = Some(q.kind.to_string());
+                    }
                 }
             }
         }
@@ -654,7 +699,7 @@ impl UsageLedger {
         } else {
             None
         };
-        let (cost_usd, price_source, price_updated_at) = quote_parts(quote);
+        let (cost_usd, price_source, price_updated_at, price_kind) = quote_parts(quote);
         let event_id = turn_id
             .as_ref()
             .filter(|value| !value.is_empty())
@@ -695,7 +740,7 @@ impl UsageLedger {
             context_used,
             context_limit,
             cost_usd,
-            cost_kind: cost_usd.map(|_| "token-priced".to_string()),
+            cost_kind: price_kind, // R58: layered match tier (token-priced/free/normalized/approx)
             price_source,
             price_updated_at,
             schema_keys,
@@ -782,7 +827,7 @@ impl UsageLedger {
             cache_create,
             false,
         );
-        let (cost_usd, price_source, price_updated_at) = quote_parts(quote);
+        let (cost_usd, price_source, price_updated_at, _price_kind) = quote_parts(quote); // R58: transcript path keeps its api-equivalent-estimate label
         let mut schema_keys = object.keys().cloned().collect::<Vec<_>>();
         schema_keys.sort();
         schema_keys.truncate(64);
@@ -828,7 +873,19 @@ impl UsageLedger {
         cache_create: u64,
         input_includes_cache: bool,
     ) -> Option<CostQuote> {
-        let price = self.find_price(model, billing_provider)?;
+        let (kind, price) = self.find_price_tiered(model, billing_provider)?;
+        if kind == PriceMatchKind::FreeVariant {
+            // OpenRouter `:free` rows are billed $0 per token. Charge exactly
+            // zero instead of the base model's paid rate (the pre-R58 fuzzy
+            // layer billed `deepseek-chat:free` at paid rates), keeping the
+            // base row's provenance in the source tag.
+            return Some(CostQuote {
+                cost_usd: 0.0,
+                source: format!("{}:free-variant", price.source),
+                updated_at: price.updated_at.clone(),
+                kind: PriceMatchKind::FreeVariant.cost_kind(),
+            });
+        }
         let input_rate = price.input?;
         let output_rate = price.output.unwrap_or(input_rate);
         let cache_read_rate = price
@@ -859,47 +916,109 @@ impl UsageLedger {
             cost_usd: micro_dollars / 1_000_000.0,
             source: price.source.clone(),
             updated_at: price.updated_at.clone(),
+            kind: kind.cost_kind(),
         })
     }
 
+    /// Compatibility shim: pre-R58 signature for context-window lookups
+    /// (parse_hook / parse_claude_assistant / import_official_usage).
     fn find_price(&self, model: &str, billing_provider: Option<&str>) -> Option<&PriceEntry> {
+        self.find_price_tiered(model, billing_provider)
+            .map(|(_, entry)| entry)
+    }
+
+    /// R58 layered lookup — first hit wins:
+    ///   L0 provider-qualified exact      `anthropic/claude-sonnet-5`
+    ///   L1 exact raw key                 `deepseek/deepseek-chat:free`
+    ///                                    (models.dev openrouter rows are
+    ///                                    stored verbatim as bare keys)
+    ///   L2 case-folded exact             `GPT-5.3-CODEX`（all keys, with or
+    ///                                    without '/' — keys are stored
+    ///                                    lowercased by merge_catalog_document）
+    ///   L3 normalized exact              strip `:free` modifier, vendor
+    ///                                    prefix（last '/' segment）and dated
+    ///                                    suffix, then qualified retry + bare
+    ///   L4 prefix fuzzy                  longest shared prefix between the
+    ///                                    normalized bare id and the bare
+    ///                                    segment of every key（min length 4）
+    /// No hit -> None: token-only record + `unknown_price`（价格未知）.
+    /// Never fabricate a default rate (R10 contract).
+    fn find_price_tiered(
+        &self,
+        model: &str,
+        billing_provider: Option<&str>,
+    ) -> Option<(PriceMatchKind, &PriceEntry)> {
+        let trimmed = model.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let lower = trimmed.to_ascii_lowercase();
+        let (_, modifier) = split_model_modifier(trimmed);
+        let free = modifier == "free";
+        let kind = |base: PriceMatchKind| {
+            if free {
+                PriceMatchKind::FreeVariant
+            } else {
+                base
+            }
+        };
+
+        // L0: provider-qualified exact（unchanged from pre-R58 behavior）
         if let Some(provider) = billing_provider
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            let qualified = format!(
-                "{}/{}",
-                provider.to_ascii_lowercase(),
-                model.to_ascii_lowercase()
-            );
+            let qualified = format!("{}/{}", provider.to_ascii_lowercase(), lower);
             if let Some(entry) = self.catalog.entries.get(&qualified) {
-                return Some(entry);
+                return Some((kind(PriceMatchKind::Exact), entry));
             }
         }
-        if let Some(entry) = self.catalog.entries.get(model) {
-            return Some(entry);
+        // L1: exact raw key（keys are lowercase, so this only hits when the
+        // reported id is already lowercase — preserved for exact semantics）
+        if let Some(entry) = self.catalog.entries.get(trimmed) {
+            return Some((kind(PriceMatchKind::Exact), entry));
         }
-        let lower = model.to_ascii_lowercase();
-        if let Some((_, entry)) = self
-            .catalog
-            .entries
-            .iter()
-            .find(|(key, _)| !key.contains('/') && key.eq_ignore_ascii_case(&lower))
-        {
-            return Some(entry);
+        // L2: case-folded exact over ALL keys（pre-R58 only folded keys
+        // without '/'；the extension only adds hits for previously-missing
+        // mixed-case qualified ids）
+        if let Some(entry) = self.catalog.entries.get(&lower) {
+            return Some((kind(PriceMatchKind::Exact), entry));
         }
-        self.catalog
-            .entries
-            .iter()
-            .filter(|(key, _)| {
-                if key.contains('/') {
-                    return false;
+
+        // L3: normalized exact
+        let (bare, _) = split_model_modifier(trimmed);
+        if !bare.is_empty() {
+            if let Some(provider) = billing_provider
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                let qualified = format!("{}/{}", provider.to_ascii_lowercase(), bare);
+                if let Some(entry) = self.catalog.entries.get(&qualified) {
+                    return Some((kind(PriceMatchKind::Normalized), entry));
                 }
-                let key = key.to_ascii_lowercase();
-                lower.starts_with(&key) || key.starts_with(&lower)
-            })
-            .max_by_key(|(key, _)| key.len())
-            .map(|(_, entry)| entry)
+            }
+            if let Some(entry) = self.catalog.entries.get(&bare) {
+                return Some((kind(PriceMatchKind::Normalized), entry));
+            }
+        }
+
+        // L4: prefix fuzzy over normalized bare forms（pre-R58 compared only
+        // slash-free keys；now also the bare segment of qualified keys）
+        let bare = bare.as_str();
+        if bare.len() >= 4 {
+            let candidates = self.catalog.entries.iter().filter_map(|(key, entry)| {
+                let key_bare = strip_dated_suffix(key.rsplit('/').next().unwrap_or(key));
+                if key_bare.len() < 4 {
+                    return None;
+                }
+                (bare.starts_with(key_bare) || key_bare.starts_with(bare))
+                    .then_some((key_bare.len(), entry))
+            });
+            if let Some((_, entry)) = candidates.max_by_key(|(len, _)| *len) {
+                return Some((kind(PriceMatchKind::PrefixApprox), entry));
+            }
+        }
+        None
     }
 
     fn load(&mut self, now_ms: u64) -> Result<(), String> {
@@ -1339,11 +1458,63 @@ fn text(object: &Map<String, Value>, names: &[&str], limit: usize) -> Option<Str
     })
 }
 
-fn quote_parts(quote: Option<CostQuote>) -> (Option<f64>, Option<String>, Option<String>) {
+fn quote_parts(
+    quote: Option<CostQuote>,
+) -> (Option<f64>, Option<String>, Option<String>, Option<String>) {
     match quote {
-        Some(quote) => (Some(quote.cost_usd), Some(quote.source), quote.updated_at),
-        None => (None, None, None),
+        Some(quote) => (
+            Some(quote.cost_usd),
+            Some(quote.source),
+            quote.updated_at,
+            Some(quote.kind.to_string()),
+        ),
+        None => (None, None, None, None),
     }
+}
+
+/// R58: split an OpenRouter-style modifier off a raw model id and normalize
+/// the remainder. `"deepseek/deepseek-chat:free"` -> `("deepseek-chat",
+/// "free")`; `"OpenAI/GPT-5.3-Codex-2026-04-23"` -> `("gpt-5.3-codex", "")`.
+/// Mirrors codex_pricing::norm_codex_model_name（duplicated on purpose so
+/// test/tauri-codex-pricing-r10-smoke.js's pinned source shape stays valid）。
+fn split_model_modifier(model: &str) -> (String, String) {
+    let lower = model.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        return (String::new(), String::new());
+    }
+    let (head, modifier) = match lower.split_once(':') {
+        Some((head, tail)) => (
+            head,
+            tail.split('/').next().unwrap_or("").trim().to_string(),
+        ),
+        None => (lower.as_str(), String::new()),
+    };
+    // Keep the LAST non-empty '/' segment:
+    //   deepseek/deepseek-chat        -> deepseek-chat
+    //   openrouter/deepseek/deepseek-chat -> deepseek-chat
+    //   us.anthropic/claude-sonnet-5  -> claude-sonnet-5
+    let bare = head
+        .rsplit('/')
+        .find(|segment| !segment.is_empty())
+        .unwrap_or(head.trim());
+    let bare = strip_dated_suffix(bare.trim());
+    (
+        bare.split('@').next().unwrap_or(bare).to_string(),
+        modifier,
+    )
+}
+
+/// Remove a trailing `-YYYY-MM-DD` or `-YYYYMMDD` version date.
+fn strip_dated_suffix(bare: &str) -> &str {
+    if let Some(index) = bare.rfind("-20") {
+        let suffix = &bare[index + 1..];
+        let is_dated = (suffix.len() == 10 && suffix.chars().filter(|c| *c == '-').count() == 2)
+            || (suffix.len() == 8 && suffix.chars().all(|c| c.is_ascii_digit()));
+        if is_dated {
+            return &bare[..index];
+        }
+    }
+    bare
 }
 
 fn default_true() -> bool {
@@ -1744,4 +1915,91 @@ mod tests {
         aggregate.add(&event);
         assert_eq!(aggregate.tokens, 12);
     }
+
+    #[test]
+    fn free_variant_models_price_at_zero_not_unknown() {
+        // R58-1d 用户报告主案例：`deepseek/deepseek-chat:free` 原先全层
+        // miss -> 价格未知。现在 L3 规范化命中 base 行，FreeVariant 零计费。
+        let dir = temp_dir();
+        let now = crate::model::now_ms();
+        let mut payload = fixture_at(now);
+        payload["model"] = Value::String("deepseek/deepseek-chat:free".into());
+        payload["turn_id"] = Value::String("turn_free_variant".into());
+        payload["billing_provider"] = Value::String("openrouter".into());
+        let mut ledger = UsageLedger::open(&dir, now);
+        assert!(ledger.record_hook(&payload, now).unwrap().inserted);
+        let snapshot = ledger.snapshot(now);
+        assert_eq!(snapshot["today"]["unknownPrice"], 0);
+        assert_eq!(snapshot["today"]["cost"], 0.0);
+        assert_eq!(snapshot["today"]["estimatedPrice"], 0);
+        let line = fs::read_to_string(dir.join(LEDGER_FILE_NAME)).unwrap();
+        let event: UsageEvent = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(event.cost_kind.as_deref(), Some("token-priced-free"));
+        assert!(
+            event
+                .price_source
+                .as_deref()
+                .unwrap()
+                .ends_with(":free-variant")
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn prefixed_and_dated_model_ids_match_with_estimate_flag() {
+        // R58-1d：`openai/gpt-5.3-codex`（provider 前缀、无 billing_provider）
+        // 与 `gpt-5.3-codex-2026-04-23`（日期后缀）都按 base 行计费，但标为
+        // 估算（estimatedPrice=1），不再 价格未知。
+        for (turn, model) in [
+            ("turn_prefixed", "openai/gpt-5.3-codex"),
+            ("turn_dated", "gpt-5.3-codex-2026-04-23"),
+        ] {
+            let dir = temp_dir();
+            let now = crate::model::now_ms();
+            let mut payload = fixture_at(now);
+            payload["model"] = Value::String(model.into());
+            payload["turn_id"] = Value::String(turn.into());
+            let mut ledger = UsageLedger::open(&dir, now);
+            assert!(ledger.record_hook(&payload, now).unwrap().inserted);
+            let snapshot = ledger.snapshot(now);
+            assert_eq!(snapshot["today"]["unknownPrice"], 0, "{model}");
+            assert_eq!(snapshot["today"]["estimatedPrice"], 1, "{model}");
+            // same math as the bare fixture model at gpt-5.3-codex rates:
+            // uncached 300*1.75 + cache_read 900*0.175 + output 180*14
+            let cost = snapshot["today"]["cost"].as_f64().unwrap();
+            assert!((cost - 0.0032025).abs() < 0.000000001, "{model}");
+            let _ = fs::remove_dir_all(&dir);
+        }
+    }
+
+    #[test]
+    fn split_model_modifier_handles_prefix_case_and_dates() {
+        // R58-1d: normalization helper — OpenRouter modifier, vendor prefix,
+        // dated suffix, @tail, mixed case, empty input.
+        assert_eq!(
+            split_model_modifier("deepseek/deepseek-chat:free"),
+            ("deepseek-chat".into(), "free".into())
+        );
+        assert_eq!(
+            split_model_modifier("OpenAI/GPT-5.3-Codex-2026-04-23"),
+            ("gpt-5.3-codex".into(), String::new())
+        );
+        assert_eq!(
+            split_model_modifier("zai/glm-5.1"),
+            ("glm-5.1".into(), String::new())
+        );
+        assert_eq!(
+            split_model_modifier("kimi-k3-20260101"),
+            ("kimi-k3".into(), String::new())
+        );
+        assert_eq!(
+            split_model_modifier("model@2026-01-01"),
+            ("model".into(), String::new())
+        );
+        assert_eq!(
+            split_model_modifier(""),
+            (String::new(), String::new())
+        );
+    }
+
 }

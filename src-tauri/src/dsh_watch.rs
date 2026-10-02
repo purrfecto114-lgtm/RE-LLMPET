@@ -841,6 +841,10 @@ impl DshWatcher {
                                 "state": "attention",
                                 "assistant_last_output": tracker.assistant_last_output.clone(),
                                 "turn_usage": { "input": turn_input, "output": turn_output },
+                                // R58-1d Part B: stamp the request model onto
+                                // turn usage so metering prices dsh rows
+                                // instead of logging "unknown" forever.
+                                "model": tracker.model.clone(),
                                 "native_event": "turn_end",
                             }),
                             time,
@@ -951,8 +955,12 @@ impl DshWatcher {
             }
             "request/header" => {
                 let data = event.get("data");
-                if let Some(_model) = data.and_then(|d| d.get("model")).and_then(|m| m.as_str()) {
-                    // Update session model if needed
+                if let Some(model) = data.and_then(|d| d.get("model")).and_then(|m| m.as_str()) {
+                    // R58-1d Part B: dsh turn/end usage events previously
+                    // carried no model, so every dsh row billed as "unknown"
+                    // -> 价格未知 even with a full catalog. Remember the
+                    // request model and stamp it onto turn usage.
+                    tracker.model = model.to_string();
                 }
             }
             "request/context" => {
@@ -963,8 +971,9 @@ impl DshWatcher {
                 {
                     tracker.context_limit = Some(ctx);
                 }
-                if let Some(_model) = data.and_then(|d| d.get("model")).and_then(|m| m.as_str()) {
-                    // Update model if needed
+                if let Some(model) = data.and_then(|d| d.get("model")).and_then(|m| m.as_str()) {
+                    // R58-1d Part B: same model capture on the context event.
+                    tracker.model = model.to_string();
                 }
             }
             _ => {}
