@@ -144,10 +144,10 @@ for (const [name, source, maxLines] of [
   // R58 (2026-10-02): the headless uninstall pipeline + shell/backup residue
   // sweep moved here from hook_install.rs (2679 > 2330 guard) — same
   // extraction pattern as plugin_sources.rs in R54.
-  ['src-tauri/src/hook_uninstall.rs', read('src-tauri/src/hook_uninstall.rs'), 570],
+  ['src-tauri/src/hook_uninstall.rs', read('src-tauri/src/hook_uninstall.rs'), 585], // R58: +14 fmt reflow
   // R58-IMPL-E: cold-start session seeding (claude transcripts + codex
   // rollouts, 30min window, replay-quiet discipline). New focused owner.
-  ['src-tauri/src/session_seed.rs', read('src-tauri/src/session_seed.rs'), 680],
+  ['src-tauri/src/session_seed.rs', read('src-tauri/src/session_seed.rs'), 695], // R58: fmt reflow +1
   ['src-tauri/src/hook_install.rs', hooks, 2400],
   ['frontend/shared/latest-value-controller.js', read('frontend/shared/latest-value-controller.js'), 220],
   ['frontend/shared/panel-fit-controller.js', read('frontend/shared/panel-fit-controller.js'), 220],

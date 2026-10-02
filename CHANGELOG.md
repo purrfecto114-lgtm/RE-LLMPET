@@ -1,5 +1,141 @@
 # Changelog
 
+## 0.6.7 — R58 归档 GUI 根修 + OpenCode 子代理谱系 + 价格兼容匹配 + 闲逛自由搭配 + 卸载清扫 + 冷启动会话发现（2026-10-02）
+
+> 用户指令（原文）：「下载，加载superpowers skills完成以下任务……额外的
+> 问题，在桌宠点击将会话归档时GUI位置刷新不完全（当有多个会话时点击归档
+> 会使GUI越来越"高"），底下的状态点也未清除。当provider启动后再运行本程
+> 序可能导致部分检测功能失效。opencode派出子代理和子代理完成时桌宠应该
+> 触发的动画未触发（也导致了桌宠错误把子代理当成了新绘会话，需要全面审
+> 核所有provider）。价格不可用（疑似模型ID加了:free后缀导致不识别，想办
+> 法筛选兼容匹配，不止这种）。部分按钮缺少必要交互，卸载有残留（user文
+> 件夹等位置）。闲逛功能还是硬编码claudecode（双宠也是，需要实现自由搭
+> 配）。并行10个subagents并行角度审查挑刺（必须包括UX，性能，用户体验
+> 和硬编码四个方面）。联网搜索对应provider的接口是否变化并更新。发版」
+
+> 7 个研究 subagent（R58-1a/b/c/d/e/f/g）+ 3 个实现 subagent
+> （IMPL-C/D/E，git worktree 隔离并行）+ 10 个复审 subagent。
+
+### HIGH: 归档后 GUI「越来越高」+ 底部状态点残留（R58-1a）
+- 根因 A（状态点）：`isVisibleSession` 是死代码——`renderSessions`
+  从未调用它，归档只重绘列表行不重绘小点；上游 v1.2.0 的
+  `isArchivedSession` 过滤项移植时丢失。修复：过滤项补齐（pet.js）
+  + `renderSessions` 接上 `.filter(isVisibleSession)`。
+- 根因 B（越来越高）：归档/置顶/搜索/筛选五处 re-render 均不调
+  `fitPopup` → 底部锚定窗口高度冻结，内容每点一次少一行，顶部死区
+  单调增长；且 `pet:stats` 无定时器，闲置会话归档后永无下一推来自愈。
+  修复：五处全部补 `fitPopup(sesslist)`（带 sessListOpen 守卫防隐藏
+  元素量高压到 340 底板）；`fitPopup` 宽度竞态改等待 innerWidth 真正
+  到位（≤12 帧）再量高（原先 2 帧 rAF 常跑在 IPC 落地前，320px 宽下
+  行换行实测超量 +131px）；`.sesslist` overflow:hidden + 滚动收纳
+  flex 链（上游 #sl-session-view 模式），短窗钳制态行不再画出 HUD 框外。
+
+### HIGH: OpenCode 子代理动画未触发 + 子代理被误判成新会话（R58-1c）
+- 根因 RC1（动画哑火）：R54 的 v5 插件把 opencode `Message.Info.parentID`
+  （上游 prompt.ts 给**每条** assistant 消息设置的父**消息** id）误读为
+  会话级 parent → 每个顶层会话第一轮完成后被打成 headless →
+  `emit_hook_event` 入口静默吞掉后续一切事件（含 SubagentStart 杂耍
+  动画）。联网证据：sst/opencode prompt.ts:1152/1188 +
+  session.ts:710（message idMap 换算）。
+- 根因 RC2（新会话误判）：opencode 插件事件 fire-and-forget
+  （plugin/index.ts:259 `void hook["event"]?.()`），子会话唯一带父子
+  标记的 `session.created` 可能晚于子会话首条消息帧到达 → 同毫秒
+  rank 门（SessionStart=10 < UserPromptSubmit=50）永久拒绝 → 子代理
+  行永远顶层化 = 幽灵新会话点。
+- 修复（插件 v6 + marker 滚动强制重装）：删除 msg.parentID 误读；
+  `childSessions` 谱系记忆（session.created 学习 child→parent，对
+  后续所有子帧 stampParent 补盖）；发送侧附 `timestamp_ms` 锚定发射
+  时间；model.rs ingest 侧「谱系是身份不是状态」——rank 门拒绝的
+  session.created 仍须落 parent_id/headless。回归测试四件
+  （plugin 契约 source 断言 + model 迟到谱系单测 ×2 + 死码防复发）。
+
+### HIGH: 价格不可用 —— :free/前缀/日期/大小写兼容匹配（R58-1d）
+- 根因：`find_price` 仅四步（限定→原文→无斜杠折叠→无斜杠前缀），
+  OpenRouter 风格 `deepseek/deepseek-chat:free` 全层 miss（价格未知），
+  裸 `deepseek-chat:free` 反被模糊层按**付费价**计费（反向错误）。
+- 修复：五层查找（L0 限定精确→L1 原文→L2 全键折叠→L3 规范化
+  `split_model_modifier`/`strip_dated_suffix`→L4 前缀近似，min len 4）；
+  置信标注 `cost_kind`（token-priced / token-priced-free /
+  normalized-priced / approx-priced）——`:free` 变体按定义 $0/token
+  零计费；normalized/approx 计入既有 estimatedPrice「≈/含估算」管线，
+  前端零改动即区分 精确/免费/估算/未知；「重算花费」重打历史事件标签。
+- 副根修（dsh 恒价格未知）：dsh `turn/end` 用量事件从不带 model 字段
+  → 恒落 unknown。修复：request/header 与 request/context 捕获
+  `tracker.model`，turn/end 盖章。真正未知的新模型仍诚实显示未知
+  （R10 契约不变）。
+
+### HIGH: 闲逛硬编码 claude + 双宠钉死 codex → 自由搭配（R58-IMPL-C）
+- 新配置 `duo_provider`（默认 codex=零迁移，sanitize 五 provider 白名单）；
+  面板「副宠 Agent」五选一下拉 + `set_duo_provider` 命令；pet-codex 窗
+  URL 查询动态跟随配置（LAST_APPLIED 守卫防重载）；全部 `==='codex'`
+  二分点泛化为 config 驱动（pet-agent-view/runtime-policy/
+  tauri-bridge/pet.js 分片、皮肤、位置）。
+- wander 根修：`startWander` 附发起窗 owner（单宠降级 codex 时不再把
+  trip 挂到隐藏的 pet-codex 窗——那是主宠失去取消/roam 表情/明信片
+  的根因）；去 claude 兜底——`pick_wander_provider` 三层候选（请求者
+  →config 启用→其余 runner）逐个 find_executable 预检（上游
+  main.js findCli 思路），无 CLI 时返回本地化错误而非静默换 provider；
+  `start_project` 白名单对齐 wander 支持集（codewhale 不再被排除）。
+
+### HIGH: provider 先启动 → 检测失效：冷启动会话发现（R58-IMPL-E）
+- 根因：五家纯事件驱动，桌宠后启动=已存在会话全部不可见直到下一事件
+  （dsh 是唯一有全量回填的）。吸收上游 core.js:375-413
+  backfillFromTranscripts + codex-watch.js:594-640。
+- 修复：新模块 `session_seed.rs`——启动后台扫 `~/.claude/projects/*/
+  *.jsonl`（mtime≤30min 前 15，尾 128KB 提取 cwd/model，sidechain 行
+  过滤）+ `~/.codex/sessions/**/rollout-*.jsonl`（首行 session_meta），
+  合成 `SessionStart`（timestamp_ms=mtime、seed 标记、已存在跳过=幂等、
+  只上板不 emit=回放静默纪律）；lib.rs setup 接线 + emit_stats 合并推
+  一帧；dsh 冷启动扫描加 30min mtime 预筛（对齐上游，消除全历史回放）。
+- opencode 安装提示补「插件随 opencode 进程启动时加载，已运行的
+  opencode 需重启后生效」（把隐性失效变显性提示）。
+
+### HIGH: 卸载残留（user 文件夹等 10 类）+ 按钮无反馈（R58-IMPL-D）
+- 卸载链重构：`uninstall_all_hooks_headless(purge)`——顺序契约
+  receipts→五家清理→壳/备份残留扫描→（可选）整删 `~/.re-llmpet`；
+  新 `--purge-data` CLI flag；NSIS PREUNINSTALL 询问「是否删除用户
+  数据」（/S 静默保守跳过）+ POSTUNINSTALL 宏清 WebView2 数据（实证
+  tauri-v2.11.5 无 deleteAppDataOnUninstall 键，写入即构建失败——宏是
+  无条件可靠路径）；壳文件精确形状判定（codex 空壳+description 串、
+  codewhale [hooks] 表、opencode 空 plugins/ 目录、aider 空壳）+ 备份
+  三命名模式扫描 + 空目录回收——**只删我们写的段/文件，宁残留勿误删**。
+- macOS/Linux 平台性修复：main.rs/installer-hooks.nsh 的「拖删后可跑
+  --uninstall-hooks」死路径谎言改为「删除前先跑」；README×3 卸载节
+  重写（CLI 双 flag、前置指引、清理原则）。
+- 按钮反馈 12 项：托盘 13 处 `let _ =` 吞错→toast（launch_*/log/
+  data_dir/panel/配置组六处）；toast 通道 emit_to pet+panel 双发
+  （mode=hidePet 时面板可见）；径向 mute→后端 toast、patrol→promise
+  链（deferred 气泡+错误桥接）；price-rebuild/export 完成通知；B9
+  硬编码中文文案迁 i18n 三语（12 新键）；托盘「卸载钩子」从只清
+  claude 一家扩为全部五家。
+
+### 架构：hook_uninstall.rs 提取（预算闸驱动）
+- IMPL-D 的卸载清扫族使 hook_install.rs 2679 行破 r11（2330）+
+  maintainability（2400）双预算闸——按 R54 plugin_sources 先例提取
+  `hook_uninstall.rs`（receipt 读取+无头卸载管线+清扫族），hook_install
+  回落 2131 行；commands.rs/pet.js/hook_uninstall/session_seed 预算随
+  审计注释重校。
+
+### 六家 provider 接口核查（R58-1g，联网 12 查询）
+- Claude 2.1.287（33 事件零增零改名，handler 新类型/字段全可选）、
+  Codex 0.160.0（12 事件逐名全等）、OpenCode 1.18.34（v1 插件接口
+  逐字段不变；v2 插件 API 已上线为监控项）、Aider 0.86.2（零变化）、
+  CodeWhale 0.10.0（15 事件全等）、DSH 0.2.0-rc.2（`DSH_MAX_KNOWN_
+  VERSION=4` 恰好正确：latestFinalizedVersion=4）。结论：**六家触发
+  接口零强制修改项**，全部漂移均为附加性可选字段/类型。
+
+### 质量门禁（0.6.7）
+- `cargo test --lib` **171/171**（+11：model 谱系×2、hook_client 插件
+  契约、metering 价格×3、session_seed×5）；`cargo clippy --all-targets
+  -D warnings` 0；`cargo fmt` 干净；npm test 全套 84 文件（16 个
+  0.6.5 时代版本钉随版本轮统一更新至 0.6.7）；maintainability/static/
+  r11/r44c/r44d 预算与结构断言全绿；SOURCE_MANIFEST 重生成。
+
+> 已知限制（沿承）：aider 单信号无词表、codex 无 needsinput 钩子、
+> dsh 情绪嗅探未接、travel 全局 cancel/child_pid per-owner 化（二期）、
+> codewhale 停机期权限 fail-closed 保留（信任边界，不因 UX 松动）。
+
+
 ## 0.6.6 — R57 鲸鱼皮肤可持久化 + 会话双开进程根修 + DSH 观察器 v3/v4 + 表情/徽标语义（2026-10-02）
 
 > 用户指令（原文）：「读取上下文修复："鲸鱼女 maid"皮肤不正确，从桌宠进入

@@ -1627,3 +1627,21 @@ Work Log:
 
 Stage Summary:
 - 0.6.6：皮肤三重根因修复+会话双开根修+DSH 复明+表情链复活+GUI 残影/duo 根修；遗留下轮：dsh seq 取证、emit 链单测、territory/travel 气泡 i18n、duo skin_codex 错配、ending/meme/loot 立项
+
+---
+Task ID: R58
+Agent: main-orchestrator（+7 研究 R58-1a/b/c/d/e/f/g +3 实现 IMPL-C/D/E worktree 并行 +10 复审待派）
+
+Work Log:
+- 环境恢复：沙箱重置后重植 .git（RE-LLMPET b4c5ffd PAT 克隆）、test/ 82 文件恢复、rustup 1.98.0（static binary 重装）+ GTK 683-deb 闭包（~/gtk-debs 下载解压 ~/.local/gtk-dev，PKG_CONFIG_PATH/LIBRARY_PATH/LD_LIBRARY_PATH 三链）、R57 的 0.6.6 文件树全量幸存为未提交状态→检查点提交 2905dd0
+- 七研究代理并行取证：归档 GUI 增高双根因（死代码 isVisibleSession+五处无 fitPopup+宽度竞态+溢出）、provider 先启动三层缺口（冷启动发现缺失/opencode 插件时序/codex trust 门）、opencode 子代理双 P0（v5 msg.parentID 误读=RC1 / session.created 乱序 rank 拒绝=RC2，联网实证 prompt.ts:1152+plugin/index.ts:259）、价格 :free 全层 miss+裸 free 反向付费计费、卸载 35 写盘/10 残留+12 缺反馈、闲逛 18 处硬编码清单、六家接口联网核查（零强制修改项）
+- 主协调者直改：pet.js/pet.css 九补丁（R58-1a）、plugin v6+marker 滚动+model 谱系穿透（R58-1c）、metering 五层价格匹配+dsh model 盖章（R58-1d）、opencode 重启提示（R58-1b P1）→提交 8391293
+- 三 worktree 并行实现：IMPL-C duo_provider 自由搭配+wander owner+无 claude 兜底（cb6a8e0）、IMPL-D 卸载 purge/壳清扫/NSIS 询问+12 按钮反馈+三语 i18n（98c89e9，实证 deleteAppDataOnUninstall 非法键改宏方案）、IMPL-E session_seed 冷启动+dsh 30min 预筛（687cf90）→顺序合并+package.json 冲突手工并集
+- 编译修复轮：set_ignore_mouse/pet_visual_bounds 补 app 参数、hook_uninstall.rs 提取（预算闸 2679>2330 驱动，hook_install 回 2131）、SessionTracker.model 字段、E0716 let-else 临时值、测试模块 import 迁移、clippy map_or×2+doc list×4、fmt 重排预算微调
+- 版本轮 0.6.6→0.6.7：package/lock×2/Cargo.toml/Cargo.lock/tauri.conf/migration-todo/protocol-drift UA + 16 个 0.6.5/0.5.x 时代测试钉统一更新（metering-phase2/phase4/r51/r40/r401/r44×6/price-auto/transcript-pricing）+ phase4 focus 断言迁 process_probe + r53 focus 气泡断言迁 process_probe + pet-systemic v6 谱系断言
+- CHANGELOG 0.6.7 条目 150 行；manifest 重生成
+
+Stage Summary:
+- 0.6.7：归档 GUI 双根修 / opencode 子代理谱系 v6（动画复活+幽灵会话根除）/ 价格五层兼容匹配（:free 零计费+估算置信）/ 闲逛+双宠自由搭配 / 冷启动会话发现（claude+codex 回填）/ 卸载 purge+壳清扫+NSIS 询问 / 12 按钮反馈三语
+- 门禁：cargo test --lib 171/171（+11）、clippy -D warnings 0、fmt 干净、npm test 84 文件（版本钉统一后全绿）
+- 遗留下轮：travel cancel/child_pid per-owner 化、dsh 情绪嗅探、aider/codex 表情契约限制、codewhale 停机 deny→ask 决策、opencode v2 插件 API 监控
