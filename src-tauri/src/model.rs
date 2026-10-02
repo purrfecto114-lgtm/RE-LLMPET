@@ -978,6 +978,17 @@ impl Runtime {
                 None
             };
             let was_new = !sessions.contains_key(&id);
+            // R58-RV-7: lineage validation, computed BEFORE the entry
+            // borrow below (the arm runs after `accepted`, when `entry` is
+            // mutably borrowed). A REJECTED frame is replay/history — its
+            // parent_id is only applied when the claimed parent exists in
+            // the map and is the same provider (one poisoned frame must
+            // never permanently hide an arbitrary session; headless is
+            // sticky).
+            let rejected_lineage_parent_ok = parent_id
+                .as_deref()
+                .and_then(|pid| sessions.get(pid))
+                .is_some_and(|parent| parent.provider == provider);
             let entry = sessions.entry(id.clone()).or_insert_with(|| Session {
                 id: id.clone(),
                 provider: provider.clone(),
@@ -1022,11 +1033,18 @@ impl Runtime {
             // parent metadata must apply even when the state transition is
             // rejected.
             if !accepted && parent_id.is_some() {
-                entry.headless = entry.headless || headless;
-                if entry.parent_id.is_none() {
-                    entry.parent_id = parent_id.clone();
+                if rejected_lineage_parent_ok {
+                    entry.headless = entry.headless || headless;
+                    if entry.parent_id.is_none() {
+                        entry.parent_id = parent_id.clone();
+                    }
+                    entry.updated_at = now;
+                } else {
+                    self.write_log(
+                        "ingest",
+                        "rejected lineage frame ignored: claimed parent not found or cross-provider",
+                    );
                 }
-                entry.updated_at = now;
             }
             if accepted {
                 entry.provider = provider;
@@ -3549,8 +3567,21 @@ mod r58_lineage_tests {
         // transition — but lineage is identity, not state: the row must
         // still be marked headless+parented, otherwise the subagent stays a
         // top-level pseudo session (a phantom new session dot on the pet).
+        // R58-RV-7: the parent row must exist and be same-provider (a
+        // rejected frame is replay/history — an unvalidated parent_id there
+        // is a one-frame hide-any-session primitive).
         let runtime = isolated_runtime("late");
         let ts = now_ms();
+        let parent = json!({
+            "provider": "opencode",
+            "hook_event_name": "SessionStart",
+            "session_id": "oc_parent_0",
+            "cwd": "/tmp/late",
+            "timestamp_ms": ts
+        });
+        let (_, accepted) = runtime.ingest_with_ack(&parent);
+        assert!(accepted, "parent row must exist first");
+
         let first = json!({
             "provider": "opencode",
             "hook_event_name": "UserPromptSubmit",
@@ -3560,7 +3591,7 @@ mod r58_lineage_tests {
             "text": "run the task tool"
         });
         let (row, accepted) = runtime.ingest_with_ack(&first);
-        assert!(accepted, "first frame must create the row");
+        assert!(accepted, "first child frame must create the row");
         assert!(!row.headless, "no parent metadata on the first frame");
 
         let late = json!({
@@ -3580,6 +3611,41 @@ mod r58_lineage_tests {
         // …but the lineage must have been applied anyway.
         assert!(row.headless, "rejected frame still carries parent identity");
         assert_eq!(row.parent_id.as_deref(), Some("oc_parent_0"));
+    }
+
+    #[test]
+    fn rejected_lineage_with_unknown_parent_is_ignored() {
+        // R58-RV-7: a rejected (replay/history) frame claiming a parent that
+        // does not exist — or lives in another provider — must NOT mark the
+        // row headless. Headless is sticky; one poisoned frame must never
+        // permanently hide an arbitrary session.
+        let runtime = isolated_runtime("spoof");
+        let ts = now_ms();
+        let first = json!({
+            "provider": "opencode",
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "oc_victim",
+            "cwd": "/tmp/spoof",
+            "timestamp_ms": ts
+        });
+        let (_, accepted) = runtime.ingest_with_ack(&first);
+        assert!(accepted);
+
+        let spoof = json!({
+            "provider": "opencode",
+            "hook_event_name": "SessionStart",
+            "session_id": "oc_victim",
+            "parent_id": "nonexistent_parent",
+            "cwd": "/tmp/spoof",
+            "timestamp_ms": ts
+        });
+        let (row, accepted) = runtime.ingest_with_ack(&spoof);
+        assert!(!accepted, "same-ms lower-rank frame is rejected as state");
+        assert!(
+            !row.headless,
+            "unknown claimed parent must not hide the session"
+        );
+        assert_eq!(row.parent_id, None);
     }
 
     #[test]

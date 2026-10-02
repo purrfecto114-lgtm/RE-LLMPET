@@ -671,6 +671,11 @@ function renderSessList(sessions) {
     if (sessionAttentionOnly && s.state !== 'waiting' && s.state !== 'needsinput') return false;
     const sid = String(s.sessionId || '');
     if (archivedSet.has(sid) && !sessionShowArchived) return false;
+    // R58-RV-3 P1: headless child sessions (opencode subagents) are not
+    // top-level rows — the pet window filters them via
+    // pet-runtime-policy.projectVisibleSessions, the panel had no
+    // equivalent, so every spawned subagent showed up as a ghost row.
+    if (s.headless || s.parentId) return false;
     return true;
   }).sort((a, b) => {
     const pa = pinnedSet.has(String(a.sessionId || '')) ? 0 : 1;
@@ -1427,7 +1432,15 @@ function applyPanelConfigSnapshot(cfg) {
   // Sync prefs from the authoritative config for pushes, bootstrap and
   // failed-write reconciliation through one path.
   sessionPinned = Array.isArray(cfg.pinnedSessions) ? cfg.pinnedSessions.slice(0, 200) : [];
+  const archivedChanged = cfg.archivedSessions !== undefined
+    && JSON.stringify(cfg.archivedSessions) !== JSON.stringify(sessionArchived);
   sessionArchived = Array.isArray(cfg.archivedSessions) ? cfg.archivedSessions.slice(0, 200) : [];
+  // R58-RV-1/RV-3 P1: another window archived a session — re-render the
+  // session list immediately (previously waited for the next stats push,
+  // which an idle session may never produce).
+  if (archivedChanged && Array.isArray(latestSessions)) {
+    renderSessList(latestSessions);
+  }
   applyLanguage(config.lang);
   applyConfigUI();
 }

@@ -135,6 +135,23 @@
 > dsh 情绪嗅探未接、travel 全局 cancel/child_pid per-owner 化（二期）、
 > codewhale 停机期权限 fail-closed 保留（信任边界，不因 UX 松动）。
 
+### ⚠️ 升级须知（从 ≤0.6.6 升级）
+- OpenCode 插件已滚到 **v7**（修复子代理误判+动画哑火的谱系根因）。插件
+  只在 opencode 进程启动时加载，且 marker 滚动在下次「设置→同步 Provider
+  选择」时才重写插件文件——升级 0.6.7 后请：**面板重新保存一次 Provider
+  选择，并重启正在运行的 opencode**，否则旧 v5/v6 插件继续生效。
+- 首次启动 0.6.7 会后台扫描最近 30 分钟的 claude/codex 会话文件做冷启动
+  回填（只读 ~/.claude/projects 与 ~/.codex/sessions 的元信息，不改写）。
+- 复审（10 个并行 subagent）追加修复：插件 v7 门控通用谱系块（RV-5 P0：
+  v6 的通用块在 message.updated 上仍读 Message.Info.parentID——RC1 复活，
+  已实证并修复）、托盘卸载钩子接入清扫（RV-3 P1）、备份清扫只在我们
+  刚清理过的配置上执行（RV-6 P1：NotFound 时备份可能是用户最后副本）、
+  跨窗归档收敛（RV-1/RV-3 P1：面板/另一宠窗归档后立即重渲小点与列表）、
+  面板过滤 headless 子代理幽灵行（RV-3 P1）、被拒帧谱系父校验（RV-7 P1
+  防单帧投毒隐藏任意会话）、L4 前缀平局确定性（RV-5 P1：HashMap 迭代
+  顺序曾致等长键计费跨重启漂移）、rebuild_costs 按 (model,billing) 去重
+  （RV-2 P1 性能）、duo 成本切片聚合回落（RV-9 P2）。
+
 
 ## 0.6.6 — R57 鲸鱼皮肤可持久化 + 会话双开进程根修 + DSH 观察器 v3/v4 + 表情/徽标语义（2026-10-02）
 

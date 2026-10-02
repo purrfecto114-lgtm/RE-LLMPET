@@ -208,7 +208,7 @@ const AIDER_MARKERS: &[(&str, &str)] = &[
 // (v5 marked every top-level opencode session headless after turn one) and
 // stamps child-session lineage on every later event. Marker roll forces
 // reinstall of the fixed plugin on the next install cycle.
-const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v6";
+const OPENCODE_MARKER: &str = "octopus-opencode-plugin-v7";
 const OPENCODE_MARKER_LEGACY: &[&str] = &[
     "re-llmpet-opencode-plugin-v1",
     "octopus-opencode-plugin-v2",
@@ -224,6 +224,12 @@ const OPENCODE_MARKER_LEGACY: &[&str] = &[
     // it (subagent juggling included). v5 joins the legacy list so the
     // marker roll above reinstalls the fixed plugin.
     "octopus-opencode-plugin-v5",
+    // R58-RV-5 P0: v6 removed the in-case msg?.parentID read but left the
+    // GENERIC lineage block ungated — message.updated frames (properties.info
+    // = Message.Info, parentID = parent MESSAGE id) still poisoned every
+    // top-level session from its first streaming frame. v7 gates the block
+    // to session.created/updated and clears lineage on session.deleted.
+    "octopus-opencode-plugin-v6",
 ];
 
 #[derive(Debug, Default)]

@@ -420,18 +420,32 @@ impl UsageLedger {
                 )
             })
             .collect();
+        // R58-RV-2 P1: pre-compute one quote per UNIQUE (model, billing)
+        // pair — the old per-event lookup re-ran the full tiered scan
+        // (including the O(catalog) L4 pass) for every "unknown"-model row,
+        // which with a large ledger turns rebuild into O(N_events ×
+        // N_entries) while holding the usage mutex on a sync command.
+        use std::collections::HashMap as StdHashMap;
+        let mut quote_cache: StdHashMap<(String, Option<String>), Option<CostQuote>> =
+            StdHashMap::new();
         for (i, (model, billing, input, output, cache_read, cache_create, incl)) in
             params.into_iter().enumerate()
         {
-            if let Some(q) = self.cost_for(
-                &model,
-                billing.as_deref(),
-                input,
-                output,
-                cache_read,
-                cache_create,
-                incl,
-            ) {
+            let quote = quote_cache
+                .entry((model.clone(), billing.clone()))
+                .or_insert_with(|| {
+                    self.cost_for(
+                        &model,
+                        billing.as_deref(),
+                        input,
+                        output,
+                        cache_read,
+                        cache_create,
+                        incl,
+                    )
+                })
+                .clone();
+            if let Some(q) = quote {
                 if let Some(event) = self.events.get_mut(i) {
                     event.cost_usd = Some(q.cost_usd);
                     event.price_source = Some(q.source);
@@ -1003,16 +1017,33 @@ impl UsageLedger {
         // L4: prefix fuzzy over normalized bare forms（pre-R58 compared only
         // slash-free keys；now also the bare segment of qualified keys）
         let bare = bare.as_str();
-        if bare.len() >= 4 {
-            let candidates = self.catalog.entries.iter().filter_map(|(key, entry)| {
+        if bare.len() >= 4 && bare != "unknown" {
+            // R58-RV-5: HashMap iteration order is random per process —
+            // max_by_key over it made equal-length ties (e.g. gpt-5 →
+            // gpt-5-codex vs gpt-5-terra) bill differently across restarts.
+            // Longest bare key wins; ties break on the lexicographically
+            // smallest key so rebuild_costs is stable.
+            let mut best: Option<(usize, &str, &PriceEntry)> = None;
+            for (key, entry) in self.catalog.entries.iter() {
                 let key_bare = strip_dated_suffix(key.rsplit('/').next().unwrap_or(key));
                 if key_bare.len() < 4 {
-                    return None;
+                    continue;
                 }
-                (bare.starts_with(key_bare) || key_bare.starts_with(bare))
-                    .then_some((key_bare.len(), entry))
-            });
-            if let Some((_, entry)) = candidates.max_by_key(|(len, _)| *len) {
+                if !(bare.starts_with(key_bare) || key_bare.starts_with(bare)) {
+                    continue;
+                }
+                let better = match best {
+                    None => true,
+                    Some((best_len, best_key, _)) => {
+                        key_bare.len() > best_len
+                            || (key_bare.len() == best_len && key_bare < best_key)
+                    }
+                };
+                if better {
+                    best = Some((key_bare.len(), key_bare, entry));
+                }
+            }
+            if let Some((_, _, entry)) = best {
                 return Some((kind(PriceMatchKind::PrefixApprox), entry));
             }
         }

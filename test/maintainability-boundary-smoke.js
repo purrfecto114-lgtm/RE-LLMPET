@@ -122,7 +122,10 @@ for (const [name, source, maxLines] of [
   // nudge, so the guard was already red at the R58-IMPL-C base; IMPL-C adds
   // the duo-provider generalization (+14: pairing snapshot, window-identity
   // skin/position, travel-supported button set). Audited 2770.
-  ["frontend/renderer/pet.js", pet, 2775],
+  // R58 review fixes: +10 audited lines — cross-window archive convergence
+  // in applyConfigSnapshot (renderSessions + conditional renderSessList/
+  // fitPopup after another window archives a session). Audited 2783.
+  ["frontend/renderer/pet.js", pet, 2790],
   ['frontend/renderer/panel.js', panel, 1760],
   // R51 (2026-08-30): cargo fmt with the 2024 style edition re-wrapped this
   // file (same statements, more lines): 3360 -> 3572 with zero logic growth.
@@ -140,11 +143,13 @@ for (const [name, source, maxLines] of [
   // R58-IMPL-D merge: +17 audited lines — toggle_mute now emits a muted/
   // unmuted tray toast (the radial mute toggle and the tray checkbox both
   // funnel through this command; previously zero feedback). Audited 3757.
-  ['src-tauri/src/commands.rs', commands, 3760],
+  // R58 review fixes: +18 audited lines — tray uninstall_hooks now returns
+  // the CleanupResult and runs the residue sweep on the bulk path. 3772.
+  ['src-tauri/src/commands.rs', commands, 3780],
   // R58 (2026-10-02): the headless uninstall pipeline + shell/backup residue
   // sweep moved here from hook_install.rs (2679 > 2330 guard) — same
   // extraction pattern as plugin_sources.rs in R54.
-  ['src-tauri/src/hook_uninstall.rs', read('src-tauri/src/hook_uninstall.rs'), 585], // R58: +14 fmt reflow
+  ['src-tauri/src/hook_uninstall.rs', read('src-tauri/src/hook_uninstall.rs'), 600], // R58: +14 fmt reflow
   // R58-IMPL-E: cold-start session seeding (claude transcripts + codex
   // rollouts, 30min window, replay-quiet discipline). New focused owner.
   ['src-tauri/src/session_seed.rs', read('src-tauri/src/session_seed.rs'), 695], // R58: fmt reflow +1

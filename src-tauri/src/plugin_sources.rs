@@ -7,7 +7,7 @@
 // machinery lives in hook_install.rs.
 
 pub(crate) fn opencode_plugin_source() -> &'static str {
-    r#"// octopus-opencode-plugin-v6
+    r#"// octopus-opencode-plugin-v7
 // R58-1c (2026-10-02): v6 fixes two R54 regressions around child sessions:
 //  1. v5 read Message.Info.parentID (which upstream sets to the parent
 //     MESSAGE id on EVERY assistant message — session/prompt.ts) and
@@ -132,17 +132,26 @@ export const LLMPETPlugin = async ({ directory }) => ({
     // R50: session.created carries info.parentID for child sessions
     // (subagents). Forward it so the backend marks the row headless instead
     // of creating a top-level pseudo session.
-    // R58-1c: also LEARN the mapping — session-object events (created/updated)
-    // are the only trustworthy parent carriers; remember child→parent so
-    // later child frames that arrive without any parent field (tool events,
-    // message frames, out-of-order session.created) still get stamped.
-    const info = properties.info ?? {};
-    if (info.parentID) {
-      base.parent_id = info.parentID;
-      base.headless = true;
-      if (base.session_id && base.session_id !== info.parentID) {
-        childSessions.set(base.session_id, info.parentID);
+    // R58-RV-5 P0 (v7): the generic block MUST be gated to session-object
+    // events ONLY (created/updated/deleted). On message.updated,
+    // properties.info is Message.Info whose parentID is the parent MESSAGE
+    // id (upstream prompt.ts sets parentID: lastUser.id on EVERY assistant
+    // message) — reading it here poisoned every top-level session from its
+    // first streaming frame (the v5 RC1 that v6 claimed to fix but only
+    // removed the in-case read, leaving this generic one).
+    if (type === "session.created" || type === "session.updated") {
+      const info = properties.info ?? {};
+      if (info.parentID) {
+        base.parent_id = info.parentID;
+        base.headless = true;
+        if (base.session_id && base.session_id !== info.parentID) {
+          childSessions.set(base.session_id, info.parentID);
+        }
       }
+    }
+    if (type === "session.deleted") {
+      // R58-RV-2: bounded lineage memory — a deleted child frees its slot.
+      childSessions.delete(base.session_id);
     }
     stampParent(base); // heals late/misordered child frames (R58-1c RC2)
     switch (type) {

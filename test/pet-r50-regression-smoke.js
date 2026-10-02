@@ -114,7 +114,7 @@ assert.strictEqual(
 // left this smoke on the v5 marker — indexOf() → -1 → slice(-1) made the
 // file fail at the R58-IMPL-C baseline. Tracked to the current v6 marker.
 const pluginSources = read('src-tauri/src/plugin_sources.rs');
-const plugin = pluginSources.slice(pluginSources.indexOf('octopus-opencode-plugin-v6'));
+const plugin = pluginSources.slice(pluginSources.indexOf('octopus-opencode-plugin-v7'));
 assert(plugin.includes('"tool.execute.before"'),
   'the plugin must export the native tool.execute.before hook');
 assert(plugin.includes('tool_name: tool'),

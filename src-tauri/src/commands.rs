@@ -1,6 +1,7 @@
 use crate::diagnostic_control::DiagnosticControl;
 use crate::diagnostic_io::drain_bounded;
 use crate::hook_install;
+use crate::hook_install::CleanupResult;
 use crate::model::{home_dir, AppState, Point};
 use crate::platform;
 use serde::Serialize;
@@ -447,7 +448,11 @@ pub fn uninstall_hooks(
 
     // Helper: run the cleanup pipeline for one provider and return its
     // JSON result object. Used by both single-provider and bulk paths.
-    let run_one = |id: &str| -> (Value, bool, Option<String>) {
+    // R58-RV-3 P1: also returns the CleanupResult so the bulk path can run
+    // the shell/backup residue sweep (previously the tray "卸载钩子" path
+    // skipped the sweep entirely — backups, shells and empty dirs stayed
+    // behind, exactly the residue the uninstall audit catalogued).
+    let run_one = |id: &str| -> (Value, bool, Option<String>, CleanupResult) {
         // R44 Phase 0D (audit fix C9+C10): snapshot receipt + compute
         // R44 0.5.40 (Roadmap v6 P0-06): drift is now an enum, not a bool.
         // The 0.5.39 version collapsed "no receipt", "receipt missing
@@ -524,14 +529,17 @@ pub fn uninstall_hooks(
         } else {
             None
         };
-        (result_json, is_clean, failure_msg)
+        (result_json, is_clean, failure_msg, cleanup)
     };
 
-    // Determine which providers to process.
-    let targets: Vec<&str> = if provider == "all" {
+    // Determine which providers to process. R58-RV-3: targets are
+    // &'static str literals so sweep_outcomes can hold them — the
+    // single-provider branch resolves the lowercase id back to the literal
+    // in all_providers instead of borrowing the trimmed String.
+    let targets: Vec<&'static str> = if provider == "all" {
         all_providers.to_vec()
-    } else if all_providers.contains(&provider.as_str()) {
-        vec![provider.as_str()]
+    } else if let Some(found) = all_providers.iter().find(|p| **p == provider) {
+        vec![*found]
     } else {
         return Err(format!("unsupported provider: {provider}"));
     };
@@ -540,8 +548,9 @@ pub fn uninstall_hooks(
     let mut results = Vec::new();
     let mut failures = Vec::new();
     let mut all_clean = true;
+    let mut sweep_outcomes: Vec<(&'static str, CleanupResult)> = Vec::new();
     for id in &targets {
-        let (result_json, is_clean, failure_msg) = run_one(id);
+        let (result_json, is_clean, failure_msg, cleanup) = run_one(id);
         if !is_clean {
             all_clean = false;
         }
@@ -552,6 +561,7 @@ pub fn uninstall_hooks(
             "tray",
             &format!("uninstall_hooks('{}'): {:?}", id, result_json),
         );
+        sweep_outcomes.push((id, cleanup));
         results.push(result_json);
     }
 
@@ -573,6 +583,14 @@ pub fn uninstall_hooks(
     //   3. resync_current() reads config.providers (not yet cleared)
     //   4. Calls sync_enabled() which RE-INSTALLS the hooks we just deleted
     // This created a "delete then reinstall" loop.
+    // R58-RV-3 P1: the bulk path now runs the same shell/backup/empty-dir
+    // residue sweep as the CLI pipeline (hook_uninstall::sweep_shell_
+    // residue), so the tray button no longer leaves .octopus-bak backups
+    // and empty config shells behind.
+    if provider == "all" {
+        let receipts = crate::hook_uninstall::read_install_receipts();
+        crate::hook_uninstall::sweep_shell_residue(&receipts, &sweep_outcomes);
+    }
     emit_config(&app, &state);
 
     // Build the response. For "all", include the bulk fields. For

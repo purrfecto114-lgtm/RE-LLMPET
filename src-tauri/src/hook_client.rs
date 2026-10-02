@@ -1472,30 +1472,42 @@ mod tests {
 
     #[test]
     fn opencode_plugin_never_reads_message_parent_id() {
-        // R58-1c: upstream Message.Info.parentID is the parent MESSAGE id
-        // (session/prompt.ts sets parentID: lastUser.id on every assistant
-        // message). v5 forwarded it as a session parent → every top-level
-        // opencode session went headless after its first completed turn,
-        // silencing all pet events for it (subagent juggling included). The
-        // shipped plugin source must never read msg?.parentID, must keep the
-        // child-session lineage map, must anchor timestamps to emission, and
-        // must carry the v6 marker so old installs get rolled.
+        // R58-1c + R58-RV-5 P0: upstream Message.Info.parentID is the parent
+        // MESSAGE id (session/prompt.ts sets parentID: lastUser.id on every
+        // assistant message). v5 forwarded it as a session parent → every
+        // top-level opencode session went headless after its first completed
+        // turn; v6 removed only the in-case read, leaving the GENERIC lineage
+        // block ungated (same poisoning from the first streaming frame). v7
+        // gates the generic block to session-object events. The shipped
+        // plugin source must: never read message-level parentID, gate the
+        // generic block, keep the lineage map, anchor timestamps, clear
+        // lineage on session.deleted, and carry the v7 marker.
         let src = crate::plugin_sources::opencode_plugin_source();
         assert!(
             !src.contains("msg?.parentID"),
             "message-level parentID must never be forwarded as a session parent"
+        );
+        // Behavioral guard (RV-5): the generic lineage read must be gated to
+        // session-object events — the gate string IS the behavior contract.
+        assert!(
+            src.contains("type === \"session.created\" || type === \"session.updated\""),
+            "the generic info.parentID read must be gated to session.created/updated"
         );
         assert!(
             src.contains("childSessions"),
             "child-session lineage map is required for out-of-order frames"
         );
         assert!(
+            src.contains("childSessions.delete(base.session_id)"),
+            "session.deleted must free the lineage slot (bounded memory)"
+        );
+        assert!(
             src.contains("timestamp_ms: Date.now()"),
             "events must be anchored to emission time, not HTTP arrival"
         );
         assert!(
-            src.contains("octopus-opencode-plugin-v6"),
-            "marker must roll so v5 installs get replaced"
+            src.contains("octopus-opencode-plugin-v7"),
+            "marker must roll so v5/v6 installs get replaced"
         );
     }
 }

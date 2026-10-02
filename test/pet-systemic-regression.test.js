@@ -51,6 +51,13 @@ assert(hook.includes('stampParent(base)'),
   'later child frames must be stamped from the lineage map');
 assert(!hook.includes('msg?.parentID'),
   'message-level parentID must never be read as a session parent (R54 v5 regression)');
+// R58-RV-5 P0 (v7): the GENERIC lineage read must be gated to session-object
+// events — an ungated block reads Message.Info.parentID (parent MESSAGE id)
+// on every message.updated frame and headless-ifies all top-level sessions.
+assert(hook.includes('type === "session.created" || type === "session.updated"'),
+  'the generic info.parentID read must be gated to session.created/updated');
+assert(hook.includes('childSessions.delete(base.session_id)'),
+  'session.deleted must free the lineage slot');
 assert(hook.includes('input?.sessionID\n    || input?.metadata?.sessionID'),
   'current OpenCode top-level sessionID must be preferred with legacy metadata fallback');
 

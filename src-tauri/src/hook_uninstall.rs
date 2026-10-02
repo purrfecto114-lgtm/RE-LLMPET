@@ -174,7 +174,10 @@ pub fn uninstall_all_hooks_headless(purge: bool) -> i32 {
 /// the `CleanupResult` of the hook pass that just ran, so backup deletion
 /// can be gated on a fully-clean provider (a failed cleanup keeps the
 /// backup as the user's only restore path).
-fn sweep_shell_residue(receipts: &Map<String, Value>, outcomes: &[(&'static str, CleanupResult)]) {
+pub(crate) fn sweep_shell_residue(
+    receipts: &Map<String, Value>,
+    outcomes: &[(&'static str, CleanupResult)],
+) {
     for (id, result) in outcomes {
         // id is &&'static str from the tuple borrow; deref to &str once.
         let id: &str = id;
@@ -185,9 +188,13 @@ fn sweep_shell_residue(receipts: &Map<String, Value>, outcomes: &[(&'static str,
             .map(PathBuf::from)
             .unwrap_or_else(|| provider_config_path(id));
         sweep_provider_shell(id, receipt, &config_path);
-        // Backups only go away when the live config is verified clean —
-        // otherwise they are still the rollback path for this provider.
-        if result.is_clean() {
+        // Backups only go away when the live config was REMOVED by us —
+        // R58-RV-6 P1: is_clean() also matches NotFound, which means the live
+        // config is already gone and our backup file may be the user's LAST
+        // copy of their own config. Deleting it here would destroy the only
+        // rollback path. Require Removed (we just stripped our block and the
+        // file is verified clean) before touching backups.
+        if matches!(result, CleanupResult::Removed { .. }) {
             sweep_our_backups(&config_path);
         }
         sweep_empty_config_dirs(id, &config_path);

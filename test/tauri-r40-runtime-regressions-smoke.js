@@ -45,11 +45,12 @@ assert.strictEqual(packageJson.version, '0.6.7',
 // ──────────────────────────────────────────────────────────────────────────
 
 // R54 (2026-09-22): the plugin source moved to plugin_sources.rs and the
-// current marker is v5 (native event names; translation in the Rust
-// dictionary). v4/v3/v2 markers live in the OPENCODE_MARKER_LEGACY list.
+// current marker rolls with fixes (R58-RV-5 P0: v7 gates the generic
+// lineage read to session-object events). v6/v5/v4/v3/v2 markers live in
+// the OPENCODE_MARKER_LEGACY list.
 const pluginSources = read('src-tauri/src/plugin_sources.rs');
-assert(hookInstall.includes('octopus-opencode-plugin-v5'),
-  'R40-1: opencode plugin marker must use the current Octopus v5 identity');
+assert(hookInstall.includes('octopus-opencode-plugin-v7'),
+  'R40-1: opencode plugin marker must use the current Octopus v7 identity');
 assert(hookInstall.includes('octopus-opencode-plugin-v4'),
   'R54: the retired v4 marker must be retained in the legacy overwrite list');
 assert(hookInstall.includes('octopus-opencode-plugin-v3'),

@@ -2018,6 +2018,15 @@ function applyConfigSnapshot(cfg) {
   }
   if (Array.isArray(cfg.archivedSessions)) {
     archivedSet = new Set(cfg.archivedSessions);
+    // R58-RV-1/RV-3 P1: another window (panel or the duo pet) archived a
+    // session — converge the head dots and the HUD list HERE, not at the
+    // next stats push (an idle session may never push again). The same
+    // cross-window staleness was the original "底部状态点未清除" symptom.
+    renderSessions(curSessions);
+    if (sessListOpen) {
+      renderSessList();
+      fitPopup(sesslist);
+    }
   }
   // 从配置推送同步权威窗口位置
   const savedPosition = PET_AGENT === 'pet-codex' && petMode === 'duo' ? cfg.petPositionCodex : cfg.petPosition;

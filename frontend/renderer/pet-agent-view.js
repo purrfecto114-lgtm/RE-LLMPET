@@ -101,19 +101,28 @@
     let windowCost = 0;
     let todayTokens = 0;
     let windowTokens = 0;
+    let haveBreakdown = false;
     for (const row of sessions) {
       const t = row.today || {};
       const w = row.window5h || {};
+      if (row.today || row.window5h) haveBreakdown = true;
       todayCost += Number(t.cost) || 0;
       windowCost += Number(w.cost) || 0;
       todayTokens += Number(t.tokens) || 0;
       windowTokens += Number(w.tokens) || 0;
     }
+    // R58-RV-9 P2: the backend never emits per-session today/window5h
+    // breakdowns (row.today/row.window5h have no producer since 0.6.0), so
+    // `haveBreakdown` is false and the per-pet cost chips would ALWAYS show
+    // $0.00 in duo mode. When no row carries a breakdown, keep the
+    // aggregate cost/tokens instead of overwriting them with the sum of
+    // nothing — the slice is the aggregate until the backend grows the
+    // per-session breakdown.
     const today = snapshot.today
-      ? { ...snapshot.today, cost: todayCost, tokens: todayTokens }
+      ? { ...snapshot.today, cost: haveBreakdown ? todayCost : (Number(snapshot.today.cost) || 0), tokens: haveBreakdown ? todayTokens : (Number(snapshot.today.tokens) || 0) }
       : { cost: todayCost, tokens: todayTokens };
     const window5h = snapshot.window5h
-      ? { ...snapshot.window5h, cost: windowCost, tokens: windowTokens }
+      ? { ...snapshot.window5h, cost: haveBreakdown ? windowCost : (Number(snapshot.window5h.cost) || 0), tokens: haveBreakdown ? windowTokens : (Number(snapshot.window5h.tokens) || 0) }
       : { cost: windowCost, tokens: windowTokens };
     // P4-10 fix (R1): strip codex-specific rollout fields from the primary
     // pet (and vice-versa) so each pet shows only its own usage/limits.
