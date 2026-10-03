@@ -34,7 +34,9 @@ assert(travel.includes('write_all(prompt.as_bytes())'));
 assert(travel.includes('.process_group(0)'));
 assert(travel.includes('kill_process_tree(pid)'));
 assert(travel.includes('try_wait()'));
-assert(travel.indexOf('try_wait()') < travel.indexOf('self.cancel.load(Ordering::Acquire)'));
+// R60-F1: the cancel check is now per-owner (cancel_flag(&trip.owner)) —
+// the old process-global AtomicBool cancelled BOTH duo trips.
+assert(travel.indexOf('try_wait()') < travel.indexOf('self.cancel_flag(&trip.owner)'));
 assert(!/command\.args\([^\n]*prompt/.test(travel));
 for (const token of [
   'MAX_TRAVEL_STATE_BYTES', 'read_travel_value',

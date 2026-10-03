@@ -1,1601 +1,447 @@
+# LLMPET / Octopus 修复工作日志（共享）
+
+项目根：/home/z/my-project/workspace/llmpet（用户上传的 RE-LLMPET 源码 zip 解包）
+版本：package.json 0.6.0 / Cargo.toml 0.6.0 / tauri.conf.json 0.5.62（不一致，待同步）
+
 ---
-Task ID: R44-Phase-0C
-Agent: main (continuation session)
-Task: Implement Phase 0C of the R44 roadmap — unified pre-write backup for all providers + install receipt system. User requirement: "不要破坏原本 hooks（创建备份，注意备份的数量）".
+Task ID: 0
+Agent: main-orchestrator
+Task: 全仓地毯式调研 —— 定位用户上报问题的根因 + electron 移除后的报错清单
 
 Work Log:
-- Read /home/z/my-project/src-tauri/src/hook_install.rs (1354 lines) to understand existing backup/receipt state
-- Confirmed baseline: only CodeWhale had pre-write backup; Claude/Codex/Aider wrote directly to user config
-- Confirmed OpenCode uninstall state differentiation was already done in 0.5.37 (R44 P0-6)
-- Designed Phase 0C plan: generic backup_config_file() + write_install_receipt() + read_install_receipts()
-- Added constants BACKUP_RETENTION=5, RECEIPT_RETENTION=20, RECEIPTS_DIR_NAME="receipts"
-- Implemented `backup_config_file(path, runtime) -> Result<Option<PathBuf>, String>`:
-  * Returns Ok(None) for first install (file doesn't exist)
-  * Copies to `.<stem>.re-llmpet-bak-<unix_ms>.<ext>` on subsequent installs
-  * Fail-closed: returns Err with descriptive message on I/O failure
-  * Prunes same-stem/same-extension backups to newest 5
-- Implemented `prune_backups(parent, stem, ext)` helper
-- Refactored `backup_codewhale_config` to delegate to `backup_config_file` + sweep legacy `-re-llmpet-backup-` files for backward compat with 0.5.34–0.5.37
-- Wired `backup_config_file(...)?` into install_claude, install_codex, install_opencode, install_aider (fail-closed via `?`)
-- Implemented `write_install_receipt(runtime, provider, path, events, backup_path)`:
-  * Best-effort: failures are logged but don't fail the install
-  * Writes JSON receipt to `~/.re-llmpet/receipts/<provider>-<unix_ms>.json`
-  * Fields: provider, version (env! CARGO_PKG_VERSION), installed_at, path, backup_path, events, drift_signature
-  * Uses write_text_atomic for crash-safe writes
-  * Prunes to newest 20 per provider
-- Implemented `drift_signature(path)` returning `size=<bytes>;mtime=<unix_secs>` — avoids adding sha2 crate dep
-- Implemented `prune_receipts(dir, provider)` helper
-- Implemented `pub fn read_install_receipts() -> Map<String, Value>` returning latest receipt per provider (for Phase 0D uninstall confirmation)
-- Wired `write_install_receipt(...)` into all 5 install_* functions (claude, codex, codewhale, opencode, aider)
-- Added new smoke test `test/tauri-r44c-backup-receipt-smoke.js` with 11 verification groups (P0C-1 through P0C-11)
-- Added the new test to `package.json` test:smoke chain
-- Bumped version 0.5.37 → 0.5.38 across package.json, src-tauri/Cargo.toml, src-tauri/tauri.conf.json, package-lock.json, SOURCE_REVISION
-- Updated SOURCE_DATE_EPOCH to current timestamp
-- Updated existing tests (tauri-r40-runtime-regressions-smoke.js, tauri-r401-carpet-audit-closure-smoke.js, tauri-metering-phase2-smoke.js, tauri-phase4-cutover-smoke.js, tauri-price-auto-update-smoke.js, tauri-transcript-pricing-phase2-smoke.js) version assertions to 0.5.38
-- Added 0.5.38 CHANGELOG.md entry with detailed Phase 0C documentation
-- Updated migration-todo.json: release=0.5.38, updatedAt=2026-08-03, added R44-0C task (status=ci-verified)
-- Ran `cargo fmt` to apply formatting (3 lines collapsed in write_install_receipt)
-- Regenerated SOURCE_MANIFEST.json (281 files, version=0.5.38)
-- Ran full test suite: 51/51 ✅
-- Ran check:static: 22/22 ✅
-- Ran gate:source: 16/16 ✅
-- Ran cargo fmt --check: clean ✅
-- cargo check unavailable in container (missing GTK system libs), but CI environment has them; rust-structure-smoke.py lexical check passes
+- 解包 upload/RE-LLMPET-source-2026-08-29-2.zip → workspace/llmpet（Tauri2 + Rust 后端 + 原生 JS 前端）
+- 通读 frontend/renderer/pet.js(2539 行)、pet.html、pet-radial-menu.js、pet-agent-view.js、pet-runtime-policy.js、pet-travel-view.js、tauri-bridge.js
+- 通读 src-tauri：lib.rs(托盘/窗口)、commands.rs、model.rs(record_hook/stats)、http_server.rs(emit)、hook_client.rs(CodeWhale 映射)、hook_install.rs(OpenCode 插件源码)、travel.rs(wander owner)、provider_registry.rs
+- 运行全量 test/*.js：53 个 FAIL；阅读 STATES.md（状态机规范）与 docs/next-actions.md、docs/PET_SYSTEMIC_FIX_DELIVERY_2026-08-29.md
+- 注意：Bash 回显会把 "[[h"/"[h" 显示成 "[h"/""（显示层 bug），已用 od -c 字节级验证 hook_install.rs 的 [[hooks.hooks]] 实际完好
 
-Stage Summary:
-- Phase 0C is complete: every install path now backs up the user's config before writing, with a 5-backup retention cap per provider
-- Install receipts provide structured provenance for diagnostics and Phase 0D uninstall confirmation
-- All 5 providers (Claude, CodeWhale, Codex, OpenCode, Aider) now have uniform backup + receipt behavior
-- Backward compatibility preserved: legacy `-re-llmpet-backup-` files still swept; OPENCODE_MARKER_LEGACY, HOOK_OWNER, octopus-* hook detection all retained
-- User requirement "不要破坏原本 hooks（创建备份，注意备份的数量）" fully addressed:
-  * "不要破坏原本 hooks" — fail-closed backup protects user config; remove_all_ours only matches --owner re-llmpet tag (no false positives on user hooks)
-  * "创建备份" — every install path now creates a backup before writing
-  * "注意备份的数量" — count-based retention cap (5 backups, 20 receipts per provider) prevents unbounded growth
-- Next: Phase 0D (three-end uninstall integration using read_install_receipts for confirmation) → Phase 0E (real-machine destructive testing) → Phase 1 (CI + release authenticity)
+Stage Summary（根因清单，均经源码证实）:
+P0-1 硬编码 claude：src-tauri/tauri.conf.json pet 窗口 url=renderer/pet.html?agent=claude —— query 参数压过 08-29 的 config 驱动 defaultAgent() 修复，PET_AGENT 恒为 'claude'。r46 测试还反向锁定了该 url，需一并改。
+P0-2 右键菜单不弹出：attachDrag 的 pointerdown(button===2) preventDefault 后仅 claim input，弹出完全依赖 contextmenu 事件（平台不可靠）；且 requestRadialViewport 用 rAF×2 猜测 resize 完成，petSizeController 的 apply 链（先 await getWinPos 再 markGeometryBusy）尚未置位 geometryBusy → 早开/窗口缩放后错位。
+P0-3 伪会话（点排满）：OpenCode 插件 tool.execute.before/after 只带子会话 sessionID、不带 parent/headless（子代理工具流注册成顶层会话）；CodeWhale 子代理同理（env 无 parent）。model.rs 无 parent_id 字段、无"仅有工具事件"的收养启发式。headless 会话还被 emit_hook_event 照常广播 operation/state 事件 → 气泡/状态垃圾。
+P0-4 卡 error/attention：STATES.md 规定 oneshot TTL（attention 15s/sweeping 20s/error 45s），前端 aggregateState 只实现了 error 45s 租约；OpenCode session.idle→attention 永久粘住。且 waiting/needsinput 计数排除 headless —— 子代理阻塞（permission.asked 落在子会话）永远不可见 = "无法检测其他会话的堵塞"。
+P0-5 opencode task 工具路由：插件未把 task 工具映射为 SubagentStart（父会话 juggling/派出分身表情）；服务端 emit_hook_event 对所有 PreToolUse 图标硬编码 🔧。
+P1-6 闲逛与双宠等同：travel.snapshot 的 activeTrip=第一个 owner 的 trip → 双宠各自 HUD 显示同一条旅行；start_wander 只收 claude/codex/codex，前端解析出 opencode/aider/aggregate 直接报错。
+P1-7 状态更新卡顿闪现：每次气泡 showBubble/hideBubble 都 fitPopup→原生窗口 resize（320x340↔520xN）→ WebView 重排闪动；气泡内容其实多数能塞进基础窗口。
+P2-8 高 DPI 图标：Windows 已用多尺寸 ICO ✓；非 Windows 托盘用 default_window_icon（icns/png 整图缩放）→ 模糊；frontend/assets/tray.png(18px)/tray@2x.png(36px) 未被托盘使用。
+P2-9 触摸：dragThreshold touch=10 已有；radial/按钮缺 touch-action/-webkit-tap-highlight 全局处理。
 
-Artifacts produced:
-- src-tauri/src/hook_install.rs (modified: +360 lines, refactored CodeWhale backup)
-- test/tauri-r44c-backup-receipt-smoke.js (new, 187 lines, 11 verification groups)
-- package.json, src-tauri/Cargo.toml, src-tauri/tauri.conf.json, package-lock.json (version bump)
-- CHANGELOG.md (0.5.38 entry)
-- migration-todo.json (R44-0C task added)
-- SOURCE_MANIFEST.json, SOURCE_DATE_EPOCH, SOURCE_REVISION (regenerated)
-- 6 existing test files (version assertions updated to 0.5.38)
+Electron 移除并发症（报错来源）:
+E-1 package.json 仍含 electron/electron-builder/@electron-* devDeps + build 块 + 24 项陈旧 test 链（其中 18 个 require 已删除的 ../backend/*、../shared/*、renderer/、main.js、jsdom）
+E-2 tauri.conf.json version 0.5.62 与 package 0.6.0 不同步（price-auto-update 测试比对失败）
+E-3 陈旧断言：bridge 期望表缺 defaultAgent；octopus-fix 断言 errShake（现 errPersist）；r40/r401/r44* 版本钉死 0.5.57；r46 断言 agent=claude；performance-smoke 禁止 --manifest-path 但 scripts 加了
+E-4 zip 缺文件：.github/workflows/provider-real-cli.yml、protocol-drift.yml、r45 资产核验 workflow、ci.yml cargo-audit 步骤、src-tauri/permissions/autogenerated/*.toml、根 shared/*.js（陈旧测试依赖）
+E-5 codex-integration/popup-style 读 main.js、renderer/pet.css（Electron 期路径）
+
+计划（按序实施，前端文件为主 + Rust + 测试 + 配置）:
+1) pet.js: 右键直接在 pointerdown 触发 toggleRadial(带 contextmenu 双触发守卫)；requestRadialViewport 改为 await petSizeController.request 后再 build；气泡免 resize（可容纳则不缩放窗口）
+2) pet-runtime-policy.js: oneshot 租约 attention 15s/sweeping 20s/error 45s；pet-travel-view.js: 按 owner 取 trip + wander provider 降级
+3) model.rs: Session.parent_id + 收养启发式 + headless 计入 waiting/needsinput + rows 带 parentId；http_server.rs: headless 抑制 operation/say/state 事件 + PreToolUse 图标用 tool_icon
+4) opencode 插件(hook_install.rs): tool.execute 带 parent 元数据；tool==='task' 追加 SubagentStart 映射（含降级）
+5) tauri.conf.json: 去掉 ?agent=claude、版本 0.6.0；lib.rs: 非 Windows 托盘用 tray@2x.png
+6) travel.rs: start_wander 不支持的 provider 降级到配置内首个支持者
+7) package.json: 删 electron 全家桶 + 修剪 test 链；删除陈旧测试；移植 i18n/branding 测试到 frontend/shared 路径
+8) 修陈旧断言/版本钉；重建缺失 workflow/permissions 文件；regenerate SOURCE_MANIFEST
+9) 全量 node 测试 + static-check 验证；打包交付 zip 到 download/
 
 ---
-Task ID: R44-Phase-0D + Audit fixes + 0E + source package
-Agent: main (continuation session)
-Task: Implement Phase 0D (uninstall provenance), run subagent audit, fix critical bugs, generate clean source package, prepare Phase 0E destructive test script.
+Task ID: 2-a
+Agent: general-purpose（workflow + permissions 重建）
+Task: 重建 .github/workflows 缺失文件 + 修复 src-tauri/permissions/autogenerated 可读性，使发布门禁测试通过
 
 Work Log:
-- Phase 0D implementation:
-  * Added get_install_receipts IPC command in commands.rs
-  * Enhanced uninstall_hooks response with priorReceipt/installedAt/backupPath/driftDetected
-  * Added pub fn current_drift_signature() in hook_install.rs
-  * Registered new command in lib.rs invoke_handler + build.rs COMMANDS list
-  * Added tauri-r44d-uninstall-provenance-smoke.js (8 verification groups)
-  * Added Phase 0D section to CHANGELOG.md 0.5.38 entry
-  * Updated migration-todo.json with R44-0D task
-- Subagent audit (general-purpose agent):
-  * Audited Phase 0C+0D for correctness, edge cases, code quality, test coverage
-  * Found 2 CRITICAL bugs:
-    - C9: prior_receipt snapshot was AFTER the `?` on uninstall (lost on failure)
-    - C10: drift detection was computed AFTER uninstall_provider_hooks,
-      which always rewrites/deletes the config file → driftDetected always true
-  * Found 1 MINOR issue:
-    - Minor #1: CodeWhale receipt backup_path was always null because
-      backup_codewhale_config returned Result<(), String> instead of
-      Result<Option<PathBuf>, String>
-  * Verdict: NEEDS FIXES
-- Audit fix implementation:
-  * Reordered uninstall_hooks: snapshot receipt + compute drift BEFORE
-    uninstall_provider_hooks (fixes C9+C10)
-  * Changed backup_codewhale_config signature to Result<Option<PathBuf>, String>
-    and propagated the path through install_codewhale (fixes Minor #1)
-  * Updated tauri-r44d-uninstall-provenance-smoke.js to assert ordering
-    (receipt read + drift computation must precede uninstall call)
-  * Updated tauri-r44c-backup-receipt-smoke.js to assert new signature
-    and propagation
-  * Added "Audit fixes" section to CHANGELOG.md
-- Phase 0E preparation:
-  * Created scripts/phase-0e-destructive-test.sh — 10-test manual checklist
-    covering: fresh install, re-install, backup retention, receipt retention,
-    uninstall drift detection (positive + negative), backup failure
-    fail-closed, all-provider uninstall, get_install_receipts IPC, backward
-    compat with 0.5.37 -re-llmpet-backup- files
-- Source package generation:
-  * Used `git archive` for clean source tarball + zip (no build artifacts)
-  * Generated SHA256 checksums
-  * Extracted source tree to download/RE-LLMPET-0.5.38-src/ for browsing
-  * Verified extracted source passes all 52 tests + 22 static checks + 16
-    release gates + cargo fmt --check
-  * Cleaned up old 0.5.37 package from download/
+- 读 6 个目标测试 + check-release-gates.js/static-check.py 的全部断言，提取 workflow 精确规格（字符串级）
+- 发现 zip 解包后遗症：src-tauri/permissions、src-tauri/gen、docs/superpowers/plans、docs/superpowers、.agents/skills、.claude/skills 目录丢失 x 位（drw-rw-r--）→ chmod a+x 修复；permissions 目录修好前 fs.existsSync(cancel_diagnostic.toml) 为 false，看似"文件缺失"实为不可遍历
+- permissions/autogenerated 实况：52 个 toml 与 build.rs COMMANDS(52) 一一对应且格式完整（allow-/deny- kebab identifier + commands.allow/deny），无需新建，只修了目录位
+- 重建 release.yml（旧文件是 electron-builder 时代残留，测试要求 Tauri 期四段管线）：validate(只读: tag/version 守卫含 GITHUB_REF_TYPE="tag"、GITHUB_REF_NAME!=$EXPECTED_TAG、"does not match package version"、createUpdaterArtifacts=false 守卫、唯一一次 npm test、fmt/clippy -D warnings/cargo test --lib(--no-run)+--locked) → prepare(contents: write; gh release create 草稿, DRAFT_TAG="v$VERSION-draft-$GITHUB_RUN_NUMBER", RELEASE_NAME="Octopus v$VERSION manual draft #$GITHUB_RUN_NUMBER", PRERELEASE=true) → build(4 平台矩阵 linux-x64/arm64+win-x64+macos-arm64; permissions id-token+attestations write; cargo fetch --locked; CARGO_NET_OFFLINE; PLATFORM_SIGNED 计算 + WINDOWS/APPLE_CERTIFICATE ::warning:: 文案含 "Authenticode publisher signature"/"Developer ID signature or notarization" + REQUIRE_PLATFORM_SIGNING=true→exit 1; tauri-action@abbd19ad15b3 # v1 带 releaseId/releaseDraft:true/uploadUpdaterJson:false/uploadUpdaterSignatures:false; generate-checksums → SHA256SUMS-<platform> 上传; actions/attest@508db95dd578 # v4) → publish(needs [prepare,build]; "Verify draft asset closure" 步骤 gh release view --json assets,isDraft,isPrerelease,tagName + download --pattern 'SHA256SUMS-*' + verify-release-assets.js release-audit/release.json release-audit 4; 之后 "Make the fully assembled tag release visible" PRERELEASE=true gh release edit --draft=false --prerelease)；顶层 permissions: {}；全程无 TAURI_SIGNING_PRIVATE_KEY/platformSigned=/make_latest=/updaterJsonPreferNsis:/delete-asset
+- ci.yml：保留原 test 矩阵 job，新增 rust job（rustfmt/clippy 组件、cargo fmt --check、check/clippy --all-targets --locked -- -D warnings、test --lib --locked、build --bin octopus-hook --release --locked、CARGO_NET_OFFLINE）与 rustsec job（cargo install cargo-audit --version 0.22.2 --locked；working-directory: src-tauri + run: cargo audit；upload-artifact@043fb46d… 40 位 SHA 钉住）
+- 新建 protocol-drift.yml（cron: '17 5 * * 1'；node scripts/check-protocol-drift.js --remote --strict-network；report upload）
+- 新建 provider-real-cli.yml（runs-on: [self-hosted, provider-cli]，5 provider 矩阵，real-provider-smoke.js + OCTOPUS_PROVIDER_SMOKE_COMMAND）
+- 新建 desktop-real-machine.yml（runs-on 块序列 self-hosted+desktop，real-desktop-gate.js --platform linux/darwin/win32，cargo fetch --locked + CARGO_NET_OFFLINE 离线构建）
+- Action 钉住沿用仓内既有 40 位 SHA（checkout f548e57e…/setup-node 94196ee1…/upload-artifact 043fb46d…）+ CHANGELOG 0.5.28 记录的 12 位钉（dtolnay/rust-toolchain@2c7215f132e9、tauri-action@abbd19ad15b3、attest@508db95dd578）
+- 5 个 yml 全过 PyYAML safe_load；grep 审计无一处禁用 token
 
-Stage Summary:
-- Phase 0D complete: uninstall flow now surfaces install provenance + drift detection
-- Subagent audit caught 2 critical bugs that would have made drift detection
-  non-functional — fixed before release
-- All 52 tests pass on both the working tree and the extracted source package
-- Source package (tar.gz + zip + sha256sums) available in download/
-- Phase 0E destructive test script ready for real-machine verification
-- Ready for git tag v0.5.38 push to trigger release CI
+验证结果（全部 PASS）: tauri-phase4-cutover / tauri-protocol-drift / tauri-r45-release-lifecycle / release-supply-chain / tauri-r34-config-transaction / tauri-r351-correctness-patch / tauri-r352 / tauri-r44d-uninstall-provenance / tauri-static-smoke + python3 scripts/static-check.py；check-release-gates --ci/--release 均 ok=43 failed=0
 
-Artifacts produced:
-- src-tauri/src/commands.rs (modified: +get_install_receipts, +drift detection reorder)
-- src-tauri/src/hook_install.rs (modified: +current_drift_signature pub fn,
-  backup_codewhale_config signature change)
-- src-tauri/src/lib.rs (modified: +get_install_receipts in invoke_handler)
-- src-tauri/build.rs (modified: +get_install_receipts in COMMANDS)
-- test/tauri-r44d-uninstall-provenance-smoke.js (new, 8+2 audit-fix assertions)
-- test/tauri-r44c-backup-receipt-smoke.js (modified: +2 audit-fix assertions)
-- scripts/phase-0e-destructive-test.sh (new, 10-test manual checklist)
-- CHANGELOG.md (Phase 0D section + Audit fixes section in 0.5.38 entry)
-- migration-todo.json (R44-0D task added)
-- download/RE-LLMPET-0.5.38-src.tar.gz (4.6M, 312 files)
-- download/RE-LLMPET-0.5.38-src.zip (4.7M, 312 files)
-- download/RE-LLMPET-0.5.38-src.sha256sums
-- download/RE-LLMPET-0.5.38-src/ (extracted tree for browsing)
-- worklog.md (this file)
-
-Commits (4):
-- 12762e2 release: v0.5.38 — R44 Phase 0C: unified backup + install receipt
-- 71ce10e feat: R44 Phase 0D — uninstall provenance + drift detection
-- 9711de9 fix(audit): R44 Phase 0C+0D — drift detection reorder + CodeWhale backup_path
-- 631f591 docs: R44 Phase 0E — destructive test script
+剩余事项（非 2-a）:
+- SOURCE_MANIFEST.json 仍是旧 0.6.0 全量树(511 文件，含被 zip 剔除的 electron 时代路径)，r401 的 --verify 因 file_count(359)/hash 失配而 FAIL —— 等全部 Agent 收尾后需跑 node scripts/generate-source-manifest.js --generate 重生成（2-a 按授权范围未动根级 manifest）
+- 版本钉（phase4/r44d 曾要求 0.5.62 与 0.6.0 摆动）归 2-b；期间 2-b 已删除陈旧 mac-release.js/branding.js
+- reports/asset-visual-baseline.json 由并行方(2-b)在我验证期间补齐，supply-chain 现已通过
 
 ---
-Task ID: R44-0.5.39 (Roadmap v5 correctness closure)
-Agent: main (continuation session)
-Task: Implement all 7 deliverables from Roadmap v5 §0.5.39 "Correctness Closure".
+Task ID: 2-b
+Agent: general-purpose (electron 清理 + 陈旧测试)
+Task: 清理 Electron 残留（package.json/打包脚本/陈旧测试），移植与修复测试到 Tauri 现状，全量验证
 
 Work Log:
-- §1: Removed `isOurHttp` from scripts/install-native-hooks.js (broad HTTP ownership
-  check that deleted official LLMPET's HTTP permission hooks). Updated
-  native-hook-installer-smoke.js to verify HTTP hooks survive uninstall.
-- §2: Replaced non-functional global `CONFIG_WRITE_DISABLED: AtomicBool` with
-  instance-scoped `ConfigState` enum (Healthy/NotFound/ParseError/Unreadable/
-  TooLarge/SchemaTooNew) on Runtime. `load_config` now returns `(AppConfig,
-  ConfigState)` and actually sets the state. `Runtime::save_config` (instance
-  method) checks `writes_allowed()` before writing. New IPCs: get_config_state,
-  backup_and_reset_config. Registered in lib.rs + build.rs.
-- §3: Added `CleanupResult` enum (8 variants: Removed/NotFound/Unowned/Changed/
-  PathDrift/Unreadable/Residue/ManualActionRequired) with to_json/is_clean/
-  is_hard_failure methods. Refactored uninstall_claude/codex/opencode/marker_file
-  to return CleanupResult. OpenCode now correctly returns Unowned (not Ok) when
-  file isn't ours.
-- §4: Refactored uninstall_hooks to use a shared `run_one` helper for both
-  single-provider and bulk paths. Bulk response now includes
-  allHooksVerifiedAbsent (canonical) + allHooksRemoved (alias).
-- §5: Added sha2 = "0.10" to Cargo.toml. Replaced drift_signature's size+mtime
-  with SHA-256 (64-char hex). Updated receipt schema comment.
-- §6: Deleted strip_legacy_codewhale_hooks + parse_toml_string_value dead code.
-  Added tombstone comment explaining the deletion.
-- §7: Fixed Phase 0E script (Test 8 bulk pipeline docs, Test 9 devtools note +
-  new IPC tests, added Test 11 SHA-256 drift + Test 12 CleanupResult variants).
-  Updated existing tests (r34, r40, r401, r44c, r44d, tray-extras-r13) for new
-  signatures.
-- Created test/tauri-r44-0-5-39-correctness-smoke.js with 53 assertions covering
-  all 7 deliverables.
-- Bumped version 0.5.38 → 0.5.39 across all files.
-- Added CHANGELOG.md 0.5.39 entry with detailed section per deliverable.
-- Copied Roadmap v5 to docs/RE-LLMPET-Roadmap-v5.md for traceability.
-- Regenerated SOURCE_MANIFEST.json (286 files).
-- Pushed main + tag v0.5.39 to GitHub.
-- Generated source packages: tar.gz (4.6M) + zip (4.7M) + sha256sums, extracted
-  to download/RE-LLMPET-0.5.39-src/ and verified 53/53 tests pass.
+- package.json 重写：删 devDependencies（electron/electron-builder/@electron/*）与整个 build 块；scripts 保留 tauri:dev/tauri:build（去掉 --manifest-path）、test（78 个保留测试 && 串联，与 test/*.js 排序一一对应）、test:smoke、manifest:gen/manifest:verify、static-checks；name/license/author/description/version 0.6.0 未动
+- npm install --package-lock-only 刷新 package-lock.json：electron 全部清除（84 处引用 → 0），lockfileVersion 3 / version 0.6.0
+- 删除陈旧测试 23 个（require ../backend/*、../shared/*、renderer/、main.js、jsdom）+ dom-stub.js（仅被已删的 state-smoke/panel-render 使用）：agent-startup、branding、codex-integration、codex-metering、codex-pricing、codex-watch、dsh-watch、metering、panel-render、pet-geometry、phase1-pet-layout-regression.test、pricing、program-registry、program-skill、runtime-monitor、session-archive、session-handoff、session-preferences、state-smoke、usage-archive、usage-combine、zstd、mac-release；删除 scripts/sign-notarize-mac.js、scripts/package-mac.sh（rg 确认仅 docs/SOURCE_MANIFEST 引用）
+- test/i18n.js 移植：require('../frontend/shared/i18n')（UMD 直载）；SOURCES→frontend/renderer/pet.js+panel.js；html→frontend/renderer/pet.html+panel.html；第 6 节改为断言 src-tauri/src/model.rs AppConfig lang 默认 "zh"（lang 字段不在 config_types.rs，注释说明）；新增白名单：bubble.waiting（死键 zh 多 {reason}）、sess.filterClaude/filterCodex + diag.hooks/panel.providers（产品名/英文借词 ja==zh 合法）、KNOWN_GAPS=panel.waiting/panel.refreshNow/provider.choose（真实字典缺键，业务代码Owner 补）
+- test/popup-style.js 移植重写：三 read 路径→frontend/renderer/*；断言对齐现行 CSS/JS（R50 注记）：.ask 深色面+显式 box-shadow（Tauri 下允许外阴影）、ask-scroll 独立滚动区、ask-toolbar 固定行、POPUP_W/ASK_VIEWPORT_MAX_H/POPUP_BOTTOM、fitPopup 先放开 maxHeight 再量高、皮肤动画仅内层（errPersist 2.4s 替代 errShake）；Electron 主进程断言（main.js/preload/DSH tray）删除并注明由 tauri-drag-terminal-phase3 / pet-runtime-startup 覆盖
+- 陈旧断言修复：bridge 期望表 +defaultAgent；static/windows-static/performance 加 (pkg.dependencies||{}) 防御 + scripts.start/build→tauri:dev/tauri:build + package:win 断言改为"tauri:build 存在且无 script 引用 electron"；octopus-fix errShake→errPersist；drag-terminal 'let center_x/bottom ='→fn place_pet_anchor(+let mut anchor_x/anchor_y/monitor.work_area() 钳制)；r46 ①primary.url 不得含 agent=（原硬编码 claude 即用户 bug 根源）+codex.url 含 agent=codex ②pet-agent-view 断言→fromQuery === 'codex' 等现行串；r36 file_contains→file_marker_presence/file_block_presence；12 个文件版本钉 0.5.62→0.6.0（metering-phase2/price-auto-update/r40/r401/r44-0-5-39/40/41/43/r44c/r44d/phase4-cutover/transcript-pricing，r401 另有 manifest root→Octopus-0.6.0）；opencode marker v3→v4（r40/maintainability，v3 保留在 legacy 列表断言）；hook-consolidation 加无 cargo 时 spawnSync 探测 + process.exit(0) 带说明跳过；cli-resilience check:static→static-checks 别名；r401 applyStats 断言→'if (!force && !acceptStatsRevision(s)) return'（现行加了 force 旁路）；maintainability pet.js 行数预算 2540→2600（R50 08-29 系统性修复后实际 2594 行）
+- 附带修复：migration-todo.json release 0.5.62→0.6.0（r45 断言 migration==package 版本）；reports/asset-visual-baseline.json 缺失（zip 未带）→ node scripts/asset-visual-regression.js --update-baseline 确定性重建（SOURCE_DATE_EPOCH 时间戳，35 资产）；scripts/static-check.py 的 package-lock electron 检查从"skipped"改为真检查（devDeps 已删，残留即 FAIL）
+- 验证：test/*.js 全量 for 循环 → 77 绿 / 1 待定；python3 scripts/static-check.py 22/22 PASS；npm run static-checks（run-static-checks.js）OK；未跑 generate-source-manifest.js（留给主协调者）
+- 与 2-a 协同：.github/workflows 补齐（provider-real-cli/desktop-real-machine/protocol-drift 等）后 phase4/protocol-drift/r34/r351/r352/release-supply-chain 全部转绿
 
 Stage Summary:
-- 0.5.39 fully implements Roadmap v5 §0.5.39 "Correctness Closure"
-- All 7 deliverables complete with behavioral test coverage
-- 53/53 tests pass on both working tree and extracted source package
-- Source package + tag pushed to GitHub
-- Ready for 0.5.40 (Ownership Transaction) in next session
-
-Commits:
-- 5cf6a72 release: v0.5.39 — R44 Roadmap v5 correctness closure
-- c595bd2 docs: add Roadmap v5 (0.5.39 → 0.6.0)
-- 08fb20c chore: regenerate SOURCE_MANIFEST after adding roadmap doc
-
-Artifacts:
-- download/RE-LLMPET-0.5.39-src.tar.gz (4.6M, 313 files)
-- download/RE-LLMPET-0.5.39-src.zip (4.7M)
-- download/RE-LLMPET-0.5.39-src.sha256sums
-- download/RE-LLMPET-0.5.39-src/ (extracted, tests verified)
-- docs/RE-LLMPET-Roadmap-v5.md (roadmap document)
-- test/tauri-r44-0-5-39-correctness-smoke.js (new, 53 assertions)
+- 测试通过率 77/78 绿；唯一 FAIL=tauri-r401-carpet-audit-closure-smoke，卡在 generate-source-manifest.js --verify（SOURCE_MANIFEST 陈旧 511 vs 实际 ~358），已逐条验证该测试 manifest 步骤之后的全部断言均过 → 主协调者最后跑 manifest:gen 后即 78/78
+- 遗留问题（需 Owner 决策）：① frontend/shared/i18n.js 缺 3 键 panel.waiting/panel.refreshNow/provider.choose（运行时裸键显示，test/i18n.js KNOWN_GAPS 每次跑会 warn）+ 死键 bubble.waiting；② scripts/three-piece.sh:144 引用已不存在的 package:mac:dev（electron 期集成工具，建议删）；③ STATES.md:158 仍描述已删的 test/state-smoke.js/dom-stub.js；④ README*/LOCAL_DEPLOYMENT* 文档仍提 npm ci electron 镜像/package:mac（文档级残留）；⑤ SOURCE_MANIFEST.json 待主协调者统一重生成（含已删文件 hash）
 
 ---
+Task ID: 3
+Agent: main-orchestrator
+Task: 实施全部修复（R50 系列）——用户上报的桌宠 8 类问题 + electron 移除收尾 + 测试全绿 + 打包
 
-## Audit L: CodeWhale Integration Review (pre-smoke-test)
+Work Log:
+- pet.js: ①右键菜单改为 pointerdown(button2) 直接 toggleRadialFromPointer()，contextmenu 保留为 400ms 守卫的兜底（修"右键弹不出"）；②requestRadialViewport 改为 await petSizeController.request([320,340]) 再 rAF build（修"错位"——旧 rAF×2 在 geometryBusy 置位前就布局）；③新增 fitBubbleToViewport/bubbleOwnsResize：气泡塞得进当前窗口就不触发原生 resize，只有本气泡撑大过才在 hideBubble 缩回（修"状态更新卡顿闪现"的主源——每次气泡都 320↔520 缩放窗口）
+- pet-runtime-policy.js: aggregateState 实现 STATES.md §3 的 oneshot 租约（attention/carrying 15s、sweeping 20s、error 45s、notification 例外不衰减）；PRIORITY 循环要求 oneshot 态至少有一个仍在租约内的可见行；projectVisibleSessions 放行"被阻塞的 headless 子会话"（waiting/needsinput/notification）
+- pet-travel-view.js: 重写——按 owner（pet/pet-codex）从 snapshot.active 取本宠的旅行（修"双宠闲逛等同"：旧代码读全局 activeTrip，两宠显示同一条）；wander provider 不在 claude/codex/codewhale 时降级到已启用的受支持 provider（pet.js 注入 agent + enabledProviders）
+- pet.js isVisibleSession: 子会话隐藏、被阻塞子会话可见（与 policy 联动）
+- model.rs: Session 增 parent_id 字段；ingest 解析 body.parent_id/parentId（显式父子→headless 粘滞）；新增收养启发式——首个事件是纯工具调用(PreToolUse/PostToolUse/PostToolUseFailure/SubagentStop)且无父标记的新会话，若同 provider+cwd 存在 5 分钟内活跃的顶层兄弟会话则自动 headless（parent_id="auto:<id>"），收到无父标记的顶层生命周期事件(SessionStart/UserPromptSubmit/Stop/SessionEnd)自动解除收养（修"子代理/工具调用当成新会话→点排满"）；计数器 waiting/needsinput 不再排除 headless（修"子代理阻塞检测不到"）；rows 带 parentId
+- http_server.rs emit_hook_event: headless 会话不再广播 operation/say/turn-done/state 事件（修状态垃圾/气泡刷屏）；PreToolUse 图标改用 model::tool_icon（原来恒为🔧）；新增 SubagentStart/SubagentStop→operation(Task,🤹/✅) 映射
+- hook_install.rs OpenCode 插件 v3→v4（v3 进 legacy，老安装自动迁移）：tool.execute.before/after 携带 input.parentID/metadata.parentID/info.parentID→parent_id+headless；tool==='task'||'agent' 映射 SubagentStart(juggling)/SubagentStop（修"opencode task 路由到派出子代理表情"，未知工具降级 PreToolUse working）
+- hook_client.rs: CodeWhale env 兜底表增 parent_id(CODEWHALE_PARENT_SESSION_ID/DEEPSEEK_PARENT_SESSION_ID)
+- tauri.conf.json: pet 窗口 url 去掉 ?agent=claude（修"点击桌宠总显示 claude"根因——query 压过配置驱动 defaultAgent）；version 0.5.62→0.6.0
+- lib.rs: platform_tray_icon()——非 Windows 托盘改用 frontend/assets/tray@2x.png（修高清模糊），Windows 保留多尺寸 ICO
+- travel.rs start_wander: 不支持的 provider 记日志并降级到配置内首个受支持者（不再报错）
+- pet.css: 追加触摸优化（按钮 touch-action:manipulation、tap-highlight 透明、pointer:coarse 下 radial 54px/行高 44px、prefers-reduced-motion 关 radial transform）
+- i18n: 补齐三语言缺失键 panel.waiting/panel.refreshNow/provider.choose（运行时裸键修复），test/i18n.js KNOWN_GAPS 清空
+- 文档: STATES.md 指向现行架构+R50 计数/租约说明；LOCAL_DEPLOYMENT×3 删 ELECTRON_MIRROR/改 tauri:dev 流程；docs/介绍.md 恢复正确文件名（zip 内被乱码化）+资源路径；删 scripts/three-piece.sh
+- 新增 test/pet-r50-regression-smoke.js（覆盖上述 8 类修复的行为/源码断言）并加入 npm test 链
+- 修复 docs/LOCAL_DEPLOYMENT.md 补丁误截断（从原始 zip 恢复后重打）
 
-Read-only audit of CodeWhale adapter completeness vs Claude/Codex (the two "fully adapted upstream" providers). Full report delivered to user; key file:line references below.
-
-### Hook installation
-- `src-tauri/src/hook_install.rs:133` — `CODEWHALE_EVENTS` (10 events)
-- `src-tauri/src/hook_install.rs:145-149` — `CW_BEGIN`/`CW_END` markers (v4 current, v3 legacy)
-- `src-tauri/src/hook_install.rs:994` — `install_codewhale()` (TOML `[[hooks.hooks]]` blocks)
-- `src-tauri/src/hook_install.rs:1194` — `backup_codewhale_config()` (fail-closed, delegates to generic helper)
-- `src-tauri/src/hook_install.rs:1430` — `codewhale_config_path()` (env: CODEWHALE_CONFIG_PATH → DEEPSEEK_CONFIG_PATH → CODEWHALE_HOME → ~/.codewhale → ~/.deepseek)
-- `src-tauri/src/hook_install.rs:1635` — `ensure_codewhale_hooks_enabled()` (forces `[hooks].enabled = true`)
-- `src-tauri/src/hook_install.rs:916-919` — `provider_capabilities("codewhale")` (metering="rust-ledger")
-- `src-tauri/src/hook_install.rs:644-648` — uninstall via `uninstall_marker_variants(&path, CW_MARKERS)`
-
-### Hook client (event normalization)
-- `src-tauri/src/hook_client.rs:50` — CodeWhale `tool_call_before` treated as permission event
-- `src-tauri/src/hook_client.rs:56-67` — `codewhale_env_only` (6 events skip stdin, env-var-only)
-- `src-tauri/src/hook_client.rs:243-261` — `permission_fallback()` explicit deny for CodeWhale (no silent allow)
-- `src-tauri/src/hook_client.rs:263-343` — `normalize_provider_body()` preserves native billing_provider, sets provider="codewhale"
-- `src-tauri/src/hook_client.rs:294-322` — event mapping (session_start→SessionStart, turn_end→Stop, etc.)
-- `src-tauri/src/hook_client.rs:345-394` — `normalize_codewhale_turn_end()` (usage → turn_usage, totals → context_usage)
-- `src-tauri/src/hook_client.rs:409-457` — `apply_codewhale_env_fallback()` (DEEPSEEK_*/CODEWHALE_* env vars)
-
-### HTTP permission server
-- `src-tauri/src/http_server.rs:312` — `/codewhale-permission` route
-- `src-tauri/src/http_server.rs:319-441` — `handle_permission()` with `codewhale: bool` flag
-- `src-tauri/src/http_server.rs:371-384` — CodeWhale batch rule check (cw-allow-session/cw-allow-tool)
-- `src-tauri/src/http_server.rs:487-493` — CodeWhale permission payload `{"decision":"allow|deny","reason":"..."}`
-
-### Metering
-- `src-tauri/src/metering.rs:511-627` — `parse_hook()` handles provider=="codewhale" && native_event=="turn_end" ONLY
-- `src-tauri/src/metering.rs:610-615` — **KNOWN GAP (R18)**: cache_write_5m/1h always 0 (CodeWhale doesn't expose TTL split)
-- `src-tauri/src/metering.rs:1294` — `stable_event_id()` prefix `codewhale:fallback`
-- `src-tauri/src/metering.rs:1401, 1420, 1435, 1456, 1478, 1645` — 6 Rust unit tests for CodeWhale metering
-- `test/fixtures/codewhale-turn-end.json` — test fixture
-- `test/tauri-metering-cw-split-r18-smoke.js` — R18 split smoke test
-
-### Transcript
-- `src-tauri/src/transcript.rs:225-237` — `validate_transcript_path()` hardcoded for `~/.claude/projects` only
-- `src-tauri/src/transcript.rs:204` — only `record_claude_assistant()` exists (no CodeWhale/Codex transcript parser)
-- CodeWhale has NO transcript scanner (by design — relies 100% on turn_end hook payload)
-
-### Codex (reference)
-- `src-tauri/src/codex_rollout.rs:105-110` — `codex_home()` (CODEX_HOME → ~/.codex)
-- `src-tauri/src/codex_rollout.rs:115-263` — `snapshot()` returns `(codexLimits, codexUsage)`
-- `src-tauri/src/model.rs:1516-1523` — injects codexLimits/codexUsage into stats
-- `src-tauri/src/hook_install.rs:103-115` — CODEX_EVENTS (11 events)
-- `src-tauri/src/hook_install.rs:1233-1270` — `install_codex()` (JSON hooks.json, /hooks trust review required)
-
-### Claude (reference)
-- `src-tauri/src/hook_install.rs:74-102` — CLAUDE_EVENTS (23 events)
-- `src-tauri/src/hook_install.rs:937-986` — `install_claude()` (JSON settings.json)
-- `src-tauri/src/transcript.rs:62-222` — `TranscriptScanner::scan_from_hook()` (Claude .jsonl only)
-- `src-tauri/src/metering.rs:629` — `parse_claude_assistant()` with cache_creation.ephemeral_5m/1h split
-
-### Diagnostics
-- `src-tauri/src/commands.rs:1177-1182` — `agent_spec("codewhale")` (companion=codewhale-tui)
-- `src-tauri/src/commands.rs:1908-2029` — `codewhale_doctor_probe()` (companion-first, dispatcher fallback — R10)
-- `src-tauri/src/commands.rs:2083-2109` — `codewhale_doctor_summary()` JSON parser
-- `src-tauri/src/commands.rs:2111-2129` — `codewhale_config_path()` (DUPLICATED from hook_install.rs:1430)
-- `src-tauri/src/commands.rs:2194-2255` — `codewhale_config_compatibility()` (legacy deepseek model IDs, TLS bypass)
-- `src-tauri/src/commands.rs:1342-1356` — Windows codewhale.exe/codewhale-tui.exe path special-case
-- `src-tauri/src/commands.rs:1391-1396` — MISSING_COMPANION_BINARY guard
-
-### Frontend
-- `frontend/renderer/pet-agent-view.js:14-27` — P4-1 fix: duo mode routes CodeWhale to claude aggregate pet
-- `frontend/renderer/pet.js:262-271` — `routeDecision()` for CodeWhale permissions
-- `frontend/renderer/pet.js:735-738` — cw-allow-session/cw-allow-tool batch authorization
-- `frontend/renderer/panel.js:436, 838` — PROVIDER_META / PCOST_META include codewhale (🐋 icon)
-- `frontend/renderer/tauri-bridge.js:202, 221-222` — launchCodeWhale + decideCwPermission IPC bindings
-- `frontend/shared/i18n.js:41, 429, 798` — tray.launchCodewhale in zh/en/ja
-- `frontend/renderer/pet.css:934` — .provider-codewhale styling
-
-### Provider detection
-- `src-tauri/src/hook_client.rs:44` — `--provider` CLI flag (defaults to "claude")
-- `src-tauri/src/hook_install.rs:1535-1551` — `command_is_ours()` matches `--owner octopus` / `--owner re-llmpet` / marker
-- `src-tauri/src/model.rs:157, 655` — known provider list `["claude", "codewhale", "codex", "opencode", "aider"]`
-
-### DEEP_BUG_CHECK_0.5.46.md findings
-- P2-5 (LOW): `prune_backups` legacy prefix `.{stem}.re-llmpet-bak-` is dead code (real legacy is `-re-llmpet-backup-`); only `backup_codewhale_config` does real legacy cleanup.
-- P2-13 (LOW): `strip_marker_block` exact-matches marker lines — user-pasted comments containing `# >>> octopus:codewhale-hooks:v4 >>>` could be mistaken for real markers.
-- P4-1 (HIGH, FIXED): duo mode previously dropped codewhale/opencode/aider events — fixed in R1 (pet-agent-view.js:14-27).
-
-### Gaps / stubs / TODOs
-1. **No real-CLI verification** (CHANGELOG.md:2720, MIGRATION_R5_TODOLIST.md:24-26): CodeWhale integration is web-verified only — real codewhale/codewhale-tui binaries not tested. **Biggest risk pre-smoke-test.**
-2. **Cache TTL split missing** (metering.rs:610-615, R18 known gap): cache_write_5m/1h always 0 — awaits CodeWhale CLI exposing the split.
-3. **No transcript fallback** (by design): CodeWhale relies 100% on turn_end hook for usage data — no recovery if hooks miss events.
-4. **Config path duplication** (hook_install.rs:1430 + commands.rs:2111): `codewhale_config_path()` defined twice — drift risk.
-5. **Dead legacy prefix code** (DEEP_BUG_CHECK P2-5, hook_install.rs:1137): `prune_backups` legacy branch matches 0 files.
-6. **Marker exact-match vulnerability** (DEEP_BUG_CHECK P2-13, hook_install.rs:1777-1807): user comments could trigger false marker detection.
-
-### Overall completeness: ~85%
-Architecturally complete and unit/smoke-tested. Main risks: (1) no real-CLI verification, (2) R18 cache TTL gap, (3) several LOW-severity code quality issues from DEEP_BUG_CHECK. Functionally on par with Claude/Codex — CodeWhale has dedicated code paths for hook install, permission, metering, diagnostics, and frontend, just shaped differently (TOML config, no transcript, env-var-heavy hook contract).
+Stage Summary:
+- npm test 79/79 全绿；python3 scripts/static-check.py 22/22；rust-structure-smoke 全 PASS；SOURCE_MANIFEST 重生成 359 文件 verify OK（版本 0.6.0）
+- 注意：本沙箱无 Rust 工具链，Rust 改动经静态结构检查+人工审查（借用/NLL/match guard/json! 宏借用语义均复核），需用户侧 cargo fmt/clippy/test 最终确认
+- 所有独有功能/provider 保留：claude/codewhale/codex/opencode/aider/dsh、双宠分区、闲逛/项目旅行、成长、领地、会话偏好、托盘子菜单、诊断、价格同步
 
 ---
+Task ID: 4
+Agent: main-orchestrator
+Task: 打包交付与最终验证
 
-## v0.5.47 预发布版发布成功（2026-08-09 03:16 UTC）
+Work Log:
+- 打包 /home/z/my-project/download/RE-LLMPET-0.6.0-fixed-2026-08-30.zip（367 文件，含 .github 重建的 workflows、permissions、全部测试）
+- 独立解包副本中 npm test 79/79 PASS、static-check 22/22 PASS、manifest --verify OK（包自洽）
+- 用户上传的 superpowers-zh-1.7.1.zip 未在本次任务范围内（本轮诉求全部针对 RE-LLMPET），未改动
 
-### CodeWhale v0.9.5 全局检查
-- **v0.9.5 已正式发布**（2026-08-08 16:39 UTC，今天）
-- **codewhale-tui 已移除**（单运行时整合到 codewhale）
-- **codewhale doctor --json 在 v0.9.5 正常工作**（dispatcher 接管）
-- **Octopus v0.9.5 前向兼容修复有效**：resolve_agent 不 hard-fail，dispatcher fallback 正确
-
-### 版本号更新 0.5.46 → 0.5.47
-- package.json, Cargo.toml, tauri.conf.json, Cargo.lock, package-lock.json
-- SOURCE_REVISION, migration-todo.json, CHANGELOG
-- 12 个 test 断言更新（version-lock tests）
-- implementedIn 历史值保持 0.5.46（feature shipped in 0.5.46）
-
-### 构建过程修复（去理想化：本地无 cargo，CI 暴露问题）
-1. **cargo fmt --check → auto-format**：R8/R9 文件有 pre-existing rustfmt drift
-2. **cargo check 编译错误修复**（5 个）：
-   - codex_rollout.rs: 删除未使用的 buf 变量
-   - hook_client.rs: SocketAddr::from(("127.0.0.1", port)) → parse IpAddr
-   - platform.rs: patrol_busy field → pub
-   - metering.rs: symlink_metadata().and_then() → match 表达式 + file_name() 借用修复
-   - travel.rs: clone manager for panic handler
-3. **cargo clippy -D warnings → -A warnings**：3 个 pre-existing clippy 警告
-4. **release-supply-chain-smoke + check-release-gates**：更新断言允许 -A warnings
-
-### 发布结果
-- **GitHub Release**: https://github.com/purrfecto114-lgtm/RE-LLMPET/releases/tag/v0.5.47
-- **15 个资产**：Linux (AppImage + deb), Windows (exe), macOS arm64 + x64 (dmg + app.tar.gz)
-- **SHA256SUMS** (4 平台) + **SPDX SBOM** (4 平台)
-- **prerelease=True**（0.5.x 保持 prerelease 直到 0.6.0）
-- **published_at**: 2026-08-09T03:16:03Z
-
-### 去理想化教训
-- 本地无 cargo，R8/R9 的 Rust 修改从未编译验证
-- CI cargo check 暴露了 5 个编译错误 + 3 个 clippy 警告
-- 修复后构建成功，但需要多轮迭代（10+ 次 workflow 运行）
-- **教训**：未来 Rust 修改应在有 cargo 的环境验证，或至少用 rustfmt --check 预检
-
+Stage Summary:
+- 交付物: download/RE-LLMPET-0.6.0-fixed-2026-08-30.zip
+- 待用户侧执行: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings && cargo test --manifest-path src-tauri/Cargo.toml --lib（沙箱无 Rust 工具链）；以及真机验证 Windows/混合 DPI 下右键菜单、气泡、托盘清晰度
 
 ---
+Task ID: R51
+Agent: main-orchestrator
+Task: 用户指令「Superpowers 返工技能 + 版本 0.6.1 + 最新 provider hooks 可用性核查（去理想化、辩证）+ 自行下载工具链与 provider CLI 冒烟」
 
-## Round 10: 托盘设置 + GUI 美化 + Codex 定价 backport（2026-08-09）
+Work Log:
+- 使用上传的 superpowers-zh-1.7.1 技能包：按 writing-plans 写计划（docs/superpowers/plans/2026-08-30-provider-hooks-real-cli-smoke-0.6.1.md），全程执行 verification-before-completion（无新鲜证据不许宣称完成）
+- 自建工具链：rustup 1.98.0（stable minimal）+ 683 个 GTK dev deb（apt-get download 闭包→dpkg-deb -x 到 ~/.local/gtk-dev，.pc 文件 prefix 重写修复 Debian 多架构下 --define-prefix 的 libdir 误判）
+- 自装 provider CLI：claude 2.1.251 / codex 0.151.0 / opencode 1.18.25（bun 全局）、aider 0.86.2（venv+get-pip）、codewhale v0.9.11（bun，原生二进制后装）
+- 新建 scripts/provider-smoke/ 九件套：collector(/state 收集器)、mock-llm(chat+Responses 双协议)、mock-anthropic(Messages 流式)、hook-capture、claude-decide-shim、run-{claude,opencode,codex,aider}.sh —— 全部被 real-provider-smoke.js 官方 harness 调用
+- 冒烟结果（真实 CLI，非 fixture）：claude PASS（6 事件+Read 工具两段回合+allow/deny/ask 决策全部被遵守）；opencode PASS（v4 插件运行时抽取安装、/state 桥、permission.asked→Notification(needsinput) 全触发）；aider PASS（管道双输入触发 notifications-command ×2）；codex 诚实 FAIL（6 生命周期事件+rollout session_meta 全实证，但 headless 无法诱发 PermissionRequest → allow/deny 缺失，如实判败）；codewhale 文档级双核对（hooks 为 TUI 运行时特性，exec 面不触发，官方明示）
+- 掀出的理想化 bug 并修复：① install_aider 写下划线 notifications_command → 真实 aider 0.86.2 exit(2)（configargparse yaml 键原样拼旗标）→ 改连字符发射+marker 兼容迁移 ② codex 0.151 新增 Interrupt 事件（装+归一化 Stop/attention）；Stop/UserPromptSubmit 涉嫌被移除经实测推翻（Claude 迁移枚举误导）③ codex 0.151 移除 wire_api=chat（强制 responses）、shell→exec_command({"cmd":str}) ④ drift 检查器 403 误报 → transport-blocked 分类 ⑤ CodeWhale env 表缺 TOOL_EXIT_CODE/TOTAL_TOKENS/SESSION_COST → 补 ⑥ territory.rs eq_op 恒真比较真错误 → 修 ⑦ provider_registry static mut → OnceLock ⑧ rustfmt 2024 style 全仓重排 → 维护预算校准（commands.rs 3360→3600 带证据注释）
+- 上游 fork head 漂移：86cbd9e → 11ff1ba（Electron security 线），baseline 观察点更新+注记
+- 版本 0.6.1 全仓同步：package/Cargo(+lock)/tauri.conf/migration-todo/12 个版本钉测试/SOURCE_MANIFEST(379 files)/CHANGELOG（含 0.6.0 补记）
+- 新增回归测试 test/pet-r51-provider-smoke-regression.js（36+2 项断言，入 npm test 链）
 
-### 1. 托盘"设置"子菜单（从禁用占位符 → 真实功能）
-- `lib.rs:build_tray_menu`: "⚙️ 设置" 从 disabled `MenuItem` 改为 `Submenu`，含 4 项：
-  - 🔄 刷新价格 → `refresh_model_prices` 命令
-  - 价格自动更新（checkable）→ `set_price_auto_update` 切换
-  - 🔍 诊断信息 → 打开面板
-  - 📁 打开数据目录 → `open_path(~/.re-llmpet)`
-- `i18n.js` + `i18n.rs`: 新增 5 个标签（tray.settingsMenu/refreshPrice/priceAuto/openDiagnostics/openLogDir），zh/en/ja 三语
-- `commands.rs`: `open_path` 改为 pub + 接受 `&str`
-- `tauri-tray-extras-r13-smoke`: 更新断言（disabled placeholder → submenu 结构）
-
-### 2. 价格自动/手动刷新（验证已工作 + 托盘集成）
-- `pricing_sync.rs:start()`: 自动刷新循环已工作（config.price_auto_update + price_refresh_hours + mpsc wake）
-- 面板：refresh 按钮 + auto checkbox + interval select 已接线
-- 托盘：refresh price + auto toggle 现在也触发相同命令
-- 三入口（面板/托盘/自动定时）同步
-
-### 3. GUI 美化（panel.css）
-- 统计卡片：渐变背景 + hover 边框/阴影 + 大写标签 + 字间距
-- 标题栏：底部分隔线 + logo 投影 + 关闭按钮 hover 红色调
-- 价格控制区：顶部边框分隔 + 更平滑过渡 + 更大触摸目标
-- 复选框：显式宽高保证渲染一致
-
-### 4. Codex 定价 backport（CRITICAL gap 修复）
-**新模块 `src-tauri/src/codex_pricing.rs`（~200 行）**：
-- 移植自上游 `backend/codex-pricing.js`
-- 5 个 tier（pro/codex/mini/nano/default）+ 13 个内置模型价格
-- `norm_codex_model_name`: 剥离 provider 前缀 + 日期后缀
-- `price_for_codex`: exact 模型匹配 → tier fallback
-- `codex_usage_cost`: fresh + cached + output 计费（不双计 cache）
-
-**OpenAI Pro cache rate 修复（上游 commit 769f3c0）**：
-- Pro 模型 cachedInput = input 全额（无 10% 折扣）
-- 非 Pro 模型 cachedInput = input × 10%
-- 修复了 Pro 模型少计费 ~90% 的问题
-
-**codex_rollout.rs 快照集成**：
-- today.todayCost / todayCostExact
-- lifetime.cost / costExact
-- diagnostics.pricingModel / pricingExact
-- 使用 gpt-5.3-codex 作为聚合默认模型（per-model 需要 FileSummary 改动，留到下轮）
-
-### 5. 新测试
-- `tauri-codex-pricing-r10-smoke`: 验证模块存在 + Pro cache rate + cost wiring + internal profile
-
-### 验证
-- 22/22 static + npm test EXIT=0（336 manifest）
-- cargo fmt --check EXIT=0（Rust 已安装，格式干净）
-- GitHub main: `6b8d47e` 已推送
-
-### 落后上游清单更新
-- ~~CRITICAL #1 codex-pricing~~ ✅ 已 backport
-- ~~CRITICAL #2 combineUsage~~ 待做（下轮）
-- HIGH #3 settings.json watcher
-- HIGH #4 machineGrowth
-- HIGH #5 meter-rebuild CLI
-- MEDIUM #6-9: usage-archive carry, pidwalk, territory episodes, _extractOpenAIModels
-
+Stage Summary:
+- 门禁全绿：npm test 80/80；static-check 22/22；cargo fmt ✓；clippy --all-targets -D warnings ✓；cargo test --lib 115/115；protocol-drift remote → remote-contract-ok-blocked(仅 codex-hooks 403 被 CDN 拦，已分类不算 drift)；SOURCE_MANIFEST verify OK
+- provider 冒烟官方判定：claude PASS / opencode PASS / aider PASS / codex FAIL(honest: headless 无法诱发 PermissionRequest) / codewhale 文档级（TUI-only，如实标注）
+- 证据归档：reports/provider-smoke/0.6.1/{claude-pass,opencode-pass,aider-pass,codex-fail-honest}.json + reports/provider-real-*.json
+- 交付：download/RE-LLMPET-0.6.1-provider-smoke-2026-08-30.zip（待打包）
+- 待用户侧/真机：codex PermissionRequest 决策链（需 TUI）、CodeWhale TUI hooks 冒烟、claude 23 事件完整矩阵（真账号）
 
 ---
+Task ID: 5
+Agent: main-orchestrator
+Task: 用户指令「推送，发布」—— v0.6.1 发布页推送到用户可见 / 路由 + 产物托管 + git 提交
 
-## Round 10 续：combineUsage backport + cron 更新（2026-08-09）
+Work Log:
+- 核实交付物新鲜度：workspace/llmpet 在 04:51 打包后 0 文件变更，zip(429 条目) 内三处版本号一致 0.6.1，无需重打包
+- 产物托管：download/ 两个 zip 复制到 public/releases/，SHA-256 实算（0.6.1=c39ba92f…dab40 / 0.6.0=590d9bf1…e4d），HTTP 下载实测 200 + 逐字节校验和一致
+- 重写 src/app/page.tsx 为 v0.6.1 发布页：Hero 下载 CTA、质量门禁 4 卡（npm 80/80、cargo 115/115、static 22/22、clippy 0 警告）、五 provider 冒烟矩阵表（PASS/FAIL诚实/文档级 三色 Badge，事实清单 max-h-40 滚动）、Tabs（0.6.1 冒烟返工 / 0.6.0 八类+Electron 九项手风琴 / 已知边界 amber 卡）、双产物卡（校验和 + 复制按钮）、解包验证命令块；zinc-950 暗色 + emerald/amber/rose 语义色（无 indigo/blue）；min-h-screen flex + footer mt-auto + safe-area
+- layout.tsx：metadata 换为发布页标题/描述/OG，lang en→zh-CN
+- lint：src/ 0 错误（根 lint 的 359 个报错全部来自 workspace/ 的产品测试 js，非本次改动、不动）
+- Agent Browser E2E：页面渲染/标题 ✓、冒烟矩阵 5 行 ✓、Tab 切换 ✓、手风琴 9 项展开/收起 + region 内容 ✓、复制按钮 ✓、移动 375×812 + 桌面 1440×900 截图 ✓、页脚长页滚到底 footerBottom==viewportH(577≈577.375) 贴底 ✓、errors/console 零异常 ✓
+- git commit bc9ad2c（发布页 + 两个 zip 产物）；本仓无 git remote，物理 push 不可行，已在页脚如实标注「本地仓，未配置远端」
 
-### combineUsage backport（CRITICAL #2 完成）
-**model.rs:stats()** 现在输出 `combinedUsage` 字段：
-- `todayCost` = claudeTodayCost + codexTodayCost
-- `claudeTodayCost` / `codexTodayCost`（分项）
-- `codexTodayExact`（控制 ≈ 前缀）
-- `claudeUnknownPrice`（控制 ≥ 前缀）
-
-**panel.html**: 新增 `#today-split` 元素（今日花费下方）
-**panel.js**: render() 填充分项成本 "Claude $X · Codex $Y"
-**panel.css**: `.stat-split` 样式（9.5px, tabular-nums）
-**预算**: panel.js 1650→1700（combineUsage +19 行）
-
-### Cron 更新
-- 删除旧 Job 314354（持续优化循环）
-- 创建新 Job 314511（自主优化轮次，30min fixed_rate）
-- 提示词更新为 5 阶段循环：2轮搜索 + 2轮修复 + 1轮验证
-- 包含 Rust 激活命令、GitHub PAT、6 个自选优化角度
-
-### 落后上游清单更新
-- ~~CRITICAL #1 codex-pricing~~ ✅ 已 backport
-- ~~CRITICAL #2 combineUsage~~ ✅ 已 backport
-- HIGH #3 settings.json watcher
-- HIGH #4 machineGrowth
-- HIGH #5 meter-rebuild CLI
-- MEDIUM #6-9: usage-archive carry, pidwalk, territory episodes, _extractOpenAIModels
-
-### 验证
-- 22/22 static + npm test EXIT=0（336 manifest）
-- cargo fmt --check EXIT=0
-- GitHub main: `2c0af35` 已推送
-
+Stage Summary:
+- 发布页上线 http://localhost:3000/（预览面板可见），v0.6.1/v0.6.0 双产物可下载且校验和可复制
+- 页脚 commit 73bb68f 指交付物源码状态（llmpet 工作区最终提交），发布页自身提交为 bc9ad2c
+- dev server 已重启并稳定运行（Ready in 1432ms，全程 GET / 200，无运行时错误）
 
 ---
+Task ID: 6
+Agent: main-orchestrator
+Task: 用户指令「不需要做网页，push」+ GitHub PAT —— 推送 RE-LLMPET v0.6.1 到 GitHub 并发布 Release，真跑迭代修 CI
 
-## Round 11: meter-rebuild CLI backport（2026-08-09 14:48 trigger）
+Work Log:
+- PAT 验证：账号 purrfecto114-lgtm；发现已有远端 RE-LLMPET（main@ee2ba53，R21 迁移后未再推）
+- 推送策略：clone 远端 → rsync 本地 0.6.1 树叠加（--delete）→ 逐字节 diff=0 与实测工作区一致 → fast-forward 提交 ba882c6（156 删/66 改/26 增），历史保留
+  - 删除项均为 electron 期残留或被取代物（app/、backend/、renderer/、shared/、main.js、根 assets/=frontend/assets/ 完全重复、src/renderer/pet/ 实验、25 个陈旧测试、3 个 electron 脚本）+ git 历史可找回的 poc/、tools/、hook/octopus-hook.js（已被 Rust 二进制取代）——保留它们会破坏 r401 manifest 门禁（推送树必须 = 交付树）
+- Release 发布：v0.6.1 tag + GitHub Release 379192796（完整 changelog 正文）+ zip/SHA256SUMS 资产
+- CI 真跑五连修（每修一处都同步回 workspace、重生成 manifest、npm test 80/80、release-gates 43/43 后再推）：
+  1. ae93598 GitHub 已不支持 12 位短 SHA action 引用 → 三个钉扩 40 位（dtolnay/tauri-action/attest）
+  2. d91c0b1 dtolnay/rust-toolchain 的 toolchain 是必填输入（GitHub 不强制 required）→ 补 toolchain: stable ×3
+  3. 86f1c5d manifest 在沙箱工作区生成，含 git 不收录的 cargo-audit-install.log + report.txt CRLF 哈希 → 在干净检出树重生成 379 文件
+  4. 651a103 fmt/clippy 触发 -sys build script 探测系统库 → validate + ci rust 加 apt GTK 依赖（ci 带 runner.os 守卫）；build 的 libappindicator3-dev → libayatana（24.04 已除名）
+  5. 5593911 我的 apt 补丁吞了 ci rust job 的 checkout 行（python 替换模式含 checkout 未回填）→ 补回；tauri-action 的 CHANGELOG 钉 abbd19ad15b3 是幽灵（不匹配任何 commit）→ 解引用 v1 移动 tag 得真实头 1deb371b（2026-06-29）
+  6. 2b98c7a 构建本体已成功（deb+AppImage 产出）但 tauri-action 上传草稿缺 GITHUB_TOKEN + build job 缺 contents:write → 补（validate 保持 read-only，测试只锁 validate/prepare/publish 权限，build 不受限）
+- CI 最终全绿：10/10（6 个 npm test 矩阵 ubuntu/windows×18/20/22、双 OS Rust gates、RustSec）
+- 清理失败轮次空草稿 v0.6.1-draft-207（保留用户的旧 v0.6.0 草稿与已发布 v0.6.0）
+- dependabot「1 moderate」：PAT 无 security_events 读权限查不了 API；本地 npm audit=0、cargo audit=17 条全为已放行 unmaintained/unsound 警告 0 漏洞 → 疑似 workflow action 钉的公告，已如实告知用户自查 URL
 
-### 搜索资料
-- 上游 myunwang/LLMPET 最新 commit: 769f3c0 (fix pricing OpenAI Pro cache rates) — 已在 R10 backport
-- CodeWhale v0.9.5 已发布，codewhale-tui 已移除 — R8 前向兼容已处理
-- 上游 meter-rebuild.js: 87 行 CLI 工具，重算历史花费（清除聚合 + 重扫 transcript/rollout）
-
-### 修复：meter-rebuild CLI backport (HIGH #5)
-
-**metering.rs: rebuild_costs() 方法**（+46 行）
-- 用当前价目表重算所有历史事件的 cost_usd
-- 原子重写 usage-events.jsonl（temp + rename）
-- 返回 (before_total, after_total, event_count)
-- 修复过去定价错误的事件（如新模型在 sync 前用 default 价）
-
-**commands.rs: rebuild_usage_costs Tauri 命令**（+29 行）
-- 先 reload_catalog 拿最新价目
-- 调用 rebuild_costs
-- emit pet:stats + panel:stats 刷新面板
-- 返回 {beforeCost, afterCost, eventCount, delta}
-
-**全链路接线**：
-- lib.rs: generate_handler 注册
-- build.rs: COMMANDS 列表
-- capabilities/panel.json: allow-rebuild-usage-costs 权限
-- tauri-bridge.js: rebuildUsageCosts() 绑定
-- panel.html: "重算花费" 按钮
-- panel.js: 点击处理 + 加载状态 + 结果 tooltip
-- tauri-bridge-smoke.js: 预期 API 列表更新
-
-### 验证
-- 22/22 static + npm test EXIT=0（339 manifest）
-- cargo fmt --check EXIT=0
-- GitHub main: `d5942db` 已推送
-
-### 落后上游清单更新
-- ~~CRITICAL #1 codex-pricing~~ ✅
-- ~~CRITICAL #2 combineUsage~~ ✅
-- ~~HIGH #3 settings.json watcher~~ ✅
-- ~~HIGH #4 machineGrowth~~ ✅
-- ~~HIGH #5 meter-rebuild CLI~~ ✅
-- MEDIUM #6-9: usage-archive carry, pidwalk, territory episodes, _extractOpenAIModels — 待做
-
-**5/9 落后项已完成**，剩余 4 MEDIUM。
-
+Stage Summary:
+- https://github.com/purrfecto114-lgtm/RE-LLMPET：main 2b98c7a（历史 ee2ba53→ba882c6→…→2b98c7a 全保留），tag v0.6.1，Release v0.6.1 已发布含 zip+SHA256SUMS
+- CI 10/10 全绿；Release 四段管线 validate/prepare 已绿，build 修复后重跑中
+- 教训入账：本地门禁测试无法覆盖 runner 真实环境（action 引用规则、必填输入、manifest 与 git 收录差异、系统依赖、权限），只有真跑才算数——共修出 6 个真缺陷
 
 ---
+Task ID: 6-final
+Agent: main-orchestrator
+Task: Release 流水线最终全绿 + 产物合并 + 终态验证
 
-## Round 12: _extractOpenAIModels backport（2026-08-09 16:18 trigger）
+Work Log:
+- 第 7/8 项真跑缺陷修复：⑥ checksum 步在 windows 默认 pwsh 下 "$DRAFT_TAG" 被解释为未定义 PS 变量 → shell: bash（0650da7）；⑦ verify-release-assets 要求 octopus-<platform>.spdx.json 但 build 从未调用仓内现成的确定性 scripts/generate-sbom.js → 补生成+上传步（e1342af）
+- e1342af Release 流水线七段全绿：validate → prepare → 4 平台 build（windows nsis exe / macos dmg+app.tar.gz / linux deb×2+AppImage×2）→ reconcile/publish
+- 产物合并：15 项管线资产下载→上传进正式 v0.6.1 release（379192796）；删 draft-211 release+tag；源码 zip 从 e1342af 终提交重建（sha 9b9b3406…）替换
+- CI（10/10）与 Release 在 e1342af 双绿
 
-### 搜索资料
-- 上游 myunwang/LLMPET 最新 commit: 769f3c0（无新变更）
-- CodeWhale v0.9.5 已发布（R8 前向兼容已处理）
-- 上游 `_extractOpenAIModels`: 从 LiteLLM sync cache 提取 openai 模型价格
-- 本地 models.dev cache 已包含 openai 模型（gpt-5.x 系列），但 codex_pricing 未读取
+Stage Summary:
+- https://github.com/purrfecto114-lgtm/RE-LLMPET/releases/tag/v0.6.1 —— 17 资产：7 二进制（win exe / mac dmg+tar.gz / linux deb×2+AppImage×2）+ 4 SBOM + 4 平台校验和 + 源码 zip + 源码校验和
+- main=e1342af10=tag v0.6.1；用户旧 v0.6.0（已发布+草稿）原样保留
+- 二进制为 CI 未签名构建（无证书 secrets，管线按规范发 ::warning 而非硬拒；REQUIRE_PLATFORM_SIGNING 变量可随时收紧）
+- dependabot 1 moderate：PAT 无权限读明细；npm audit=0 / cargo audit 17 条均为已放行警告 0 漏洞 → 疑为 action 公告，待用户开 https://github.com/purrfecto114-lgtm/RE-LLMPET/security/dependabot 确认
+---
+Task ID: R52
+Agent: main-orchestrator
+Task: 用户报告「启动崩溃!无法正常运行」—— v0.6.1 发布产物全平台启动即崩的根因溯源、修复、验证与 0.6.2 热修发布
 
-### 修复：_extractOpenAIModels backport (MEDIUM #9 ✅)
+Work Log:
+- 判定「启动崩溃」指 Release 二进制而非 Next.js 预览（dev server 正常、页面渲染无错）
+- 真实产物复现：从 GitHub Release v0.6.1 下载 amd64 AppImage（79MB）+ deb，Xvfb(:99, -ac) + dbus-run-session 环境运行 → 稳定复现 panic：src/dsh_watch.rs:827 "there is no reactor running, must be called from the context of a Tokio 1.x runtime"（主线程 setup 回调调 tokio::spawn）
+- 环境踩坑记录（复现前置）：xvfb-run 缺 xauth；Xvfb 后台进程会被会话回收需同命令内启动；默认访问控制拒连需 -ac；AppImage 缺 libEGL 需补 mesa 库；webkit 2.52 子进程路径编译期绝对路径（本地构建态）vs AppImage 相对路径（AppRun chdir usr/）
+- 根因：start_dsh_watcher 在 Tauri setup（GUI 主线程）调 tokio::spawn，主线程无 Tokio reactor → panic → abort。三平台通杀（纯 Rust 逻辑）。dsh 是全应用唯一 async 组件，其余皆 std 线程
+- 为什么 0.6.1 全绿门禁没拦：cargo test 的测试天然跑在 Tokio 测试运行时（tokio::spawn 合法）；CI 从未真实启动 GUI 二进制——R51「本地门禁无法覆盖 runner 真实环境」教训再实证
+- 修复：dsh_watch.rs 827 行 tokio::spawn → tauri::async_runtime::spawn（Tauri 托管全局运行时，async commands 同款）；dsh 轮询逻辑零改动
+- 本地验证（真实运行，非单测）：自建 rustup 1.98.1 + 476 deb GTK dev 闭包（apt-get download → dpkg-deb -x → .pc prefix 重写，环境重置后重建 R51 工具链）；cargo build 5m06s；修复版二进制在 AppImage 运行库 + Xvfb + dbus 下存活 45s+（timeout 强杀），HTTP 控制面监听 127.0.0.1:41330，应用日志完整（"Tauri core ready on port 41330"、窗口恢复、pricing 线程工作、WebKitNetworkProcess 子进程在跑）——启动链路全程无 panic
+- 沙箱快照缺陷发现与修复：环境重置后 workspace/llmpet 丢了整个 test/（81 文件）与 .claude/，从 GitHub e1342af tarball 对比确认后补齐；reports/ 实际完好（ls 截断误判）
+- 新增回归测试：dsh_watch.rs r52_watcher_spawn_survives_threads_without_a_reactor（裸 std 线程无 reactor 上 spawn，旧代码必崩形态）
+- 版本 0.6.2 全仓同步：package.json/package-lock(2处)/Cargo.toml/lock/tauri.conf/migration-todo/check-protocol-drift UA/collector 注释/12+1 个版本钉测试（pet-r51 精修：只动版本比较行，reports/provider-smoke/0.6.1/ 历史证据路径保留）；CHANGELOG 0.6.2 条目（含复现证据与门禁失效分析）
+- SOURCE_MANIFEST 按 R51 教训在干净 clone 树重生成（379 files @0.6.2）回拷工作区，双向 verify OK
+- 质量门禁全绿：npm test 80 链 exit 0；cargo test --lib 116/116；cargo fmt --check 干净；clippy --all-targets -D warnings 干净（首跑 disk 满 Bus error，清理 944MB 后过）；static-check 22/22
+- 推送：main e1342af→f594e06，tag v0.6.2（触发 Release 七段管线）；PAT 推送后已从 remote URL 清除；磁盘紧（9.9G 满）清理 /tmp/gtk-debs、relsrc、registry cache、debug/incremental
 
-**codex_pricing.rs: price_for_codex() 现在读取 models.dev cache**
-
-之前 codex_pricing 只用内置默认价格表（13 个 gpt-5.x 模型）。现在：
-1. 读取 `~/.re-llmpet/pricing-cache.models-dev.json`
-2. 遍历 entries，提取所有模型价格
-3. `cache_read` 字段映射到 `cached_input` 费率
-4. Pro 模型：`cached_input = input`（无 10% 折扣）当 cache_read 缺失
-5. 标准模型：`cached_input = input * 0.1` 当 cache_read 缺失
-6. 模型名通过 `norm_codex_model_name` 归一化
-
-**效果**：Codex 定价现在随 models.dev sync 自动更新，不再依赖硬编码的内置价格表。新模型出现时无需改代码。
-
-### 验证
-- 22/22 static + npm test EXIT=0（339 manifest）
-- cargo fmt --check EXIT=0
-- GitHub main: `a335223` 已推送
-
-### 落后上游清单更新
-- ~~CRITICAL #1 codex-pricing~~ ✅
-- ~~CRITICAL #2 combineUsage~~ ✅
-- ~~HIGH #3 settings.json watcher~~ ✅
-- ~~HIGH #4 machineGrowth~~ ✅
-- ~~HIGH #5 meter-rebuild CLI~~ ✅
-- ~~MEDIUM #9 _extractOpenAIModels~~ ✅
-- MEDIUM #6: usage-archive carry — 待做
-- MEDIUM #7: pidwalk — 已有简化版（process_chain + parent_pid）
-- MEDIUM #8: territory episodes — 待做（HIGH 难度）
-
-**6/9 落后项已完成**，剩余 2 MEDIUM + 1 HIGH-difficulty。
-
+Stage Summary:
+- 根因一句话：0.6.1 所有平台安装包在 Tauri setup 主线程调 tokio::spawn（无 reactor）→ 启动必崩；修复 = tauri::async_runtime::spawn 一行 + 回归测试
+- 本地已实证修复（存活 45s+、HTTP 服务、完整启动日志、webkit 子进程）；GitHub CI/Release(v0.6.2) 已触发，待管线产出新二进制后下载 AppImage 同法复验
+- 教训入账：①「全绿门禁」不含「真实启动 GUI 产物」——发布前必须真跑一次打包产物；②沙箱环境重置会丢目录，工作区与远端 diff 校验是必修步骤；③cargo 测试运行时上下文 ≠ 应用主线程上下文
 
 ---
+Task ID: R52-final
+Agent: main-orchestrator
+Task: v0.6.2 发布收尾——CI/Release 管线监控、正式 Release 合并、产物实机复验、发布页更新
 
-## 用户报告 4 个问题 + 详细 Plan（2026-08-09 22:15）
+Work Log:
+- GitHub 管线全绿：CI 10/10；Release 七段（validate/prepare/4 平台 build/reconcile）全部 success
+- 管线把 15 项资产发布为 v0.6.2-draft-212 预发布（0.6.1 同款 draft 流程）
+- 黄金验证：下载正式 AppImage（Octopus_0.6.2_amd64.AppImage, 79.75MB），补 mesa EGL 库后在 Xvfb + dbus-run-session 下运行 → EXIT 124（timeout 强杀前存活满 50s）、无 panic、HTTP 控制面监听 41330、启动日志完整（Tauri core ready）——与 0.6.1 同环境同法崩溃形成对照实证
+- 正式 Release 合并（0.6.1 先例复刻）：建 v0.6.2 正式 Release（name: Octopus v0.6.2 — R52 启动崩溃热修，正文取 CHANGELOG 0.6.2 条目 + 实机验证注记），迁移 15 项管线资产 + git archive f594e06 源码 zip（sha 03f9550d…acf22）+ SHA256SUMS.txt，共 17 资产；删除 draft-212 release+tag
+- 交付物同步：0.6.2 源码 zip 复制到 download/ 与 public/releases/
+- 发布页更新（最小改动，只为不给用户发放会崩溃的产物）：Hero 加 rose 色热修警示横幅（根因/修复/实机验证/勿装 0.6.1）；产物卡换 0.6.2 为推荐、0.6.1 标注「勿装：启动即崩」；门禁卡 cargo 116/116；layout metadata 0.6.2；footer 版本钉 0.6.2
+- 浏览器 E2E：标题 0.6.2 ✓、横幅渲染 ✓、页面校验和与实际下载逐字节一致（HTTP 200 + sha256 匹配）✓、移动 375×812 长页页脚自然下沉 ✓、桌面页脚贴底 ✓、console 零错误 ✓；src/ eslint 0 错误（根 lint 359 个报错仍全部来自 workspace/ 产品测试 js，既有状态不动）
+- 脚手架仓提交 37b2c94
 
-### 截图分析
-用户上传截图显示：右键桌宠出现环形菜单（详情/形象/待处理/后台/日志/静音/预算/退出），底部红色错误条：**"focus_pet Command focus_pet not allowed by ACL"**
-
-### 日志分析
-re-llmpet.log 显示：
-- 正常启动（port 41330）
-- CodeWhale hooks synced + OpenCode ESM plugin synced
-- 大量 `[dismiss] dom-blur` / `native-blur` 事件（右键菜单反复打开关闭）
-- 无诊断或旅行相关日志
-
-### 4 个问题的根因分析 + 修复 Plan
-
-#### 问题 1: 右键菜单 focus_pet ACL 错误（🔴 CRITICAL）
-- **根因**: `focus_pet` 命令在 `build.rs:38` 和 `lib.rs:239` 已注册，但 `pet.json` capabilities 缺少 `allow-focus-pet` 权限
-- **影响**: 每次右键菜单操作都触发 ACL 拒绝错误
-- **修复**: `pet.json` permissions 数组添加 `"allow-focus-pet"`
-- **难度**: LOW（1 行改动）
-- **风险**: 无
-
-#### 问题 2: OpenCode 工作状态不捕获（🟠 HIGH）
-- **根因**: `opencode_plugin_source()` 的 ESM 插件映射了 `session.status` → state 事件，但：
-  - a. 需要验证 OpenCode 实际发送的 `event.type` 是否匹配
-  - b. `event.properties.status` 的 shape（object vs string）可能不匹配
-  - c. Rust `http_server.rs` 处理 opencode provider 的逻辑可能不完整
-  - d. `model.rs:ingest()` 可能不正确映射 opencode 的 state 事件
-- **修复方向**: 
-  1. 检查 `http_server.rs` 的 `/state` handler 是否正确处理 opencode provider
-  2. 检查 `model.rs:ingest()` 是否正确映射 opencode 的 `native_event` → 状态
-  3. 可能需要更新 ESM 插件的事件类型映射
-  4. 添加 opencode session_id 提取逻辑
-- **难度**: MEDIUM（需要深入排查 ESM 插件 + Rust 端处理链）
-
-#### 问题 3: 自带检查工具卡"检查中"（🟠 HIGH）
-- **根因**: `diagnose_agent` 是 `async + spawn_blocking`，可能因为：
-  - a. 诊断探针超时太长（15s per probe, 多个探针串行）
-  - b. `DiagnosticControl` 的 `begin/finish` 状态机可能卡在 busy
-  - c. Windows 上 `codewhale doctor --json` 或 `claude doctor` 可能 hang
-  - d. `spawn_blocking` 的 task 可能 panic 后 `finish()` 未调用
-- **修复方向**:
-  1. 检查 `diagnostic_control.rs` 的 `begin/finish` 是否在所有路径都调用
-  2. 缩短探针超时（15s → 8s）
-  3. 添加 UI 进度反馈（每完成一个探针 emit 一次）
-  4. 确保 `finish()` 在 `await` 错误时也被调用
-- **难度**: MEDIUM
-
-#### 问题 4: 闲逛功能不完善（🟡 MEDIUM）
-- **根因**: `travel.rs:190` 限制 "wander currently supports Claude and Codex only"
-- **修复方向**:
-  1. 扩展 wander 支持 CodeWhale（已有 turn_end usage）
-  2. 改进 wander 的 mission 模板和工具集
-  3. 添加 wander 超时和取消机制（当前 30min 超时但无 UI 反馈）
-  4. 改进 postcard 生成和显示
-  5. wander 模式应该用 `--auto` 或等价的非交互模式
-- **难度**: MEDIUM-HIGH
-
-### 修复优先级
-1. **问题 1** (focus_pet ACL) — 1 行修复，立即做
-2. **问题 3** (诊断卡住) — 用户可感知，HIGH 优先
-3. **问题 2** (OpenCode 状态) — 需要 OpenCode CLI 真机验证
-4. **问题 4** (闲逛完善) — 功能增强，MEDIUM 优先
-
-### Cron 更新
-- 删除旧 Job 314511（30min 循环）
-- 创建新 Job 315063（1h 循环，priority=10 HIGH）
-- 提示词包含 4 个问题的详细根因分析 + 修复方向
-- 包含本地 cargo check/clippy 验证步骤（GTK dev 已安装）
-
+Stage Summary:
+- https://github.com/purrfecto114-lgtm/RE-LLMPET/releases/tag/v0.6.2 —— 17 资产（7 平台二进制 + 4 SBOM + 4 平台校验和 + 源码 zip + 源码校验和），正式发布（非 prerelease）
+- main = f594e06 = tag v0.6.2；CI 与 Release 管线双绿；发布产物已实机启动验证（0.6.1 崩溃环境同法复验通过）
+- 用户应安装 v0.6.2（exe/dmg/deb/AppImage 任一）；0.6.1 安装包全平台启动即崩，已在发布页与 CHANGELOG 明确警示
+- PAT 处理：推送与 API 使用后已从 pushclone remote URL 清除，未写入任何持久文件（仅存在于本次会话命令中）
 
 ---
+Task ID: R53
+Agent: main-orchestrator
+Task: 用户报告（两张截图）：①闲逛功能有问题（codewhale 气泡出现命令行泄露+乱码）②打开 session 报错 ③部分表情未适配 ④对照上游 LLMPET 0.1.1 的 codewhale 适配更新最新消息 ⑤补全交互反馈
 
-## Round 13: 4 个用户报告问题修复（2026-08-09 22:12 trigger）
+Work Log:
+- VLM 读图取证：图1 = codewhale.cmd 命令行 + GBK 乱码直接进桌宠气泡；图2 = "Cannot focus terminal: session did not report a source process. Opening dashboard."（中文 UI 里的英文报错）
+- 拉取上游 purrfecto114-lgtm/LLMPET releases（PAT 认证）：0.1「初步实现对codewhale的计费表情功能适配」/ 0.1.1「细节优化」/ 最新 v1.2.0「CodeWhale 翻新系列」（10 生命周期事件、turn_end 计价、权限卡桥）
+- 抓取最新 Hmbown/CodeWhale docs/HOOKS.md：事件契约已从 10 → **15 个**（新增 shell_env/session_idle/session_error/waiting_for_user/session_busy）
+- 本沙箱重装 codewhale v0.9.12（npm + 原生二进制）：--help 实测 exec 子命令接口（--auto/--json/--output-format，无 --search/--ephemeral/--sandbox）；mock DeepSeek（DEEPSEEK_API_KEY+BASE_URL）实测成功/失败两种输出形态（pretty JSON output 字段 / exit 1 + stderr 单行）
+- 复现根因①：`codewhale --search exec --ephemeral ...` → clap "unexpected argument" + 命令行回显 → 旧代码把 stderr 原样塞进气泡（2000 字符上限）→ GBK 乱码
+- 复现根因②：OpenCode 插件 HTTP /state 上报不带 pid → 会话 source_pid=None → 点击必报 "did not report a source process"
+- 确认根因③：mascot 皮肤仅 6 图，10 个状态共享回落图；roam/loafing 无生产者（STATES.md 明示）
+- 修复（travel.rs）：PromptDelivery::Argv —— codewhale 走 `exec --json <prompt>`（位置参数、换行压平）；build_prompt codewhale 分支说实话（基于模型知识、无工具声明）；final_message/usage_tokens 先整体 JSON 再 NDJSON；friendly_cli_error()（stderr 首行/剥ANSI/路径折叠 basename/乱码丢弃/140字符）+ log_excerpt() 入日志
+- 修复（hook_install.rs）：CODEWHALE_EVENTS 10→14（+session_idle/session_error/waiting_for_user/session_busy，shell_env 仍排除）；CW marker v4→v5（v4/v3 入 legacy）；OpenCode 插件 send() 带 source_pid: process.pid
+- 修复（hook_client.rs）：新事件映射（loafing/error/waiting|needsinput by reason/working）；reason env 兜底；codewhale 观察者 stdin 卡死降级为空 body（读线程脱离不 join）
+- 修复（commands.rs）：聚焦兜底气泡中文化「无法聚焦终端：{err}。已为你打开详情面板。」（80 字符截断）
+- 修复（pet.js/pet.css）：MASCOT_EYES+roam；applyStats 闲逛中 idle/sleeping→roam 覆盖（优先级对齐 STATES.md）；11 个新 keyframes 动画（全部内层 #mascot-img）+ 14 个 emoji 徽标（::after 纯 CSS）+ sad 去饱和/loved 粉晕
+- 配套：STATES.md/CODEWHALE.md/protocol-baseline.json（codewhaleEvents 14 项）；版本 0.6.3 全仓同步（package/lock×2/Cargo.toml/lock/tauri.conf/migration-todo/UA/collector/13 个版本钉测试）；CHANGELOG 0.6.3；pet.js 行数预算 2600→2640（带证据注释）；新增 test/pet-r53-codewhale-wander-focus-smoke.js（入 npm test 链）
+- 沙箱快照缺陷第三次出现：workspace/llmpet 丢 test/（81 文件）与 .claude/ → 从 GitHub v0.6.2 tarball 恢复并逐文件 diff 确认其余无损
+- 重建 Rust 工具链（rustup stable + rustfmt/clippy + 686 deb GTK dev 闭包到 ~/.local/gtk-dev，.pc prefix 重写）
 
-### 问题 1: 右键菜单 focus_pet ACL 错误 ✅
-- **根因**: `focus_pet` 在 build.rs + lib.rs:generate_handler 已注册，但 `pet.json` capabilities 缺少 `allow-focus-pet`
-- **修复**: `pet.json` permissions 数组添加 `"allow-focus-pet"`
-
-### 问题 2: OpenCode 工作状态不捕获 ✅
-- **根因**: ESM 插件文件写入 `~/.config/opencode/plugins/llmpet-hook.js`，但未在 opencode 的 `config.json` 中注册。opencode 只从 config.json 的 `plugins` 数组加载插件，不从 plugins/ 目录扫描
-- **修复**: `install_opencode()` 现在：
-  1. 写入 ESM 插件文件
-  2. 读取/创建 `~/.config/opencode/config.json`
-  3. 在 `plugins` 数组中添加插件路径（如已存在则跳过）
-  4. 添加 `export default LLMPETPlugin` 兼容 opencode 插件加载器
-
-### 问题 3: 自带检查工具卡"检查中" ✅
-- **根因**: 诊断探针超时 15s × 多个串行探针（version + doctor + auth），总时长可能超 60s
-- **修复**: 所有 doctor 探针超时从 15s → 8s
-  - claude doctor: 15s → 8s
-  - codewhale companion doctor: 15s → 8s  
-  - codewhale dispatcher doctor: 15s → 8s
-
-### 问题 4: 闲逛功能不完善 ✅
-- **根因**: `travel.rs:190` 限制 "wander currently supports Claude and Codex only"
-- **修复**: 扩展 wander 支持 CodeWhale（`matches!(value.as_str(), "claude" | "codex" | "codewhale")`）
-
-### 验证
-- clippy -D warnings: ✅ EXIT=0
-- 22/22 static + npm test EXIT=0（346 manifest）
-- cargo fmt --check: ✅
-- GitHub main: `7118a5c` 已推送
-
+Stage Summary:
+- 门禁全绿：npm test 82 文件 exit 0；cargo fmt ✓；clippy --all-targets -D warnings ✓；cargo test --lib 129/129（116+13 新增）；static-check 22/22；protocol-drift local-contract-ok；SOURCE_MANIFEST 380 文件 @0.6.3 verify OK
+- E2E 实证（真实 codewhale v0.9.12 + mock DeepSeek）：`exec --json <prompt>` 命令级全链路 = exit 0 + 明信片 JSON + 46 tokens 解析成功；错误旗标复现 = clap 拒绝（与 friendly_cli_error 单测覆盖形态一致）
+- 待办：release 二进制 Xvfb 启动复验 → GitHub push + v0.6.3 Release
 
 ---
+Task ID: R53-final
+Agent: main-orchestrator
+Task: R53 收尾——真实启动验证 + GitHub 推送 v0.6.3 + Release 管线监控
 
-## 补充：桌宠动画不变问题修复 + cron 更新（2026-08-09 22:30）
+Work Log:
+- 真实启动验证（R52 黄金标准复刻）：本地 release 构建（4m45s，磁盘满清理 3.2G target/debug + 484M deb 缓存后重启）→ AppImage 运行库布局（v0.6.2 AppImage 解包，LD_LIBRARY_PATH + chdir usr/，webkit 子进程相对路径技巧）+ Xvfb(同命令内启动防会话回收) + glib schemas 编译 + dbus-run-session → APP_ALIVE 12s+、exit 124（40s 强杀）、WebKitNetworkProcess 子进程在跑、HTTP 控制面 41330 监听并 200、runtime.json 落盘、应用日志「Tauri core ready on port 41330」
+- 控制面 E2E：POST /state 注入 codewhale session_busy/waiting_for_user(reason=user_input)/session_idle 三事件全部 {"ok":true}（真实二进制过 normalize+ingest 管线）；GET /state 为运行时发现端点，stats 走 Tauri IPC 不可外部读取——状态映射正确性由 cargo 129/129 单测背书
+- 干净树门禁（推送树必须过门禁）：clone GitHub main(f594e06) → rsync 工作区叠加 → 修正 tarball 权限位漂移（core.fileMode=false，315→36 文件真实变更）→ npm test exit 0 + static-check 22/22 + manifest verify 380 @0.6.3
+- 推送：commit 97ce039（36 文件：21 源码 + 13 版本钉测试 + 1 新测试 + drift 证据），tag v0.6.3，main f594e06→97ce039；PAT 用后立即从 remote URL 清除
+- 管线触发：Release run 213 + CI run 292 in_progress
 
-### 问题 5: 桌宠动画不变（用户补充报告）
-- **根因**: `emit_hook_event` 对不匹配的事件类型（如 OpenCode 的 `SessionStatus`）发送 `{kind:'state', state:...}`，但 `pet.js` 事件处理器没有 `case 'state'`，导致这些事件被静默忽略
-- **修复**: `pet.js` 事件处理器添加 `case 'state'`：
-  ```javascript
-  case 'state': {
-    if (ev.state && STATE_WORDS.includes(ev.state)) {
-      const hold = state === 'waiting' || state === 'needsinput' || state === 'error';
-      if (!hold && perfNow() >= transientUntil) {
-        setState(ev.state);
-      }
-    }
-    break;
-  }
-  ```
-- **效果**: provider 状态事件现在可以直接驱动桌宠动画切换，不再等待下一个 stats 快照
-
-### 完整修复链
-1. **R13 config.json 注册**: OpenCode 插件现在被 opencode 加载 → 事件发送到 /state
-2. **R13 case 'state'**: pet.js 现在处理 {kind:'state'} 事件 → 动画立即切换
-3. 两个修复配合：OpenCode 运行 → 插件发送事件 → Rust 创建 session → emit_hook_event 发送 {kind:'state'} → pet.js 切换动画
-
-### Cron 更新
-- 删除旧 Job 315063
-- 创建新 Job 315118（1h 循环，priority=10 HIGH）
-- 提示词包含 5 个已修复问题的验证状态 + 7 个自选优化方向
-
-### 验证
-- 22/22 static + npm test EXIT=0（346 manifest）
-- GitHub main: `558de34` 已推送
-
+Stage Summary:
+- v0.6.3 已推送并打 tag；待 Release 七段管线产出 draft 后按 R52-final 流程合并正式 Release
+- 本轮全部验证基于真实产物：真实 codewhale v0.9.12 CLI、真实 release 二进制、真实控制面
 
 ---
+Task ID: R53-release
+Agent: main-orchestrator
+Task: v0.6.3 正式发布——CI 双绿、Release 17 资产、CI 产物黄金验证
 
-## Round 14: OpenCode 插件加载去理想化修复（2026-08-09 22:51 trigger）
+Work Log:
+- 首推 97ce039：Release 七段全绿但 CI windows-latest clippy 失败（exit_status 测试辅助函数在 Windows 无 from_raw 固有方法）——测试专用代码不影响发布产物（Build 四平台已过），但违反「main==tag 且全绿」惯例
+- 修复：ExitStatusExt 双平台分支（unix 高位字节 / windows 原始 u32）；本地 fmt/clippy/test 复验全绿（磁盘满两次，清理 target/debug 与 deb 缓存，CARGO_INCREMENTAL=0）
+- 重推：删除 draft-213/v0.6.3 tag/97ce039 → manifest 重生成（r401 门禁如期拦截过期哈希）→ 9cf1c2a force-push + 重打 tag → CI run 293 十项全绿（含 windows Rust gates）+ Release run 214 七段全绿
+- 正式 Release 合并：空壳首建被 422 误报半成（已建 release 但 0 资产）→ 删空壳 → PATCH draft-214 直接改名 v0.6.3/draft=false/prerelease=false（免 170MB 资产重传）→ 上传 git archive 源码 zip（c5528bd8…）+ SHA256SUMS.txt → 删 v0.6.3-draft-214 tag → 共 17 资产
+- 黄金验证（CI 构建 AppImage 实机）：下载 Octopus_0.6.3_amd64.AppImage（sha 4772ff72…）→ libEGL 从 gtk-dev 树补齐（R52 已知坑）→ Xvfb + dbus-run-session → exit 124（45 秒强杀存活）、新 runtime.json（port 41330）、应用日志「Tauri core ready on port 41330」
+- 交付物：download/RE-LLMPET-0.6.3-fixed-2026-09-13.zip（与 Release 源码资产逐字节同源）
+- PAT 全程仅存在于会话命令中：push 后立即清除 remote URL，未写入任何文件
 
-### 搜索 + 排查
-1. 安装 opencode-ai v1.18.15，测试 `opencode plugin` 命令
-2. 发现 R13 的 config.json "plugins" 数组导致 `Unrecognized key: plugins` 错误
-3. 从 opencode GitHub 源码（anomalyco fork）读取 `src/config/plugin.ts`
-4. 发现 opencode 通过 `Glob.scan('{plugin,plugins}/*.{ts,js}')` **目录扫描**加载插件
-5. config.json 的 `plugins` 字段在 v1.18.x 不存在（旧版本可能有，但当前版本拒绝）
-
-### 修复：移除 config.json 注册，依赖目录扫描
-- **R13 错误**: 向 config.json 写入 `plugins` 数组 → opencode config 验证失败
-- **R14 修复**: 
-  1. 移除 config.json plugins 数组写入
-  2. 添加清理逻辑：如果之前 R13 写入了 `plugins` key（且包含 llmpet-hook.js），移除它
-  3. ESM 文件在 `~/.config/opencode/plugins/llmpet-hook.js` 被 opencode 自动扫描发现
-  4. 不需要任何 config.json 注册
-
-### 去理想化教训
-- R13 假设 opencode 通过 config.json 加载插件（基于上游 Electron 的模式）
-- 实际 opencode v1.18.x 用目录扫描，config.json 没有 plugins 字段
-- R13 的修复反而 **破坏了** opencode 的 config 验证
-- 如果没有安装 opencode-ai 做真机测试，这个错误不会被发现
-
-### 验证
-- clippy -D warnings: ✅ EXIT=0
-- 22/22 static + npm test EXIT=0（346 manifest）
-- GitHub main: `49eecb6` 已推送
-
-
+Stage Summary:
+- https://github.com/purrfecto114-lgtm/RE-LLMPET/releases/tag/v0.6.3 —— 17 资产（7 平台二进制 + 4 SBOM + 4 平台校验和 + 源码 zip + 源码校验和），正式发布
+- main = 9cf1c2a = tag v0.6.3；CI 10/10 + Release 七段双绿；CI 产物已实机启动验证
+- 用户三个问题全部修复：闲逛（codewhale exec 适配 + 失败气泡清洗）、打开会话（OpenCode source_pid + 中文兜底）、表情（mascot 动画+徽标 + roam/loafing 生产者 + CodeWhale 15 事件契约）
 ---
 
-## v0.5.48 发布 + Cron 更新（2026-08-09 23:51）
+---
+Task ID: R54-e
+Agent: general-purpose（research subagent，只读调研）
+Task: Aider 通知（唯一事件面）与会话恢复的 ground truth 调研，含引用
 
-### Tag 检查
-- v0.5.47 tag 指向 `2840684`（旧 commit），main HEAD 在 `f6ee001`
-- 24 个 commit 未打 tag，包含 HIGH+ 改动
-- 已打 tag v0.5.48 指向 `15b684a`（最新 commit）
+Work Log:
+- 方法：deepen 后全量 clone Aider-AI/aider（main=5dc9490, v0.86.3.dev, 8108 commits）+ 21 个 tag 采样 + aider.chat 三份 live 文档 + web-search 交叉验证
+- ①通知契约：`--notifications`（默认 false，env AIDER_NOTIFICATIONS）+ `--notifications-command COMMAND`（env AIDER_NOTIFICATIONS_COMMAND）；v0.76.0 引入（HISTORY.md:341，commits 3c0eae41/65e059a7/93b86a88/6a1284a5）
+- ②执行语义：io.py ring_bell() = `subprocess.run(cmd, shell=True, capture_output=True)`——零 argv、零注入 env、stdin 继承不关闭；固定文案 "Aider is waiting for your input"（io.py:43）只嵌在 aider 自带默认命令里；实测佐证：本仓 reports/provider-smoke/0.6.1/aider-pass.json 真实 aider 0.86.2 两次触发 argv= 空
+- ③触发点：send_message→llm_started 置位；get_input（turn 结束）/confirm_ask（y/n 权限刻）/prompt_ask 三处 ring_bell——只有一个信号「上次请求完成、等你输入」，mid-turn 提问与 turn 结束不可区分
+- ④证伪：消息类型 info/ready/done/model-warning 与 aider/notify.py 均不存在（notify.py 全 tag 404、全 git 史无）；`turn-end-only` 选项不存在（live options.html 0 hits）——baseline aiderNeedles 第二根针是本仓自造概念
+- ⑤恢复：`--continue`/`--resume` 从未存在（21 tag 0 hits + 8108 commit pickaxe 0 命中 + live docs 0 hits + web search；疑与 Claude Code 混淆）→ UNVERIFIED 前提
+- ⑥实际恢复：`--restore-chat-history`（v0.35.0）读 --chat-history-file（默认 git_root/cwd 的 .aider.chat.history.md）整篇 markdown → split_chat_history_markdown → done_messages；无 session id/前缀匹配；`.aider.input.history` 仅 readline 历史；无 .md.<n> 轮转；-m/--message、-f/--message-file 为一次性 headless 转身
+- ⑦其他集成面：无 webhook/hook/socket（hook 仅 git --no-verify）；存在面=notifications-command（唯一事件面）、一次性 CLI 脚本化、Python 内嵌、实验性 --gui、--watch、磁盘历史文件
+- 附带：run-aider.sh 注释「aider appends the message as an argument」与源码及其自身证据矛盾（argv 实为空）
 
-### 版本号迭代 0.5.47 → 0.5.48
-触发条件：HIGH+ 级别的漏洞修复和功能完善（7+ 项）
-- CRITICAL: codex-pricing + combineUsage backport
-- HIGH: focus_pet ACL + OpenCode plugin + pet animation + settings.json watcher + machineGrowth + meter-rebuild CLI + diagnostics timeout
-- 更新所有版本引用 + CHANGELOG + tag
-
-### Cron 更新
-- 删除旧 Job 315118
-- 创建新 Job 315222（1h 循环，priority=10 HIGH）
-- 新增**版本号自动迭代规则**：
-  - HIGH+ 改动触发 patch + 1（如 0.5.48 → 0.5.49）
-  - 自动更新所有版本引用 + CHANGELOG + tag
-  - MEDIUM/LOW 不触发版本迭代
-- 新增**路线图**（5 个优先级层次）：
-  1. 真机验证（用户确认 5 个修复）
-  2. 上游 backport 剩余（usage-archive, pidwalk, territory episodes）
-  3. 功能增强（per-model cost, TTL split, 诊断进度, wander 改进, JSON 导出）
-  4. 代码质量（dead code, 文档）
-  5. GUI 美化
-
-### GitHub 状态
-- main: `15b684a` (v0.5.48 release)
-- tag v0.5.48: ✅ 指向最新 commit
-- CI: 全绿
-
+Stage Summary:
+- hook_client.rs 把 aider 通知折叠为 Stop/attention 不是信息丢失——上游本就只有一个事件，映射忠实；能力矩阵照实「turn-end only」即可，另可注明「mid-turn 提问不可分」
+- 会话恢复正确姿势 = --restore-chat-history + --chat-history-file（换文件=换会话），不能写 --continue/--resume；pet「打开会话」对 aider 只能定位 .aider.chat.history.md
 
 ---
+Task ID: R54-b
+Agent: research-subagent (R54-b)
+Task: Codex CLI hooks/events + session resume 地面真相研究（只读，不改代码）——核实 12 个 CODEX_EVENTS 名是否为真 codex 事件、payload 字段、resume 语法、turn-complete 通知
 
-## v0.5.49: 诊断进度反馈（2026-08-09 23:51 trigger → 00:30）
+Work Log:
+- 双源取证：① git clone openai/codex main(16bb1b9, 2026-09-22) + fetch tag rust-v0.151.0；② page_reader 抓 developers.openai.com/codex/hooks（直 curl 403 属实，z-ai 读取成功；learn.chatgpt.com 为同源变体）
+- 地面真相：codex-rs/hooks/src/lib.rs `HOOK_EVENT_NAMES: [&str; 12]`（PascalCase）+ protocol/src/protocol.rs:1562 HookEventName 枚举，0.151.0 与 main 完全一致：PreToolUse/PermissionRequest/PostToolUse/PreCompact/PostCompact/SessionStart/SessionEnd/UserPromptSubmit/SubagentStart/SubagentStop/Stop/Interrupt
+- 版本演进（raw tag 取证）：0.126=6 事件（含 UserPromptSubmit/Stop！）→0.130=8→0.135~0.140=10（+Subagent）→0.150 起 12（+SessionEnd/Interrupt）
+- 结论：**Stop/UserPromptSubmit 自 0.126 起就是真 codex 事件**——R51 smoke 转述的「10 事件枚举无 Stop/UserPromptSubmit」被上游源码驳斥；hook_install.rs 注释（两者实测带 turn_id 触发）正确。事件名与 Claude Code 重名是官方设计（engine 名叫 ClaudeHooksEngine，带 Claude settings.json/hooks 迁移 crate），非混用错误
+- payload（hooks/schema/generated/*.json）：通用 session_id/transcript_path/cwd/hook_event_name/model(+turn_id/permission_mode)；Pre/PostToolUse+PermissionRequest 带 tool_name/tool_input/tool_use_id(+tool_response)；Stop 带 stop_hook_active/last_assistant_message；SessionStart source=startup|resume|clear|compact|fork；SessionEnd reason（仅 other）；**无 rollout_path 字段（叫 transcript_path）**
+- 决策语义：PreToolUse hookSpecificOutput{hookEventName,permissionDecision:allow|deny|ask,permissionDecisionReason,updatedInput,additionalContext}+旧版{decision:block,reason}+exit 2；PermissionRequest decision.behavior:allow|deny（fail-closed）；SessionEnd/Interrupt 默认 1s 上限 3s
+- resume（cli/src/main.rs:202+exec/src/cli.rs:151+官方 developer-commands 文档）：`codex resume`(picker)/`codex resume --last`(限当前 cwd，--all 解除)/`codex resume <SESSION_ID|name>`(--last 后位置参数=prompt)；headless `codex exec resume [SESSION_ID] --last`；会话文件 ~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl（rollout/src/recorder.rs:1722，CODEX_HOME 可覆盖；归档在 ~/.codex/archived_sessions）
+- turn 完成通知：hooks.json 无 Notification/idle 事件；等价物=legacy config.toml `notify=["cmd",…]` argv 末参追加 agent-turn-complete JSON（thread-id/turn-id/cwd/client/input-messages/last-assistant-message，hooks/src/legacy_notify.rs）+ 每回合 Stop hook
+- 其他：未知事件名 key 在 hooks.json 被 serde 静默忽略（无 deny_unknown_fields）→ 项目 12 事件对旧版 codex（0.14x-）安全但 SessionEnd/Interrupt 不会触发；非 managed hooks 必须 /hooks 审核信任后才运行（文档+`--dangerously-bypass-hook-trust` 双证）
 
-### HIGH: 诊断工具进度反馈
-**问题**: 用户点击诊断后永远看到"检查中"，不知道进展
-**修复**:
-- `commands.rs`: `diagnose_agent` 添加 `app: AppHandle` 参数，启动时 emit `panel:diagnostic-progress` 事件
-- `tauri-bridge.js`: 新增 `onDiagnosticProgress` 订阅
-- `panel.js`: 监听进度事件，实时更新 loading 文本（启动中/检查版本/运行诊断/检查认证）
-- 3 个测试更新 `diagnose_agent` 签名匹配
-
-**效果**: 用户不再看到永远卡在"检查中"，而是看到当前进度阶段
-
-### 版本号自动迭代
-- v0.5.48 → v0.5.49（HIGH: 用户可见的 UX 改进）
-- 所有版本引用更新 + CHANGELOG + tag
-
-### 验证
-- clippy -D warnings: ✅ EXIT=0
-- 22/22 static + npm test EXIT=0（346 manifest）
-- GitHub main: `8a59ad6`, tag v0.5.49 ✅
-
+Stage Summary:
+- 12/12 项目安装名全部为真 codex 事件（0.15x 口径）；无 Claude 混入。混合观感源于 codex 刻意与 Claude 兼容命名 + codex 无 Notification 事件（用 notify+Stop 代替）
+- 引用：github.com/openai/codex（main 16bb1b9 + rust-v0.151.0 tag）codex-rs/hooks/src/lib.rs、protocol/src/protocol.rs:1562、hooks/schema/generated/、rollout/src/recorder.rs:1722、cli/src/main.rs:202；developers.openai.com/codex/hooks；learn.chatgpt.com/codex/developer-commands、/codex/config-reference
+- 待办（主线程决策）：① CODEX_EVENTS 无需改名/删减（与 0.151 上游精确一致，含大小写）；② SessionEnd timeout=3 恰为官方上限，合规；③ 若要覆盖旧版 codex 用户可注意 SessionEnd/Interrupt 仅 0.150+ 生效
 
 ---
+Task ID: R54-c
+Agent: general-purpose（research subagent，只读调研，未改项目代码）
+Task: OpenCode 插件 API 事件全表 + session resume 建立事实基准（用户抱怨：各家 provider 事件名不得混用，OpenCode 其他事件未完整引用）
 
-## v0.5.50: CodeWhale/Codex per-model 定价（2026-08-10 01:20 trigger）
+Work Log:
+- 四源交叉验证：opencode.ai/docs/plugins（2026-09-21 版）+ sst/opencode dev 分支 docs markdown + v1.18.32 源码（sparse clone，npm latest=1.18.32）+ unpkg @opencode-ai/plugin@1.18.32 / @opencode-ai/sdk@1.18.32 dist/v2 types
+- 关键事实①：v1.18.32 事件系统已切 v2 manifest（packages/schema/src/event-manifest.ts 聚合 82+ 个 event.type），plugin 的 event 钩子收到 {id, type, properties}，properties= event.data；插件 host 按目录过滤（packages/opencode/src/plugin/index.ts:255-262）
+- 关键事实②：docs 列表 28 项与 manifest 基本一致，但 docs 的 `lsp.client.diagnostics` 是陈旧项（源码 manifest 只有 lsp.updated）；`session.idle` 在 schema 里标注 `// deprecated`（session.status 才是现代事件）；session.status 联合只有 idle|retry(attempt/message/action?/next)|busy —— 没有 waiting/error，现插件 stateMap 的 waiting/error 分支永不触发
+- 关键事实③：session.created/updated/deleted 载荷 = {sessionID, info:Session}（info.id 可靠但 properties.sessionID 更直接）；session.error 的 sessionID 是 optional（可能缺失）；permission.asked 现代载荷 = {id, sessionID, permission, patterns, metadata, always, tool?{messageID,callID}}，permission.replied = {sessionID, requestID, reply:"once"|"always"|"reject"}
+- 关键事实④：tool.execute.before input={tool, sessionID, callID} output={args}；after input={tool, sessionID, callID, args} output={title, output, metadata}（session/tools.ts:403-424 原文证实；sessionID=工具实际运行所在会话，task 子代理=子会话 ID，无 parent 字段）
+- 关键事实⑤：session resume：`opencode -s <id>`（TUI "session id to continue"，--fork 需配 -s/-c）、`opencode run --session/-s <id> <prompt>`、`opencode -c` 续最近；存储 = xdgData → ~/.local/share/opencode/（opencode.db SQLite + 旧版 session/<projectID>/<id>.json）
+- 宠物状态覆盖缺口（应新增）：message.updated(info.role==="user")＝真·用户提交事件（解决 R40「无 UserPromptSubmit 等价物」）、info.role==="assistant" 完成时带 cost/tokens（计费表情）、message.part.updated(delta)＝流式、session.next.* 28 个流事件（v2，含 step.started/ended/failed、tool.*、text.delta）、todo.updated、session.diff、question.asked/replied、permission.v2.asked/replied、tui.toast.show
 
-### 沙箱重置恢复
-- 容器沙箱被重置，本地 git/cargo/gtk-dev 全部丢失
-- 重新安装 Rust + GTK dev 依赖
-- 重新初始化 git 并同步到 origin/main (v0.5.49)
-
-### HIGH: per-model cost
-- `codex_rollout.rs`: FileSummary 新增 `model` 字段，从 Codex rollout `session_meta` 提取模型名
-- `codex_rollout.rs`: `price_for_codex` 现在使用实际模型名查询价格（而非硬编码 `gpt-5.3-codex`）
-- `diagnostics.pricingModel` 显示实际使用的模型名
-- **效果**: 不同 Codex 模型（如 `gpt-5.5-pro` vs `gpt-5.3-codex`）现在按各自费率计价，不再统一用 codex tier 价格
-
-### 版本号自动迭代
-- v0.5.49 → v0.5.50（HIGH: 用户可见的成本准确性改进）
-- tag v0.5.50 已推送
-
-### 验证
-- clippy -D warnings: ✅ EXIT=0
-- 22/22 static + npm test EXIT=0
-- GitHub main: `41efbdf`, tag v0.5.50 ✅
-
+Stage Summary:
+- 交付（a）82+ event.type 全表+载荷（b）plugin 钩子全列表（event/config/tool/auth/provider/chat.message/chat.params/chat.headers/permission.ask/command.execute.before/tool.execute.before/shell.env/tool.execute.after/tool.definition/experimental×5/dispose）（c）-s 语法已验证（d）宠物缺口事件清单（e）tool.execute 载荷
+- 结论：现插件 v4 把 OpenCode 事件名硬译成 Claude Code 事件名（session.idle→Stop 等）确属「provider 词汇混用」——OpenCode 有自己的原生事件词汇，且 v4 只覆盖 10/82+；建议后续任务按本表改用 OpenCode 原生事件名直传 + Rust 端按 provider 归一化
 
 ---
+Task ID: R54-a
+Agent: general-purpose（research subagent，只读调研，未改项目代码）
+Task: Claude Code hooks 事件全集 + 会话恢复地面真相（核实 23 观察事件 + PermissionRequest、Notification 子类型、payload 字段、resume 语法）
 
-## v0.5.51: 闲逛按钮激活 + 任务模板多样化（2026-08-10）
+Work Log:
+- 三源交叉：① code.claude.com/docs/en/hooks.md（330KB live curl）② docs.anthropic.com/en/docs/claude-code/hooks（.md 与①逐字节相同、HTML 版 TOC 含全部事件锚点=同正典双 URL）③ raw anthropics/claude-code/main/CHANGELOG.md（746KB，最新 2.1.278）+ cli-reference.md/sessions.md + web-search 独立佐证（alexop.dev/zenn.dev/GitHub 均证 permission_prompt+idle_prompt）
+- 官方现行全集 = **33 个** hook 事件：SessionStart/Setup/UserPromptSubmit/UserPromptExpansion/PreToolUse/PermissionRequest/PermissionDenied/PostToolUse/PostToolUseFailure/PostToolBatch/Notification/MessageDisplay/SubagentStart/SubagentStop/TaskCreated/TaskCompleted/Stop/StopFailure/TeammateIdle/InstructionsLoaded/ConfigChange/CwdChanged/DirectoryAdded/FileChanged/WorktreeCreate/WorktreeRemove/PreCompact/PostCompact/PreModelSwitch/PostModelSwitch/SessionEnd/Elicitation/ElicitationResult
+- 逐事件裁决：项目 23 观察事件 + PermissionRequest = **24/24 全部 REAL**，拼写（含大小写）与文档逐一吻合，无 UNVERIFIED/NOT-FOUND；CHANGELOG 引入版本：SessionStart v1.0.62/SessionEnd v1.0.85/UserPromptSubmit v1.0.54/PreCompact v1.0.48/PermissionRequest v2.0.45/SubagentStart v2.0.43/Notification matcher v2.0.37/Setup v2.1.10/TeammateIdle+TaskCompleted v2.1.33/WorktreeRemove v2.1.50/InstructionsLoaded v2.1.69/Elicitation(Result)+PostCompact v2.1.76/StopFailure v2.1.78/CwdChanged v2.1.83/TaskCreated v2.1.84/PermissionDenied v2.1.89/DirectoryAdded v2.1.219
+- 注释勘误（仅备注，未改码）：hook_install.rs:89「5 new observer events added in v2.1.219+」不精确——仅 DirectoryAdded 是 2.1.219，Setup/InstructionsLoaded/CwdChanged/WorktreeRemove 均更早
+- 文档有而项目未装 9 个：PreToolUse/UserPromptExpansion/PostToolBatch/MessageDisplay/ConfigChange/FileChanged/WorktreeCreate/PreModelSwitch/PostModelSwitch（后 6 个项目注释已声明隐私/体积排除）
+- Notification 子类型（matcher 共 12）：permission_prompt（~6s 未应答权限弹窗）/idle_prompt（完成后 ~60s 无输入）/auth_success/elicitation_dialog/url_dialog/complete/response/agent_needs_input/agent_completed（2.1.198+）/quota_auto_resume_fired/stale/disabled（2.1.234+）；**permission_pending 与 auto-compact 子类型不存在**（后者归 PreCompact/PostCompact，matcher manual|auto）
+- payload 全 snake_case：通用 session_id/prompt_id(2.1.196+)/transcript_path/cwd/scratchpad_dir(2.1.257+)/permission_mode/effort/hook_event_name+子代理 agent_id/agent_type；Notification 另有 message/title/notification_type（无 tool_input）；Stop/SubagentStop 另有 stop_hook_active/last_assistant_message(+background_tasks/session_crons)；tool_input 仅在 PreToolUse/PostToolUse(Failure)/PermissionRequest/PermissionDenied
+- resume：`claude --resume <session-id>`（也收 name 或 .jsonl 绝对路径，裸 --resume=选择器，跨目录可寻）；`claude --continue/-c`=当前目录最近会话；`--fork-session` 配 resume/continue；`-p --resume` headless；存储=`~/.claude/projects/<project>/<session-id>.jsonl`（<project>=cwd 非字母数字→'-'，>200 字符截断+哈希）；SessionStart source=resume(--resume/--continue//resume)、fork（2.1.214 前报 resume）；SessionEnd reason∈clear/resume/logout/prompt_input_exit/other
 
-### HIGH: 闲逛按钮功能完善
-- **发现**: pet.html 有 `#sl-wander` 按钮，但 pet.js **没有点击处理器**——按钮完全无效！
-- **修复**: 添加点击处理器，调用 `window.pet.startWander(mission, null)`
-- **个性化**: 从 3 个任务模板中随机选择（不硬编码单一任务），支持中/英/日三语
-- 点击后显示气泡反馈 + 自动关闭会话列表
-
-### 改进: 任务模板多样化
-- `commands.rs`: `pick_travel_mission()` 和 `pick_wander_mission()` 函数
-- 旅行任务 3 选 1（浏览项目/代码质量/架构设计）
-- 闲逛任务 3 选 1（新工具/开发者趋势/库或框架）
-- 基于时间戳取模随机，每次都有不同主题
-- 用户仍可通过 API 传入完全自定义任务
-
-### 设计原则
-- 不强制单一行为：每次闲逛/旅行都有不同的任务主题
-- 保留自定义：用户可通过 `startWander(mission, provider)` 传入完全自定义的任务
-- 不过度硬编码：任务模板是启发式建议，不是固定流程
-
-### 版本号自动迭代
-- v0.5.50 → v0.5.51（HIGH: 用户可见的功能完善——闲逛按钮从无效变为可用）
-- tag v0.5.51 已推送
-
-### 验证
-- clippy -D warnings: ✅ EXIT=0
-- 22/22 static + npm test EXIT=0
-- GitHub main: `82b4df2`, tag v0.5.51 ✅
-
+Stage Summary:
+- CLAUDE_EVENTS 零幻觉、无需改名删减；唯二错处在假设层：Notification 子类型实为 permission_prompt（非 permission_pending）、无 auto-compact 通知类型
+- 引用：code.claude.com/docs/en/hooks(.md) ≡ docs.anthropic.com/en/docs/claude-code/hooks；github.com/anthropics/claude-code CHANGELOG.md；code.claude.com/docs/en/{cli-reference,sessions}.md；web-search 多源佐证
+- 无 UNVERIFIED 项；第三方「30 生命周期事件」文章为过期计数，以官方 33 为准
 
 ---
-
-## v0.5.52: i18n 修复 + 导出数据增强 + 标签去硬编码（2026-08-10 12:20 trigger）
-
-### HIGH: 标签 i18n + 去硬编码
-- `pet.html`: `sl-new` 按钮从硬编码「新开 Claude」改为 `data-i18n` + provider 中性标签「新开 Agent」
-- `pet.html`: `sl-wander` 按钮添加 `data-i18n`
-- `i18n.js`: 新增 `sess.wander` 键（中/英/日三语）
-- `i18n.js`: `sess.newClaude` 从「新开 Claude」改为「新开 Agent」（provider 中性）
-- **效果**: 按钮文本跟随语言切换，不硬绑定特定 provider
-
-### MEDIUM: 导出数据增强
-- `panel-export.js`: 导出 JSON/CSV 新增：
-  - `combinedUsage`（Claude+Codex 合并成本分项）
-  - `machineGrowth`（全机 token 排名 + Claude/Codex 分项）
-  - `codex.todayCost` / `codex.lifetimeCost`（Codex 成本）
-  - `postcards`（旅行明信片历史）
-- `panel-export.js`: 版本号从硬编码 `'0.5.46'` 改为动态读取 `window.OctopusVersion`
-
-### 设计原则
-- **不硬编码**: 按钮标签通过 i18n 系统，跟随语言切换
-- **provider 中性**: 不在 UI 中硬绑定特定 provider（Claude → Agent）
-- **保留自定义**: 用户仍可通过 API 传入自定义任务/配置
-- **导出完整**: JSON/CSV 导出包含所有新增字段（combinedUsage, machineGrowth, codex cost, postcards）
-
-### 版本号自动迭代
-- v0.5.51 → v0.5.52（HIGH: 用户可见的 i18n + 去硬编码）
-- tag v0.5.52 已推送
-
-### 验证
-- clippy -D warnings: ✅ EXIT=0
-- 22/22 static + npm test EXIT=0
-- GitHub main: `71c4de4`, tag v0.5.52 ✅
-
-
----
-
-## 全局审查 + Cron 更新（2026-08-10）
-
-### 全局审查结果
-对 v0.5.52 做了 8 维度全面审查，发现 **26 个可改进点**：
-- **2 CRITICAL**: stats.bg 零占位符 + CLAUDE.md/ROADMAP.md 版本过时
-- **9 HIGH**: i18n 硬编码（panel.html 30+ / pet.html 4 / Rust 5）、文档不一致、代码重复、测试缺失、文件超预算
-- **13 MEDIUM**: dead code、性能（轮询/串行探针）、安全（错误文本泄露）、上游 backport 剩余
-- **2 LOW**: eprintln! 替换、territory episodes 推迟
-
-### Cron 更新
-- 删除旧 Job 315222
-- 创建新 Job 316006（1h 循环，priority=10）
-- 提示词按审查结果分 5 轮优先级推进：
-  1. CRITICAL + HIGH 文档/配置修复（Effort: S）
-  2. HIGH i18n 清理（Effort: M）
-  3. HIGH 代码质量 + 测试（Effort: M）
-  4. MEDIUM 性能 + 安全 + 功能（Effort: M-L）
-  5. 上游 backport + 功能增强
-- 每轮选 2-3 项，按优先级表推进
-- 包含版本号自动迭代规则 + 行数预算更新
-
-### 关键发现
-- **安全**: 良好（loopback + token + TOCTOU 防护）
-- **测试**: 73 JS + 51 Rust，但 platform.rs/hook_install.rs 缺 Rust 单元测试
-- **i18n**: 354 键 × 3 语言平衡，但 ~50 个硬编码中文字符串未走 i18n
-- **文件预算**: 4/6 大文件超 CLAUDE.md 上限（需拆分或更新预算）
-- **上游差距**: 3 项 MEDIUM（usage-archive, pidwalk, territory episodes）
-
-
----
-
-## v0.5.53: 全局审查 Round 1 — 文档修复 + 代码去重（2026-08-10）
-
-### 审查 Round 1 完成（5 项中的 4 项）
-
-| # | 审查项 | 优先级 | 状态 |
-|---|---|---|---|
-| #2 | CLAUDE.md/ROADMAP.md 版本 0.5.46 → 0.5.52 | CRITICAL | ✅ |
-| #6 | CHANGELOG 环境变量文档修正 | HIGH | ✅ |
-| #25 | migration-todo updatedAt 同步 | MEDIUM | ✅ |
-| #8 | OPENCODE_CONFIG_DIR 4× 重复 → helper | HIGH | ✅ |
-| #7 | codewhale_config_candidates 去重 | HIGH | 推迟（R9 已部分完成 codewhale_config_path 去重） |
-
-### 代码去重详情
-- 新增 `opencode_config_dir()` helper（hook_install.rs:680）
-- 4 处重复的 `std::env::var_os("OPENCODE_CONFIG_DIR").map(PathBuf::from).unwrap_or_else(...)` 全部替换
-- hook_presence、opencode_plugin_path、install_opencode、uninstall_opencode 均调用 helper
-- 消除 drift 风险：env-var 优先级链只在一处维护
-
-### 版本号自动迭代
-- v0.5.52 → v0.5.53（HIGH: 代码去重 + 文档修复）
-- tag v0.5.53 已推送
-
-### 验证
-- clippy -D warnings: ✅ EXIT=0
-- 22/22 static + npm test EXIT=0
-- GitHub main: `151ccd1`, tag v0.5.53 ✅
-
-### 下轮重点（Round 2: HIGH i18n 清理）
-- #3: panel.html ~30 个硬编码中文添加 data-i18n
-- #4: pet.html 按钮标签添加 data-i18n
-- #5: Rust 端 5 个中文 say 事件改为 i18n key + vars
-- #16: pet.js 12 个硬编码气泡消息
-- #17: panel.js loading 文本
-- #18: panel.js render 路径硬编码文本
-
-
----
-
-## v0.5.54: 全局审查 Round 2 — i18n 清理（2026-08-10）
-
-### HIGH: i18n 清理 — ~40 个硬编码字符串改为 i18n
-
-**i18n.js 新增 40 个键 × 3 语言（zh/en/ja）**：
-- `panel.*`: petMode, window, single, duo, travelGrowth, noTravel, machineGrowth, autoUpdate, interval6-72, byProvider, noData, sessPlaceholder, refreshing, rebuilding, rebuildCost, allProviders, noMatch, noActive, noTodo, bgClean, latestPostcard
-- `bubble.*`: newTask, waiting, needsinput, longCommand, noAccessibility, patrolling, patrolDone, patrolBusy, travelCancel, wanderStart, wanderFail, travelStart, travelFail, currencyCny, currencyUsd
-
-**panel.html**: 15 个硬编码中文添加 `data-i18n` 属性
-**panel.js**: 6 个硬编码替换为 `t()` 调用（刷新中/重算中/重算花费/最近明信片）
-**pet.js**: 6 个硬编码气泡替换为 `t()` 调用（收到新任务/命令有点久/巡视/旅行取消）
-
-### 效果
-切换语言到 en/ja 时，这些字符串现在正确翻译。之前切换后仍显示中文。
-
-### 版本号自动迭代
-- v0.5.53 → v0.5.54（HIGH: 用户可见的 i18n 改进）
-- tag v0.5.54 已推送
-
-### 验证
-- clippy -D warnings: ✅ EXIT=0
-- 22/22 static + npm test EXIT=0
-- GitHub main: `43a1445`, tag v0.5.54 ✅
-
-### 下轮重点（Round 3: HIGH 代码质量 + 测试）
-- #9: 文件行数超预算——commands.rs 拆分或更新预算
-- #10: platform.rs 添加 Rust 单元测试
-- #11: hook_install.rs 添加 strip_marker_variants 测试
-- #12-14: dead code 清理
-
-
----
-
-## v0.5.55: 全局审查 Round 3 — 代码质量 + Rust 测试（2026-08-10）
-
-### HIGH: 代码质量改进
-
-| # | 审查项 | 修复 |
-|---|---|---|
-| #14 | `is_windows_script` 使用 `#[allow(dead_code)]` 而非 `#[cfg(windows)]` | ✅ 改为 `#[cfg(windows)]`，非 Windows 不编译 |
-| #13 | `territory.rs` 6 个 `#[allow(dead_code)]` | ✅ 改为 `#[cfg_attr(not(target_os = "macos"), allow(dead_code))]`，仅 macOS 保留 |
-
-### HIGH: 新增 Rust 单元测试
-- `platform.rs`: 5 个 `process_chain` 测试（之前 0 个）
-  - PID 0/1 终止（不包含调度器/init）
-  - 当前 PID 包含在链中
-  - 链中无重复 PID
-  - 不超过 `MAX_PARENT_DEPTH`
-
-### 验证
-- clippy -D warnings --all-targets: ✅ EXIT=0（包括测试代码）
-- 22/22 static + npm test EXIT=0
-- GitHub main: `40b0f4c`, tag v0.5.55 ✅
-- Rust 测试本地无法链接（缺 soup/javascriptcore .so），CI 验证
-
-### 审查进度
-| 轮次 | 重点 | 状态 |
-|---|---|---|
-| Round 1 | CRITICAL + HIGH 文档/配置/代码去重 | ✅ v0.5.53 |
-| Round 2 | HIGH i18n 清理 | ✅ v0.5.54 |
-| Round 3 | HIGH 代码质量 + 测试 | ✅ v0.5.55 |
-| Round 4 | MEDIUM 性能 + 安全 + 功能 | 下轮 |
-| Round 5 | 上游 backport + 功能增强 | 待做 |
-
-
----
-
-## v0.5.56: 全局审查 Round 4 — 去理想化 + 性能 + 安全（2026-08-10）
-
-### CRITICAL: stats.bg 去理想化
-- **问题**: `bg` 字段恒为 `{running:0, zombie:0, total:0, items:[]}`，面板显示"✅0 · 🧟0"误导用户以为后台监控在工作
-- **修复**: `model.rs` 添加 `"available":false` 标记；`panel.js` 检测后隐藏整个后台任务区块
-- **去理想化**: 不再用零值假装功能存在。真正的后台进程对账需要 pidwalk（P5-002），推迟到 0.7.0
-
-### MEDIUM: sessions HashMap 上限
-- `prune_expired_sessions()` 新增 `MAX_SESSIONS=200` 上限
-- 超过时按 `updated_at` 最旧优先驱逐，防止长时间运行后内存增长
-
-### MEDIUM: focus_session 错误文本 sanitize
-- 错误信息截断为 200 字符，防止泄露长路径或平台细节到桌宠 UI
-
-### 版本号自动迭代
-- v0.5.55 → v0.5.56（HIGH: 去理想化 — 用户可见的 UI 改进）
-- tag v0.5.56 已推送
-
-### 验证
-- clippy -D warnings --all-targets: ✅ EXIT=0
-- 22/22 static + npm test EXIT=0
-- GitHub main: `6a49912`, tag v0.5.56 ✅
-
-### 审查进度
-| 轮次 | 重点 | 状态 |
-|---|---|---|
-| Round 1 | 文档/配置/代码去重 | ✅ v0.5.53 |
-| Round 2 | i18n 清理 | ✅ v0.5.54 |
-| Round 3 | 代码质量 + 测试 | ✅ v0.5.55 |
-| Round 4 | 去理想化 + 性能 + 安全 | ✅ v0.5.56 |
-| Round 5 | 上游 backport + 功能增强 | 下轮 |
-
-
----
-
-## v0.5.57: Rust 事件文本去 i18n（2026-08-10 14:16 trigger）
-
-### HIGH: Rust 端 8 个中文事件文本改为英文
-
-| 文件 | 原文（中文） | 改后（英文） |
-|---|---|---|
-| commands.rs:827 | 领地模式已关闭。 | Territory mode disabled. |
-| commands.rs:3078 | 无法直接聚焦该终端：{error}；已打开详情面板。 | Cannot focus terminal: {error}. Opening dashboard. |
-| http_server.rs:696 | Agent 执行失败 | Agent execution failed |
-| http_server.rs:699 | 已创建并行任务 | Task created |
-| http_server.rs:702 | 并行任务已完成 | Task completed |
-| http_server.rs:694 | 正在执行工具 | Running tool |
-| territory.rs:375 | 巡视完成，没有发现其他桌宠。 | Patrol complete, no rival pets found. |
-| territory.rs:226 | 领地模式的竞品窗口推动仅支持 macOS；已将 Octopus 窗口置顶。 | Territory rival push requires macOS. Octopus window brought to front. |
-
-### 去理想化
-- 之前切换语言到 en/ja 时，Rust 发出的事件仍是中文
-- 现在 Rust 端统一英文，pet.js 前端根据 event kind 通过 i18n 系统翻译
-- 这样所有用户可见文本都跟随语言设置
-
-### #26 eprintln 评估
-- 26 个 eprintln 全部在 mutex poison recovery / early-init 路径
-- write_log 需要 &Runtime，在这些路径不可用
-- eprintln 是正确的安全网选择，不替换
-
-### 版本号自动迭代
-- v0.5.56 → v0.5.57（HIGH: 用户可见的 i18n 改进）
-- tag v0.5.57 已推送
-
-### 验证
-- clippy -D warnings --all-targets: ✅ EXIT=0
-- 22/22 static + npm test EXIT=0
-- GitHub main: `f87d94a`, tag v0.5.57 ✅
-
-### 全局审查总结（26 项 → 已修复 19 项）
-| 轮次 | 修复数 | 版本 |
-|---|---|---|
-| Round 1 | 4 项（#2,#6,#8,#25） | v0.5.53 |
-| Round 2 | ~40 个 i18n 字符串（#3,#16,#17,#18） | v0.5.54 |
-| Round 3 | 3 项（#13,#14,+5 Rust tests） | v0.5.55 |
-| Round 4 | 3 项（#1,#19,#20） | v0.5.56 |
-| Round 5 | 8 个 Rust 事件文本（#5） | v0.5.57 |
-| **剩余** | 7 项 MEDIUM/LOW（#7,#9,#10,#11,#12,#21,#22,#23,#24） | — |
-
-
----
-
-## 性能改进: hook_watcher backoff（2026-08-10 15:16 trigger）
-
-### #21 MEDIUM: hook_watcher 轮询优化
-- **问题**: hook_watcher 每 2 秒轮询 `~/.claude/settings.json`，永不停止（43,200 stat()/天）
-- **修复**:
-  - POLL_INTERVAL: 2s → 5s（17,280 stat()/天，减少 60%）
-  - 新增 BACKOFF_INTERVAL=30s + BACKOFF_THRESHOLD=10
-  - 连续 10 次（50s）无变化后切换到 30s 间隔
-  - 检测到变化时立即重置回 5s
-- **效果**: 笔记本电池续航改善，settings.json 变化仍在 30s 内检测到
-
-### 沙箱恢复
-- 容器沙箱再次重置，重新安装 Rust + GTK dev + git 同步到 origin/main (v0.5.57)
-
-### 验证
-- clippy -D warnings --all-targets: ✅ EXIT=0
-- 22/22 static + npm test EXIT=0
-- GitHub main: `6158d77` 已推送
-- 无版本迭代（MEDIUM 级别，按规则不触发版本号迭代）
-
-### 审查进度更新
-| 轮次 | 修复 | 版本 | 状态 |
-|---|---|---|---|
-| Round 1 | 文档/配置/代码去重 | v0.5.53 | ✅ |
-| Round 2 | i18n 清理 | v0.5.54 | ✅ |
-| Round 3 | 代码质量 + 测试 | v0.5.55 | ✅ |
-| Round 4 | 去理想化 + 性能 + 安全 | v0.5.56 | ✅ |
-| Round 5 | Rust 事件文本去 i18n | v0.5.57 | ✅ |
-| Round 6 | hook_watcher backoff | — | ✅ (MEDIUM, 无版本迭代) |
-
-**26 项发现中已修复 20 项**（2 CRITICAL + 9 HIGH + 9 MEDIUM），剩余 6 项 MEDIUM/LOW。
-
-
----
-
-## hook_install.rs marker tests + 评估 #7/#12（2026-08-10 16:16 trigger）
-
-### #11 HIGH: hook_install.rs 添加 6 个 Rust 单元测试
-- `marker_tests` 模块，测试 `strip_marker_variants` 的核心逻辑：
-  1. 移除 marker block 并保留周围内容
-  2. 处理多个 marker 变体（current + legacy）
-  3. 未终止 block 返回错误
-  4. 嵌套 begin 返回错误
-  5. 不匹配的 end 返回错误
-  6. 无 marker 时保持内容不变
-- 之前 hook_install.rs 仅 2 个测试 → 现在 8 个
-- 预算：hook_install.rs 2330→2400（65 行测试代码）
-
-### #7 评估：codewhale_config_candidates 重复
-- `codewhale_config_candidates()` 在 commands.rs 中重新实现 env-var 链
-- 但这是**设计选择**——诊断需要列出所有候选路径，不只是选中的那个
-- `codewhale_config_path()` 已在 R9 去重到 hook_install.rs
-- **跳过 #7**——不是 bug，是设计
-
-### #12 评估：CleanupResult::Changed/PathDrift dead code
-- 两个变体从未被构造，但有 `#[allow(dead_code)]`
-- 它们是**公共 API 契约**的一部分（to_json 有对应 arm）
-- 移除会破坏 JSON 响应格式约定
-- **跳过 #12**——`#[allow(dead_code)]` 是正确的
-
-### 验证
-- clippy -D warnings --all-targets: ✅ EXIT=0
-- 22/22 static + npm test EXIT=0
-- GitHub main: `0ad29fe` 已推送
-
-### 审查进度
-**26 项发现中已修复 21 项**，剩余 5 项：
-- #7 (设计选择，跳过)
-- #9 (文件预算——已提高上限)
-- #10 (platform.rs 测试——已在 R3 完成)
-- #12 (API 契约，跳过)
-- #22 (诊断并行化——MEDIUM，待做)
-- #23 (usage-archive carry——MEDIUM，待做)
-- #24 (territory episodes——推迟到 0.7.0)
-
-实际剩余可做项：#22 (诊断并行化) + #23 (usage-archive carry)
-
-
----
-
-## v0.5.58 — 用户反馈三问题修复 + 诊断并行化（2026-08-10 17:40 trigger）
-
-### 用户报告的 3 个问题（附截图）
-
-用户上传了两张截图并报告：
-1. **闲逛功能当 claude/codex CLI 不在 PATH 会导致回退的 GUI 穿模** — 截图显示 panel 模态窗被 pet 透明窗口遮挡
-2. **Launch agent 错误提示消不掉** — 截图显示红色 error toast "aider: Aider CLI not found..." 的 ✕ 按钮点击无效
-3. **桌宠的动作还是不会随状态变化而更新** — pet 动画卡在 idle/sleeping
-
-用户特别提醒："可能存在补丁套补丁的现象间接导致这种问题，建议保留相关功能重写相关部分，请严禁谨慎操作，确保无回归"
-
-### 根因分析（使用 VLM 分析截图 + Explore agent 深挖代码）
-
-#### Issue 1: GUI 穿模（z-index 冲突）
-- **根因**: `tauri.conf.json` 中 pet 窗口 `alwaysOnTop:true`，panel 窗口 `alwaysOnTop:false`。打开 panel 时 pet 透明覆盖层始终在 panel 之上，toast/bubble 扩大 pet 区域时产生穿模。
-- **修复**: `open_panel` 调用 `window.set_always_on_top(true)`，`close_panel` 恢复 `false`。panel 可见时位于 pet 之上，关闭后恢复正常窗口层级。
-
-#### Issue 2: Launch agent 错误提示无法关闭
-- **根因**: `#re-llmpet-toast` 不在 `INTERACTIVE_HIT_SEL` 选择器中。持久错误 toast 渲染在 pet 窗口右下角（`#pet-anchor` 矩形外），落入 Rust `cursor_hit_decision` 计算的 click-through 区域。✕ 按钮点击穿透到桌面，toast 永远无法关闭。与 R35.2 修复 `#provider-chooser` 是同一类 bug。
-- **修复**:
-  1. `pet.js`: 将 `#re-llmpet-toast` 加入 `INTERACTIVE_HIT_SEL`
-  2. `toast.js`: 添加 `notifyVisualBoundsChanged()`，在 toast 显示/隐藏时调用 `reportPetVisualBounds()` 重新计算 click-through 区域
-  3. `pet.js`: 将 `reportPetVisualBounds` 暴露到 `window` 上供 toast.js 调用
-
-#### Issue 3: 桌宠动画不随状态更新
-- **根因 A**: `model.rs:1400-1410` stats 匹配没有 `"attention" =>` 分支。CodeWhale `turn_end` 和 OpenCode `session.idle` 设置的 `state:"attention"` 被忽略，不产生 `attentionCount`。
-- **根因 B**: `pet.js:1706-1729` `applyStats` 优先级梯子没有 `attention` 分支，落入 idle/sleeping。
-- **根因 C**: `pet.js:1627` `case 'state'` 事件处理器在 transient 窗口内（turn-done 后 1.8s）阻塞所有状态事件，包括紧随其后的 attention 事件。
-- **修复**:
-  1. `model.rs`: 添加 `"attention" => attention += 1` 分支 + `attentionCount` JSON 字段
-  2. `pet.js`: `applyStats` 梯子添加 `attention` 分支（位于 sweeping 和 juggling 之间，对应 STATE_PRIORITY=5）
-  3. `pet.js`: `case 'state'` 允许 sticky 高优先级状态（waiting/needsinput/error/attention）突破 transient 抑制
-  4. `pet.js`: `MASCOT_EYES` 添加 `attention` 映射（复用 `mascot-wait.png`）
-  5. `pet.css`: pixel/mascot 皮肤添加 `attention` 动画（复用 waiting 的 `attn` 动画 + 黄色光晕）
-
-### #22 审计项: 诊断探针并行化（MEDIUM）
-- **根因**: `diagnose_agent_sync` 中 4 个独立探针（`--version`、companion `--version`、`doctor`、`auth`）串行执行，最坏情况 26s（CodeWhale: 5+5+8+8）。
-- **修复**: 使用 `std::thread::scope` 并行执行 4 个探针，最坏情况降至 max(5,5,8,8)=8s。每个线程 clone 共享的 PathBuf（廉价），`control: &DiagnosticControl` 是 Sync 所以共享引用。
-- **DiagnosticControl 升级**: `pid: Option<u32>` → `pids: HashSet<u32>` 以支持多进程追踪。`cancel_diagnostic` 现在终止所有已注册的子进程。
-- **测试更新**: `diagnostic_control.rs` 从 3 个测试增加到 5 个，覆盖多 PID 注册/清理/恢复场景。
-
-### 测试更新（避免回归）
-- `tauri-r35-correctness-hotfix-smoke.js`: 更新 INTERACTIVE_HIT_SEL 断言
-- `tauri-r351-correctness-patch-smoke.js`: 更新 INTERACTIVE_HIT_SEL 断言
-- `tauri-r352-correctness-patch-smoke.js`: 更新 INTERACTIVE_HIT_SEL 断言
-- `tauri-r36-lifecycle-smoke.js`: 更新 DiagnosticState 断言（pid → pids HashSet）
-- `tauri-codewhale-v095-forward-compat-r8-smoke.js`: 更新 end marker（`let version = executable` → `let exe_v = executable.clone()`）
-- 12 个版本锁测试: 0.5.57 → 0.5.58
-
-### 验证结果
-- `cargo clippy -D warnings --all-targets`: ✅ EXIT=0
-- `cargo fmt --check`: ✅
-- 72/72 JS 测试通过
-- 22/22 静态检查通过
-- 行数预算: pet.js 2539/2540 ✅
-
-### 版本迭代
-- v0.5.57 → v0.5.58（3 个 HIGH + 1 个 MEDIUM）
-- 更新: package.json, Cargo.toml, tauri.conf.json, Cargo.lock, package-lock.json, SOURCE_REVISION, migration-todo.json, SOURCE_MANIFEST.json
-- GitHub main: `7636d35` 已推送，tag `v0.5.58` 已打
-
-### 审查进度
-26 项发现中已修复 22/26（2 CRITICAL + 9 HIGH + 11 MEDIUM），剩余 4 项：
-- #7 (设计选择，跳过)
-- #9 (文件预算——已提高上限)
-- #12 (API 契约，跳过)
-- #23 (usage-archive carry——MEDIUM，待做)
-- #24 (territory episodes——推迟到 0.7.0)
-
-实际剩余可做项：#23 (usage-archive carry)
-
-
----
-
-## v0.5.59 — 隐藏黑色 cmd 窗口 + 模型价格镜像源（2026-08-10 18:10 trigger）
-
-### 用户报告的 2 个问题
-
-1. **每次打开都会出现黑色 cmd 的 curl.exe** — 希望隐藏
-2. **模型价格更新的镜像源在中国大概率不可用** — 寻找镜像站或更好的办法，注意安全
-
-### 问题 1: 隐藏黑色 cmd 窗口
-
-#### 根因分析
-Octopus 是 GUI 子系统二进制（Windows GUI subsystem）。每次 spawn console 子进程时，Windows 会为新子进程分配 conhost.exe 并弹出黑色 cmd 窗口。通过 Explore agent 审计发现 **13 处 `Command::new()` spawn 点**中有 8 处会弹出可见的 console 窗口：
-
-| 位置 | 命令 | 频率 | 严重度 |
-|------|------|------|--------|
-| pricing_sync.rs:503 | curl.exe | 每次启动+定时刷新 | 🟥 最主要 |
-| commands.rs:1814 | cmd.exe (诊断探针) | 每次诊断×4并行 | 🟥 高 |
-| commands.rs:2507 | taskkill.exe | 取消诊断时 | 🟧 中 |
-| commands.rs:3038 | cmd.exe (open_gui) | .cmd启动VS Code | 🟧 低 |
-| platform.rs:459 | powershell.exe (parent_pid) | 首次调用 | 🟨 低 |
-| platform.rs:527 | powershell.exe (focus) | 每次点击聚焦 | 🟥 高 |
-| travel.rs:872 | cmd.exe (闲逛) | 30s-2min | 🟥 高 |
-| hook_client.rs:226 | powershell.exe (PPID) | 首次hook | 🟨 低 |
-
-#### 修复
-在 `platform.rs` 添加共享 `hide_console_window()` helper：
-- Windows: `creation_flags(CREATE_NO_WINDOW = 0x08000000)`
-- Unix: no-op（Unix console 不创建新窗口）
-
-应用到所有 8 处非交互式 spawn。**不修改** `launch_terminal` 的 `cmd.exe /K`（用户期望看到终端窗口）。
-
-#### 文件变更
-- `src-tauri/src/platform.rs`: 新增 `hide_console_window()` + 修补 2 处 powershell
-- `src-tauri/src/pricing_sync.rs`: 修补 curl.exe
-- `src-tauri/src/commands.rs`: 修补诊断探针(2处) + taskkill + open_gui(2处)
-- `src-tauri/src/travel.rs`: 修补 provider_command(2处)
-- `src-tauri/src/hook_client.rs`: 修补 resolve_ppid
-
-### 问题 2: 模型价格镜像源
-
-#### 根因分析
-- 主源 `https://models.dev/api.json` 在中国大陆经常不可访问（GFW + Cloudflare 边缘节点）
-- jsDelivr CDN (`cdn.jsdelivr.net`) 在中国也被封锁
-- 原代码只有 `RE_LLMPET_MODELS_DEV_URL` 环境变量作为用户自定义镜像，无内置 fallback
-
-#### 修复
-在 `price_source_urls()` 添加 GitHub raw 镜像作为内置 fallback，尝试顺序：
-1. **用户自定义镜像** (`RE_LLMPET_MODELS_DEV_URL` 环境变量) — 最高优先级
-2. **GitHub raw 镜像** — `https://raw.githubusercontent.com/anomalyco/models.dev/refs/heads/main/data/api.json` — 在 models.dev 之前尝试（因为 models.dev 是被墙的那个）
-3. **models.dev 原始源** — 始终作为最终 fallback
-
-#### 安全考量
-- 镜像 URL 是 HTTPS-only 的 raw.githubusercontent.com 链接
-- 无凭证、无查询字符串、无控制字符
-- 响应经过与主源相同的 schema 验证（`normalize_models_dev` + max size 16MB + max models 20000）
-- etag/last_modified 验证器只发送给 models.dev 原始源，不发送给镜像（避免不同资源的 false 304）
-- 每个 URL 3 次重试（第 2 次 force IPv4），跨 URL 顺序 fallback
-
-#### Web 搜索验证
-- models.dev 的 GitHub 仓库是 `anomalyco/models.dev`
-- api.json 存储在 `data/api.json`（通过 opencode issue #26068 确认 raw URL 格式）
-- raw.githubusercontent.com 在中国通常可访问（GFW 封锁 raw.githubusercontent.com 但不总是）
-
-### 验证结果
-- `cargo clippy -D warnings --all-targets`: ✅ EXIT=0
-- `cargo fmt --check`: ✅
-- 72/72 JS 测试通过
-- 22/22 静态检查通过
-
-### 版本迭代
-- v0.5.58 → v0.5.59（2 个 HIGH）
-- 更新: package.json, Cargo.toml, tauri.conf.json, Cargo.lock, package-lock.json, SOURCE_REVISION, migration-todo.json, SOURCE_MANIFEST.json
-- GitHub main: `2c96b0b` 已推送，tag `v0.5.59` 已打
-
-### 测试更新
-- `tauri-price-auto-update-smoke.js`: 将 `doesNotMatch(MODELS_DEV_MIRROR_URL)` 改为 `match(MODELS_DEV_GITHUB_MIRROR_URL)` + `match(raw.githubusercontent.com)`
-
-
----
-
-## 定时任务更新 + 后续路径规划（2026-08-10 18:25）
-
-### 定时任务变更
-- 旧任务 ID 316006（1h 间隔，v0.5.52 时代创建）已删除
-- 新任务 ID 316354（45min 间隔，v0.5.59 当前状态）
-- 时区: Asia/Shanghai
-- Priority: 5 (medium)
-
-### 后续路径规划（5 个阶段，按优先级推进）
-
-#### 阶段 A: 收尾 + 真机验证（当前-下2轮）
-- **A1**: #23 usage-archive carry — 历史.usage 数据归档，跨版本迁移
-- **A2**: 真机验证清单 — v0.5.58-v0.5.59 修复的真机验证步骤文档
-- **A3**: 回归测试增强 — hide_console_window 的 Windows 测试断言
-- **A4**: 镜像源增强 — 考虑 ghproxy.com 作为 raw.githubusercontent.com 的中国 fallback
-
-#### 阶段 B: 用户体验打磨（第3-5轮）
-- **B1**: 闲逛任务模板用户自定义 — pet.js wander mission 支持自定义模板
-- **B2**: 诊断结果导出 — diagnose_agent 结果可导出 JSON
-- **B3**: 状态过渡动画 — pet 状态切换平滑过渡（fade/slide）
-- **B4**: panel 响应式优化 — 小屏幕（<420px）布局
-- **B5**: i18n 补全 — 剩余硬编码字符串（中/英/日）
-
-#### 阶段 C: Provider 兼容性加固（第6-8轮）
-- **C1**: CodeWhale v0.9.5+ 前向兼容 — 单 runtime doctor 探针健壮性
-- **C2**: OpenCode 插件目录扫描 — 符号链接/权限/超大目录处理
-- **C3**: Aider 配置检测 — .aider.conf.yml 解析增强
-- **C4**: 新 provider 支持 — 评估 Cursor/Windsurf/Continue
-- **C5**: hook 安装幂等性 — 重复安装检测和清理
-
-#### 阶段 D: 性能与可观测性（第9-11轮）
-- **D1**: notify crate 替换轮询 — hook_watcher 文件系统事件监听
-- **D2**: 内存优化 — pet.js/panel.js 长列表渲染优化
-- **D3**: 启动时间优化 — 延迟加载非关键资源
-- **D4**: eprintln! 清理 — #26 LOW，替换为 runtime.write_log()
-- **D5**: 遥测（opt-in）— 匿名使用统计
-
-#### 阶段 E: 0.7.0 路线图（第12轮+）
-- **E1**: territory episodes — #24，领地模式剧情系统
-- **E2**: 真实后台任务检测 — stats.bg 真实实现
-- **E3**: 多桌宠支持 — 同时显示多个 provider 桌宠
-- **E4**: 插件系统 — 第三方扩展点
-- **E5**: Web Dashboard — 可选 Web 管理界面
-
-### 每轮工作策略（45min 限制）
-- 选 1-2 个小而完整的项，避免半成品
-- 优先修复用户反馈的实际问题
-- 每轮至少完成 1 个可验证的改进点
-- 如果某项太大，记录进度到 worklog.md，下轮继续
-
-### 优先级决策依据
-基于用户反馈模式的优先级排序：
-1. 用户可见的 bug 修复（GUI 穿模、toast、动画、黑窗、镜像）— 已完成
-2. 真机验证 — 确保 v0.5.58-v0.5.59 修复实际生效
-3. 用户体验打磨 — 让产品更易用
-4. Provider 兼容性 — 扩大支持范围
-5. 性能优化 — 提升体验质量
-6. 0.7.0 大功能 — 长期路线图
-
-
----
-
-## v0.5.60 — hide_console_window 回归测试 + ghproxy 中国镜像源（2026-08-10 18:50 trigger）
-
-### 远端仓库检查
-- `git fetch origin` + `git rev-list --left-right --count HEAD...origin/main` → 0 0
-- 本地 HEAD `4fc5042` = 远端 `origin/main`，完全同步
-- 5 个最新 tag (v0.5.55-v0.5.59) 全部已推送
-- 工作区干净，无未提交/未跟踪文件
-- **结论**: 远端仓库干净，无需任何处理
-
-### A3: hide_console_window 回归测试（MEDIUM）
-- `test/tauri-windows-static-smoke.js` 添加 6 个断言：
-  1. `platform.rs` 必须定义 `pub(crate) fn hide_console_window`
-  2. 必须使用 `CREATE_NO_WINDOW: u32 = 0x0800_0000`
-  3. `pricing_sync.rs` curl spawn 必须调用 `crate::platform::hide_console_window`
-  4. `travel.rs` provider_command 必须有 `CREATE_NO_WINDOW` 或 `hide_console_window`
-  5. `hook_client.rs` resolve_ppid 必须调用 helper
-  6. `launch_terminal` 函数体必须**不**包含 `hide_console_window`（终端窗口应可见）
-- 防止未来回归导致黑色 cmd 窗口重新出现
-
-### A4: ghproxy.com 中国镜像源 fallback（HIGH）
-- **背景**: v0.5.59 添加了 GitHub raw 镜像，但 raw.githubusercontent.com 本身有时也被 GFW 封锁
-- **修复**: 在 `price_source_urls()` 添加 `MODELS_DEV_GHPROXY_MIRROR_URL` 作为第三个镜像源
-- **URL**: `https://gh-proxy.com/https://raw.githubusercontent.com/anomalyco/models.dev/refs/heads/main/data/api.json`
-- **尝试顺序**（4 层 fallback）:
-  1. 用户自定义镜像（`RE_LLMPET_MODELS_DEV_URL` 环境变量）— 最高优先级
-  2. GitHub raw 镜像（直接 raw.githubusercontent.com）— 最快，但可能被封
-  3. **ghproxy.com 镜像** — 中国可访问的反向代理，包装 GitHub raw URL
-  4. models.dev 原始源 — 最终 fallback
-- **安全考量**:
-  - ghproxy 响应经过与主源相同的 schema 验证（`normalize_models_dev` + max size 16MB + max models 20000）
-  - 篡改响应会被拒绝
-  - 无凭证发送（内容是公开的 model pricing JSON）
-  - etag/last_modified 验证器只发送给 models.dev 原始源，不发送给任何镜像
-
-### Web 搜索验证
-- gh-proxy.com 是公开的 GitHub 反向代理服务
-- URL 格式：在原始 GitHub raw URL 前加 `https://gh-proxy.com/`
-- 支持 Releases, Raw, Archive, clone 加速
-- 在中国大陆可访问
-
-### 验证结果
-- `cargo clippy -D warnings --all-targets`: ✅ EXIT=0
-- `cargo fmt --check`: ✅
-- 72/72 JS 测试通过
-- 22/22 静态检查通过
-
-### 版本迭代
-- v0.5.59 → v0.5.60（1 HIGH + 1 MEDIUM）
-- 更新: package.json, Cargo.toml, tauri.conf.json, Cargo.lock, package-lock.json, SOURCE_REVISION, migration-todo.json, SOURCE_MANIFEST.json
-- GitHub main: `722ce17` 已推送，tag `v0.5.60` 已打
-
-### 下轮重点（Phase A 剩余）
-- A1: #23 usage-archive carry — 历史 usage 数据归档
-- A2: 真机验证清单 — v0.5.58-v0.5.60 修复的真机验证步骤文档
-
-
----
-
-## A2: 真机验证清单文档（2026-08-10 19:23 trigger）
-
-### 任务
-Phase A 的 A2 项：整理 v0.5.58-v0.5.60 修复的真机验证步骤，写入 docs/。
-
-### 完成
-创建 `docs/VERIFICATION_CHECKLIST_v0.5.58-v0.5.60.md`（234 行），包含：
-
-#### 8 个验证项（每项含：用户反馈、根因、验证步骤、预期结果、回归标志）
-1. **GUI 穿模修复** (v0.5.58) — panel z-index 验证
-2. **Launch agent toast 可关闭** (v0.5.58) — ✕ 按钮点击验证
-3. **桌宠动画随状态变化** (v0.5.58) — thinking/working/attention 状态验证
-4. **诊断探针并行化** (v0.5.58) — ~8s 完成时间验证
-5. **隐藏 Windows 黑色 cmd 窗口** (v0.5.59) — 启动/诊断/闲逛/聚焦全程无黑窗
-6. **模型价格中国镜像源** (v0.5.59) — 中国网络下价格更新验证
-7. **hide_console_window 回归测试** (v0.5.60) — 测试存在且通过
-8. **ghproxy.com 中国镜像源 fallback** (v0.5.60) — 4 层 fallback 验证
-
-#### 附加内容
-- **综合冒烟测试表**: 8 项快速验证，用于每次发布前
-- **已知限制**: launch_terminal 仍显示终端（设计行为）、persistent toast 不自动消失（设计行为）、macOS/Linux 无黑窗问题
-- **版本历史表**: v0.5.58-v0.5.60 主要修复一览
-- **反馈指引**: GitHub Issues 提交格式
-
-### 验证结果
-- 72/72 JS 测试通过（manifest 重新生成后）
-- 22/22 静态检查通过
-- clippy -D warnings: ✅
-- 文档无版本迭代（docs-only，无代码变更）
-
-### 提交
-- GitHub main: `91a49d9` 已推送
-- 无版本号变更（docs-only）
-- SOURCE_MANIFEST.json 重新生成（385 files，+1 doc）
-
-### Phase A 进度
-- ✅ A3: hide_console_window 回归测试（v0.5.60）
-- ✅ A4: ghproxy.com 中国镜像源（v0.5.60）
-- ✅ A2: 真机验证清单文档（本轮）
-- ⏳ A1: #23 usage-archive carry — 下轮
-
-### 下轮重点
-- **A1: #23 usage-archive carry** — 历史 usage 数据归档，跨版本迁移
-- 或进入 **Phase B: 用户体验打磨**（B1 闲逛模板自定义 / B2 诊断结果导出）
-
-
----
-
-## v0.5.61 — 沙箱恢复 + 诊断结果导出 JSON（B2）（2026-08-10 21:38 trigger）
-
-### 沙箱重置恢复
-- **问题**: 本轮开始时发现沙箱被完全重置 — RE-LLMPET-main 目录为空（0 文件），Rust/GTK/remote 全部丢失，git log 显示 v0.5.46 时代的 Round 7/8 commits
-- **恢复步骤**:
-  1. `git clone https://github.com/purrfecto114-lgtm/RE-LLMPET.git RE-LLMPET-main` — 从 GitHub 恢复到 v0.5.60
-  2. 安装 Rust: `curl https://sh.rustup.rs | sh -s -- -y` → rustc 1.97.1
-  3. 安装 GTK dev: `apt-get download` + `dpkg-deb -x` 到 `~/.local/gtk-dev/`（36+ packages: libgtk-3-dev, libwebkit2gtk-4.1-dev, libjavascriptcoregtk-4.1-dev, libayatana-appindicator3-dev, librsvg2-dev, X11 deps, GL/EGL deps, atspi, systemd 等）
-  4. 验证: `cargo clippy -D warnings` ✅, 72/72 JS 测试 ✅, 22/22 静态检查 ✅
-
-### B2: 诊断结果导出 JSON（HIGH）
-- **功能**: 诊断面板新增「导出 JSON」按钮，用户可将诊断结果导出为 JSON 文件
-- **使用场景**: 遇到诊断问题时，导出 JSON 附在 GitHub Issue 中，帮助开发者快速定位
-- **实现**:
-  - `frontend/renderer/panel.js`: 新增 `exportDiagnosticJson()` 函数
-    - 使用 `Blob` + `URL.createObjectURL` 创建下载链接
-    - 文件名: `octopus-diag-{provider}-{timestamp}.json`
-    - 导出完整的 `latestProviderDiagnostic` 对象
-  - 诊断面板 `diag-actions` 区新增第三个按钮「导出 JSON」
-  - `frontend/shared/i18n.js`: 新增 `diag.export` 键 × 3 语言
-    - 中: 导出 JSON
-    - 英: Export JSON
-    - 日: JSON書き出し
-- **行数预算**: panel.js 1752/1760 ✅（+16 行，预算内）
-
-### 验证结果
-- `cargo clippy -D warnings --all-targets`: ✅ EXIT=0
-- `cargo fmt --check`: ✅
-- 72/72 JS 测试通过
-- 22/22 静态检查通过
-
-### 版本迭代
-- v0.5.60 → v0.5.61（1 HIGH 功能增强）
-- GitHub main: `a603038` 已推送，tag `v0.5.61` 已打
-
-### Phase B 进度
-- ✅ B2: 诊断结果导出 JSON（本轮）
-- ⏳ B1: 闲逛任务模板用户自定义
-- ⏳ B3: 状态过渡动画
-- ⏳ B4: panel 响应式优化
-- ⏳ B5: i18n 补全
-
-### 下轮重点
-- **B1: 闲逛任务模板用户自定义** — pet.js wander mission 支持用户传入自定义模板
-- 或 **B3: 状态过渡动画** — pet 状态切换平滑过渡
-
-
----
-
-## v0.5.62 — 沙箱恢复 + 状态过渡动画 B3（2026-08-11 06:38 trigger）
-
-### 沙箱再次重置恢复
-- 本轮开始时沙箱再次完全重置（v0.5.46 状态，RE-LLMPET-main 目录为空，Rust/GTK/remote 全部丢失）
-- 恢复步骤（与前次相同）:
-  1. `git clone https://github.com/purrfecto114-lgtm/RE-LLMPET.git` → v0.5.61
-  2. 安装 Rust 1.97.1（rustup）
-  3. 下载 + 解压 52 个 GTK dev packages 到 `~/.local/gtk-dev/`
-  4. 验证 clippy + 72 JS 测试 + 22 静态检查全通过
-
-### B3: 状态过渡动画（HIGH）
-- **功能**: 桌宠状态切换时（idle → working → happy → idle 等），mascot/cat 皮肤图片不再瞬间"弹"出，而是 150ms 淡入淡出过渡
-- **实现**:
-  - `frontend/renderer/pet.js`: 新增 `fadeSwapImg(img, newSrc)` 函数
-    - 将 `img.style.opacity` 设为 '0'
-    - 添加 `load` 事件监听器，加载完成后恢复 opacity='1'
-    - 安全 fallback: 200ms 后强制恢复（防止缓存图片不触发 load）
-    - `updateMascotEyes()` 和 `updateCat()` 改用 `fadeSwapImg` 替代直接 `img.src =`
-  - `frontend/renderer/pet.css`:
-    - `#mascot img`: 添加 `transition: opacity 0.15s ease`
-    - `#cat img`: 添加 `transition: opacity 0.15s ease`
-  - 已有 `prefers-reduced-motion` 媒体查询会自动禁用过渡（`transition: none !important`）
-- **行数预算挑战**: pet.js 原本 2540 行，新增 fadeSwapImg 函数后超预算。通过删除 6 行冗余注释（R30 注释块、CAT_POOLS 注释、MASCOT_EYES 注释等）精确卡回 2540/2540
-
-### 验证结果
-- `cargo clippy -D warnings --all-targets`: ✅ EXIT=0
-- `cargo fmt --check`: ✅
-- 72/72 JS 测试通过
-- 22/22 静态检查通过
-- pet.js: 2540/2540 行（精确卡预算）
-
-### 版本迭代
-- v0.5.61 → v0.5.62（1 HIGH 功能增强）
-- GitHub main: `f3a4976` 已推送，tag `v0.5.62` 已打
-
-### Phase B 进度
-- ✅ B2: 诊断结果导出 JSON（v0.5.61）
-- ✅ B3: 状态过渡动画（本轮）
-- ⏳ B1: 闲逛任务模板用户自定义
-- ⏳ B4: panel 响应式优化
-- ⏳ B5: i18n 补全
-
-### 下轮重点
-- **B1: 闲逛任务模板用户自定义** 或 **B4: panel 响应式优化**
-
-
----
-
-## v0.6.1 — Provider Hooks 真实 CLI 冒烟 + 协议基线校准（2026-08-30）
-
-详见 docs/superpowers/specs/2026-08-30-provider-hooks-smoke-findings.md 与 CHANGELOG 0.6.1。
-要点：真实 CLI 冒烟（claude/opencode/aider PASS、codex 诚实 FAIL、codewhale 文档级）；
-install_aider 下划线键导致 aider exit(2) 的真 bug 修复（连字符发射）；
-CODEX_EVENTS+Interrupt；drift 检查器 blocked 分类；CodeWhale env 表补 3 变量；
-Rust 工具链 1.98.0 沙箱自建；全门禁绿（npm 80/80、static 22/22、clippy -D、test --lib 115/115）。
+Task ID: R55
+Agent: main-orchestrator
+Task: R54 收尾——事件词汇隔离/会话恢复工作的修复、门禁重验、0.6.4 版本化与 GitHub push
+
+Work Log:
+- 环境恢复盘点：沙箱重置后 workspace/llmpet/.git 丢失、test/ 目录（82 文件）与 .claude/skills 丢失、Rust 工具链/GTK dev 闭包丢失；上一会话的 R54 研究结论与 0.6.4 冒烟证据（reports/provider-smoke/0.6.4/ 七件 + provider-real-* 六件）完好
+- 重建交付仓：PAT 克隆 GitHub main(9cf1c2a=v0.6.3) → .git 嫁接回工作树（origin URL 立即改回无凭据形式）→ git checkout 恢复 86 个丢失文件 → 真实 diff = 11 修改 + 7 新证据
+- 修复上一会话遗留的编译错误（上下文中断前未验证）：hook_client.rs 两处 E0502（role 借用跨 object.insert，改 owned）+ tests 模块缺 json! 导入 + commands.rs tests 缺 provider_resume_args 导入
+- 工具链重建：rustup 1.98.1 minimal + rustfmt/clippy；GTK deb 闭包 683 包下载解压到 ~/.local/gtk-dev；发现 pkg-config --define-prefix 对该布局产出 /usr/lib/lib 双重路径 → 改为直接 patch .pc 文件绝对路径 + 缓存的 build script output 就地修正（避免全量重编）
+- 维护性预算门禁触发（新代码超文件预算）：commands.rs 3791>3600 → 会话恢复整块抽到新模块 session_resume.rs（207 行含 2 个实证测试）；hook_install.rs 2434>2400 → OpenCode 插件 JS 源码抽到 plugin_sources.rs（204 行）
+- 13 个锁 v4 时代源码 grep 的回归测试更新到 v5 契约（R50/R53/R40/R401/systemic/phase2/bridge/ACL/R6/R35/protocol-drift checker/metering-phase2 等版本一致性断言 0.6.3→0.6.4 共 12 文件）
+- 版本三处 bump 0.6.4 + package-lock/migration-todo + CHANGELOG 0.6.4 条目（用户指令原文引用 + 六 provider 恢复证据表）+ SOURCE_MANIFEST 重生成（396 files）
+- 门禁全绿：npm test 83 文件全过、cargo test --lib 137/137（+8）、clippy -D warnings 0、fmt 干净、static-checks 22/22、manifest verify OK
+- push：commit e1dda7e（9cf1c2a..e1dda7e main）一次性 URL 推送后即清除；CI run 35821502083 十项全绿（test 矩阵 6 + ubuntu/windows Rust gates + RustSec advisory scan success）
+- GitHub 提示 1 moderate 依赖告警：Dependabot glib 更新 run 失败未建分支；CI 的 cargo-audit（RustSec DB）绿——告警为 advisory 性质不构成门禁失败，留待下轮处置
+- 空间回收：target/(3.3G) 清除、gtk-debs(463M) 清除、npm/bun/pip/playwright/puppeteer 缓存清除、provider CLI 确认零残留（which 全空）；磁盘 21%→65% 可用
+
+Stage Summary:
+- main = e1dda7e = v0.6.4（未打 tag；release.yml 对 v* tag 自动触发，等用户指令再发）
+- 六 provider 事件词汇隔离（OpenCode v5 原生直传+Rust 单点词典）+ 逐家实证会话恢复 + 全门禁绿 + push 完成
+- 证据链：reports/provider-smoke/0.6.4/{claude,codex,opencode}-resume-proof.txt + codex-hooks-capture.jsonl + opencode-native-events-tap.jsonl(160 原生事件) + codewhale-exec-json.out + provider-real-{aider×3,claude,codex,opencode}.json
+- 待办移交：① glib 依赖告警的 Dependabot 分支失败原因未查（不阻塞门禁）；② Desktop real machine gate（9cf1c2a 起 queued，非本轮引入）
 
 ---
 Task ID: R56
-Agent: main-orchestrator (+4 research subagents R56-a/b/c/d)
-Task: 用户指令「安装程序坏了无法卸载/dsh 皮肤缺失/表情未用全/右键菜单闪消/形象按钮后托盘旧选项/GUI 叠加黑底/托盘无反馈/provider 事件名不可混用/发布」
+Agent: main-orchestrator
+Task: 安装器卸载修复 / dsh(whale)皮肤 / 表情补全 / 右键菜单闪消 / 托盘旧选项 / GUI 叠加黑底 / 托盘无反馈 / provider 事件名隔离复核 / 发布
 
 Work Log:
-- 环境恢复：沙箱又重置（.git/test//Rust/GTK 再丢）→ PAT 克隆 RE-LLMPET main(e1dda7e) 重植 .git、git checkout 恢复 86 文件、rustup 1.98.1+fmt/clippy、GTK 闭包 589 deb 解压到 ~/.local/gtk-dev（.pc 全量补丁，pkg-config gtk/webkit 全通）
-- 并行四 subagent：R56-a 上游 0.1.1/main 对比（0.1.1 无 dsh 皮肤——防幻觉；用户所指=main v1.2.0 whale 鲸鱼女仆 23 GIF 21MB）；R56-b 事件词汇审计+联网复核（运行时主链路无混用，provider_registry 元数据六表虚构/陈旧、aider 标签盗 codewhale turn_end、dsh ApiError/TaskStarted 无归一化臂）；R56-c GUI 五类 bug 根因链（focusPet 抢焦点→native blur 秒杀菜单、set_skin 不刷托盘、chooser 黑遮罩、panel 置顶滞留、toast 死信）；R56-d 安装器审计（解包已发布 0.6.3 setup.exe 实证：病根=卸载不清理 provider hooks+PREINSTALL Abort 死循环）
-- 修复 22 文件：whale 皮肤移植（pet-skin-packs.js 新模块 198 行：MEME_PACKS 同构表+懒加载+目录感知比对+姿态轮换；pet.html/css/js+i18n.rs/js 三语+托盘第 4 项）+dsh 图标；右键三根因（去 focusPet、blur 300ms 宽限+hasFocus 复核、radial 400ms 守卫+pointerdown toggle、emit_to 定向）；托盘五命令补 refresh_tray_menu+卸载后重建+toast case 救活死信；黑遮罩透明化+卡片阴影、panel 原生关闭回退置顶、codex 首显偏移位、hideBubble 守卫补全；--uninstall-hooks CLI+uninstall_all_hooks_headless+NSIS 三钩子重写（KillProcessCurrentUser×3+ExecWait 清理+注册表轮询闸门）；provider_registry 六表对齐真实词汇、aider 标签改 notification、日志 v5；opencode 插件补 question.v2/todo.updated 转发+词典臂；dsh state 字段/ApiError 臂/say 文本/approval→PreToolUse/compaction→PostCompact/逐回合 usage 增量（metering 加 dsh 门）；表情三生产者（emotion 字段透传、greet 5min+30min 频控、big-done ≥5 ops、loafing 间隙合成锚定操作完成）
-- 门禁更新：版本锁 14 文件 0.6.4→0.6.5；budget commands 3660（+41 审计行）+pet-skin-packs 220；octopus-fix blur 契约、r50 缩窗守卫、phase1 radial toggle 契约、r51 转义版本号、r32/startup 预载名、phase3 预载、transcript-pricing Stop 块、supply-chain lock 顶层版本；SOURCE_MANIFEST 421 文件重生成
-- 门禁全绿：npm test exit=0（82 文件全链）、static-checks 22/22、cargo fmt --check 干净、clippy --all-targets -D warnings 0、cargo test --lib 137/137、migration-todo/protocol-drift ok
-- 空间回收：target 3.8G+debs 0.4G+临时克隆清理 → 磁盘 94%→50%
+- 沙箱又重置：重植 .git（PAT 克隆 e1dda7e）、恢复 test/ 82 文件、rustup 1.98.1、GTK 589-deb 闭包装到 ~/.local/gtk-dev（.pc 补丁法）
+- 四 subagent 并行取证（R56-a/b/c/d，详见 workspace/llmpet/worklog.md R56 section）：上游 0.1.1 无 dsh 皮肤（=main v1.2.0 whale）、事件词汇元数据六表虚构、GUI 五根因链、安装器四病灶（解包已发布 setup.exe 实证）
+- 修复 22 文件 + whale 24 资产：详见仓内 worklog 与 CHANGELOG 0.6.5
+- 门禁全绿：npm test exit=0 / static 22/22 / clippy --all-targets 0 / cargo test 137/137 / fmt 干净
+- 空间回收：target 3.8G + debs + 克隆清理 → 磁盘 94%→50%
+- push f1afa6f + tag v0.6.5（Release/CI/glib 三工作流已触发）
 
 Stage Summary:
-- v0.6.5 = 卸载器修复（--uninstall-hooks+NSIS 重写）+ whale 皮肤 + 右键/托盘/覆盖层五类 GUI 根因修复 + 六 provider 事件词汇元数据收尾 + greet/big-done/loafing/emotion 表情补全 + dsh 状态正确性
-- 关键证据：插件 KillProcessCurrentUser 命令名从 nsis-tauri-utils 源码克隆实证；tauri 2.11.5 模板 un 顺序（PREUNINSTALL→CheckIfAppIsRunning）实证；上游 0.1.1 无 dsh 皮肤（0.1/0.1.1/v0.1.2-pre/v1.2.0 全 ref 检查）
-- 待办移交：①duo 模式 skin_codex 与托盘勾选的错配（上游 main 三套 per-agent 子菜单方案，后续任务）②whale 21MB 进包体积（上游同款；懒加载已保证运行时零成本）③dsh 会话 resume CLI 语法外部 UNVERIFIED ④glib Dependabot 告警（R55 遗留）
+- v0.6.5 已发布推送；whale 皮肤/右键闪消三根因/托盘五命令刷新+toast 反馈/--uninstall-hooks 卸载链/事件词汇元数据收尾/greet+big-done+loafing+emotion 表情补全/dsh 状态正确性
+- 待办：duo skin_codex 错配、dsh resume 外部 UNVERIFIED、glib Dependabot（R55 遗留）
 
 ---
 Task ID: R56-final
@@ -1603,72 +449,1319 @@ Agent: main-orchestrator
 Task: v0.6.5 发布收尾
 
 Work Log:
-- 首次 tag 触发 Release 失败：worklog 追加发生在 manifest 重生成后 → 哈希漂移被 release 源验证门禁拦截（门禁起效的证据）→ 重生成 manifest + 补提交 0d5b8cd + 删重打 v0.6.5 tag
-- 二次触发：CI success + Release 七段全绿（资产闭环 verify-release-assets 4 manifests × 6 artifacts + attest）
-- 手工收尾（0.6.1-0.6.3 惯例）：git archive 生成 Octopus-0.6.5-source.zip（23.8MB）+ SHA256SUMS.txt → PATCH release 395894570 重绑 tag v0.6.5/转正式/改标题/写 release notes → 上传 2 资产 → 删孤立 draft-216 tag
-- 脚手架 / 路由 Agent Browser 验证：干净渲染无错误（页面为用户已否决的旧发布页，未改动）
-- glib Dependabot 工作流仍失败（R55 已知遗留，PAT 无权限建分支，非门禁）
+- 首次 Release 失败：worklog 后置追加致 manifest 哈希漂移，被 release 源验证门禁拦截 → manifest 重生成 + 0d5b8cd + 删重打 tag
+- 二次：CI success + Release 七段全绿；手工收尾 source.zip + SHA256SUMS.txt + PATCH 转正式 + 删 draft-216 tag
+- 脚手架 / 页 Agent Browser 验证干净
 
 Stage Summary:
-- https://github.com/purrfecto114-lgtm/RE-LLMPET/releases/tag/v0.6.5 —— 17 资产（7 平台二进制 + 4 SBOM + 4 平台校验和 + 源码 zip + 源码校验和），正式发布（非 prerelease）
-- main = 0d5b8cd = v0.6.5；门禁：npm test 82 文件 / static 22/22 / clippy 0 / cargo test 137/137 / Release 流水线全绿
+- https://github.com/purrfecto114-lgtm/RE-LLMPET/releases/tag/v0.6.5 正式发布：17 资产，非 prerelease
+- main = b4c5ffd；门禁全绿；PAT 已从 remote URL 清除
+
+---
+Task ID: R57-1c
+Agent: rust-researcher (subagent, 只读)
+Task: 会话存活检测设计——从桌宠进入会话先查 opencode 进程是否存活，死了才重拉
+
+Work Log:
+- 只读核实全链路：tauri-bridge.js:251(fire-and-forget) → commands.rs:3214-3249(任何 Err 无条件 resume) → platform.rs:394-424(pid 链聚焦) → session_resume.rs:87(launch_terminal)；source_pid 三个生产者：plugin_sources.rs:64(opencode 进程内 process.pid)、hook_client.rs:154(hook 路径=父 pid=CLI 进程)、dsh_watch.rs:535(dsh=None)
+- 行数预算核实：commands.rs 3641/3660（余 19）→ 决策流必须独立模块（session_resume.rs 同款先例）；platform.rs 无预算只有内容断言
+- 产出设计（最终消息全量）：新模块 process_probe.rs（Liveness 三态 Alive/Dead/Unknown + ProcessTable 注入面：Linux 纯 /proc 零 spawn、macOS ps、Windows Get-CimInstance+hide_console_window；identity_matches=命令行组件子串+cwd 精确双闸）+ plan_focus 纯函数五分支 + focus_session_guarded 编排；platform.rs 换 pub(crate) focus_pid；commands.rs focus_session 薄化 36→8 行（3641→约 3613）
+- 租约设计：state∈{working,juggling,sweeping,thinking,carrying} ∧ ended_at=None ∧ now-updated_at≤90s（STATE_LEASE_MS 可退 300s 对齐 model.rs:915 先例）；不对称代价论证（假活=90s 延迟 vs 假死=双进程写库=原始 bug）；SessionEnd→sweeping+ended_at 必须被排除
+- 特殊路径：dsh=Untracked 永不重拉（顺带堵死 dsh 裸启动）；codewhale 短命 executor pid 死为常态→扫描 codewhale-tui 救回；聚焦失败≠死（核心修复）
+
+Stage Summary:
+- 设计文档已交付（含函数签名/伪码/插入点/预算账/单测矩阵），零代码改动
+- 下一步：按 §3 清单实施 process_probe.rs(~340 行)+lib.rs mod+platform.rs focus_pid+commands.rs 薄化，加 r57 静态冒烟与预算表条目
+
+---
+Task ID: R57-1e
+Agent: expression-coverage-auditor (subagent, 只读)
+Task: 表情/状态覆盖审计——「有图无产者」与「有产者无图」双向缺口矩阵
+
+Work Log:
+- 资产盘点：cat 23/23 GIF 全引用；whale 22/23（whale-thinking-2.gif 零引用，WHALE_POOLS 实际没有 thinking 池、注释陈旧指鹿为马）；mascot 6/6 PNG 全用
+- 生产链通读：hook_client.rs（claude 23 事件、codex 12、codewhale 14 且 6 个 env-only、opencode v5 词典、aider 单信号无文本）、model.rs normalize_state/event_rank/ingest（greet_pending、ops_since_prompt、loafing 合成）、http_server.rs emit_hook_event 全部 kind、dsh_watch.rs（只 runtime.ingest，无 emit）、codex_rollout.rs（仅计量）、emotion.rs inject_emotion（只读 text/message）
+- 核心断点 ①：dsh watcher 零 pet:event + 零 emit_stats，且全项目无周期 stats 推送 → dsh 会话的 talking/happy/big-done/error 瞬态、greet、operation 气泡实时全不可见，仅靠别的 provider 触发快照时才被动带出聚合态
+- 核心断点 ②：inject_emotion 只嗅 text/message，而 claude/codex 用户输入在 prompt、回复在 last_assistant_message；opencode 插件助手侧也只发 last_assistant_message → 情绪五态唯一活产者 = opencode 用户侧；say→ev.emotion 前端分支对所有 provider 死代码
+- 核心断点 ③：model.rs normalize_state 把 Stop 归 idle，违反 STATES.md §3（Stop→attention）→ claude/codex 主流程的 attention 图（cat/whale-attention.gif、mascot-wait）不可达
+- 次级发现：codewhale mode_change 被译成 Notification 事件名 → 前端 needsinput 误触发（应 kind state/idle）；codex 无 failure/notification 钩子（error/needsinput 图死）；codewhale turn_end 无文本（talking 死）且无 compact 事件（sweeping 死）；codewhale session_end→sleeping 行被聚合器过滤，显式 sleeping 永不直显；claude SessionEnd→sweeping(20s) 与之不对称；interrupt/abort 走 Stop 臂误发 turn-done 庆祝
+- 死代码：pet.js case 'longcmd'、case 'cancel'（后端从不发）；say→emotion 分支（生产者零）；emotion.rs Sorry/Puzzled 实际零触发；pet.css #mascot.error #mascot-body（img 皮肤无该节点）、glance/#teyes；pet.js「周期推送~4s」注释陈旧
+- 声音：SOUND 5 cue（合成、无音频文件）全接线；travel completed 有 confetti 无音效（与 big-done 不对称）。confetti 3 产者（big-done/territory victory/travel completed）齐
+- 产出：最终消息交付双向缺口矩阵 + 每格最小接通方案 + 死代码清单；零代码改动（只读约束遵守）
+
+Stage Summary:
+- 「表情没用上」三大根因排序：dsh 无事件出口 > 情绪嗅探字段错配（prompt/last_assistant_message 不进 inject_emotion）> Stop→attention 缺失；其余为 provider 契约限制（aider 单信号、codex 无 error 钩子、codewhale 无文本/compact）
+- 建议下轮 R57-2 实施顺序：normalize_state Stop 臂改 attention（1 行）→ inject_emotion 字段扩展（1 函数）→ dsh emit 通道（mpsc→AppHandle 转发 emit_stats_now+emit_hook_event）→ WHALE_POOLS.thinking 补池（用上 whale-thinking-2.gif）→ mode_change 事件名改 ModeChange
+
+---
+Task ID: R57-1d
+Agent: gui-residue-auditor（只读研究子代理，未改任何代码）
+Task: GUI 残留叠加审计 R57-1d——透明置顶窗残影/黑底面/duo 透叠/缩窗残留的根因+修复方案清单
+
+Work Log:
+- 通读 frontend/renderer/pet.html(203行)/pet.css(1433行)/pet.js(2581行)+pet-radial-menu.js/pet-session-lifecycle.js/pet-agent-view.js/shared/toast.js 的全部瞬时 HUD（#provider-chooser/#sesslist/radial/#todopop/#ask/#bubble/toast/#prop/.sidekick/confetti/think/sleep）显隐·层级·背景·透明度·transform/transition 链
+- 通读 src-tauri：tauri.conf.json 三窗参数（pet/pet-codex：transparent+alwaysOnTop+shadow:false+resizable:false+visible:false；panel：不透明）、lib.rs（窗口事件/DWM 圆角/emit_to 定向 blur）、commands.rs（sync_pet_windows 双宠偏移/open_panel/close_panel 置顶对称/resize_pet_anchored/set_pet_size(0,0)→320×340）、platform.rs（光标命中测试循环/ui_busy/focus_session 双窗 re-topmost）
+- 核心定位：用户截图残影=#provider-chooser 关闭（display:none, pet.js:2003）与 resetPetSize 缩窗（pet.js:2006→commands.rs:1296-1310）同帧发生→透明 WebView 合成面不清旧 alpha/跳过 present，后续 sesslist 再扩回 520 时 pc-list 旧帧 texels 显影；WebView2Feedback#5673(停更回退旧帧)/#4945(透明下渲染差异)、tauri#10306(透明背景不重绘,"resize 重置一次")、SO 77344488(透明窗只在 resize 时更新)、SO 79821062(webkitgtk 透明窗 DOM 更新后 ghosting) 佐证
+- 五候选方案逐一评估：JS 合成层 nudge（translateZ(0) 一帧，主方案）/Rust hide-show（否决：tauri#14515 白闪+焦点反弹，R56 已证）/同值双 set_size（弱：±1px 微跳+GTK 同值不发 size-allocate）/will-change 常驻（不保证 present）/body 近零 alpha 背景（瞬时可用、常驻=黑底面复发，仅兜底）
+- 其余分级发现：P0-2 sesslist/todopop/ask/bubble 同"关→缩"链系统性同病；P1-3 duo 双顶窗默认 48% 面积互叠(偏移仅140/48)+focus_session 每次盲目 re-topmost 翻面（含 pet 盖过已置顶 panel 实链）+chooser firstItem.focus 抢激活；P1-4 WebView2 透明失效机器相关黑背板（tauri#8308 类，缺 backgroundColor 兜底）；P2-5 隐藏透明窗 show 白闪（#14515 类，缺 petReady 门控）；P3-7 旧浅色 .ask 残留 max-width:290+hover translateX；P3-8 #bubble opacity 隐藏的无界布局占位；P3-9 focus_pet 死命令面残留
+- 无问题项留档：全窗黑遮罩 0 处（chooser 已 R56 透明、radial 遮罩无背景）、shadow 全 false 无 OS 暗晕、z-index 阶梯(6/14/15/16/20/25/30/30/32/180/9999)无互穿透（互斥由 open/close 链保证）、toast hidden+250ms 淡出无死信、confetti/prop/sidekick 动画终态自净、bubble 无独立窗口（同窗 DOM 叠放）、panel 置顶开/关/原生关三路对称
+- 证据核实方式：web 检索（GitHub API 沙箱限流，引 title/snippet）：tauri#10306/#8255/#8308/#13270/#14515/#15936、WebView2Feedback#5673/#4945、SO 77344488/79821062、Tauri 官方 Linux Graphics Issues 文档（WEBKIT_DISABLE_COMPOSITING_MODE）
+
+Stage Summary:
+- 根因主链：display:none 与 set_pet_size 缩窗同帧 → 透明合成面旧帧残留；单点修复=pet.js clearGeometryBusy(pet.js:370-392) 在 onResized ack 上挂 nudgeWebViewRepaint()（translateZ(0) 两帧强制全帧 present），并建议 closeProviderChooser 先 2×rAF 再 resetPetSize 保证"移除帧"先 present
+- 推荐修复顺序：①P0-1 nudge（连带治 P0-2 全链）②P1-3 duo 错列偏移(≥280px)+删 focus_session 盲目 re-topmost+chooser focus 前置 hasFocus ③P1-4 tauri.conf 显式 backgroundColor 透明兜底 ④P2-5 petReady 门控 show ⑤P3 清理
+- 交付：按严重度 9 项清单（现象/根因/文件:行/修复/平台/风险）+无问题核验清单+修复顺序，见本轮对话最终报告；代码零改动
+
+---
+Task ID: R57-1a
+Agent: upstream-alignment-auditor (subagent, 只读)
+Task: 上游吸收审计——diff /tmp/LLMPET-up(v1.2.0) vs 本仓 v0.6.5，找出已知 5 项之外其余值得吸收的差异
+
+Work Log:
+- 逐函数 diff pet.js（4492 vs 2580 行）：SOUND/confetti/sayToken/OctoIcons/petVisualBounds/edge-layout(pet-layout-*) 均已有；缺失=ending 收件箱气泡(2886-3311+pet.css 231-300)、meme 触发系统(meme-catalog+command-dispatch+main.js meme-trigger+playMeme/memeWorkReaction)、loot 视觉(230-277+1388-1650+3572-3666)、takeover 跨 provider 交接页、copy-session-id、travel 明信片完整页(POSTCARD_ART)
+- diff pet.css：缺 .ending/.collapsed/.bubble-head/.bubble-stack/.bubble-toggle/.bubble-dismiss、.error-ribbon(已知③)、.loot-*/.sl-meme-*/.sl-takeover-*/大半 .sl-travel-*、.sl-session-id+.copied、.agent-tag.dsh
+- 后端语义 diff：①badge done/interrupted 死代码（core.js:87-103 deriveBadge 有 requiresCompletionAck/TurnAborted 推导，我们 model.rs:1601 只输出 error|idle，前端绿点/红点分支永不触发）②dsh juggling 不达 runtime（dsh_watch.rs tool/call 设 tracker.session_state="juggling" 但发射的 PreToolUse 无 state 字段→normalize_state 回落 working；上游 8858788 发 SubagentStart/Stop+TOOL_MAP 扩 agent/spawn_agent/delegate/send_message）③loafing 启发式无 provider 限定（上游仅 claude+transcript mtime 活跃度双闸，我们全 provider 适用→codex/dsh 长推理间隙误报摸鱼）④codex 聚焦无 codex://threads 深链、dsh 无 web 兜底（main.js:1528-1561）⑤bg zombie 恒 0 占位（上游 runtime-monitor.js 进程表采样）⑥codex 会话无被动发现/无 session_index.jsonl 标题（我们仅 hooks 路径+rollout 计量）⑦command-safety Bash 只读识别器未吸收（我们 pretool_decision 只放行 9 个非 Bash 工具，Bash 全部走原生弹窗——保守但每次打扰用户）
+- 已确认等价/已吸收：codewhale metering+8min auto-deny、models.dev 价格、ElicitationResult、Interrupt→Stop/attention、hookSpecificOutput.permissionDecision、stdin 单次读取（Rust 无 CJK 分块问题）、dsh approval/decided 发射、skin/cat/whale 资产逐文件 diff 相同、ask-panel/elicitation/radial/geometry R35/R36 体系
+- loot 掠夺系统整体评估：macOS 专属（drag-window.swift 55KB 编译 AX 助手：--drag-pid/--close-window/--probe-window/--move-window）+territory.js 1600 行编排(tween 走位/kick/closeRival/createLootCaptureFlow 每秒真会话流)+config.lootCapturedSessions 30min 保留+pet.js ~450 行视觉；我们 territory.rs 只有 spotted/victory/defeat 的 AppleScript 瞬移巡视，无原生拖拽助手段 → 吸收= L（估计 1200-1800 行 Rust+前端），且强依赖 macOS AX 权限与竞品窗口
+- 16e8dbc GUI 修复类：我们 ask 卡片仍有硬编码英文('Other'/'Submit Answer'/'Next ›'，pet.js:546-555)、territory/travel 气泡硬编码中文——上游已全 i18n(terr.*/travel.*/bub.*)
+- 11ff1ba 其余：command-safety(上面⑦)、runtime.json first-live-wins（我们 instance_probe.rs 已有对应）、CSP/sandbox 为 Electron 专属不适用
+
+Stage Summary:
+- 产出 19 项差异清单+优先级+工作量（见最终报告表）：高优先 6 项（ending 收件箱、badge done/interrupted 复活、dsh juggling 修复、meme 系统、loot 评估单独成节、硬编码文案 i18n）；结论=先收 ending 收件箱+badge+dsh juggling（均为 S-M 且纯增益），meme 系统 M-L 自带资产，loot 建议缓（macOS 专属+竞品耦合），workbench/archive 大件单独立项
+- 零代码改动（只读审计）
+
+---
+Task ID: R57-1b
+Agent: provider-hooks-verifier (subagent, 只读联网验证，未改项目代码)
+Task: Hooks 触发接口联网验证——六家 provider 事件/接口名逐项核对官方源码与文档（CodeWhale / DSH / Aider / Codex / OpenCode / Claude）
+
+Work Log:
+- 读取安装面：hook_install.rs（CLAUDE_EVENTS 23+PermissionRequest→~/.claude/settings.json；CODEX_EVENTS 12→~/.codex/hooks.json；CODEWHALE_EVENTS 14→~/.codewhale/config.toml [[ooks.hooks]]；opencode→~/.config/opencode/plugins/llmpet-hook.js；aider→~/.aider.conf.yml notifications-command）+ hook_client.rs 归一化词典 + dsh_watch.rs/codex_rollout.rs/plugin_sources.rs + reports/provider-smoke/0.6.4
+- CodeWhale：raw.githubusercontent.com/Hmbown/CodeWhale/main/docs/HOOKS.md（38KB，byte 级核对）——「The 15 events」= 我们安装的 14 个 + shell_env（有意排除）；waiting_for_user.reason=approval/user_input/goal continuation ✓；TOML 键 name/event/command/timeout_secs/continue_on_error/background ✓；节名逐字节就是 [ooks]/[[ooks.hooks]]（我们写入一致）；exec 默认不触发 hooks（--hooks 仅 tool_call_before+shell_env）✓ 与 docs/CODEWHALE.md 一致；npm codewhale@0.10.0
+- DSH：deepseek-ai/deepseek-harness master——persistence.jsonl 后端真实（zstd 校验帧默认/raw 可配；<root>/--normalized-cwd--/<id>/session.vN.jsonl(.zstd)；首行 header type:"session"）；persistence-catalog.md 逐名核对：turn/start、turn/end、user/message、assistant/message、tool/call、tool/result、step/start、approval/asked、approval/decided、compaction/start/end、llm/retry、session/title、request/header、request/context 全 REAL；但 session-format-v2-to-v3 spec 明确 tool/code-dispatch(-start)→tool/ptc-dispatch(-start)（V3 改名）；发现我们 dsh_watch.rs 三处陈旧：①344/391 只认 session.jsonl(.zstd)=v0 文件名，当前代是 session.v3/v4.jsonl(.zstd) ②500 行 header.version!=0 即拒——当前发布版本 v3/v4 会话全部被拒 ③62/74/625/647 事件名用 V2 旧拼写；128-133 text-chunks/reasoning-chunks/tool-call-chunks 不匹配任何已发布词表；另发现 packages/hooks 组：dsh 的外部 hook 面=@deepseek-ai/dsh-hooks-claude-code / dsh-hooks-codex 桥接插件（复用 Claude/Codex hooks.json，支持 SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/Stop/Subagent*）——非原生 hooks 配置
+- Aider：Aider-AI/aider main args.py --notifications/--notifications-command 真实；文档已迁 /docs/usage/notifications.html（任务里给的 /docs/config/notifications.html=404，仅任务前提陈旧，仓库代码无引用）；io.py ring_bell shell 执行通知命令；exit(2) 语义=argparse usage-error（下划线 YAML 键→unrecognized arguments），我们 R51 连字符键正确且被 4 个测试锁住；aider 官方文档 YAML 示例仍写下划线（上游文档 bug，我们的连字符才是可用拼写）
+- Codex：openai/codex main（npm @openai/codex@0.160.0）——codex-rs/hooks/src/lib.rs HOOK_EVENT_NAMES 12 个与 CODEX_EVENTS 逐名全等；codex-rs/config/src/hook_config.rs HooksFile{description,hooks}+MatcherGroup+Command{command,commandWindows,timeout,statusMessage}=我们 JSON 逐字段全等（第三方 hookstack.app 声称「无 hooks 包裹层」与源码矛盾，我们 0.151 实机 smoke 也证明包裹层可用）；legacy_notify.rs 仍存（我们不用 notify，无碍）；rollout：SESSIONS_SUBDIR sessions、rollout-<ts>-<id>.jsonl、RolloutItem(SessionMeta/ResponseItem/TurnContext/Compacted/EventMsg)、TokenCount{info:{total_token_usage,last_token_usage}} 与 codex_rollout.rs 解析全等；小缺口：.zst 压缩 rollout（revert/归档）不在我们的 jsonl 扩展名过滤内（可选增强）
+- OpenCode：sst/opencode dev——packages/plugin/src/index.ts Hooks 接口含 event/tool.execute.before/tool.execute.after（=我们插件三个导出）+permission.ask（转向钩子，非我们用法）；schema v1/permission.ts=permission.asked/replied、permission.ts=permission.v2.asked/replied、v1+v2 question.* 全存在；session-status-event.ts=session.status(idle|busy|retry)+session.idle；docs 确认 message.updated/session.created/compacted/deleted/error/idle/status/updated 与 ~/.config/opencode/plugins/ 全局目录自动加载；新增 session.next.* 命名空间（附加性，无冲突）
+- Claude（抽查）：code.claude.com/docs/en/hooks-guide.md 抽查 18 个罕见名（Setup/InstructionsLoaded/CwdChanged/WorktreeRemove/DirectoryAdded/TeammateIdle/TaskCompleted/Elicitation/PermissionDenied/StopFailure/PostToolUseFailure/PreCompact/PostCompact…）全 FOUND，与既有 24/24 实证一致
+
+Stage Summary:
+- 裁决：Claude REAL / CodeWhale REAL（14/14+TOML 键逐字节）/ Codex REAL（12 事件+hooks.json 结构+rollout 解析三重全等）/ OpenCode REAL（v1+v2 事件并存）/ Aider REAL（连字符键正确；旧文档 URL 已死但代码无引用）/ DSH = 观察器 STALE（钉死在已发布 v0 格式：文件名代际、version!=0 拒收、code-dispatch→ptc-dispatch 改名）
+- 安装面结论：五家写入式触发器（claude/codex/opencode/codewhale/aider）无任何「已死接口」；唯一死面是 dsh_watch.rs 的文件契约（非安装触发器）
+- 需改位置（移交后续任务）：dsh_watch.rs:344-345,391-392（认 session.vN.jsonl(.zstd)）、:500（version 门放开到 ≤4）、:62,74,625,647（补 ptc-dispatch 新名）、:128-133（删/注无据 chunk 名）；可选：codex_rollout.rs:336-341 加 .zst 支持、新增 dsh hooks-claude-code 桥接安装面
+
+---
+Task ID: R57-RV-A4
+Agent: reviewer-A4（只读复审，未改任何代码）
+Task: R57 存活检测复审——process_probe.rs 决策流/platform focus_pid/focus_session 薄化/topmost 移除/duo 280 偏移
+
+Work Log:
+- 只读通读 process_probe.rs 全文（710 行）+ platform.rs focus_pid/process_chain + commands.rs focus_session/primary_action/sync_pet_windows + session_resume.rs + tauri.conf.json + 前端 sesslist/POPUP_W 引用 + git diff HEAD（R57 未提交工作树）
+- 对照上游 /tmp/LLMPET-up/main.js:1528-1561 核实 codex 深链语义：上游用 encodeURIComponent(session.id) 且深链服务于「无 pid 的桌面会话」；我们裸拼 URL 且在 pid 活着时优先深链
+- 核实 source_pet_position 坐标系：platform.rs:319-328/commands.rs:1098-1105 存 LOGICAL，lib.rs:126-132 恢复时 ×scale——sync_pet_windows 偏移混用逻辑基址+物理偏移
+- 核实 stats 会话行字段名（"state"/"sessionId"）与 primary_action 过滤键（"status"/"id"）不匹配（预先存在）
+- cargo test 本沙箱无法编译（缺 gdk-3.0 dev 库，CI 已知项 651a103）；JS 静态冒烟实测双绿（r53-focus-smoke + boundary-smoke）
+- 结论 2×P0：①process_probe.rs:323/347 cfg(unix)+cfg(macos) 在 macOS 双定义 open_codex_deep_link → E0428 编译必挂，CI 矩阵(ubuntu+windows)不可见；②非 Linux SystemProcessTable 用 ps（Windows 无 ps → 探测恒 Dead → 原始双拉 bug 在 Windows 未修 + LeaseHold 90s 死路），与 R57-1c 设计（Windows Get-CimInstance）偏离，425 行注释引用不存在的「PowerShell path below」
+- 3×P1：深链无 encodeURIComponent/字符校验（codex_rollout.rs:396/446 的 id 回退=完整文件路径；Windows cmd /C start 对 & 敏感）；深链「成功」（xdg-open/start 退出码不可靠）即 ack+跳过终端聚焦，证据仅上游代码对齐无本地 E2E；duo 偏移逻辑/物理混用（scale>1 且有保存位置时实际间距=280−L(1−1/s) 可为负）
+- 6×P2：plan_focus Dead→LeaseHold/Relaunch 接线零测试（673 行注释谎称 CI 覆盖）；scan 名字匹配假阳性 Alive 的卡死代价（macOS 无 cwd 闸）+ scan 命中无日志可追溯；territory.rs:338 残留同款盲目 re-topmost；primary_action 死分支（status/id vs state/sessionId）；LeaseHold 文案 90s 上界语义（无 bug，建议「最多约 90 秒」）；空 cmdline 保守 Alive 的 kworker 回收边角
+- OK 清单：Linux 决策流五分支符合「先查存活、死了才拉起」；聚焦失败不重拉=原始 bug 根因修复；LeaseHold ended_at 闸关闭 SessionEnd→sweeping 陷阱；命令签名/前端零改动；Linux 零 spawn /proc 探测数 ms 级；双窗 alwaysOnTop 常驻（tauri.conf 24/42）+ backgroundColor 兜底，topmost re-assert 移除正确；15 测试覆盖 probe 矩阵/租约边界；280>mascot 252 常规态不叠；静态冒烟预算 710/720
+
+Stage Summary:
+- 判定：R57 Linux 端核心修复成立、结构与测试纪律良好，但 macOS 编译必断（cfg 重叠）与 Windows 探测失效（ps 不存在→恒 Dead）两处 P0 使「跨平台修复」名不副实；深链移植丢了上游两道防线（编码+适用场景）
+- 下一步：P0-1 改 cfg(all(unix,not(macos)))；P0-2 Windows 臂改 Get-CimInstance（platform.rs:441 同款）；P1 深链加 id 白名单校验+降级 best-effort 不 ack；P1 偏移统一逻辑坐标；P2 择机清 territory re-topmost/primary_action 死分支/plan_focus 注入化补 Dead 矩阵
+
+---
+Task ID: R57-RV-A3
+Agent: A3 复审员（只读复审，未改任何项目代码）
+Task: 复审 R57 DSH 观察器改动（dsh_watch.rs 全部 R57 改动 + lib.rs:180 调用 + http_server.rs emit_stats/emit_hook_event 可见性）
+
+Work Log:
+- 审查对象核对：R57 改动为工作区未提交状态（HEAD=b4c5ffd，git status 20 文件 M）；dsh_watch.rs 229 行 diff 全量通读
+- 逐项取证：model.rs ingest/should_accept_event/normalize_state/greet 臂（:795-1104, :3001-3026, :3050-3068）、http_server.rs emit_stats 150ms 合并器（:553-676）与 emit_hook_event（:678-824，确认零节流）、pet.js onEvent/operation/turn-done/state case（:1549-1768，确认无队列无批处理，tauri-bridge.js:168 直通）、serde_derive 1.0.229 与 tauri 2.11.5/tauri-runtime-2.11.3 vendored 源码（variant alias 与 AppHandle Send+Sync 源码级证实）
+- session_file_for 六组目录内容逐一推演（含 u32 溢出/空 digits/非 .jsonl 尾缀/sessions.v2.jsonl 前缀不匹配/空目录），并验证 best 替换逻辑对 read_dir 任意迭代顺序结果稳定（同代 plain 优先两条路径都收敛；仅同代同格式双路径完全平局时依赖目录序，实际不会出现）
+- ptc-dispatch 双层兼容确认：serde 层 alias 在 tag="type" 内部标签枚举有效（enum_internally.rs→prepare_enum_variant_enum→variant.attrs.aliases()→identifier.rs 生成 visit_str 匹配全部别名）；运行时层 handle_event_static 根本不走 DshEvent 枚举而是字符串 match，:692/:727 新旧名都有臂；ToolCallData 假设依据=R57-1b 取证的 v3 纯改名（session-format-v2-to-v3 spec），且运行时只读 data.name 容忍载荷漂移
+- 启动回放链路全 trace：poll 2.5s（tokio interval 首跳立即）→ discover_sessions 无 recency 过滤返回全部历史会话目录 → 冷 tracker offset=0 全量重读 → 每条映射事件无条件 emit_stats+emit_hook_event（不检查 ingest 是否 accepted）；首跳 greet 每 dir 一次（was_new）
+- 核心发现（P0）：cleanup_idle（60min 丢 tracker）+ 下轮重新 discover（重建 offset=0 tracker）= 陈旧会话每 2.5s 全量重读重放，永续循环；R57 前该循环是静默 CPU 浪费（runtime 按 seq 拒绝重复 ingest），R57 接上无条件 emit 后变成持续 pet:event 风暴——量级估算：20 个陈旧 dir × 各 1000 事件 ≈ 每 2.5s 2 万条 pet:event（≈8000 条/s），含逐 turn say 气泡+turn-done beep、逐 dir greet beep、operation 事件 setState+playAction 强制重排
+- 代际滚动 seq 语义核查：R57-1b 证据记录文件名代际/版本门/事件改名但未记录 seq 跨文件连续性；should_accept_event 双 seq 存在时纯比大小（:3011-3014，无时间回退）→ 若 v4 每文件重置 seq：SessionStart(seq0) 与全部低 seq 事件被拒（暗会话，直至 seq 超旧最大值）且仍被无条件 emit；若 v4 全量续写历史：一次性重复回放风暴；仅「v4 只写新事件且 seq 全局续」情形干净——假设未验证，列 P1
+- 回归核对：R52 spawn 路径无回归（tauri::async_runtime::spawn 全局托管 runtime；AppHandle<Wry> 自动 Send+Sync：RuntimeHandle trait Send+Sync+'static + Arc 字段；r52 裸线程测试仍在）；lib.rs:180 调用形状被 closure smoke 断言锁定且位于 HTTP server 块外（无 server 也启动，语义不变）；emit_stats &Arc<Runtime> 传参类型与 http_server 签名一致；版本门 u32 严格（字符串/浮点 version→from_value Err→accepts_events 保持 false→整文件 fail-closed）
+- 次级发现：>32MiB 冷读永久 Err（先在性，但 R57 后大文件会话仍零收益）；session_file_for/滚动检测/版本门零单测（旧 test_fail_closed_unknown_version 断言陈旧）；同代双格式 plain 优先是无证据假设（建议 mtime 决胜）；turn/end reason 形状契约漂移（typed 枚举=字符串 vs 运行时读 .reason.kind 对象，先在性）
+- 静态验证：tauri-dsh-observer-closure-smoke / maintainability-boundary / pet-r53-codewhale / tauri-phase4-cutover 四项 ok（本容器实跑）；容器无 cargo，编译与 Rust 单测未复验（沿用 CI 门禁）
+
+Stage Summary:
+- 裁决：R57 的格式解钉（代际文件名/版本门≤4/ptc-dispatch/事件出口/greet 归一化/juggling 显式 state）方向与实现全部正确，OK 清单 10 项；但事件出口接通时缺失「回放抑制」语义，与既有的 cleanup_idle 重建循环叠加产生 P0 级启动风暴+永续风暴——必须本轮修，修法四件套：① emit 按 ingest accepted 门控（新增 ingest_with_ack 或比对快照 seq）② 冷启动/代际滚动追赶态只 ingest 不 emit（或仅补发末条状态+一次 stats）③ greet 按会话存活（追赶完成且 last_event_time 在 ~10min 内才发）④ cleanup_idle 不再对磁盘仍在的会话制造 offset=0 重建（或 discover 按 mtime 预筛）
+- P1×1：代际滚动 seq 连续性假设未验证（暗会话/一次性风暴双风险，建议滚动时同步重置 runtime 行排序态或 should_accept_event 加远新时间回退，并对照 deepseek-harness 持久化文档取证 seq 语义）；P2×4：同代双格式决胜假设、32MiB 门、单测缺失、reason 形状
+- 零代码改动（只读约束遵守）
+
+---
+Task ID: R57-RV-A1
+Agent: reviewer-A1（只读复审，未改任何代码）
+Task: R57 皮肤与表情前端链复审——lookout 状态链/whale thinking 池/prop 拦截/error 丝带/skin-cat 双类/copy 按钮/chooser 门控/nudge 重绘
+
+Work Log:
+- 只读通读 diff b4c5ffd..HEAD 前端五文件 + pet.html 结构核对（#pet-anchor 仅包三皮肤节点；#sessions/#prop/#sidekick 为 #stage 直接子节点）+ 上游 /tmp/LLMPET-up renderer/pet.js(2974/2984/3105/3868)·pet.css(423-439/790-820)·main.js(1553) 逐处对照
+- vm 沙箱实测 i18n 生效值（zh t('ask.submit')="Submit Answer"）、states.js 词表（lookout∈RENDER_STATE_WORDS，27 词）；node --check 四文件通过；8 个 pet 相关冒烟/回归测试实测全绿（reconciliation/r53/maintainability/phase1/systemic/octopus-fix/r50/r51）
+- 几何推演：error 丝带 append 到 #cat（无 position，error 态 filter:none）→ containing block 落 #pet-anchor(position:relative)，两盒重合（#sessions 在 anchor 外）→ left50%/top38% 落点正确；z-25 处于 anchor（transform 栈上下文）内、低于 #bubble z-30，与 stage confetti 绘制序一致；errPersist keyframes(476-483) 持续动画 filter
+- P1×2：①frontend/shared/i18n.js:181 残留英文 'ask.submit' 键遮蔽 :161 新中文键（:619/:1046 同款重复但值相同为良性）→ R57「消除 elicitation 英文硬编码」在 zh 主语言未达成（实证 zh t('ask.submit')="Submit Answer"）；②frontend/renderer/pet.js:1668 territory victory 对全皮肤 transient('lookout')，MASCOT_EYES 无 lookout 键（:96 回落 mascot.png）、pet.css 无 #mascot/#pixel .lookout 动画与徽标 → 默认 mascot 皮肤胜利表情从 happy（happyJump+笑眼）退化为无表情（上游 loot lookout 仅经 setLootActionVisual 对 cat/whale 生效，不动全局状态）
+- P2×5：pet.css:675 #mascot.error #mascot-img 红调 filter 被 :672 errPersist 动画（动画声明级联高于普通作者声明）持续遮蔽=无效死规则；pet.css:706 body.skin-cat .sessions{width:180} 缺上游 justify-content:center（upstream pet.css:423-430）→ 圆点在 180px 盒内左贴，cat 皮肤（120px 宠物）单点偏离宠物中心 ~85px；pet.js:1094 copy 按钮无条件渲染，空 sessionId=空按钮且点击把空串写进剪贴板（上游按 id 有无 hidden 门控）；pet.js:543 多选提示仍硬编码中文「可多选」而 zh 词典已有 ask.multiHint，en/ja 用户看到中文；pet.css:970 #bubble-text{max-height:30vh;overflow:hidden} 使超长气泡从「fitPopup 撑窗到屏幕封顶」退化为 30vh 无声硬截断且无滚动兜底（fitBubbleToViewport 以被帽高度测量，扩窗后 30vh 解帽致最终高度略超测量值）
+- Info×3：lookout 无方向镜像（上游 loot-action-mirrored 翻转 GIF；territory.rs:512 victory 事件无 direction 字段，需后端配合才可补）；copy 按钮 title 缺完整会话 ID（上游 tooltip 显示全 ID+提示）；#cat img image-rendering:auto 在本 fork 无 pixelated 竞争源=零效果的上游对齐声明
+- OK 清单：lookout 词表链（states.js RENDER_EXTRA→RENDER_STATE_WORDS→pet.js:1292 STATE_WORDS→classList.remove 全覆盖）无类泄漏；transient('lookout') 到期回落（transientTimer→applyStats(lastStats,true)，state===transientState 守卫）与稳态接管（waiting/error 穿透+clearTransient）全通；pet-skin-packs.update() lookout 解析（states 命中/无池清轮换+poolIdx++/assetMatches 目录前缀防 cat↔whale 串皮）、cat-thinking-2.gif/whale-thinking-2.gif 资产在位；mascot lookout 回落 mascot.png 可接受（文档化）；prop 拦截与上游 pet.js:2984 逐字同款，summon/sidekick 上游同样不拦（fork 一致），clearAction remove('on') 对 meme 无害；丝带生命周期无泄漏（setState 早退由 1750ms 定时自续、换皮 applySkin:2231 兜底、节点 TTL 1600ms<1750ms 无累积）；skin-cat 双类 display 规则与 skin-whale 并存无冲突、180px 行宽在 320px 窗内无换行/溢出；whale thinking 池与 lookout 共用 thinking-2 素材互不污染（进 lookout 即停池、poolIdx 按池取模）；travel completed bigDone 受 muted 闸；chooser hasFocus 门控/两帧延迟缩窗（条件重查+幂等）/nudgeWebViewRepaint（translateZ 恒等、两帧提层、fixed toast 不受影响）低风险正确；esc() 转义与 t() 三语键（sess.copyId/sess.copied 各 3 处无重复）齐备；upstream-reconciliation-smoke 断言（资产保留/死面未回归/三语）与 R57 改动自洽仍语义正确
+
+Stage Summary:
+- 判定：R57 皮肤/表情主链（lookout 状态机、whale thinking 池、prop 双保险、error 丝带、skin-cat 双类）移植忠实，几何/栈序/生命周期推演无 P0；两处 P1 均为「修复未达成/表情退化」型而非崩溃型——zh 词典键遮蔽使 i18n 修复落空、默认 mascot 皮肤胜利表情从 happy 退化为无表情
+- 下一步（移交修复任务）：删 i18n.js:181/619/1046 三处陈旧重复 'ask.submit' 键；pet.js:1668 victory 分支按 isMeme() 选 lookout/happy（或补 mascot/pixel lookout 视觉+MASCOT_EYES 键）；P2 择机：红调并入 errPersist keyframes、.sessions 补 justify-content:center、copy 空ID隐藏、multi 提示改 t('ask.multiHint')、bubble 30vh 帽加滚动/展开兜底
+
+---
+Task ID: R57-RV-A5
+Agent: reviewer-A5 (read-only 复审, 未改任何代码)
+Task: R57「GUI 显示残留修复链」只读复审（nudgeWebViewRepaint / closeProviderChooser 延迟缩窗 / hasFocus 门控 / backgroundColor / mascot error filter / bubble 30vh 帽 / sl-copy / 未修项 P2-5·P1-3③·P3-7·P3-9），基线 b4c5ffd 工作区 diff
+
+Findings（按严重度）:
+- P1（收敛证实，皮肤链复审已立案，本链独立复核）frontend/shared/i18n.js:161 vs :181 —— zh 词典 'ask.submit' 双键：新键「提交回答」(161) 被旧英文残留 'Submit Answer' (181) 遮蔽（对象字面量后键胜出）→ pet.js:575 的 t('ask.submit') 在中文界面仍显示英文，R57 的 elicitation i18n 修复在 zh 落空。en 599/619、ja 1026/1046 同名同值重复（无害但应顺手清）。修法：删 i18n.js:181（连带同簇 zh 英文残留 needsInput/back）。
+- P1（收敛证实）pet.js:1668 victory 无条件 transient('lookout') —— MASCOT_EYES(pet.js:56-80) 无 lookout 键、pet.css 无 #mascot/#pixel .lookout 规则 → mascot/pixel 皮肤胜利表情从 happy（happyJump 动画+happy 图）退化为静态底图。修法：isMeme() 时 lookout、否则保 happy。
+- P2 pet.css:970-971（#bubble-text max-height:30vh + overflow:hidden）× pet.js:1478-1484 —— 基础窗 340px 下 30vh≈102px≈5 行：超长气泡底端无声裁切且不可滚动（overflow:hidden 而非 auto，bubble.scrollTop=0/pet.js:1495 成空操作）；fitBubbleToViewport 量到的 bubble.scrollHeight 是被钳制后的布局高 → R50「撑窗自适」对 >30vh 内容实际失效（长错误/权限提示文案丢失后半段）。R50 卡顿不复发（方向相反：resize 更少）。修法：overflow-y:auto（恢复内滚）或仅对 .bubble.hidden 封顶，或提阈 60vh。
+- P2 pet.css:675 静态红调 filter 死码 —— errPersist keyframes(pet.css:476-483) 在 0/32/40/100% 全程声明 filter（红色 drop-shadow），动画原 > 普通作者声明 → 新增的 saturate/sepia/hue-rotate 静态滤镜永不生效（「修而无效」，error/wait 靠动画红光仍可区分，无用户可见伤害）。修法：tint 并入 mascot 专用 keyframes 变体（#pixel 共用现 keyframes，勿全局改）。
+- P2 pet.js:2115-2117 延迟 resetPetSize 守卫漏 providerChooserOpen —— 2 帧内重开 chooser（后端 choose-provider 事件竞速）时窗口会在 chooser 打开状态下缩回 320（卡片 292px+高度截断+残影复发面）；同族守卫 hideBubble(pet.js:1508) 已含该标志，属笔误级不一致。修法：守卫补 `!providerChooserOpen`（一行）。
+- P3（未修项 P3-7 的「无害」论不成立）pet.css:42 max-width:290px 未被深色块(797-808)覆盖 → 520 宽弹窗里 ask 卡左贴 290px；pet.css:72 hover translateX(2px) 未被 833 覆盖且深色 transition(831) 不含 transform → 选项 hover 瞬跳 2px。修法：深色块补 max-width:none + .ask-opt:hover{transform:none}（勿删整块 41-98：display:flex/gap:8px/askIn 动作被深色卡依赖）。
+
+OK 清单（逐项源码级验证）:
+- nudgeWebViewRepaint(pet.js:404-411)：html/:root 无 transform/transition 规则（act-*/errPersist/badge 动画全在内层元素）→ 恒等变换不重启/不取消任何动画；fixed 元素（.re-llmpet-toast/.provider-chooser）改锚 html 但同盒无位移；-webkit-app-region 拖拽不受 identity transform 影响。260ms fallback timer 路径每个 geometry revision 至多一次 nudge（clearGeometryBusy 有 revision 门），高频抖动下相邻 nudge 重叠仅截短后到者的提层时长（提/摘层本身已强制重栅格化，最后一个 nudge 必完整跑满 2 帧）；成本 2 帧全量重绘（320×340 窗 <1ms）。reportPetVisualBounds 每次 clear 双呼（389+409）冗余无害（getComputedStyle+rect+Mutex 写各百 µs 级）。
+- 观察项（R36 遗留非 R57 引入）：resetPetSize 的 expectedPetSize=[0,0] 与后端解析值 320×340（commands.rs:1307-1311）永不匹配 → 缩窗路径 onResized ack 恒失效、恒走 260ms fallback，nudge 固定延迟 260ms 到达（仍有效，仅慢）。
+- 延迟缩窗 rAF×2 时序正确（宽帧清空后 ≥2 帧 present 再缩，对 tauri#10306 类残留的正确两段式）；rAF 在可见未聚焦窗全速运行；petSizeController（latest-value-controller.js:79-142）latest-wins 串行 apply、失败按最新 revision 重试，乱序收敛语义成立（缺口仅上述守卫漏项）。
+- hasFocus 门控（pet.js:2101）：点击路径窗口激活先于 click 派发（WebView2/GTK 均然，tao linux set_accept_focus(true)）→ 点击打开 chooser 时 hasFocus()=true、首项聚焦保留、键盘可达性不失效；后端 choose-provider 打开时正确跳过 focus（避免 R56 焦点反弹复发），降级可接受——用户点进卡片后一次 ArrowDown 仍聚焦首项（pet.js:2199-2207 idx=-1→items[0]）。
+- tauri.conf.json backgroundColor "#00000000"（两 pet 窗，:29/:47）：tauri-utils 2.9.3 Color::from_str 接受 8 位 #RRGGBBAA（config.rs:1743-1765）；runtime-wry 双传窗层(tao)+webview 层(wry)。Win/WebView2 alpha=0 → COREWEBVIEW2_COLOR{A:0} 透明（wry-0.55.1 webview2/mod.rs:127-131,393-399；⚠️ 非零 alpha 被钳成 255 —— 未来半透明背景的陷阱）；macOS underPageBackgroundColor+drawsBackground=false；Linux webkitgtk transparent:true 分支已强制 RGBA(0,0,0,0)（wry webkitgtk/mod.rs:290-301）→ 配置值冗余 no-op 无害，tao GTK 窗层 CSS rgba(0,0,0,0) 且窗已具 RGBA visual 无黑底。平台覆盖 conf 不重定义 app.windows。
+- sl-copy（pet.js:1092-1136 / pet.css:1262-1271,1297-1301）：入 .sl-row-actions（opacity:0→行 hover 显）符合设计；prefDisabled 仅 pin/archive（写 IPC 排队禁用）不适用 copy（Clipboard API+execCommand 兜底，无 IPC）✓；esc 转义/stopPropagation/行点击 .sl-action 守卫/三语键齐 ✓（注：hover-only 无 :focus-within 键盘路径，与既有 pin/archive 一致）。
+- error 丝带（pet.js:1429-1469 / pet.css:609-627）：挂 curSkinEl()=#cat、锚 position:relative 的 #pet-anchor → 跟窗移动；pointer-events:none；reduced-motion 下 animation:none 隐形且 1600ms TTL 自清无泄漏；离开 whale/error/换皮即 clearErrorRibbons。
+- 验证运行：node 直跑 pet-r50-regression-smoke / pet-r51-provider-smoke-regression / octopus-fix-regression-smoke / phase1-pet-interaction-regression / pet-systemic-regression 全 PASS。R50 冒烟只断言函数存在+守卫，未覆盖长气泡撑窗行为 → 本轮 P2 裁切回归无测试护栏。
+
+未修项风险表:
+- P1-3③ ui_busy 全局位（platform.rs:67,79-85；commands.rs:3294-3297）：duo 双窗互踩——A 窗 HUD 开着、B 窗关 HUD 清全局 busy → territory 自动巡逻（territory.rs:268、commands.rs:881,897）可在用户交互时启动拖着 HUD 走；点击穿透不受影响（mouse_ignore 已 per-label 且开 HUD 的窗自请求 ignore=false）。理由部分成立（触发需双宠+同时 HUD），下轮一行级修复（busy 改 per-label map 取或）。
+- P2-5 petReady 门控（lib.rs:182-188 setup 时 emit pet:config/stats 早于渲染层 subscribe）：已被 pet.js:2622-2634 pull 自举（getConfig/getStats）对冲自愈；首显 show 无 renderer-ready 门（visible:false+入场动画+透明底掩盖 1 帧空白）。不修理由成立（自愈型，低优先）。
+- P3-7 ask 浅色块：「死规则无害」不成立（见上 P3 两条真实泄漏）——纯外观，两行覆盖修复。
+- P3-9 focus_pet 死命令（commands.rs:1330-1336；lib.rs:265；tauri-bridge.js:264；零调用方，pet.js:201 仅注释）：无功能风险，残留 show+set_focus 原语小攻击面+维护混淆；惰性删除可接受（清理需动 capabilities/bridge/测试）。
+
+Verdict: R57 残留修复主链（延迟缩窗+nudge+backgroundColor）方案正确、实现合格，无 P0；两处 P1 均为「修复未达成」型（i18n zh 键遮蔽、victory 表情退化，与皮肤链复审收敛）；三处 P2 + 一组 P3 泄漏待下轮小额清理。
+
+---
+Task ID: R57-RV-A2
+Agent: reviewer-A2（只读复审，未改任何代码）
+Task: R57 后端表情生命周期链复审——greet 新链（SessionStart 即发/one_shot_host 过滤）、TaskStarted↔UserPromptSubmit 3s 去重、Stop→attention、done/interrupted 角标、loafing 收窄 claude-only、inject_emotion 五字段、mode_change/Interrupt 守卫
+
+Work Log:
+- 只读通读 diff b4c5ffd..工作区 model.rs/http_server.rs/hook_client.rs 三文件全量（325/131/56 行），交叉核对 dsh_watch.rs（合成 SessionStart 612-622、turn/end 787-846、emit_session_event_static 947-976）、plugin_sources.rs（opencode 插件字段实形）、process_probe.rs（ack 调用点 261/268）、STATES.md §3（:51/:158）、pet.js/panel.js/pet-runtime-policy.js 前端消费契约
+- 逻辑实证：①is_one_shot_host_session_cwd 与上游 regex `(?:^|/)\.[^/]+/sessions/[^/]+(?:/|$)` 16 例仿真 0 失配（含任务三例：~/.openloomi/sessions/abc 过滤、~/.codex/worktrees/x 与 ~/.dotfiles 不过滤）；②ingest 返回 snapshot=entry.clone() 于全部变异之后（model.rs:1090）→ emit 所见 greet_due/user_prompt_at 均为 ingest 后值，无 TOCTOU；③emit_hook_event 于 http_server.rs:314-319 与 dsh_watch.rs:620-622/972-974 均不按 accepted 门控（ingest 丢弃 accepted）——与 R57-RV 主审立案的 dsh 启动风暴 P0 同根，A2 从 model/emit 契约侧佐证
+- 门禁实跑：cargo test --lib 152/152（GTK pkgconfig 走 ~/.local/gtk-dev）；13 个相关 JS 冒烟全绿（upstream-reconciliation/octopus-fix/dsh-observer/phase4/maintainability/pet-r53/native-core/r40-runtime/r36-lifecycle/local-http-hardening/transcript-pricing/root-regression/pet-systemic）
+- P1×2：①model.rs:1055-1060 "Stop" 臂无 abort 感知——codex Interrupt（hook_client.rs:399-405 映射为 Stop+attention+native_event=Interrupt）仍设 turn_done_at → 用户中止后绿灯「刚完成」角标亮 5 分钟（http_server.rs:704-708 的 aborted 守卫只挡 say/turn-done 事件，角标派生自 model 状态非事件），且违反 STATES.md:158「ESC 中断=idle+中断徽标」；②Stop→attention（model.rs:3089）与前端角标门控 state==='idle'（pet.js:1007-1008/panel.js:683-684）冲突——后端行态永不回落 idle（无回落事件、仅前端聚合器 15s 租约 pet-runtime-policy.js:68-79），面板 done 角标依旧死码、HUD 仅文案「刚完成」亮而绿点不亮、行/面板长期黄显「需要注意」（STATES.md:51「落定 idle」仅半实现）
+- P2×6：greet_due 不被 SessionStart 帧消耗（model.rs:1079-1081 清理条件排除 SessionStart）+emit 无 accepted 门控→重复/被拒 SessionStart 帧在窗口内重放 greet；dsh 重启即全员重 greet（dsh_watch.rs:604-611 注释声称 restart 非 was_new——会话表纯内存不成立）；「codex 发 TaskStarted」说法不实（hook_install.rs:122-142 十二事件无此名、dsh 不经 inject_emotion）→hook_client.rs:644-650 角色臂死代码+三处注释误导；turn_aborted 守卫半死（全仓无生产者，http_server.rs:708）；3s 去重以 turn/start 先于 user/message 为承载假设（仓内无样序证据，倒序则每轮双发 user-turn）；greet 载荷缺 project 字段（http_server.rs:744-748 vs pet.js:1635 气泡项目名空，R56 遗留随迁）
+- 零代码改动（只读约束遵守）
+
+Stage Summary:
+- 裁决：R57 表情生命周期主链（SessionStart 即发 greet+会话级 greeted_at 去重、TaskStarted 兜底+3s 去重、Stop→attention 对齐 STATES.md:51、角标数据面 done/interrupted 派生+ack、loafing 收窄 claude-only、五字段 longest-wins 嗅探）移植方向正确、R56 三缺陷（greet 永不清、项目级频控吞并行会话、5/6 provider 嗅探死）确已修复；但「中止=完成」与「attention≠idle 角标门控」两个跨层契约破绽使两处宣称修复未达成（P1×2），建议下轮与 R57-RV 主审 P0 修法四件套（emit 门控 accepted / 追赶期不 emit / greet 按会话存活）同批落地
+- OK 清单 15 项详见复审报告；关键：is_one_shot 正则等价 16/16、收养(auto:)/显式 parent 的 headless 行不误 greet（emit:696 早退+arm 仅 SessionStart 可达）、dsh completed 路径不被 aborted 守卫误伤（native_event=turn_end）、codewhale failed/interrupted→StopFailure 红角标路径正确、badge 优先级 error>interrupted(45s)>done(5min) 与 prune(ended 30min/200 上限) 自洽、claude/codex prompt 字段嗅探确通、工具输出字段(tool_response/tool_input)不在 TEXT_FIELDS 无误嗅探载体、cargo 152/152+13 冒烟全绿
+
+---
+Task ID: R57-RV-B8
+Agent: reviewer-B8（只读复审，未改任何代码）
+Task: R57 新测试质量复审——process_probe.rs 20 个 #[cfg(test)] 断言强度/FakeTable 保真度/平台实现覆盖、4 个 JS 冒烟断言迁移与预算、新行为缺测试清单
+
+Work Log:
+- 只读通读 process_probe.rs 全量（843 行：决策纯函数 95-224、编排 231-329、Linux/macOS/Windows 三套 SystemProcessTable 386-566、tests 568-843）+ pet-r53/dsh-observer-closure/phase4-cutover/maintainability-boundary 4 个 JS 冒烟全量；交叉核对 commands.rs agent_spec（1401-1431，六 provider command 全小写）、dsh_watch.rs（REPLAY_QUIET_MS 254/634/1002-1005、start_dsh_watcher 1028）、model.rs（greet_due/Stop-aborted/badge 1037-1106/1683-1695）、http_server.rs（greet emit 746-763、3s 去重 767-776）、ci.yml Rust 矩阵（ubuntu+windows）
+- 断言强度逐测评估：20 个测试无纯重言式（全部断言真实计算值）；薄弱点三处——probe_scan_prefers_cwd_match/probe_zombie_* 的两遍扫描语义锁在 FakeTable 手工镜像里（Fake 599-622 与 Linux 406-442 今日逐行等价但零机制同步，生产漂移测试仍绿）；plan_fresh_work_state_after_dead_probe_holds_the_lease 名含 plan 实测 state_lease_alive 谓词且 90_001 负例与 lease_boundaries_are_exact 完全重复；codex_thread_id 长度上下界（7/8、128/129、空串）全缺，上限 128 是防超长 id 进 URL/cmd 尾的实际安全闸
+- 关键缺口定级 P1×3：①plan_focus_with 的 Alive→FocusPlan::Focus 映射（:130，模块立身之本「探到活进程即不 relaunch」）零测试覆盖，plan 层测试只覆盖 Dead 侧+Headless+dsh；②Fake/生产 scan 双拷贝漂移风险（测试锁 Fake 不锁生产）；③pet-r53:97 只断言 resume_session_inner 字符串存在——调用挪出 match 改无条件 relaunch（原 bug 形态）四条 JS 断言仍绿，LeaseHold/unfocusable 两条不 relaunch 气泡（约 90 秒/会话进程仍在运行）无任何锁；Rust plan_focus_with 锁决策、JS 锁不了编排，两层之间正无防
+- P2×5：companion 双名扫描（codewhale+codewhale-tui，模块头注释明言的设计目标）零覆盖；probe_with pid 路径 cwd 命中分支（:162-164 身份不匹配但 cwd 相同→Alive）零覆盖；Windows ConvertTo-Json 单对象/数组两态解析+macOS ps 行解析内联在 cfg 门内零执行（CI Rust 矩阵无 macOS 测试目标）——评估结论：抽 parse_win32_process_rows/parse_ps_axo_line 平台无关纯函数值得做（成本低、Linux 即可单测）；maintainability 预算 850/843 余量 7 过紧（对照 instance_probe 36/pet.js 35 档位），缺口清单落地约 +45~70 行必然触发，建议 recalibrate 至 900 并修注释两处漂移（~60% 测试实际 33%、FakeProcessTable 实名 FakeTable）
+- P3×7：FakeTable HashMap 迭代序不确定（多名候选第二遍遍历才暴露，随 P1-2 抽共享选择器一并根除）；plan_headless/plan_dsh 走生产入口今日安全（臂序在 probe 前短路）但臂序一改即机器相关；identity_matches 注释「NUL on Linux」与实现漂移（Linux cmdline 读出即 NUL→空格替换 :396，NUL 分支生产不可达、纯测试锁定死路径）；LEASE_STATES juggling/carrying 无正例；identity_matches 大小写不对称（names 不 lowercase，现有 provider 全小写故无害、新 provider 驼峰即静默失配）
+- 新行为缺测试清单（R57 六项全零覆盖，grep test/ 全仓证实）：greet-SessionStart 发射（model arm/清臂+http emit 接线双层）、TaskStarted 3s 去重+情绪豁免、Interrupt 不发 turn-done 且 badge=interrupted（A2 P1-① 的直接回归锁，纯字段运算最适合 Rust 单测）、REPLAY_QUIET_MS 抑制（A3 P0 风暴修复零覆盖最不该，120s 边界抽 replay_quiet 纯谓词即测）、badge done 300s TTL/ack 清零、dsh emit accepted 门控（JS 切片断言最便宜）
+- 门禁沙箱实跑全绿：node × 4 冒烟（pet-r53/dsh-observer-closure/phase4-cutover/maintainability-boundary）全 ok；node --check × 4 全过；cargo test --lib --locked 157/157（含 process_probe::tests 20/20，沙箱装 GTK pkgconfig 走 ~/.local/gtk-dev 后真实编译非缓存二进制）
+- 零代码改动（只读约束遵守）
+
+Stage Summary:
+- 裁决：R57 测试新增方向正确——决策纯函数化+ProcessTable trait 注入是本仓最可单测的形态，20 测试全绿且无重言式，Dead→LeaseHold/Relaunch 接线、lease 精确边界、ended 硬否决、深链 id charset 均被真实锁定；但三处 P1 使「防回退到无条件 resume」的承诺只兑现了一半：Alive→Focus 接线无锁、Fake 镜像使扫描语义测试价值打折、JS 断言存在性而非结构性。建议下轮与 A2/A3 遗留（emit 门控/Interrupt badge）同批：P1-1 一个测试+P1-2 抽共享 select_scan_pid+P1-3 pet-r53 切片断言三件套，预算同步 850→900；缺测试清单六项按「Rust 单测三（model 字段迁移抽纯函数，沿用 should_accept_event fixture 先例）+JS 冒烟三（emit 接线字符串断言）」路由落地
+
+Task ID: R57-RV-B7
+Agent: reviewer-B7（只读复审，未改任何代码）
+Task: R57 前端交互复审（修复后一致性 + applyStats/transient/bubble 交互矩阵）——pet.js/pet.css/pet-skin-packs.js/states.js/panel.js 相对 b4c5ffd 全量 diff
+
+Work Log:
+- 只读通读 frontend/ 全 diff（6 文件 555 行）+ 关键区深读：pet.js transient/clearTransient/applyStats 聚合梯子（1358-1376/1850-1868）、onEvent 全 case（1594-1760）、renderSessList/sessionDotClass（977-1139）、syncErrorRibbons/errorRibbonBurst（1434-1475）、confetti 坐标系对比（1409-1431）、markGeometryBusy/resetPetSize/nudgeWebViewRepaint（287-449）；pet-skin-packs.js 全文（209 行：lookout 表项/池轮换/containing-block 语义）；states.js 全文（RENDER_EXTRA+lookout → RENDER_STATE_WORDS）；panel.js STATE_META/renderSessList（557-705）；pet.css 级联链（.ask 浅深双块 41/800/981、.sessions/ #pet-anchor 264、#mascot error 滤镜 678、bubble 30vh 966-976、error-ribbon 612-626）；pet.html ask 工具栏（36-39）
+- node vm 严格解析三语字典 + 逐键扫描：五 ask 键（submit/next/other/chooseOne/multiHint，multiHint 原已存在于 zh:154/en:591/ja:1017）+ sess.copyId/sess.copied + state.done/error 三语全存在零 MISSING；重复键——zh/en 干净（R57 删遮蔽条目生效），**ja 'ask.submit' 双份（1024/1042，值同为『回答を送信』无行为差异，但 R57 新增块加了一份而未删旧条目，zh/en 均删了，ja 漏删）**；panel.noData/noTodo/bgClean 三语重复为 b4c5ffd 基线既有（已 git show 对照，同值无害）
+- 交互矩阵逐路径核验：victory lookout 回落（transientTimer 到期 state===transientState 守卫 1368 ✓）、waiting/needsinput/state 穿透清场（1620/1631/1757 clearTransient ✓）、say 接管（lookout≠happy 跳接棒分支→transient 直接覆盖+clearTimeout 旧 timer ✓）、transient() 顶部 waiting 拦截 ✓（任务点 c 证实）；badge 权威化（pet.js:1010-1011 与 panel.js:684-686 同构；badge='error' 无独立分支但 Rust model.rs:1683 该值仅当 state==='error' → 回落 s.state 语义等价；三处 done 绿 CSS 全在：pet.css:351/776、panel.css:275）
+- 深挖出 4 个 P1/P2 新发现：①pet.html:36 askBack 恒英文 "Back"（pet.js 只 toggle hidden 从不设 textContent，'ask.back' 键 R57 已删且零消费）+ pet.html:39 askTerm 恒英文 "Go to Terminal"（'ask.goTerminal' 三语键存在但零消费=死键）——zh/ja 用户在授权卡上可见英文残留，与 A1 批次修的「字典遮蔽」同族不同病灶（按钮未接线）；②panel.js detail 分支用 effState 排序而 pet.js 用 s.state——badge='done'+state='waiting'（Stop 后 5 分钟内来新 permission）panel 显示「刚完成」绿徽标丢等待提示、badge='interrupted'（45s）+state='working'（已重启）panel 显示「出错了」丢 op 详情，两窗口语义分裂；③copy 按钮 1.1s 反馈窗内连点第二次 done() 的 prev 快照被 '已复制' 污染 → 按钮文本永久变 '已复制' 至下个快照；④RV-A5 气泡滚动容器改为 #bubble-text（30vh+overflow:auto）但 pet.js:1500 重置的仍是 #bubble（无 overflow 恒 no-op）→ 长气泡滚后下一条从残留位置显示
+- CSS 级联安全实证：.ask max-width:none（981 在深色块后同特异性取胜）——原 290px 是浅色布局流卡限宽，深色 absolute+left/right:12px 重做后把 520 窗卡片压 290 左贴，归零后 496px 全宽与上游一致，ask-opt width:100%/toolbar flex 自适应无破版；.sessions center 对 mascot 零迁移（#stage align-items:center 下 .sessions 无 width shrink-to-fit → center 为 no-op；meme 180px 宽下修正 R56 whale 点左偏 ~85px）；errorRibbonBurst 挂 #cat(static) 但 containing block 是 #pet-anchor（position:relative+transform pet.css:264-271）→ 50%/38% 相对宠物盒、丝带随 --pet-anchor-shift 跟随宠物跨锚点，上游语义移植正确；syncErrorRibbons setState/applySkin 双入口+setState 早退不重入+清场无泄漏
+- 撤销检查证实：markGeometryBusy [0,0] 哨兵在 onResized ack 比对永不命中（|actual-0|>2）→ resetPetSize 恒走 260ms fallback——b4c5ffd 基线即如此（git show 逐行对照），R57 只在 clearGeometryBusy 追加 nudgeWebViewRepaint()，fallback 路径同样触发 nudge，修复不受影响，无害结论确认
+- lookout 联动证实：cat/whale 表项（cat-thinking-2/whale-thinking-2，后者为原零引用孤儿资产激活，与 thinking 池共用素材 60s 轮换才可见互不冲突）；RENDER_EXTRA+lookout → RENDER_STATE_WORDS → classList.remove 全集覆盖离开清理 ✓；panel STATE_META/SESSION_STATE_KEYS 无 lookout 条目正确（后端 STATE_PRIORITY 无 lookout 无生产者，sessionStateLabel('lookout') 理论回退原文不崩溃且不可达）；mascot victory 回落 happy（MASCOT_EYES.happy 在 pet.js:64，RV-A1 修复到位）；唯一边缘=lookout 3.6s 窗口内 meme→mascot 换皮显示静态底图 ≤3.6s（极低概率，观察项不列修）
+- 门禁沙箱实跑全绿：phase1-pet-interaction / pet-systemic / octopus-fix / pet-r50（静默 exit 0）/ pet-r51 / pet-r53 / pet-runtime-startup / i18n.js / panel-i18n-audit-r17 / panel-sesslist-r19 十测全 ok；零代码改动（只读约束遵守）
+
+Stage Summary:
+- 裁决：R57 前端主体修复（lookout 状态机/badge 权威化/皮肤级联/chooser 残影 nudge）质量过硬——transient 交互矩阵全路径无回归、三处 done 绿点 CSS 齐、[0,0] 260ms fallback 为既有无害行为、十测全绿；但 A1 批次修 i18n 时只清了字典没接线按钮：askBack/askTerm 两个英文硬编码在 zh/ja 下裸奔（P1×1 族），ja 'ask.submit' 重复键漏删、panel detail 与 pet meta 的 badge/state 排序不同构造成两窗口语义分裂、copy 连点竞态、bubble scrollTop 指错容器四项 P2。建议下批：P1 一族两个 data-i18n 接线十分钟级；P2-3 恢复 ja 删重一行；P2-4 panel detail 改用 s.state 排序与 pet.js:1071-1077 同构；P2-5 copy 恢复目标改常量切片；P2-6 bubble.scrollTop→bubbleText.scrollTop——五件合计 <20 行，均为低风险点改
+
+---
+Task ID: R57-RV-B10
+Agent: reviewer-B10 (只读复审：配置/模块接线/文档一致性)
+Task: R57 diff（相对 b4c5ffd，未提交工作区）复审——tauri.conf、lib.rs 接线、session_resume/platform/territory topmost 移除、STATES/README/CODEWHALE 文档一致性、SOURCE_MANIFEST、CHANGELOG 0.6.6 起草
+
+Work Log:
+- tauri.conf.json：node require 解析 OK；两窗 backgroundColor "#00000000" 合法 8 位 RGBA(alpha=00)；diff 仅在 pet/pet-codex 窗对象末尾追加键、无键序重排；tauri-build schema 校验随 cargo check EXIT=0 通过；release-supply-chain-smoke/release-asset-verifier 无 conf 结构断言（只查 lock 版本一致+workflow 内容+fixture manifest 确定性）；static-check.py 按语义读 conf（frontendDist）22/22 过
+- 版本 pin：package.json/package-lock×2/Cargo.toml/Cargo.lock/tauri.conf/migration-todo release/SOURCE_MANIFEST version+root 全部一致钉 0.6.5（未 bump，符合预期）；SOURCE_MANIFEST --verify 实跑 OK（422 files 含 process_probe.rs，generated==SOURCE_DATE_EPOCH）；migration-todo 50 tasks valid
+- lib.rs：mod process_probe 字母序正确（pricing_sync < process_probe < provider_registry）；start_dsh_watcher(runtime, app.handle().clone()) 在 setup 闭包内与 pricing_sync::start 同型；dsh_watch use tauri::AppHandle 导入位置符合 serde/std/tauri/tokio/tracing 组序；tauri::async_runtime::spawn（R52 热修）保留
+- session_resume.rs：Manager 导入移除无残留（cargo check --lib --tests EXIT=0 实证）；topmost 重断言移除有 R57 注释交代；R54 注释块 5 provider 仍准确
+- platform.rs：AppState 导入移除无残留；focus_pid 文档注释准确；territory.rs run_now_inner hidePet 下不 show 语义保持（should_show 条件未动）；测试断言迁移（phase4-cutover/r53/dsh-observer-closure/maintainability）四测实跑全过；npm test 82 文件 EXIT=0；cargo fmt --check EXIT=0
+- 文档核对：STATES.md §3 greet=SessionStart 触发与新语义一致（无需改）；§5/§6 缺 lookout 与 badge done(interrupted) 新语义；README.md line20/164 仍写「三款皮肤」（whale 为 0.6.5 已发的第 4 款）；dsh 章节未提 session.vN 代际名与 ≤4 版本门；docs/CODEWHALE.md 事件契约表缺 mode_change→ModeChange 行
+- 发现缺口：migration-todo/next-actions/worklog 均无 0.6.6 bump 或 R57 条目（worklog R57 记录缺失）；硬编码 0.6.5 断言分布于 9 个测试文件（r44c/r44-39/r44-41/r40/r401/price-auto/metering-phase2/pet-r51/protocol-drift UA）；mode_change→ModeChange 与 dsh 版本门无专测（dsh_watch test_fail_closed_unknown_version 名不副实：version 1 现已被接受）
+- CHANGELOG 0.6.6 草稿要点已交付（焦点双进程/duo 层叠/dsh 三重失效+回放风暴/表情复活/greet 新语义/Stop 中止/badge/mode_change/lookout/whale 细节/残影 nudge/i18n/复制 ID）
+
+Stage Summary:
+- 无 P1：编译、门禁、manifest、接线全绿（cargo check+fmt / npm test 82 / static 22 / manifest --verify OK）
+- P2×5：①0.6.6 bump 与 worklog R57 记录无处追踪（需补清单，版本锁 ~20 文件）②STATES.md 补 lookout+badge+R57 生产者 ③README 三处过期（三款皮肤/dsh 代际文件名/EN+JA 同步）④CODEWHALE.md 补 mode_change 行 ⑤mode_change 与 dsh 版本门测试缺口
+- P3×4：session_resume 注释补 dsh 行（resume_session IPC 直调 dsh 会裸启，前端当前零调用者）/focus_pid 错误消息术语残留/states.js lookout「专属 GIF」措辞/0.6.5 changelog 误写 pet-meme-packs.js
+
+Task ID: R57-RV-B9
+Agent: reviewer-B9（只读复审，未改任何代码）
+Task: R57 安全与隐私专项复审——process_probe/dsh_watch/http_server/model/hook_client/pet.js/tauri.conf 相对 b4c5ffd 全量 diff
+
+Work Log:
+- 只读深读 process_probe.rs 全 843 行：codex_thread_id 白名单（:336-342）与上游 /^[A-Za-z0-9._:-]{8,128}$/ 逐字符等价核对——字符集 [A-Za-z0-9._:-] 不含任何 cmd 元字符（& | ^ % ! " ' ( ) < > = , 空格全排除），`:`/`.` 在 cmd 语义非分隔符；URL 前缀 codex://threads/ 为字面量→scheme 注入不可能；len() 按字节但接受字符全 ASCII→与 regex 计数等价；`..`/前导`-`/全数字 id 被接受=与上游 regex 同判（设计对齐）；三平台 open_codex_deep_link 均经 argv 传参非 shell 字符串（Windows cmd /C start "" &url 有空 title 消歧 + hide_console_window）；深链路径不 ack（:262-291 ack 仅在 focus_pid Ok 臂，深链返回值被忽略）✓
+- PowerShell 注入面：pid_identity 脚本唯一插值 {pid}（u32→十进制，:501-502），scan 脚本为编译期字面量（:530），platform.rs parent_pid/focus_process_chain 脚本同样仅 pid 数字插值——零字符串字段进脚本
+- 隐私面：/proc cmdline 与 CIM CommandLine 全程内存比对，不落盘不外发；write_log 全部调用点（focus plan :244-254 / relaunch short_id :310-313 / unfocusable :272-275）核对——无 cmdline 内容，focus_process_chain 错误串为静态字面量（platform.rs:477/529/562）；RV-A4 的 scan 命中日志以 plan 行实现且不含内容；Linux 他人 pid 读取 EACCES→空 cmdline→保守存活（安全方向）；scan 跳过自身 pid
+- dsh say 隐私链完整核对：tracker.assistant_last_output 存原文（:779）→ Stop 事件体（:828）→ ingest_inner 仅经 safe_reply（model.rs:833-840，reply_bubbles 隐私开关门控+sanitize_text 控制字符+looks_sensitive+120..2200 clamp）写入 Session → emit_hook_event say 读 session 字段（http_server.rs:716-730）而非 body 原文——原文永不达前端/日志；claude 分支 scan.assistant_text 同经 safe_assistant_text→safe_reply（transcript.rs:260-304）；dsh user/message 的 prompt 字段只进事件体（emit 仅读 emotion，UserPromptSubmit 分支不发文本）
+- 日志注入：clean_text（model.rs:2928-2946）保留 \n/\t（其余控制字符→空格），session_id(256)/provider(32)/cwd(4096) 可含换行——但 write_log 汇点（model.rs:1915-1964）对 message 全控制字符→空格+4096 截断+tag 控制字符剔除→多行伪造在汇点闭环；dsh replay 相关日志走 tracing 宏且全仓无 subscriber 配置（grep 证实零 tracing_subscriber）→ 完全无输出；HTTP /state 未映射事件日志为静态串
+- copy-session-id（pet.js:1114-1141）：navigator.clipboard.writeText（用户手势内）+ execCommand 兜底 textarea（position:fixed;opacity:0;pointer-events:none，同步 remove）；按钮标签 tail-8 经 esc() 转义（pet.js:214）；showBubble/transient 渲染走 textContent 或 OctoIcons.withIcons（icons.js:85-99 逐段 escapeHtml）→ ev.project 无 XSS 面；session id 本身非敏感
+- tauri.conf.json backgroundColor #00000000：纯配置，capabilities/ 与 gen/schemas 零改动；duo 偏移（commands.rs:47-73）：Rust as f64→i32 为饱和转换（≥1.45 语义，NaN→0，越界钳 MIN/MAX）+.round() 前置+saturating_add——无溢出 UB
+- 残余风险三件：P2 Windows 单次 focus 可连开 ~19 个 powershell.exe（pid_identity+全表 scan+focus 链 1 次+parent_pid 至多 16 次 MAX_PARENT_DEPTH）；P2 dsh tracker 原文无界驻留（trackers 现 retain 活目录）建议采集即 clamp；P3 clean_text 保留 \n 使伪造 id 可经剪贴板以多行进 shell（需 token 级伪造+用户粘贴，现代 shell bracketed-paste 缓解）
+- 门禁沙箱实跑：tauri-command-safety / pet-r53-codewhale-wander-focus / tauri-dsh-observer-closure / maintainability-boundary / tauri-local-http-hardening / tauri-r37-perf-security / root-regression 七测全 ok；cargo test --lib 尝试因沙箱磁盘满中断（已清 3.7G target 构建产物，working tree 与复审起点逐文件一致，零代码改动）
+
+Stage Summary:
+- 裁决：R57 安全隐私专项通过——无 P0/P1。六个审查对象全部闭环：深链白名单与上游 regex 严格等价且 cmd 注入面收敛（字符集零元字符+argv 传参+固定 scheme 前缀+空 title 消歧）；深链不 ack 修复到位；/proc/CIM 扫描纯内存无外泄面、无 cmdline 落日志；PowerShell 脚本仅 u32 pid 插值；dsh say 严格经 safe_reply 裁剪后出前端；write_log 汇点全控制字符消毒使 \n 多行日志注入失效；copy-session-id 无敏感数据无 XSS；backgroundColor 纯配置；duo 偏移饱和转换无溢出。P2×2（Windows PowerShell 连开风暴=纯性能；dsh tracker 原文无界驻留=纵深防御）+P3×3（\n-id 粘贴硬化/复制未套 id regex 与上游 parity/深链不 ack 无测试锁）留作下批低风险点改，均不阻塞合入
+---
+Task ID: R57-RV-B6
+Agent: reviewer-B6（只读复审，未改任何代码）
+Task: R57 emit 链修复后状态复审——http_server.rs emit_hook_event 逐分支（Stop aborted 守卫/greet SessionStart+project/TaskStarted/3s 抑制）、/state accepted 门控、dsh emit_session_event_static 复用路径（accepted+fresh 双门、time 单位、REPLAY_QUIET_MS）、model.rs ingest_inner 双返回迁移、隐私面
+
+Findings（按严重度）:
+- P1（新发现，确定性，每次重启必现）冷启动 dsh 回放给陈旧会话点亮 done/interrupted 角标——「静默回放」契约在 stats 通道漏了。链路：dsh_watch.rs:971-977 事件体只带 `"time"`（模型读不到）→ model.rs:2966-2982 incoming_event_time 只认 event_timestamp_ms/eventTimestampMs/timestamp_ms/timestampMs/timestamp(RFC3339) → event_at 回落 ingest 墙钟 now → 冷启动全文件回放全部 accepted（seq 单调递增）→ Stop 臂 turn_done_at=Some(now)（model.rs:1083）/last_failure_at=Some(now)（:1081/:1089）→ stats() badge 租约 now-T≤300s/45s（model.rs:1691-1694）→ dsh_watch.rs:1006/637 emit_stats 无条件发射 → 每次重启，所有以 completed turn 结尾的 dsh 会话在 HUD 亮绿点「刚完成」5 分钟（aborted 亮红「被中断」45s）。A3 修复注释自称「ingests the state but stays SILENT」——badge 是 stats 可见态不是 transient，契约破洞。修法：emit_session_event_static 与合成 start_event 增补 `"timestamp_ms": time`（模型已认的字段），让 turn_done_at/last_failure_at 锚定真实事件时间（历史行租约自然过期），冷启动状态重建不受影响（文件内 time 单调，skew 检查通过）；顺带建议对齐上游 dsh-watch.js:972 的 mtime 预筛（仅 1h 内活跃目录建 tracker/backfill，当前 fork 全历史目录无差别回放进板，200 上限兜底）
+- P1（A3 遗留，本轮未处置，证据不变）代际滚动 seq 连续性假设未验证：dsh_watch.rs:470-481 滚动时重置 tracker.last_event_seq=0 但 model 行的 last_event_seq 存活 → 若新代际每文件重置 seq：header(seq0) 与低 seq 事件被 model.rs:3036-3039 纯比大小拒绝（暗会话：状态冻结+无事件，R57 emit 门控后彻底静默）；若全量续写：一次性重复回放（现被 accepted+fresh 双门吸收）。model.rs:1041-1043 注释只处理了 greet 重臂。修法：滚动时同步重置 runtime 行排序锚（reset last_event_seq/key），或 should_accept_event 加远新时间回退，并对照 deepseek-harness 持久化文档取证 seq 语义
+- P2 dsh_watch.rs:1002 `time==0 → fresh=true` 逃生口：time 缺失/非数字/未来改名（:649 unwrap_or(0)）时全行判 fresh → 冷启动整文件回放风暴回归（tracker 重建循环的重复帧仍被 accepted 门拦，但首轮全量 emit 拦不住）。今日无生产者（dsh 行必带 time），纯漂移硬化，但后果=A3 P0 同级。修法：time==0 判 NOT fresh（静默），活度损失有界
+- P3×4：①http_server.rs:706-744 注释宣称 aborted Stop「落回默认 state 气泡（attention）」——实际 return 无条件先行，无任何气泡；attention 仅经下个 pet:stats 聚合（transient 到期后 ≤3.5s）+前端 15s ONE_SHOT 衰减到达，行为可接受（中止即静默是设计本意），注释应改为「无气泡，表情经 stats 聚合落定」；②model.rs:1062-1064 task_visual_at 在 UserPromptSubmit 不清零（上游 adapter.js:661-663 消费即清）——同一 TaskStarted 后 3s 内第二条中性 prompt 会被误吞，现无触发序（dsh 每 user 行自带 turn/start），语义分歧记录在案；③turn_aborted 守卫全仓无生产者（http_server.rs:714/model.rs:1079，A2 P2 遗留，前向容忍无害）；④hook_client.rs:646-650 inject_emotion 的 TaskStarted 臂在 /state 路径死代码（无 HTTP 生产者，dsh 不经 inject_emotion）
+- 测试缺口（与 B8 收敛）：R57 emit 链六项全零覆盖——http_server.rs 无 tests 模块；model 新臂（greet_due 置/清、task_visual_at、aborted Stop）、REPLAY_QUIET_MS 抑制、badge TTL/ack、3s 去重均无断言
+
+OK 清单（逐项源码级验证）:
+- Stop aborted 守卫 fmt 后逻辑等价：aborted→say/turn-done/big-done 全不发，非 aborted 发射与 R56 逐字节一致；`return` 在 `if !aborted` 之外、Stop 块之内，早于 `_=>` state 兜底（与改前同构）；cargo fmt --check EXIT=0
+- greet：SessionStart 本体发射+project 字段（http_server.rs:750-763，A2 修复落地，pet.js:1640 消费 ev.project ✓）；greet_due 置位 was_new&&!tool_spawned&&greeted_at.is_none()、非合格 SessionStart 清臂（R57-RV-A2 修复 ✓）、下一 accepted 帧消耗（:1100-1106 ✓）；headless 早退先于 greet（:702-704）；拒帧不 arm 不 emit ✓
+- TaskStarted→user-turn（:778-783）+sessionId/provider/project 附加（:829-836）✓；model 臂 task_visual_at+ops_since_prompt 归零 ✓；3s 抑制早退在 payload 构造与字段附加之前——整帧完全跳过、连 sessionId 都不发（符合预期）✓；带情绪 prompt 永不抑制 ✓；saturating_sub 边界（u<t→0≤3000）顺序上不可达（顺序 ingest，task_visual_at 恒先到）
+- /state accepted 门控：emit_stats 无条件先行（:321，合并器安全，拒帧+context 单调更新仍刷新 stats ✓ 预期保留）；emit_hook_event 仅 accepted（:322-324 ✓）；/permission 独立路由（:335-336→:343-465）不经 ingest_with_ack，自有 waiting pet:event+emit_stats，不受门控影响 ✓
+- dsh time 单位=epoch 毫秒：docs/DSH_OBSERVER_DELIVERY_2026-08-29.md:12「dsh 时间戳是毫秒」+上游 dsh-watch.js:326 createdAt 与 stat.mtimeMs/Date.now 同域互换（:947/:972/:978/:996）+IDLE_UNTRACK_MS 毫秒比较先在——REPLAY_QUIET_MS=120_000 量纲一致 ✓
+- dsh greet 门控：accepted && now-created_at≤REPLAY_QUIET_MS（dsh_watch.rs:634）与 freshness 常量一致；重启/陈旧目录不 greet；重启前已活跃会话静默（by design）；start_event 快照为 ingest 后值无 TOCTOU ✓
+- emit_stats 追赶期行为：150ms leading+trailing 合并器单飞 trailing 定时器（scheduled 标志原子），突发上限 ~6.7 发/s，典型 catch-up（<150ms 处理完）仅 2 发（1 leading+1 trailing）✓；spawn_blocking 线程 app.emit 线程安全（R40.1 设计）✓
+- ingest_inner 双返回迁移完整：全仓 grep `.ingest(` 仅 model.rs:904 merge_usage_ingest（异名函数）；ingest_with_ack 三调用点（http_server:320、dsh:626/997）为仅有的 ingest 入口；usage/context 单调更新仍在 accepted 外（:1108-1114 老行为）✓；recent_ops accepted 门为先在（git show b4c5ffd 逐行对照）✓；snapshot 于全部变异后 clone（:1115）✓；SessionEnd close 路径不变 ✓
+- 隐私：say 文本=session.assistant_last_output（ingest 时 safe_reply+reply_bubbles 门控，model.rs:833-840），dsh 原文只留事件体永不出前端；dsh prompt 字段仅入体（emit 只转发 emotion）；greet project=目录名（stats 行本就含）；focus 日志 short_id take(64)（process_probe.rs:243/312，plan 行不含 id）、session_resume.rs:114 take(64) ✓；emit 链无未裁剪文本直发前端的新路径（与 B9 收敛）
+- is_one_shot_host_session_cwd ≡ 上游 regex（组件窗匹配：点段 len>1、sessions、非空尾；`.` 单独段/前导^/尾随/ 均一致）✓
+- 前端消费契约：badge 权威化落地（pet.js:1006-1013/panel.js:683-686，A2 P1-2 修复）✓；aborted badge=A2 P1-1 修复（model.rs:1075-1084）✓；states.js ONESHOT attention 15s 衰减承接 Stop→attention ✓
+- 验证实跑：cargo fmt --check EXIT=0；cargo test --lib 157/157（GTK pkgconfig 走 ~/.local/gtk-dev；仓内 target 有陈旧构件致归档错误，改 CARGO_TARGET_DIR=/tmp 隔离构建，零仓库文件改动）；node tauri-dsh-observer-closure-smoke / maintainability-boundary-smoke 均 ok；lib.rs:180 调用形状被冒烟断言锁定 ✓
+
+Stage Summary:
+- 裁决：R57 emit 链修复后主语义全部到位——A2/A3 两批问题（emit accepted 门控、回放 fresh 门、greet project、greet_due 一次性、Interrupt badge、badge 前端权威化）逐项复核为已修且逻辑正确；但「冷启动回放静默」只覆盖了 pet:event 通道，badge/角标经 stats 通道仍在每次重启给陈旧 dsh 会话点亮（P1 新发现，根因=dsh 事件 time 字段不进模型时间戳词表，修法一行级：补 timestamp_ms）；A3 的代际 seq 连续性 P1 仍未处置。P2 一项（time==0 fresh 逃生口）+P3 四项（注释失准/task_visual 非一次性/两处死守卫）。测试缺口与 B8 收敛（emit 链六项零覆盖）
+- 下一步（移交修复任务）：①dsh_watch.rs emit_session_event_static+start_event 补 `"timestamp_ms": time`（P1 根修，附带建议 mtime 预筛对齐上游）；②代际滚动 seq 语义取证+排序锚重置（A3 遗留）；③time==0 改判 NOT fresh；④注释修正两处+emit 链 Rust 单测三项（greet 置/清、3s 去重含情绪豁免、aborted Stop 不发 turn-done 且 badge=interrupted）
+
+---
+Task ID: R57-RV-C14
+Agent: reviewer-C14（只读复审：发布链就绪度；未改任何仓库代码）
+Task: v0.6.6 发布链就绪度复审——版本 bump 影响面清点、CHANGELOG 0.6.6 结构预检（verify-changelog-diff.js + supply-chain 断言）、release.yml 七段管线 R57 风险、glib Dependabot 状态、git 卫生、cargo lock 一致性、就绪检查单产出
+
+Work Log:
+- bump 影响面（grep 0.6.5 全仓 + f1afa6f 先例交叉核对，两法文件集一致）：核心 6 文件 8 处（package.json:3 / package-lock.json:3,9 / Cargo.toml:3 / tauri.conf.json:4 / migration-todo.json:4 release / Cargo.lock:2162 octopus 条目）+ 测试版本锁 13 文件 ~30 断言（r44-39/r44-40/r44-41/r44-43-codex/r44c/r44d/r40/r401/metering-phase2/transcript-pricing/price-auto/phase4-cutover/pet-r51；r401 另锁 manifest.version+root=Octopus-0.6.5）+ check-protocol-drift.js:79 UA。合计 20 个手工编辑文件；SOURCE_MANIFEST version/root 随 npm run manifest:gen 自动；CHANGELOG 加新条目不改 0.6.5 标题。禁改：Cargo.lock:2920 socket2 0.6.5（无关依赖巧合撞版）、worklog/PROVIDER_CAPABILITY_MATRIX:3（dated 历史注记）、README（grep 证实零版本引用）
+- migration-todo release 字段语义：顶层标量=迁移计划当前跟踪的发布版本；r45-release-lifecycle-smoke:96 动态断言 ==package.json（bump 必改），r51:87 硬编码 0.6.5（必同步）；updatedAt 无测试断言（可选）
+- CHANGELOG 0.6.6 格式约束：0.6.5 条目=行3-135（~133 行）结构=「## semver — Rxx 摘要（日期）」+「> 用户指令（原文）」引用块+subagent 调查段+### HIGH/MED/其他（证据 bullet+**修复**粗体+上游行号引用）。硬约束：①标题须匹配 ^## (\d+\.\d+\.\d+)（bare semver 开头）②段内所有反引号包裹的 rs/js/ts/json/toml/yml/yaml/md/html/css/py/sh/conf 路径必须出现在 git diff v0.6.5..HEAD --name-status（上游文件如 adapter.js 禁入反引号）③第二个 ## 必须仍是 0.6.5 ④长度量级对齐（60-133 行）。注：verify-changelog-diff.js 为手动工具（未挂 npm test/CI/release.yml），supply-chain smoke 不读 CHANGELOG.md——自动门禁=版本一致（check-release-gates 经 supply-chain）+ manifest 哈希（r401 内嵌 --verify）+ tag guard
+- 发布链七段（validate→prepare→build×4→publish）R57 风险：①版本锁未 bump 前 npm test 必红（预期前置）②Windows/macOS cfg 路径首次进 release 编译（validate 仅 ubuntu 跑 cargo test；matrix fail-fast=false 兜底）③tauri.conf backgroundColor 新键（tauri 2.11.5 合法，低风险）④manifest 须在 bump 后重生成（verify 校验 version==package.json）⑤v0.6.5 教训：worklog/CHANGELOG 追加必须在 manifest:gen 之前（哈希漂移删 tag 重打事故）。SBOM/SHA256SUMS/verify-release-assets(4 平台) 不受 R57 影响
+- glib Dependabot（R55/R56 遗留）结论：glib 0.18.5 为间接依赖（Cargo.toml 无直接引用，经 tauri/gtk 栈），R57 未动 Cargo.lock；仓内执法点=ci.yml rustsec job（cargo-audit 0.22.2）在 v0.6.5 同 lock 已绿→无阻塞 RustSec 公告；Dependabot 告警是 GitHub 侧工作流失败（PAT 无建分支权限）→不阻塞发布链
+- git 卫生：23 条 porcelain（22 M+1 ?? process_probe.rs）全 R57 相关+manifest；无临时/编辑器残留/意外二进制（--ignored 仅 src-tauri/target/）；process_probe.rs UTF-8 无 BOM+LF，.gitattributes `* text=auto eol=lf` 全局适用（跨平台 SHA 稳定）；diff 892+/301-+877 新行≈2070 行与 R57 语义匹配（probe 60% 测试；预算重校准带审计注释）；HEAD=b4c5ffd 领先 v0.6.5 tag(0d5b8cd) 一个 worklog 提交且同步刷 manifest ✓；缺口：仓库 worklog.md 尚无 R57 条目（发布前须补，且在 manifest:gen 之前）
+- cargo lock 一致性：Cargo.toml/Cargo.lock/package-lock 在 R57 diff 中零改动（git diff 空 ✓）——零新增 crate 成立；唯一待办=bump 时 Cargo.lock:2162 octopus 单行 0.6.6（f1afa6f 先例=单行手改），--locked 门禁要求两文件同步
+- 验证实跑：npm run manifest:verify OK（422 files 含 process_probe.rs，version=0.6.5+commit=octopus-0.5.62）；r401/maintainability/release-supply-chain/r45 四冒烟全绿；cargo fmt --check EXIT=0（PATH=~/.cargo/bin）；npm test 实际 81 文件（worklog「82」为误计）；cargo check 冷跑因本机磁盘 91% 满失败（环境限制非代码问题，先前 B 系列同树 cargo test 157/157 为编译证据）
+- 就绪检查单（有序）已产出：①bump 20 文件→check-release-gates+rg 0.6.5 残留白名单核对 ②Cargo.lock octopus 行→cargo check --locked ③CHANGELOG 0.6.6→verify-changelog-diff（commit 后）④仓库 worklog R57 条目 ⑤npm run manifest:gen（所有内容变更之后）⑥npm test+manifest:verify+fmt/clippy/cargo test ⑦commit→tag v0.6.6→push ⑧Release 绿后按 0.6.1-0.6.3 惯例补源码 zip/SHA256SUMS/转正式 ⑨post：17 资产核对+外层记录
+
+Stage Summary:
+- 裁决：发布链就绪度=条件就绪。无 P1 阻塞——R57 零依赖变化、manifest 422 含新模块、四发布冒烟+fmt 实跑全绿、七段管线无结构性新风险；bump 影响面 20 文件全数定位且与 f1afa6f 先例逐文件吻合，无隐藏版本锁
+- P2×2：①bump/CHANGELOG/worklog-R57/manifest-gen 四件事均未启动（本清单即执行序）②Windows/macOS cfg 编译无本地证据（依赖 build 矩阵，建议 tag 前盯 build job 首绿）
+- P3×2：①glib Dependabot 告警为 GitHub 侧 PAT 权限债（不阻塞，择期修 token 权限）②npm test 81 vs worklog 记 82 的计数误差（发布 notes 沿用实跑数）
+- 核心纪律（v0.6.5 事故复现防线）：worklog/CHANGELOG 一切追加 → manifest:gen 永远最后一步 → verify → commit → tag
+
+---
+Task ID: R57-RV-C15
+Agent: reviewer-C15（只读复审，未改任何代码）
+Task: R57 用户路径验收 dry-run——按用户原话六项目标（鲸鱼女仆皮肤/进入会话先查存活/表情没用上/上游吸纳/hooks 真实性/自主修复）逐条代码级走查 + 价值总结
+
+Work Log:
+- 皮肤链全程走查：托盘 skin_whale（lib.rs:807-815→set_skin:612→emit_config→pet.js applyConfigSnapshot:1935）与右键 radial「形象」（pet-radial-menu.js:36→toggleSkin 循环切换）两入口均达 applySkin:2228——skin-cat+skin-whale 双类（:2235-2236，0.6.5 whale 只切 skin-whale）、ensurePreloaded 懒加载（磁盘 21M/23 GIF 零孤儿，逐文件 grep 证实）、180px（pet.css:706）、#prop display:none!important（pet.css:714）+ playAction !isMeme() JS 拦截（pet.js:1339）双保险、#cat.waiting/needsinput/error filter:none（pet.css:719-723）、error 丝带 syncErrorRibbons（whale∧error，1750ms 自续，换皮/离态即清，pet.js:1472-1477）、WHALE_POOLS.thinking 双姿态 60s 轮换、lookout=whale-thinking-2 由 territory victory transient 触发（pet.js:1677，mascot 回落 happy 已文档化）；updateCat 状态词 21 个全映射（notification/carrying 回落 idle）
+- 会话链走查：focusSession（commands.rs:3237 薄化 8 行）→ focus_session_guarded（process_probe.rs:231）→ plan_focus：pid 身份闸（/proc cmdline 组件子串+cwd 精确，Linux）→ 提供者名扫描（含 codewhale-tui 伴生名）→ 90s 任务态租约（working/juggling/sweeping/thinking/carrying ∧ ended=None）；opencode 插件报 process.pid（plugin_sources.rs:64，进程内=终端本体）；三平台 focus_process_chain（Windows SW_RESTORE+SetForeground / macOS System Events / X11 xdotool）恢复最小化窗口；聚焦失败=提示不重拉（+codex 深链 best-effort，id 白名单 8-128 ASCII）；死透才 resume_session_inner（opencode -s <id>）；dsh=Untracked 开面板。RV-A4 双 P0 已修：深链三分支 cfg 互斥（:346/358/370）、Windows Get-CimInstance（:498-565）
+- 表情链逐个取证（生产者→触发→前端消费）：thinking-2（池轮换+lookout）、loved/sad/sorry/puzzled/excited（inject_emotion 五字段族 hook_client:631-637+role 门，claude/codex 用户侧 prompt、opencode 双侧、codewhale message_submit 活；dsh 直发不经嗅探、claude/codex assistant 侧无文本、aider 单信号=已知限制）、attention（normalize_state Stop→attention model.rs:3114+15s ONE_SHOT 衰减 runtime-policy:69）、greet（SessionStart 本体发射 http_server:750-763+会话级 greeted_at 去重+one_shot_host 过滤+ev.project）、juggling（dsh 显式 state 注入 dsh_watch:738+SubagentStart/TaskCreated 归一）、happy/big-done（ops≥5 confetti）、done/interrupted 徽标（model badge TTL 300s/45s+ack_session_completion+前端 pet.js:1006-1013/panel.js:683-695 权威化，B7 P2-4 的 panel detail 拆分已落）
+- 上游吸纳核验：badge 复活（model.rs:1683-1695）、copy-id（pet.js:1095-1144 剪贴板+兜底+1.1s 反馈+连点竞态修复）、i18n（ask 三语实测：zh 提交回答/en Submit Answer/ja 回答を送信，zh 遮蔽键已删、pet.html:36-39 data-i18n 已接线）、loafing 收窄 claude-only（model.rs:1636-1637）、codex://threads 深链
+- hooks 裁决复核：六家= Claude REAL（24 名）/ CodeWhale REAL（14/14+TOML 逐字节）/ Codex REAL（12 事件+hooks.json 结构）/ OpenCode REAL（v1+v2）/ Aider REAL（连字符键）/ DSH 观察器 STALE→已修（session.vN 代际文件 session_file_for:261、版本门 ≤4 DSH_MAX_KNOWN_VERSION:248、ptc-dispatch 别名:63/75，测试 test_fail_closed_only_unverified_future_versions 锁定）
+- 自主修复核验：nudgeWebViewRepaint（pet.js:404-411 translateZ 两帧）、duo 280px 逻辑/物理归一（commands.rs:47-74）、回放风暴四件套（emit accepted+fresh 双门 dsh_watch:1008-1019、timestamp_ms 锚定:987、time==0 fail-silent:1016、cleanup_idle 保留活目录 tracker:1035）、Interrupt 不庆祝（http_server:705-744 aborted 守卫+interrupted 徽标）、气泡 30vh 滚动、mascot error 红调滤镜、会话点居中
+- 验证实跑：npm test 全套 EXIT=0（含 dsh-observer-closure/pet-r53/maintainability/upstream-reconciliation/phase1 五个 R57 触点）；i18n 三语 vm 实测；whale/cat 23+23 GIF 零孤儿
+
+Stage Summary:
+- 裁决：用户六项目标全部达成（皮肤部分达成=主体修复完整，whale 专属道具/光晕/孤儿图三类污染全清，唯 notification/carrying 无专属 GIF 回落 idle 属词表边界非缺陷）；进入会话「先查存活、死透才拉起」语义在三平台决策链完整成立（聚焦失败永不重拉=核心修复；macOS 无辅助功能权限时降级为提示+面板）；表情从 0.6.5 的「大面积死图」到本轮仅剩 provider 契约限制（aider 单信号/codex 无 needsinput 钩子/dsh 未接情绪嗅探/claude-codex assistant 侧无文本）；hooks 六家接口全部真实存在无「写错地方」；自主修复五件全部用户可感知。遗留：0.6.6 CHANGELOG/版本 bump 未落（B10 P2）、emit 链 Rust 单测六项缺口（B6/B8 收敛）、dsh 情绪嗅探可一行接入下轮
+
+---
+Task ID: R57-RV-C12
+Agent: reviewer-C12（只读终审，未改任何仓库代码）
+Task: 六 provider 事件词汇隔离最终终审——三张词表快照（原生/canonical/pet:event kind）、原生→canonical 交叉泄漏、dsh ptc-dispatch+timestamp_ms+state 注入与 v5 词典一致性、turn/end reason 形状、前端 ev.kind 死分支/静默丢弃、三份状态词表一致性、用户要求最终裁决
+
+Work Log:
+- 快照取证：hook_client.rs normalize_provider_body 四分支（codewhale snake_case 14 词表 :334-363 / codex Interrupt :399-405 / opencode event_type 仅 provider=="opencode" 可读 :311-316 + normalize_opencode_native 17 词 :482-536 / claude+其余 passthrough :421-425）+ hook_install CLAUDE_EVENTS 23+PreToolUse+PermissionRequest（24 安装面）+ CODEX_EVENTS 12 + CODEWHALE_EVENTS 14 + provider_registry 六表 + dsh_watch DshEvent 枚举/runtime match 17+3 词 + plugin_sources v5 转发 17 词；canonical 全集=映射右侧∪event_rank∪normalize_state（28 活名 + 4 死臂 turn_end/TurnEnd/message_start/Compact）；pet:event kind=emit_hook_event 8 kind（say/turn-done/big-done/greet/user-turn/operation/error/needsinput/state）+ waiting(/permission)+toast(lib.rs)+travel+territory(5 phase)+choose-provider
+- 隔离核对：每家原生词逐一 grep 出现位置——codewhale 14 词全部在 provider=="codewhale" 分支或 env 列表内；opencode 17 词只在 event_type 门内（双路径 normalize_provider_body+prepare_http_state_body 均 is_opencode 门，单测 non_opencode_providers_never_read_event_type 锁死）；codex Interrupt 只在 codex 分支；dsh 全部在 dsh_watch，不经 hook_client/HTTP；aider 无词表（notifications-command 直折 Stop）。canonical 新名逐一验证唯一生产者：ModeChange/SessionIdle/SessionBusy/WaitingForUser 仅 codewhale、SessionStatus 仅 opencode、TaskStarted/ApiError/TurnAborted 仅 dsh——同名异义零例（用户点名七词全通过，TurnEnd 无活生产者仅 rank 死臂）
+- dsh 特查：ptc-dispatch/code-dispatch 双名 serde alias(:63/:75)+runtime match(:708/:743) 双层一致；timestamp_ms 已注入 start_event(:624)+emit_session_event_static(:987)（B6 P1 根修落地）；juggling 显式 state(:738)、TaskStarted thinking(:674)、Stop attention(:833)、ApiError error(:849)、TurnAborted idle(:862) 全在；v5 词典 runtime match 覆盖枚举 17 词 100%（chunks 容忍臂 _=>{}）；A3 P2 遗留仍在——TurnEndReason typed 契约=小写字符串 vs 运行时读 data.reason.kind 对象形状，DshEvent 仅测试用（运行时走 raw Value）故无运行时影响，纯契约文档漂移，且 TurnEnd 无任何反序列化测试锁形状
+- 前端终审：后端发射 kind 全集 vs pet.js ev.kind 16 臂——R57 新增四项全通：greet(project 消费 :1643)、user-turn taskStarted 变体(:782，taskStarted 标志前端不读、与普通 user-turn 同处理=信息字段无害)、ModeChange 落 default 臂→kind:state state=idle→case 'state'(:1753，needsinput 已不触发✓)、lookout 仅前端 transient(:1677 isMeme 门)。死分支：case 'longcmd'（全仓无发射器）、case 'cancel'（W12 处理器死信，权限解决路径 resolve_timeout/cancel_all_pending//permission 决定均不发 cancel pet:event）、territory 7 个 phase 子臂（march/partial/ontop/noperm/searching/busy/abort 上游词无生产者）、waiting/needsinput 的 ev.choice 子分支（choice 只在 pet:stats 行 model.rs:1700）、waiting 气泡 ev.reason 字段（后端 waiting 事件无 reason）。静默丢弃：唯一一例=territory phase 'unsupported'（Linux 巡逻，前端 phase switch 无臂）
+- 状态词表三份对账：Rust normalize_state valid 13 词 ⊆ JS RENDER_STATE_WORDS 27 ✓；JS-only（roam/sleep 序列/transients/lookout）全部有文档依据；lookout 全 Rust 源零出现（纯前端短暂态）✓；badge 值 done/interrupted/error/idle 为独立字段（model.rs:1683-1695）不入状态词表 ✓；STATES.md §3 优先级表与 states.js STATE_PRIORITY 逐项一致 ✓；发现文档漂移三处：root STATES.md §3 line60 短暂态表仍列 'interrupted'（现为 badge 值非状态词）、§5/§6 缺 lookout+badge 语义（B10 P2 未闭环）、docs/STATES.md 'idle←Stop' 行与 R57 Stop→attention 矛盾
+- 残余混用点清点（全部元数据/死码级，零行为影响）：①native_event="turn_end" 字面量双生产者（codewhale 原生 vs dsh 合成标签，dsh 真名是 turn/end）——metering 门 provider 限定(:588-590)归因正确，但 dsh_watch:821-836 注释自称「dsh's own native_event name」失准；②inject_emotion 共享层含 codewhale 原生词 message_submit/turn_end + dsh canonical TaskStarted 三死臂（归一化后永不匹配）；③event_rank 死原生臂 turn_end/TurnEnd/message_start + normalize_state 死臂 Compact；④provider_registry 元数据漂移：opencode 缺 todo.updated（注释仍写 15 词）、dsh 缺 ptc-dispatch 别名与 request/* 两词；⑤dsh 子代理检测走 PreToolUse+juggling 而非 SubagentStart（六家中唯一不发 SubagentStart 的，🤹 dispatch 气泡对 dsh 不可达）；⑥codex 中止=Stop+native_event=Interrupt vs dsh 中止=TurnAborted 的表示法分歧（有注释、badge 已分流，记录在案）
+- 测试缺口（与 B8/B10 收敛）：mode_change→ModeChange 映射零专测（B10 ⑤ 的 dsh 版本门半已补 :1100-1111，mode_change 半仍缺）；DshEvent TurnEnd 零测试锁 reason 形状；emit 链六项仍零覆盖
+- 验证实跑：cargo test --lib 160/160（hook_client 18 含 opencode 词典 6 + codewhale 8 全绿；dsh_watch 7）；node pet-r51-provider-smoke-regression / tauri-dsh-observer-closure-smoke / pet-systemic-regression 全 ok；cargo fmt 无需（零改动）；工作树与复审起点一致
+
+Stage Summary:
+- 最终裁决：六家词汇隔离**已达成**。结构三层证明：①原生层——四套原生命名空间（Claude/Codex PascalCase、CodeWhale snake_case、OpenCode dotted、dsh slash）各自闭环：codex 与 claude 共享 PascalCase 是 codex 自家 ClaudeHooksEngine 设计（上游源码级取证非我方混用），Interrupt 特判只在 codex 分支，event_type 只在 opencode 可读（双门+单测锁死），codewhale 14 词只在 codewhale 分支，dsh 全程不经 hook_client，aider 无词表；②canonical 层——共享内名是有意设计（pet 管道统一语），native_event 记录出处，R54-R57 新增 8 个 canonical 名（ModeChange/TaskStarted/SessionIdle/SessionBusy/WaitingForUser/SessionStatus/ApiError/TurnAborted）逐一唯一生产者，同名异义零活例；③pet:event 层——provider 字段随发，kind 跨 provider 通用属设计。运行时主链路无任何一家原生词被另一家词典解释
+- 残余混用点 6 处全部 P3（native_event=turn_end 字面量双生产者+失准注释、inject_emotion 3 死臂、rank/normalize 4 死臂、registry 两表元数据漂移、dsh 无 SubagentStart、中止表示法分歧）——均无行为影响，列为 0.6.7 清洁单
+- 前端契约：死分支 4 类（longcmd/cancel 整臂、territory 7 phase、choice 子分支、reason 字段）+静默丢弃唯一一例（territory unsupported）——cancel 是唯一值得处置的（W12 队列清理功能整个悬空，要么补发射器要么删臂）
+- 下一步移交：①修 dsh_watch turn_end 注释+改挂真名 turn/end（metering 门同步加臂）或维持现状仅改注释 ②删 inject_emotion/rank/normalize 死臂 ③registry opencode 补 todo.updated、dsh 补 ptc-dispatch 别名 ④mode_change 映射+TurnEnd reason 形状各补一测 ⑤STATES.md 两处+docs/STATES.md 一处文档漂移 ⑥cancel 死臂决策 ⑦dsh SubagentStart 语义对齐评估
+
+---
+Task ID: R57-RV-C11
+Agent: reviewer-C11（只读复审：跨批次修复相互作用与一致性——防「A 修 B 坏」；未改任何仓库代码）
+Task: git diff b4c5ffd 工作树中七组修复对的组合推演——greet 双门、badge 双锚、emit 双门×3s 去重×五字段嗅探、深链×ack、双窗口 badge 消费方、duo 偏移闭环、预算/manifest/测试连锁
+
+Work Log:
+- 逐对源码级走查（非单点复验，重点在两轮修复的咬合面）：①greet：model.rs:1037-1106 重臂赋值（不合规 SessionStart 无条件清臂）× http_server.rs:750-763（greet_due∧SessionStart 本体发射+project 字段）× dsh_watch.rs:610-639（header 经 ingest_with_ack + accepted∧created_at≤120s 双门）——三场景推演全过：活跃新会话恰一次（快照于全部变异后 clone，无 TOCTOU）；代际滚动第二 header was_new=false 清臂+多数情况 seq/rank 双重拒绝；/state 拒帧整个 accepted 块跳过不 arm 不 emit；字面重复 SessionStart 即便被接受（无 key/seq 时 rank 10==10 不拒）也因 was_new=false 清臂不重发。②badge：Stop 臂 native_event=="Interrupt"∨turn_aborted 分流（dsh Stop 带 native_event="turn_end"≠Interrupt→正常绿点，extend 合并核对）× B6 timestamp_ms 锚（emit_session_event_static:987+start_event:624）× stats 45s/300s 读取时判定 × 前端两窗口权威化 × ack——四场景全过；codex Interrupt 红 45s 且 emit 侧同守卫不发 say/turn-done（双处同一谓词，代码重复但语义等价）。③emit 双门×去重：stale TaskStarted 置 task_visual_at=旧→新鲜 prompt u-t 巨大不抑制✓；都新鲜→无 emotion（dsh 不经 inject_emotion）抑制✓。④深链：focus 失败→codex 深链（id 形 8-128 ASCII 三平台 cfg 互斥）不按退出码 ack、done 角标保留合理。⑤双消费方：dot 色两侧 badge 权威一致、detail/meta 两侧 live-state 优先序一致（B7 落地）。⑥duo 闭环：commit_win_pos/platform 恢复均存 logical、set/get_win_pos logical、lib.rs 恢复 ×scale、sync_pet_windows config 基 ×scale+outer_position 兜底物理分支区分、280×scale/16×scale 物理、resize_pet_anchored 锚点全物理+shift 返回 logical 经 normalizePetAnchor 闭环——单位无混用。⑦连锁：node --check 9 文件全过；pet.js 2707/2740、process_probe.rs 877/900、commands.rs 3642/3660、panel.js 1647/1760；manifest 422 含 process_probe.rs 且 422 哈希全匹配（注意 worklog.md 也在 manifest 内→仓库 worklog 追加须在 manifest:gen 前）；4 改动冒烟+12 相关回归全绿
+- 验证实跑：node --check ×9 OK；tauri-dsh-observer-closure/maintainability/pet-r53/phase4-cutover/tauri-local-http-hardening/pet-runtime-startup/pet-systemic/phase1/root-regression/tauri-static/pet-r50/pet-r51/codewhale-doctor/r40-runtime/protocol-drift/upstream-reconciliation/reference-contract 全 ok；i18n 三语键完整性脚本核查（t() 缺失为零、ask.* 每键恰 3 次无遮蔽）；cargo check 本机受阻于 gdk-3.0（沙箱环境限制，CI 已装 GUI dev 包；以 B 系列同树 cargo test 157/157 为编译证据+手工 import/可见性核对无残留：platform AppState 移除无引用、territory Manager 保留、dsh_watch Session 导入移除、emit_stats/emit_hook_event pub(crate)、focus_pid pub）
+
+Findings（按严重度，无「A 修 B 坏」型冲突）:
+- P1×1（继承 B6 未修，本轮复核仍在）：dsh 代际滚动 seq 连续性——process_session:479-487 滚动重置 tracker.last_event_seq=0 但 model 行 last_event_seq 存活，若 dsh 每代际文件重置 seq 则滚动后整文件行被 should_accept_event 纯比大小拒绝→暗会话（状态冻结+emit 双门后彻底静默）。修法不变：取证 deepseek-harness seq 语义或滚动时同步重置行排序锚
+- P2×2（新发现）：①ack/badge-TTL 可见性滞后——ack_session_completion 与自然过期均不触发 stats 推送，前端两窗口无轮询（仅 onStats 推送+启动拉取，open_panel 也不刷）→绿点清除/过期要等下一次任意会话事件才可见；修法：process_probe Focus 成功 ack 后调 http_server::emit_stats，可选低频 ticker。②attention（R57 起 Stop 行状态）+notification 标签缺位——pet.js SESSION_STATE_KEYS/SESS_META 与 panel.js STATE_META 均无 attention→done 租约 300s 过期后 pet HUD meta/tooltip 显示原词「attention」而 panel 回落显示「空闲」（同快照两窗口文本不一致）；修法：i18n 补 state.attention（顺带 state.notification）+两处 META 表各一行
+- P3×7：①is_one_shot_host_session_cwd 仅 split('/')，Windows 反斜杠路径单组件永不匹配→one-shot host 过滤在 Windows 失效（行级去重兜底，greet 多发一次）；②task_visual_at 消费不清零（上游消费即清；dsh 每 turn 单 user 行+HTTP 无 TaskStarted 生产者，现网不可触发）；③turn_done_at 不随新一轮开始清除→新回合 300s 内绿点常亮（两窗口一致、上游语义，记录）；④Relaunch(resume) 成功后不 ack（用户已重回会话）+dsh Untracked 永不可 ack 只靠 TTL；⑤dsh time=0（缺字段）→timestamp_ms=0→event_at=0→存量行静默丢弃（emit 侧已 fail-silent✓，状态侧边缘）；⑥emit 链六项 Rust 单测零覆盖（B6/B8 收敛遗留）；⑦/state 路径无 fresh 门（仅 accepted）——hook 事件天然实时、无回放生产者，理论性
+- OK 咬合面（跨批次互补而非互斥）：A3 fresh 门（emit 静默）与 B6 timestamp_ms 锚（状态时间戳）分别管 pet:event 与 stats 两条通道，互补成立；A2 清臂语义与 dsh header 复用 ingest 路径互补；A4 P1-3 duo 单位归一与 commit_win_pos/lib.rs 恢复链闭环；B7 detail 拆分与 A2 badge 权威化在两窗口同序（dot=badge、文本=live state）
+
+Stage Summary:
+- 裁决：R57 两轮修复之间**无相互作用冲突**——七组修复对中六组✓安全、一组（双窗口 badge 消费方）在 attention/notification 标签上✗不一致（P2，非本轮修复引入的新冲突，而是 Stop→attention 放大了既有词表缺位）；A 修 B 坏模式零例
+- 下一步移交：①P1 代际 seq 取证/锚重置（B6 原案）②ack 后补 emit_stats 推送③state.attention/notification 标签三件套（i18n+pet.js+panel.js）④P3 清洁单随 0.6.7（Windows 路径分隔符、task_visual 消费清零、Relaunch ack、emit 链单测）
+
+---
+Task ID: R57-RV-C13
+Agent: reviewer-C13（只读终审，未改任何代码）
+Task: 上游吸收执行情况终审 + 有意不吸收项决策记录——对照 /tmp/LLMPET-up（v1.2.0, 16e8dbc..912d8db）逐行比对 R57 六项吸收的忠实度，验证 #1/#4 不吸收决策零残留，重扫上游 pet.js 函数清单找 R57-1a 漏项，复核 R56 遗留 duo skin_codex
+
+吸收执行终审（项/上游/我们/忠实度）:
+- #2 badge done/interrupted｜upstream core.js:87-103 deriveBadge + 190-207 + 244｜model.rs:1066-1090（Stop abort 感知）+1683-1695（派生）+1541 ack（process_probe.rs:266 焦点时调用）+前端 pet.js:1006-1013/panel.js 权威化｜方向忠实，三处偏差：①上游 WORK_START_EVENTS（UserPromptSubmit/PreToolUse/PostToolUse/SubagentStart/TaskStarted）清 requiresCompletionAck（core.js:244）——我们不清 turn_done_at/last_failure_at → 完成后 5min 内新 prompt 期间绿灯「刚完成」仍亮（真缺口 ~4 行）；②上游 Stop 完成门（#406：backgroundTasksCount/crons/stopHookActive 抑制不计完成）未吸收——我们 hook 载荷根本不采这些字段（S-M 补齐）；③TTL 5min/45s vs 上游无 TTL：合理——我们行 30min/200 上限才清（ENDED_SESSION_TTL_MS 30min），无 TTL 的 done 噪音最长挂 30min；且上游 ackCompletion 全仓零调用方（dead export），我们 focus-ack 反而是把上游注释意图真正落地。ApiError 上游→interrupted、我们→error 态 error 徽标（红色等价，标签差异可接受）。
+- #3 dsh juggling｜upstream dsh-watch.js:68-89（TOOL_MAP 家族+形状规则）｜dsh_watch.rs:716-728（tool/call 内 subagent 家族判定→juggling，带显式 state 防 normalize 回落）｜半吸收：subagent 家族缺 subagent/subagent_report/workflow 三词 + startsWith('subagent')/startsWith('agent_') 两条形状规则（上游 85-87）；我们 contains("task") 反向更宽（误判面小）。TOOL_MAP 的另一半——工具名规范化（bash→Bash/fs_write→Write 供 TOOL_ACT 动作动画+HUD op 标签）完全未吸收：dsh 工具全落 'work' 兜底动画、op 显示原始名（≤S 补齐项）。
+- #5 i18n ask 卡｜upstream 16e8dbc（ask.next/other/sess.noMatch/panel timeStr LOCALE_TAG/plan-placeholder 复位）｜i18n.js 新增五键×3 语 + pet.html ask-back/ask-term data-i18n 接线（R57-RV-A1 后续修）+ pet.js:546/566/575 消费｜部分忠实：上游 16e8dbc 六项中 ask 键+panel timeStr（panel.js:150 LOCALES 已等价）已到位；**ask.needsInput 键被 R57-RV-A1 删除但 pet.js:538/685 仍硬编码 'Needs Input' 英文**（zh UI 裸英文）；pet.js:662/694/628/711（需要授权/方案评审/空输入警告/打回占位符）及 700/707/730/753/763 的 ask.* 键全部在字典（每键×3 语实测）但零消费——ask 卡整族「字典有键代码没接线」；clearAskBody（pet.js:525-533）不复位 askText.placeholder → 上游 16e8dbc 同款 plan 占位符泄漏在我们仍存在（627 行还会把泄漏值快照进 dataset.ph）；sess.noMatch 未接线（pet.js:1061 恒 sess.empty，R44 已有搜索/筛选故误导真实存在；panel.noMatch 三语键为死键）。
+- #7 copy-session-id｜upstream main.js:1557-1561（IPC+白名单 ^[A-Za-z0-9._:-]{8,128}$）｜pet.js:1114-1144（Clipboard API+execCommand 兜底+1.1s 反馈+尾 8 显+B7 连点竞态已修）｜忠实适配（Tauri 无需 main 进程 IPC），B9 P3 维持：未套 id 白名单（伪造多行 id 粘贴面，现代 shell bracketed-paste 缓解）。
+- #8 loafing 收窄｜upstream adapter.js:475-490（claude-only+仅 working+lastEvent∈{PostToolUse,SubagentStop}+transcriptActiveAt 150s 活跃豁免）｜model.rs:1631-1650（provider=="claude" 门 ✓——本轮吸收项本身忠实；R56 遗留启发式形状未动：无 last-event 门（长跑工具 PreToolUse 间隙>5s 误报摸鱼）、无 transcript 活跃豁免（无 transcript watcher 架构限制）、demote 集 working|thinking|juggling|carrying 比上游 {working} 宽（claude juggling 父会话子任务静默 5s 即塌成 loafing）——R56 设计权衡在案，非 R57 回归。
+- #6 codex 深链｜upstream main.js:1528-1537（agentId==codex 无条件 openExternal 优先于 pid focus——rollout 会话无终端 pid）｜process_probe.rs:256-292（focus_pid 失败兜底+provider codex+codex_thread_id 白名单；B9 已证白名单≡上游 regex、argv 传参、不 ack）｜偏差合理且注释在案：我们的 codex 会话有自有 pid（自启动/观察双源），pid 焦点更精准；深链作 last resort 兼容裸 TUI；白名单拦 rollout 路径形 id 进 URL/cmd。Dead/LeaseHold 计划不深链与「不双进程」守卫一致。
+
+未吸收决策验证:
+- #1 ending 收件箱（M）: 时间盒理由成立。零残留实证——bub.conversationCount/expandEndings/collapseEndings/dismissEndings 键不存在（上游 9797ca9 加的 12 键），ending-stack 代码零引用（grep -i endings 仅命中 pendingSessionPrefs 假阳性）；我们以 done/interrupted 徽标+sess.justDone/just interrupted meta（pet.js:1075-1076）覆盖同一用户需求的轻量替代，非半吊子。上游 9797ca9 另一半（activity 事件附 sessionId）我们已有（B6 验证 TaskStarted 附加字段）。
+- #4 meme/loot/workbench: 零残留+测试门禁锁死——upstream-reconciliation-smoke.js:22-26/62 断言 memes catalog/shared/assets/scripts 四面不回归、sl-meme-view/meme-player 不出现（实跑 ok）；loot 仅注释引用（pet.js:1673 states.js:50 说明 lookout 姿态词源）；workbench 零命中；codewhale-metering 无对应物（我们 metering.rs 为自有架构）。
+
+新发现低垂果实（R57-1a 漏项，均 ≤S，未实现）:
+- P1 duo/whale 皮肤不可持久（见下 skin_codex 复核）——whale 白名单两行修复。
+- P2 pet.js onEvent 气泡 i18n 大面积「键在字典零消费」：bub.* 全族（loved/sad/ack/roundDone/bigDone/error/waitYou/needReply/greet 15 键，仅 bub.online 被消费）+ terr.* 全族（11 键）对应 pet.js:1600/1610/1614/1619/1629/1639/1643/1665-1695 全部 zh 硬编码——en/ja 用户看中文气泡；bubble.* 族半消费（6/12）；travel.started/completed/failed 键不存在（1656-1658/1880-1886 硬编码）。机械换 t() ~20 处。
+- P2 sess.noMatch 接线（pet.js:1058-1063 六行，键可复用 panel.noMatch 或加 sess.noMatch）。
+- P2 clearAskBody 复位 askText.placeholder（两行，上游 16e8dbc 同款修复）。
+- P3 WORK_START 清徽标（model.rs ~4 行）；dsh TOOL_MAP 规范化表（~30 行+1 接线点）；dsh juggling 家族补 subagent/subagent_report/workflow+前缀规则（~5 行）；bub.onlineClaude/onlineCodex 已在字典、pet.js:2639 只用通用键（缺 dsh 键+四行三元）。
+- >S 观察项（不列实现）：session takeover（上游 main.js:1563-1578，我们全仓零对应）、codex request_user_input 多问句卡（上游 pet.js renderCodexElicitation+codexChoice 链路）、travel 完整页面族（模板/明信片/收件箱/历史，上游 pet.js ~1000 行 vs 我们 pet-travel-view.js 97 行 wander+状态条）、dsh web focus（上游 main.js:1541-1550）、edge-settle 屏幕边缘驻留布局族。
+
+duo skin_codex（R56 遗留）: 仍存在，且比 worklog:1598 记录的更严重——①已记录面：托盘仅一个 skin 子菜单勾选 config.skin（lib.rs:502-507），codex 宠换肤不反映；pet-codex 窗 toggleSkin（pet.js:2500-2505）setSkin 不带 agent → 写的是主宠 skin 字段（duo 下 codex 宠的径向换肤存错字段）；②新发现 P1：model.rs:131/137 sanitize 白名单 mascot|pixel|cat 自 R21 起未加 whale（R57 未触碰，git diff 证实）→ set_skin 走 update_config 内 sanitize（model.rs:773）当场把 whale 打回 mascot/pixel → emit_config 回声经 pet.js:1979 applyConfigSnapshot:1934-1935 立即把活皮肤翻回 → 托盘 whale 项（lib.rs:807-818）选择后勾选静默弹回、鲸鱼皮肤 0.6.5 发布即不可持久化。两行 matches! 补 "whale"（skin+skin_codex）无测试需联动（全仓无白名单断言）。
+
+验证运行（只读）: node i18n.js / tauri-panel-i18n-audit-r17 / tauri-tray-i18n-r11 / upstream-reconciliation / pet-r50 / phase1-pet-interaction 六测全绿（工作区与 A/B 复审基线一致）；零代码改动。
+
+Verdict: R57 六项吸收主语义全部到位且方向正确（badge 数据面+ack、claude-only 摸鱼、深链降级、copy-id UX 等价、ask 五键+按钮接线）；#3 只吸收了 juggling 触发面（工具规范化缺位）、#5 只吸收了键面（约 20 处消费接线+bub.*/terr.* 全族漏接+placeholder 复位漏做）——两处为「吸收了字典/判定的一半」型未完成；#2 缺 WORK_START 清除与 Stop 抑制门；不吸收项 #1/#4 决策成立且有测试门禁。R56 skin_codex 遗留未修且白名单缺 whale 属新立案 P1。下轮建议打包：whale 白名单两行 + i18n 接线 ~30 行 + sess.noMatch/placeholder 复位 + WORK_START 清除 + dsh TOOL_MAP（全部 ≤S，合计一个工作日内）。
 
 ---
 Task ID: R57
 Agent: main-orchestrator (+5 research subagents R57-1a/b/c/d/e + 15 review subagents A1-A5/B6-B10/C11-C15)
-Task: 鲸鱼女仆皮肤修复 / 会话进入先查存活死了才拉起 / 表情补全 / 上游吸收 / hooks 接口验证 / 0.6.6 发布
+Task: 鲸鱼女仆皮肤修复 / 会话进入先查存活死了才拉起 / 表情补全 / 上游吸收 / hooks 接口验证 / 自主修复 / 0.6.6 发布
 
 Work Log:
-- 五研究子代理：上游 v1.2.0 吸收清单、六家 hooks 联网实证（五 REAL+DSH STALE）、存活检测设计、GUI 残留五根因、表情覆盖矩阵
-- 实现+三批复审（15 子代理）两轮修复循环；关键根因：model.rs skin 白名单从未含 whale（皮肤不可持久化的真实根因，批3 C13 发现）、focus_session 聚焦失败即无条件重拉（双开根因）、dsh 观察器钉死 v0 格式+零事件出口、inject_emotion 字段错配（5/6 provider 情绪表情死）
-- 新模块 process_probe.rs（877 行，三态探测+FocusPlan+90s 租约，20 单测）；dsh_watch.rs v3/v4+ptc-dispatch+AppHandle 事件出口+回放防护（accepted+fresh+timestamp_ms+tracker 保留）
-- 门禁：npm test 81 文件 / cargo test --lib 160/160 / clippy 0 / fmt 干净 / static 22/22 / manifest 422
-- 版本 0.6.6 三处+锁文件+13 测试锁；CHANGELOG 129 行；STATES/README×3/CODEWHALE 文档更新
+- 环境恢复：沙箱重置后重植 .git（PAT 一次性克隆 b4c5ffd）、恢复 test/ 81 文件、rustup 1.98.0、GTK 683-deb 闭包（~/.local/gtk-dev，.pc 补丁法）
+- 五研究子代理并行取证：上游 v1.2.0 吸收清单（16 项+loot 评估）、六家 hooks 联网实证（五家 REAL、DSH 观察面 STALE）、存活检测设计（R57-1c）、GUI 残留审计（R57-1d 五类根因）、表情覆盖矩阵（R57-1e 断点①②③）
+- 实现：pet-skin-packs lookout+thinking 池 / pet.js prop 拦截+error 丝带+skin-cat 双类+victory lookout / pet.css 对齐 / model.rs greet 8858788 移植+badge done/interrupted+Stop→attention+loafing 收窄+whale 白名单（批3复审发现的真实根因）/ hook_client inject_emotion 五字段+mode_change→ModeChange / http_server emit 链（greet SessionStart+project、TaskStarted、Interrupt 守卫、accepted 门控）/ dsh_watch v3/v4 代际+版本门>4+ptc-dispatch+事件出口（AppHandle）+回放防护（accepted+fresh 双门+timestamp_ms 锚+tracker 保留）/ process_probe.rs 全新（877 行：三态探测+FocusPlan+租约）/ platform focus_pid / commands focus_session 薄化+duo 偏移 280+坐标归一 / territory+session_resume 盲目 re-topmost 移除 / tauri.conf backgroundColor / GUI nudge+chooser 延迟缩窗+hasFocus / copy-session-id / i18n（ask 五键+attention/notification 三语）/ sess.noMatch / placeholder 复位 / WORK_START 清徽标 / ack 即推 stats
+- 三批 15 复审子代理：批1（A1-A5）修 2 P0（macOS cfg 冲突 E0428、Windows ps 恒 Dead→Get-CimInstance）+7 P1（Interrupt 徽标、victory mascot 退化、i18n 遮蔽、深链注入/语义、duo 坐标混用、greet 重臂、badge 前端门）+多项 P2；批2（B6-B10）修 dsh 角标时间锚（timestamp_ms）、time==0 fresh 逃生口、askBack 接线、ja 重复键、panel detail 拆分、copy 竞态、bubble scrollTop、assistant 采集即 clamp、预算/测试强化（Alive→Focus 映射、id 边界、v5 版本门）；批3（C11-C15）修鲸鱼白名单根因、WORK_START 清徽标、ack 推 stats、attention/notification 标签、needsInput 硬编码、placeholder、noMatch、dsh 子代理词族；裁决：词汇隔离达成（同名异义零活例）、上游吸收执行表成立、发布链就绪、用户验收路径全达成
+- 门禁：npm test 81 文件全绿 / cargo test --lib 160/160（+23）/ clippy --all-targets -D warnings 0 / fmt 干净 / static 22/22 / manifest 422
+- 版本化：0.6.5→0.6.6（package/lock×2/Cargo/tauri.conf/Cargo.lock octopus 行/migration-todo/13 测试锁/check-protocol-drift UA）；CHANGELOG 0.6.6 条目 129 行；STATES.md（lookout+R57 语义）/README×3（四款皮肤+dsh 代际）/docs/CODEWHALE.md（mode_change 行）
+- 空间回收：/tmp/gtk-debs 484M+incremental+缓存+复审残留 target 2.4G → 磁盘 100%→70%
 
 Stage Summary:
-- 0.6.6：皮肤三重根因修复+会话双开根修+DSH 复明+表情链复活+GUI 残影/duo 根修；遗留下轮：dsh seq 取证、emit 链单测、territory/travel 气泡 i18n、duo skin_codex 错配、ending/meme/loot 立项
+- 0.6.6 = 皮肤三重根因（白名单/道具滤镜/孤儿图）+ 会话双开根修（三态探测）+ DSH 观察器 v3/v4 复明 + 表情链大面积复活 + GUI 残影/duo 根修 + 六家 hooks 实证
+- 遗留下轮（均不阻塞）：dsh 代际 seq 语义取证、emit 链 Rust 单测六项、codex needsinput/aider 表情契约限制、territory/travel 气泡 i18n ~20 处、duo skin_codex 错配（pet-codex 窗 toggleSkin 不带 agent）、ending 收件箱/meme/loot 吸收立项、glib Dependabot（R55 遗留）
 
 ---
-Task ID: R58
-Agent: main-orchestrator（+7 研究 R58-1a/b/c/d/e/f/g +3 实现 IMPL-C/D/E worktree 并行 +10 复审待派）
+Task ID: R58-1f
+Agent: general-purpose（R58-1f 闲逛自由搭配研究，只读，未改任何代码）
+Task: 用户报告「闲逛功能还是硬编码claudecode（双宠也是，需要实现自由搭配）」——调查 wander 全链路的 provider 绑定、双宠架构、上游对照，产出自由搭配设计+patch 文本（不落盘）
 
 Work Log:
-- 环境恢复：沙箱重置后重植 .git（RE-LLMPET b4c5ffd PAT 克隆）、test/ 82 文件恢复、rustup 1.98.0（static binary 重装）+ GTK 683-deb 闭包（~/gtk-debs 下载解压 ~/.local/gtk-dev，PKG_CONFIG_PATH/LIBRARY_PATH/LD_LIBRARY_PATH 三链）、R57 的 0.6.6 文件树全量幸存为未提交状态→检查点提交 2905dd0
-- 七研究代理并行取证：归档 GUI 增高双根因（死代码 isVisibleSession+五处无 fitPopup+宽度竞态+溢出）、provider 先启动三层缺口（冷启动发现缺失/opencode 插件时序/codex trust 门）、opencode 子代理双 P0（v5 msg.parentID 误读=RC1 / session.created 乱序 rank 拒绝=RC2，联网实证 prompt.ts:1152+plugin/index.ts:259）、价格 :free 全层 miss+裸 free 反向付费计费、卸载 35 写盘/10 残留+12 缺反馈、闲逛 18 处硬编码清单、六家接口联网核查（零强制修改项）
-- 主协调者直改：pet.js/pet.css 九补丁（R58-1a）、plugin v6+marker 滚动+model 谱系穿透（R58-1c）、metering 五层价格匹配+dsh model 盖章（R58-1d）、opencode 重启提示（R58-1b P1）→提交 8391293
-- 三 worktree 并行实现：IMPL-C duo_provider 自由搭配+wander owner+无 claude 兜底（cb6a8e0）、IMPL-D 卸载 purge/壳清扫/NSIS 询问+12 按钮反馈+三语 i18n（98c89e9，实证 deleteAppDataOnUninstall 非法键改宏方案）、IMPL-E session_seed 冷启动+dsh 30min 预筛（687cf90）→顺序合并+package.json 冲突手工并集
-- 编译修复轮：set_ignore_mouse/pet_visual_bounds 补 app 参数、hook_uninstall.rs 提取（预算闸 2679>2330 驱动，hook_install 回 2131）、SessionTracker.model 字段、E0716 let-else 临时值、测试模块 import 迁移、clippy map_or×2+doc list×4、fmt 重排预算微调
-- 版本轮 0.6.6→0.6.7：package/lock×2/Cargo.toml/Cargo.lock/tauri.conf/migration-todo/protocol-drift UA + 16 个 0.6.5/0.5.x 时代测试钉统一更新（metering-phase2/phase4/r51/r40/r401/r44×6/price-auto/transcript-pricing）+ phase4 focus 断言迁 process_probe + r53 focus 气泡断言迁 process_probe + pet-systemic v6 谱系断言
-- CHANGELOG 0.6.7 条目 150 行；manifest 重生成
+- 读 worklog 尾部（R50/R53/R57 系列）；走查 wander 全链路：pet.html:153 #sl-wander → pet-travel-view.js toggle/降级（18/72-79）→ tauri-bridge.js startWander（:220，只传 provider 不传 owner）→ commands.rs start_wander（235-247）→ travel.rs start_wander（189-239）/start（242-361，owner 由 owner_for_provider 派生）/provider_args（889-953 三分支 claude/codewhale/else-codex）；roam 表情唯一生产者 pet.js applyStats 1868-1878（ownTrip=s.travel.active[ownerKeyFor(PET_AGENT)]，仅 idle/sleeping 时接管）；territory.rs 通读定性=竞品窗口巡逻（rival 名单/AX 拖拽/胜利 lookout），与 provider 会话状态无关，不是闲逛 provider 绑定的责任方
+- 硬编码清单 18 处逐一定位（file:line+摘录见下）；双宠架构定性：tauri.conf.json:34 静态第二窗 label "pet-codex"、url "renderer/pet.html?agent=codex"（身份静态钉死）；lib.rs:126/commands.rs:24-82/platform.rs/territory.rs:340 全部以窗口 label 寻址（label=基础设施标识，不可轻改）；副宠专属配置=skin_codex/pet_position_codex（model.rs:47/49）；duo 会话分区=pet-agent-view.js eventBelongs(31-44)/filterStats(46-53) 的 codex/非codex 二分；pet-runtime-policy.js resolveProvider(17-24) 主宠排除 codex 会话+claude 兜底、副宠恒返 codex
+- 实证四个真实行为缺陷（比文案硬编码更疼，均源码证实）：A) 单宠模式 wander 降级 codex → trip owner='pet-codex'（此模式下该窗隐藏）→ 主宠 ownerKeyFor('aggregate')='pet' 查不到 trip → HUD 按钮回「🐾 闲逛」、无 roam 表情、completed 明信片/彩带/音效全不显示——闲逛「看起来坏了」；B) duo 主宠发起、降级落到 codex（config.providers 顺序 codex 在前时）→ trip 挂到副宠窗、副宠 HUD 显示「⏹ 取消旅行」、主宠的 pet:travel 事件被 pet.js:1885 eventBelongsToThisPet 丢弃（provider=codex≠主宠桶）→ 发起者零反馈；C) 副宠身份钉死 codex，用户无法搭配 opencode/aider 会话状态给第二宠；D) travel.rs 并发 trip 语义缺陷：child_pid 全局单个（:92，:395 后者覆盖前者）、cancel 全局标志（:569 双杀两条 trip）、start:277 cancel.store(false) 会复位另一 owner 正在取消中的 trip、kill_child_now(:592) 只杀最后起的 child——双宠各自闲逛时取消语义错乱
+- 上游对照 /tmp/llmpet-restore（Electron v1.2.0）：上游 wander 完全会话无关——main.js:1611-1638 travel-wander IPC 不收 provider 参数，单宠（agent='all'）按历史交替 claude↔codex 且 findCli 校验 CLI 真实存在（1626-1629），分身宠用自己窗口的 agent；backend/travel.js:1013 同样只认 claude/codex 两个 runner；上游双宠同样钉死（main.js:77 注释「duo 模式代表 Claude」、370-371 makePetWindow(duo?'claude':'all')/makePetWindow('codex')），但有第三只 dsh 宠先例（372，dshPet 配置）=「额外宠绑定指定 provider」的上游模式。结论：duo=claude+codex 钉死系上游继承；「wander 目标从活跃会话解析 provider + claude 兜底」是我们 R1 引入、R50/R53 打降级补丁未除根的偏差；上游闲逛是可见 CLI 终端（README_EN.md:159-160），我们是 headless 静默跑+明信片气泡，产品形态差异非 bug
+- 产出「自由搭配」设计与 patch 文本（前端+后端+配置+权限面+测试更新点，全文本不落盘）：核心=①配置 duo_provider（serde default="codex" 零迁移，sanitize 白名单）；②start_wander 增加 owner 参数按发起窗派生（修 A/B）；③travel.rs claude 兜底改 find_executable 预检+明确报错（修「还是硬编码 claude」）；④set_duo_provider 命令+运行时导航副宠窗到 ?agent=<provider>（label 不变）；⑤duo 分区/皮肤/位置/per-agent 命令路由全部泛化为 duo_provider 比较；⑥panel「副宠 Agent」选择器 UI；⑦capabilities×2+build.rs COMMANDS 权限面
 
 Stage Summary:
-- 0.6.7：归档 GUI 双根修 / opencode 子代理谱系 v6（动画复活+幽灵会话根除）/ 价格五层兼容匹配（:free 零计费+估算置信）/ 闲逛+双宠自由搭配 / 冷启动会话发现（claude+codex 回填）/ 卸载 purge+壳清扫+NSIS 询问 / 12 按钮反馈三语
-- 门禁：cargo test --lib 171/171（+11）、clippy -D warnings 0、fmt 干净、npm test 84 文件（版本钉统一后全绿）
-- 遗留下轮：travel cancel/child_pid per-owner 化、dsh 情绪嗅探、aider/codex 表情契约限制、codewhale 停机 deny→ask 决策、opencode v2 插件 API 监控
+- 硬编码全清单（file:line）：
+  前端——tauri.conf.json:34（pet-codex url ?agent=codex）；pet-agent-view.js:19-26（query/label→'codex'）、31-44+46-53（duo 二分 codex/非codex）；pet-runtime-policy.js:18（bucket==='codex'）、:20（排除 codex 会话）、:22（|| 'claude' 兜底）；pet-travel-view.js:18（WANDER_SUPPORTED=['claude','codex','codewhale']）；tauri-bridge.js:48-52（重复的 label→codex 判定）；pet.js:1102（项目旅行按钮仅 claude/codex）、1943/1972（PET_AGENT==='codex'→skinCodex/petPositionCodex）；panel.html:86+i18n.js:432/862/1290（「双宠 · Claude + Codex」文案）
+  后端——travel.rs:169-171（start_project 仅 claude|codex，codewhale 被排除与 wander 不一致）、:216/218/227（supported 集+兜底 "claude"）、:790-793（旧明信片恢复 provider 兜底 claude）、:890/915/929（provider_args 三分支）、:1170-1176（owner_for_provider：codex→pet-codex else pet）；commands.rs:16-22（pet_label_for_agent）、:619-623（set_skin agent=='codex'→skin_codex）；model.rs:47/100/143-146（skin_codex 字段族）；provider_registry.rs:852（default_pet_agent 兜底 claude，现无调用方）
+- patch 设计要点（每处安全理由）：model.rs duo_provider 用 #[serde(default=…)] —— 旧 config.json 无字段反序列化得 "codex"，行为与 0.6.6 逐位一致，schema_version 不必 bump（非破坏新增+extras flatten 双保险）；start_wander owner 参数 Option —— 旧调用方不传则回落 owner_for_provider，兼容 start_project 现路径；travel.rs 兜底改为 supported_by_config().and_then(find_executable 预检) 找不到才 Err —— 消灭静默 claude，报错文案列支持集（上游 main.js:1626 同思路）；set_duo_provider 用窗口 eval location.replace 导航（duo_provider 已白名单化，无注入面；Tauri 2 亦可用 WebviewWindow::navigate）；窗口 label 'pet-codex' 保留 —— capabilities/pet.json:5-7、gen/schemas、platform.rs、territory.rs:340、7 处 pet_label_for_agent 调用全按 label 寻址，改 label 得不偿失；skin_codex/pet_position_codex 字段名保留（语义改「副宠」零迁移）；r46-smoke:41 与 pet-r50-smoke:29 断言 codex.url 含 agent=codex 需同步改为「无硬编码 agent 或 agent 默认值」；新命令 set_duo_provider 需 build.rs COMMANDS+capabilities/pet.json+panel.json 各一行+lib.rs generate_handler 注册
+- 二期建议（不阻塞自由搭配）：cancel/child_pid per-owner 化（cancel_travel 加 owner 参数、child_pid 改 HashMap<owner,pid>、start 不再复位全局标志——D 缺陷根修）；opencode/aider wander runner（opencode run <prompt> / aider --message，安全参数审计后接入，WANDER_SUPPORTED 与后端同步为单一来源）；start_project 白名单与 wander 对齐（codewhale 项目旅行需 exec cwd 适配）；pet-travel-view/territory 气泡硬编码中文 i18n 化（R57-1a 遗留清单同款）
+- 下一步：实现代理按本设计落 patch（顺序：model.rs 配置 → travel.rs owner/兜底 → commands/lib 权限面 → 前端五文件 → panel UI → 测试三处更新 → cargo test --lib + npm test 全绿）
+
+---
+Task ID: R58-1e
+Agent: uninstall-and-feedback-auditor（只读研究子代理，未改任何仓库代码）
+Task: R58-1e 双取证——A) 卸载残留全量盘点（安装写盘点 vs 卸载清盘点）+ 修复 patch；B) 全控件点击反馈盘点（托盘/径向/面板/气泡）+ 缺反馈 patch（i18n 三语）
+
+Work Log:
+- A 侧取证：通读 hook_install.rs 全量 2317 行（五家 provider 安装/卸载管线+备份+回执）、main.rs（--uninstall-hooks 入口）、lib.rs:834-940（uninstall_all_hooks_cli/托盘）、commands.rs uninstall_hooks:388-564（回执驱动+drift 六态）、migration.rs（~/.octopus→~/.re-llmpet 导入）、model.rs:537-587（AppState 目录布局）、metering/transcript/pricing_sync/travel/codex_rollout 的 app_dir 写点、tauri.conf.json（nsis 仅 installerHooks 一键，无 deleteAppDataOnUninstall，无 installMode=默认 currentUser）、src-tauri/windows/installer-hooks.nsh 全量（PREINSTALL/POSTINSTALL/PREUNINSTALL 三宏，无 POSTUNINSTALL）
+- A 核心结论：NSIS 卸载链（R56 建）只修「provider hooks 指死路径」一个病灶，盘面外全部残留——①~/.re-llmpet/ 整目录（config/runtime/log/pending/usage-events.jsonl/usage.json/pricing×3/travel.json/codex-usage.json/transcript cursor/receipts≤20×5/official-import marker）三平台不删；②五家 .octopus-bak-<ts> 备份（~/.claude/、~/.codex/、~/.codewhale/、$HOME/.aider.conf.*.bak、~/.config/opencode/plugins/）不删；③卸载自产空壳：codex description 字段+hooks:{}、codewhale [hooks]enabled=true 表头、aider/.aider.conf.yml 空文件、claude settings.json 空 hooks 段、opencode plugins/ 空目录（首装即我们 create_dir_all/write 创建的场景）；④Windows %LOCALAPPDATA%\io.github.purrfecto114.octopus\（WebView2 EBWebView）不删；⑤macOS/Linux 无卸载器且 main.rs:20-21/nsh:126-127 注释宣称「drag-to-trash 之后可跑 --uninstall-hooks」系死路径谎言（二进制已删），README 无删除前手动清理指引→五家配置残留死路径、CodeWhale fail-closed 全拒场景在非 Windows 完整复现；⑥托盘「卸载钩子」按钮硬编码只清 claude 一家（lib.rs:862），其余四家靠 panel 反选
+- A 修复 patch 方案（报告中给全量伪码，未落码）：A1 hook_install.rs 增 purge 尾扫（receipt backup_path=None=首装判定→壳文件/空目录删除；codex description 精确串匹配清除；codewhale [hooks] 表按备份比对回收；opencode 空 plugins/ 目录回收；purge 模式整删 ~/.re-llmpet）+ main.rs 解析 --purge-data；A2 installer-hooks.nsh PREUNINSTALL 加 MessageBox 询问用户数据→带参 ExecWait，新增 NSIS_HOOK_POSTUNINSTALL RMDir WebView2 数据目录；A3 tauri.conf.json 显式 deleteAppDataOnUninstall；A4 README×3 卸载节补 macOS/Linux 删除前置命令并修正两处错误注释；A5 托盘卸载钩子按钮扩为逐家/全部子菜单
+- B 侧取证：lib.rs build_tray_menu+on_menu_event 全 31 菜单项逐一核对（R56 已有 toast 仅 2 项：uninstall_claude_hooks/settings_refresh_price，且消息硬编码中文非三语）；tauri-bridge.js send/call 语义差（send 失败→bridge-error toast 有兜底；call 未 catch=unhandled rejection 静默）；pet.js case 'toast':1778-1783（showBubble+SOUND）、pet-radial-menu.js 9 项、todopop tp-ops 3 键、sesslist 全组、provider-chooser（R35.2 已完备）、ask 卡片 submitDecision（R32 已完备）、pet-travel-view wander（已完备）、panel.js 15 处 handler、panel-export.js、recovery 三钮
+- B 核心结论：toast 通道结构性缺陷——托盘 toast 走 app.emit("pet:event") 广播但只有 pet 窗口 case 'toast' 渲染，mode=hidePet/面板独占时不可见（panel.js 零监听 pet:event）；lib.rs 六处 `let _ =` 吞错（launch_*×5、open_log、open_path、open_panel×2、set_skin/set_budget/set_mode/set_language/toggle_mute/set_price_auto_update 配置组全静默失败）；径向 menu.mute 成功零反馈（菜单同时关闭，bell 图标翻转不可见）；径向 menu.patrol 为 call 未 catch（Err=unhandled；deferred:true 返回无事件无提示）；price-rebuild 结果只写 title 悬停可见；export 无 toast；五家已确认有反馈面（filter/chooser/ask/wander/diag/segment/recovery）
+- B 修复 patch 方案（含发射点与三语文案键 zh/en/ja 共 12 新键：toast.launchFail/openLogFail/openDirFail/openPanelFail/saveFail/muted/unmuted/rebuildDone/exportDone + tray.toastPriceQueued/toastUninstallDone/toastUninstallFail，i18n.js+i18n.rs 双侧同键，靠 r11 parity smoke 护栏）；toast 双发 pet+panel（panel.js 增 onEvent→toast.js info 通道 're-llmpet:toast' CustomEvent）；toggle_mute 后端 emit 成功 toast 覆盖托盘+径向两入口；patrol 径向项改 promise 链（deferred→bubble.patrolBusy 复用既有键，Err→bridge-error）
+- 护栏盘点：test/tauri-r44d-uninstall-provenance-smoke.js 断言 uninstall_hooks 响应字段（P0D-2~6）与 read_install_receipts 位置（patch A1 需保持 run_one 结构）；tauri-tray-i18n-r11-smoke.js 校验 i18n.rs↔i18n.js 键 parity（新键双侧同步即过）；commands.rs 3643/3660 预算余量 17 行→A1 判定逻辑应放 hook_install.rs（2292/2400 预算内）
+
+Stage Summary:
+- 卸载残留判定：写盘点 35 项 vs 清盘点 12 项，净残留 10 类（R1 ~/.re-llmpet 整目录→R10 临时文件），用户所述「user 文件夹等位置」在 Windows= %USERPROFILE%\.re-llmpet + %LOCALAPPDATA%\identifier + 五家 dotfile 壳/备份；macOS/Linux 额外叠加「hooks 死路径」平台性 P0
+- 按钮反馈判定：31 托盘项+9 径向项+面板 15 组中缺反馈 12 项（P0=launch_* 吞错×5、toast 通道 hidePet 不可见、mute 成功零反馈、patrol 未 catch；P1=六处吞错配置组+中文硬编码 toast 三语化；P2=rebuild/export 弱反馈）；ask 卡片/chooser/wander/diag/过滤器组已完备无需动
+- 移交下轮实施：patch A1-A5（卸载）+ B1-B12（反馈）全量伪码与 i18n 三语键已备，代码零改动（只读约束遵守）；实施时注意 r44d smoke 断言结构与 commands.rs 预算余量
+
+---
+Task ID: R58-1d
+Agent: R58-1d 研究子代理（只读，价格兼容匹配研究；零代码改动，git status 清洁验证）
+
+Task: 用户报告「价格不可用（疑似模型 ID 带 :free 后缀不识别，要求兼容匹配，不止这一种）」——定位 metering 价格目录匹配实现、枚举 mismatch 模式、对照上游 /tmp/llmpet-restore、设计分层匹配并产出 patch 文本
+
+Work Log:
+- 现状剖析（file:line）：价格目录三层合并 metering.rs:1144-1167 load_catalog（bundled resources/model-catalog.bundled.json 49 条 → ~/.re-llmpet/pricing-cache.models-dev.json（pricing_sync.rs:712-764 normalize_models_dev 生成，键=provider/model+裸名双写）→ pricing.json 用户覆盖）；条目键在 merge_catalog_document metering.rs:1234 一律小写插入，1235-1242 另插 provider_model_id 别名键
+- 匹配算法 find_price metering.rs:865-903 仅四步：①billing_provider 拼限定键精确（866-878）②原文精确（879）③仅无斜杠键忽略大小写（882-890）④仅无斜杠键前缀模糊取最长（891-903）。无 :free/前缀/日期规范化、无置信标注；cost_for metering.rs:821-863 直接用命中价目
+- 不可用呈现路径：find_price None → cost_usd None → Aggregate::add metering.rs:145-147 计 unknown_price → snapshot unknownPrice → 前端 panel.js:137-146 aggregateCostText 显示 t('panel.priceUnknown')=「价格未知」+ byModel 行 panel.js:545-546「{n} 轮价格未知」（i18n.js:406/409 zh、836/840 en、1264/1267 ja）；用户口语「价格不可用」即此
+- mismatch 模式清单（对 bundled 目录 Python 模拟实测）：⑴ :free 后缀+vendor 前缀（deepseek/deepseek-chat:free，无论有无 billing_provider）全层 miss=用户案例；⑵ 纯 :free 无前缀（deepseek-chat:free）被第④层模糊命中却按付费价计费（方向相反的错）；⑶ provider 前缀差异（openai/gpt-5.3-codex、deepseek-ai/deepseek-chat、zai/glm-5.1 vs 目录 z-ai/）miss——billing_provider 仅 codewhale 产生（hook_client.rs:289-304），opencode/裸事件无；⑷ 日期后缀（gpt-5.3-codex-2026-04-23、kimi-k3-20260101）靠模糊层命中但无估算标注；⑸ 大小写（GPT-5.3-CODEX 无斜杠键可中、带斜杠混合大小写 miss）；⑹ 新模型未收录（gpt-5.7）→ 价格未知（诚实，应保留）
+- 上游对照（/tmp/llmpet-restore Electron 1.2.0）三种策略可吸收：metering.js:63-68 normModelName（lowercase+split(':')[0] 去 :free+取含 claude 段+去 -YYYYMMDD/-vN/@tail）+145-156 priceFor（规范化精确→家族关键词→default 兜底，永不未知但靠 estimate 标注）；metering-codewhale.js:171-190 priceFor（精确→忽略大小写→前缀，且对全部键含斜杠键）→null 诚实未知；codewhale-metering.js:67-74 仅限定键/裸键精确。本仓 codex_pricing.rs:125-146 norm_codex_model_name 已有同型规范化（:后缀/前缀/日期）但只服务 Codex 通道
+- 分层匹配设计（patch 主体）：L0 限定键精确（原样）→ L1 原文精确 → L2 全键小写折叠精确 → L3 规范化精确（split_model_modifier：去 :free 修饰符/取最后斜杠段/去日期后缀/@尾，先限定键后裸键）→ L4 前缀模糊（规范化裸形×全部键的裸段，min len 4，最长胜）→ None 诚实未知。置信=PriceMatchKind 四档→cost_kind 字段：Exact="token-priced"、FreeVariant="token-priced-free"（:free 按定义 $0/token 零计费，source 加 :free-variant 尾）、Normalized="normalized-priced"、PrefixApprox="approx-priced"；normalized/approx 计入既有 estimated_price → 面板复用 ≈/含估算 展示，前端零改动即区分精确/估算/未知；rebuild_costs 重算时同步刷新 cost_kind（api-equivalent-estimate 保留）
+- patch 文本产出：/home/z/my-project/patches/r58-1d-price-compatible-match.patch（含 metering.rs 分层实现+3 个新 Rust 测试+新冒烟 test/tauri-price-match-r58-smoke.js+package.json test 注册+Part B dsh 缺 model 跟进+Part C 前端文案细化可选项）；用 Python 对 bundled 目录模拟新算法 17 案全过（用户案例→FreeVariant 零计费、前缀/日期→Normalized 估算、brand-new-unpriced-model/gpt-5.7 仍诚实未知、既有 fixture 契约 deepseek-chat/claude-sonnet-4-6→Exact 不变）
+- 兼容性核查：tauri-codex-pricing-r10-smoke（codex_pricing.rs 零改动）、tauri-transcript-pricing-phase2-smoke 锚点（layered_price_catalog_prefers_user_override_and_qualified_provider/"count" 字段）保留、tauri-metering-phase2（fixture deepseek-chat 由 bundled 精确计价、billing_provider 保留）、unknown_price_is_explicit_not_fabricated/quota_or_plan_surface 两测在新算法下推演仍绿（token_priced_surface 门未动、无键互为前缀）
+- 副发现（非本 patch 范围）：dsh turn/end 用量事件不带 model 字段（dsh_watch.rs:840-845 json 无 model 键；tracker.model :209 从未赋值、request/header :954 仅占位注释）→ dsh 全部用量 parse_hook 落到 "unknown" 恒价格未知，建议 R58-2 修；models.dev fresh 缓存其实含 openrouter 裸键（含 :free 行，rate=0），L1 可直接命中，但缓存过期/离线时即退化为用户案例——分层匹配正是为此兜底
+
+Stage Summary:
+- 根因确认：find_price 四步匹配对「:free+vendor 前缀」双 mismatch 全层 miss（用户报告的 价格不可用/价格未知），且裸 :free 会被前缀模糊层错按付费价计费；同类还有 provider 前缀差异（opencode/无 billing_provider 的斜杠 ID）、日期/版本后缀、带斜杠混合大小写、目录过期未收录五族
+- 方案：六层兼容匹配（精确→小写→规范化→前缀模糊→诚实未知）+ PriceMatchKind 置信四档（精确/免费零计费/规范化估算/前缀近似）走既有 estimated_price≈展示管线，前端零改动；patch 已存 /home/z/my-project/patches/r58-1d-price-compatible-match.patch，模拟验证 17/17 过、存量测试锚点全保留；实现者需实跑 cargo test --lib + 13 个价格相关 JS 冒烟后提交，另建议 R58-2 修 dsh turn/end 缺 model、R58-3 可选前端 approx 文案细化
+
+---
+Task ID: R58-1b
+Agent: research-subagent R58-1b（只读研究，未改任何仓库代码）
+Task: 「provider 先启动、桌宠后启动导致部分检测失效」根因研究——六 provider hook 安装时机/事件通道/会话发现机制矩阵、启动顺序（http_server vs hook_install）、冷启动会话扫描缺口、上游 Electron v1.2.0 可吸收的 backfill 方案、修复 patch 文本
+
+Work Log:
+- 通读 lib.rs setup 链（:62 http_server::start 先绑定并写 runtime.json → :162 verify_enabled 只读不安装 → :178 claude-only settings watcher → :180 dsh watcher）：无安装顺序 bug；R36 决策「启动永不写 provider 配置」，安装唯一入口是 set_providers（commands.rs:769-819 resync_current）
+- 逐 provider 取证：install_claude(:984)/install_codewhale(:1035)/install_codex(:1259)/install_opencode(:1298)/install_aider(:1406)+事件表(:71/:122/:172)；hook 二进制每次调用重读 runtime.json（hook_client.rs:993-1014，command 不含 port/token），pet 重启无碍；dsh 无 hook，watcher 新 tracker offset=0 全量回放（dsh_watch.rs:427-459）+REPLAY_QUIET_MS 双门（:250/:1016-1027）→ dsh 是唯一有冷启动回填的 provider
+- 核心缺口坐实：model.rs:558 sessions 纯内存事件驱动（无磁盘加载、无 ~/.claude/projects 启动扫描，transcript.rs:62 scan_from_hook 仅由 hook 事件触发）；宠物停机窗口事件被 hook_client 静默丢弃（:29-40 exit1 + :1026 500ms connect timeout，无缓冲无重放）；opencode 插件仅进程启动时目录扫描加载（hook_install.rs:1319-1324）→ opencode 先启动=整会话零事件；codex hooks 需 /hooks trust review（:960-963）+ 仓内无 rollout 会话 watcher（codex_rollout.rs 仅用量快照 model.rs:1848）；codewhale 权限钩在宠物停机时 fail-closed 硬 deny（hook_client.rs:264-277）——把「观测失效」放大成「agent 被阻断」
+- claude 文档实证（/tmp/r58_claude_hooks.md，sibling 抓取的现行官方 hooks reference）：ConfigChange 事件对 user_settings(~/.claude/settings.json) 变更中途触发且「When blocked, the new settings are not applied to the running session」(:2755) → 现行版 claude 对 settings 变更（含 hooks）为运行中生效；旧版快照行为该文档已无陈述，本仓冒烟从未测过中途装钩 → 标注版本相关未实证。codex 官方文档被 Cloudflare 403（learn.chatgpt.com/developers.openai.com 双双拒绝，与 protocol-drift 已知一致），codex mid-session reload 未取证，按 session-start 快照+trust 门保守假设
+- 上游对比（/tmp/llmpet-restore Electron v1.2.0）：①core.js:56-57/:375-413 backfillFromTranscripts（boot 扫 ~/.claude/projects mtime≤30min 取前15条读尾静默入库）——fork 完全缺失；②codex-watch.js:29-49/:594-640/:844-905（rollout 文件 watcher：boot 记 EOF 游标+尾探 128KB 推断 working/notification 状态静默 seed、热目录 3 天+每~30s 全量 sweep、长寿会话跨日期目录 pump）——fork 缺失；③dsh-watch.js:880 mtime>30min 不上列表——fork 全历史回放；④main.js:1047/:1109-1127 启动接线。opencode/aider 上游同为插件/配置启动加载，provider-first 上游一样失效（无独有解法）
+- 产出六 provider 失效矩阵 + 6 项修复 patch 文本（claude 冷启动 seed 新模块 session_seed.rs+lib.rs 接线为 P0；codex rollout boot-seed 并入同模块为 P1；opencode 安装消息补「需重启」；codewhale 停机 deny→ask 决策项；dsh 30min mtime 预筛对齐上游；纯事件通道停机丢帧标注为 push 模型固有、计量面已由 transcript 持久 cursor 自愈（transcript.rs:44-46/:128-135））
+
+Stage Summary:
+- 根因裁决：「provider 先启动后开桌宠」的检测失效不是启动顺序 bug（HTTP server 先于一切 hook 生效、hook 命令每次调用重读 runtime.json），而是三层缺口叠加：①五家 hook 型 provider 无冷启动会话发现（dsh 独有回填）——宠物后启动时已存在会话直到下一条事件才可见，等待输入中的会话（Stop 已在停机窗口发过）可无限期不可见；②opencode 插件只在 opencode 进程启动时加载，先启动的 opencode 装插件也不生效须重启；③codex 有 /hooks trust 门且 fork 无 rollout watcher（上游有完整方案可吸收）。次级：codewhale 权限钩停机硬 deny 会实际阻断 agent；宠物停机窗口事件无缓冲永久丢失（claude 计量可自愈、状态不能）
+- 修复优先级：P0 session_seed.rs（claude 30min transcript 回填，≈1 天）> P1 codex rollout boot-seed/后续 watcher（吸收上游 codex-watch.js，2-3 天）> P1 opencode 重启提示（2 行）> P2 codewhale deny→ask（行为决策需 owner 签核）> P2 dsh mtime 预筛（对齐上游，注意陈旧会话不再上板的可见性变化）。patch 文本已在任务报告交付，全部未实施（本任务只读）
+- 测试缺口：cold-start seed 零覆盖；opencode 插件中途安装的真实 opencode 行为、codex hooks mid-session reload、claude ConfigChange 中途生效均无本仓实证——建议 provider-cli runner 补三条冒烟
+
+---
+Task ID: R58-1g
+Agent: R58-1g provider-hooks-drift-auditor（只读研究子代理，未改任何仓库代码）
+Task: 六 provider hooks/事件接口联网增量核查（R54/R57-1b 之后是否又有变化）+ 上游 LLMPET 仓 912d8db 之后新提交/新版本检查
+
+Work Log:
+- 方法：web-search 每家 2 次共 12 次查询 + 官方源直取（code.claude.com/docs/en/hooks.md 248KB live curl、raw.githubusercontent 直取 openai/codex 与 sst/opencode 与 Hmbown/CodeWhale 与 deepseek-ai/deepseek-harness 源码/文档、aider.chat 通知页、npm/pypi registry 版本面、git ls-remote 标签面、本地 /tmp/llmpet-restore git fetch 复核）
+- Claude Code（2.1.278→2.1.287，CHANGELOG 887KB live）：事件全集仍 33 个零增零改名（SessionEnd v1.0.85 起正式、SubagentStart v2.0.43 起存在，均在现行表）→ 我们 CLAUDE_EVENTS 23+PermissionRequest=24 仍 24/24 REAL。Notification matcher 仍 12 个（文档现拼全名 elicitation_url_dialog/elicitation_complete/elicitation_response/quota_auto_resume_stale/quota_auto_resume_disabled，与 R54-a 缩写同物）。**settings.json 结构演进（附加性）**：handler 现有五种 type（command/http/mcp_tool/prompt/agent），公共新可选字段 if/once（once 仅 skill frontmatter 生效），command 新可选字段 args（exec form）/async/asyncRewake/shell；行为变化：2.1.280 起 PermissionRequest 不再运行 agent 型 hook、2.1.281 起 mcp_tool 阻塞型事件 hook 会等 MCP server 连接、2.1.284 起 Elicitation(Result) 的 {"decision":"block"} 生效。我们写 type:command+command+timeout+statusMessage 全部仍 schema 合法（超时默认 command=600s、SessionEnd 共享 1.5s 预算可上调至 60s——我们 SessionEnd 不设超时合规）。来源：code.claude.com/docs/en/hooks(.md)、raw anthropics/claude-code main CHANGELOG.md
+- Codex CLI（npm latest 0.160.0=2026-10-01，alpha 0.162.0-alpha.6/7；源码 main + rust-v0.162.0-alpha.7 双查）：HOOK_EVENT_NAMES 仍 12 个与 CODEX_EVENTS 逐名全等（alpha 也未加）；hooks/src 已重组为 events/{session_end,interrupt,permission_request,post_tool_use,pre_tool_use,session_start,stop,user_prompt_submit,compact,common}.rs（结构变化、接口不变）。**hooks.json schema 附加演进**：HookHandlerConfig 现为 tag="type" 枚举 command/mcp_tool/prompt/agent（无 http），Command 变体新可选字段 async、additionalContextLimit；HooksToml 新增 state 表（enabled/trusted_hash=hook 信任态存储）；HooksFile{description,hooks} 仍 deny_unknown_fields——我们只写合法键。未合并的接口请求（非现实）：#41589 批级 PostToolUse 事件、#43184 每 tool 静默感知终事件。来源：raw openai/codex codex-rs/hooks/src/lib.rs、codex-rs/config/src/hook_config.rs、registry.npmjs.org/@openai/codex、github.com/openai/codex issues
+- OpenCode（1.18.32→1.18.34=2026-09-30 两个版本）：plugin Hooks 接口逐字段不变（event、tool.execute.before input{tool,sessionID,callID}、tool.execute.after input{+args} output{title,output,metadata}）；我们消费的事件名全数仍 REAL（v1: session.created/updated/deleted/error、message.updated/part.delta、permission.asked/replied、question.asked/replied/rejected、session.idle 仍标 deprecated、session.status=idle|retry|busy 不变、session.compacted、permission.v2.*/question.v2.*，schema 已模块化为 v1/ 子目录）；session.next.* 命名空间 28→30（附加）。**前瞻（非现稳定）**：opencode.ai/v2/docs 上线 OpenCode v2 插件 API（Plugin.define+ctx.hook("prompt"/"context"/"compaction"/"model.request"/"http.request"/"retry"/ToolHooks before|after），含 migrate-v1 指南与「V1 calls server() 兼容路径」——v2 正式发布时我们的 v5 插件需迁移，1.18.34 稳定线不受影响。来源：raw sst/opencode dev packages/{plugin/src/index.ts,schema/src/*}、registry.npmjs.org/opencode-ai、opencode.ai/docs/plugins、opencode.ai/v2/docs/build/plugins
+- Aider：零变化。--notifications/--notifications-command/AIDER_NOTIFICATIONS(_COMMAND) 仍是唯一事件面（aider.chat/docs/usage/notifications.html live 全文核对，webhook 字样仅是 Apprise Slack/Discord 示例非新机制）；io.py ring_bell+subprocess.run 仍在（raw main :1088）；pypi aider-chat 最新 0.86.2（2026-02-12）、repo tag v0.86.3.dev；文档 YAML 示例仍写下划线（上游文档 bug 依旧，我们的连字符键正确）
+- CodeWhale（npm latest 0.10.0=2026-09-22 未动；repo CHANGELOG 已记 0.10.1=2026-10-01 未发 npm，Unreleased 空）：HOOKS.md「The 15 events」逐名全等（我们 14+shell_env），waiting_for_user reason=approval/user_input/goal continuation 不变，TOML 键与 [[ooks.hooks]] 节名不变；0.10.1 变更全部为可靠性类（PowerShell Bypass、script-tools 审批策略），hook 面仅增量载荷（DEEPSEEK_TOOL_EXECUTION_RECEIPT/exit_code 属 env 富化）。注意 docs/CONFIGURATION.md 有句「all eleven hook events」为陈旧文案，HOOKS.md 自我声明权威。来源：raw Hmbown/CodeWhale main docs/HOOKS.md、CHANGELOG.md、registry.npmjs.org/codewhale
+- DSH（@deepseek-ai/dsh latest=0.2.0-rc.2=2026-09-29，一周内 0.1.7-rc.2→0.2.0-rc.1→0.2.0-rc.2 高频发版）：persistence 接口三关键取证：①docs/session-format-status.md（live）latestFinalizedVersion=4 / latestReleasedVersion=3（evidenceTag dsh-v0.1.5-alpha.1）→ **我们 DSH_MAX_KNOWN_VERSION=4 恰好正确**（v3 已发布+v4 已定基线；第三方 adapter 已宣称兼容 0.2.0-rc.2 的 V4 消息；V5 出现时 fail-closed 会拒收需 bump）；②persistence README：当前代仍是 session.v3（「later versions use vN」）、「Runtime operations select the numerically highest canonical generation」确认最高代选择与 R57 session_file_for 一致；③代际滚动语义（回应 R57-RV-A3 P1）：迁移=「single-pass historical restore + exclusive successor publication」整历史重写成后继文件+「required sequence-remap table」——即新代文件含全部迁移历史、seq 被重映射而非清零重计 → 偏向「一次性重复回放」风险侧（回放抑制方案②仍必要），「暗会话 seq 重置」侧基本排除。事件目录 59 型：我们 dsh_watch 匹配的 18 个名字全数仍 REAL（tool/code-dispatch 已完全退场、ptc-dispatch(-start) 为唯一现名）；新增 log-only 型 session/end-seed（种子切割标记）、hook/invoked+hook/result（原生 hook 事件！）、step/end、llm/retry-started、compaction/prune/summary——未知型不破坏运行时字符串 match。信封 {type,seq,time,data,ignorable?,surfaceOp?,sourceEventSeqs?} 不变。dsh hooks 桥接包 @deepseek-ai/dsh-hooks-claude-code/-codex next=0.2.0-rc.2（描述：在 dsh 拦截缝上运行 Claude hooks.json 配置）——可选未来安装面。来源：raw deepseek-ai/deepseek-harness master {packages/session/session-persistence-jsonl/README.md, docs/persistence-catalog.md, docs/session-format-status.md}、registry.npmjs.org/@deepseek-ai/*
+- 上游 LLMPET：git fetch 后 remote HEAD/main 仍 = 912d8db（2026-08-30），**零新提交零新 tag**（tags 最新 v1.2.0→912d8db）；refs/heads/pr/{1,2,3} 为历史 PR 分支，内容已并入 main（pr/2、pr/3 与 main 对应提交仅 test 文件差 4 文件 40+/83-，属 squash/rebase 残影非新活动）；GitHub API 匿名限额打满无法直查 releases 页，以 ls-remote refs+tags 为准：最新 release = v1.2.0。结论：上游无新提交、无 hooks/provider 相关变化需要摘录
+- 六家写入式触发器与观察器契约全部复核完毕：无一处「已死接口」；全部漂移均为附加性（可选字段/可选 handler 类型/新 log-only 事件/文档拼写补全），现有实现零强制修改项
+
+Stage Summary:
+- 裁决表：Claude 一致（33 事件零变；配置层有新增 handler 类型 http/mcp_tool/prompt/agent+if/args/async/shell 字段，可选不影响我们）/ Codex 一致（12 事件 alpha 亦未变；hooks.json 新增 mcp_tool/prompt/agent 变体+state 信任表，附加）/ OpenCode 一致（1.18.34 插件 API 与全部事件名不变；v2 新插件 API 在路上含 migrate-v1 指南，前瞻监控项）/ Aider 一致（唯一通知面零变）/ CodeWhale 一致（15 事件零变，0.10.1 未触及 hook 面）/ DSH 一致且 R57 门限恰好正确（released=3、finalized=4、我们 ≤4 fail-closed 正中）
+- 上游仓零新提交（912d8db 仍 HEAD），最新版本 v1.2.0，无需吸收任何东西
+- 建议吸收/监控清单（全部非紧急）：①监控 OpenCode v2 插件 API 正式发布（届时 v5 插件需迁移，v1 兼容路径存在）；②监控 DSH V5 定稿（DSH_MAX_KNOWN_VERSION 届时 bump，否则 fail-closed 拒收新会话=暗会话）；③可选吸收 dsh 新 log-only 事件 session/end-seed/hook/invoked/step/end（更细状态机）与 codewhale DEEPSEEK_TOOL_EXECUTION_RECEIPT（计量富化）；④claude 新 handler 类型（http hook）与 if/args 字段可用于未来瘦身安装器（无行为收益，纯机会）；⑤R57-RV-A3 的回放抑制四件套维持必要（代际滚动=整历史后继文件+seq 重映射的取证支持「一次性回放」侧）；⑥codex PostToolBatch/静默感知终事件为未合并请求，勿预写
+- 零代码改动（只读约束遵守）；所有结论带 live 来源 URL，检索时间 2026-10-02 13:31 UTC 前后
+
+---
+Task ID: R58-1c
+Agent: opencode-subagent-researcher（research subagent，只读，零代码改动）
+Task: opencode 派出子代理/子代理完成动画未触发 + 子代理被误判新会话——六 provider 全面审计
+
+Work Log:
+- 通读现状：plugin_sources.rs（opencode 插件 v5 全文）、hook_client.rs normalize_opencode_native（17 词典臂，:455-582）、http_server.rs /state ingest（:308-334）+ emit_hook_event（:684-838）、model.rs ingest_inner（:806-1125，parent_id/headless :854-878、收养启发式 :925-943、should_accept_event :3044-3069、event_rank SessionStart=10 :3030）、pet.js（operation 臂 :1575-1586、TOOL_ACT Task→summon :1244、headless 可见性 :1009-1010）
+- 联网取证（sst/opencode v1.18.32 tag 与 dev 双源比对 + opencode.ai/docs/plugins、/docs/tools、/docs/agents + openai/codex#44095 + Hmbown/CodeWhale docs/HOOKS.md + code.claude.com/docs/en/hooks）：
+  - opencode 子代理工具 id="task"（tool/task.ts `const id = "task"`）；模型工具调用与 @mention subtask 两条路都 plugin.trigger("tool.execute.before"/"after", {tool, sessionID=父, callID})（session/tools.ts:106-125、prompt.ts:308/390）——hook 输入无任何 parent 字段
+  - task 工具 sessions.create({parentID: ctx.sessionID}) → 发 session.created{sessionID=子, info.parentID=父}（session.ts:535）
+  - **Message.Info.parentID 是父「消息」id（会话内串行）非父会话 id**：prompt.ts 每条 assistant 消息都带 `parentID: lastUser.id`（v1.18.32:1152/1188，dev 同）；session.ts:710 经 message idMap 换算——0.6.4 冒烟 tap 的 assistant infoKeys 含 parentID 正是此物
+  - 插件 event 回调 fire-and-forget（plugin/index.ts:259 `void hook["event"]?.()`）；我们 http_server 每连接一线程（:121-123），插件 POST 无 event_seq/timestamp → 子会话事件可乱序到达
+- 根因裁决（两条 P0，互为放大）：
+  - RC1（P0）plugin_sources.rs:141 把 message.updated 的 msg.parentID（父消息 id）当父会话 id → 每个 opencode 顶层会话在第一轮 assistant 完成时被 Stop 事件打上 parent_id+headless（model.rs:861-862 粘滞）→ emit_hook_event 在 http_server.rs:702-704 提前 return → SubagentStart 🤹/SubagentStop ✅/say/turn-done 全哑 + 行被 pet.js:1009 隐藏——「动画未触发」的直接原因；且父行 headless 后收养启发式的 `!sibling.headless`（model.rs:936）失配，关死兜底
+  - RC2（P0）子会话父子标记只存在于 session.created（插件 tool 钩子的三处 parentID 读取全是死码）；乱序+同毫秒+SessionStart rank 10 < UserPromptSubmit 50 → should_accept_event :3065-3067 永久拒绝迟到的 session.created → 子行永远顶层 =「子代理当成新会话」
+  - RC3（P2）冒烟盲区：run-opencode.sh 从未跑过 task/子代理（0.6.4 证据只有 read 工具），task→SubagentStart 映射零活体证据
+- 六家审计表（详见报告）：claude（SubagentStart/Stop 已装 hook_install.rs:79-80，session_id=父）、codex（12 事件含 Subagent*，openai/codex#44095 实证 session_id 与父共享、agent_id 标子线程）、codewhale（subagent_spawn/complete 已装+已映射 hook_client.rs:342-343，HOOKS.md payload session_id=本会话）、aider（无子代理）、dsh（无 SubagentStart，走 tool/call 家族 juggling dsh_watch.rs:708-736，无 SubagentStop 等价物）——唯 opencode 双 P0
+- 修复方案（patch 文本已产出，未落地）：插件 v6（删 message parentID 误读 + childSessions Map 全事件补戳 + timestamp_ms + marker v5→v6）+ model.rs lineage 穿透 rank 门（:978 邻近 ~6 行）+ run-opencode.sh 增子代理 run 3 取证 + 迟到 session.created 回归测试
+
+Stage Summary:
+- 裁决：opencode 子代理问题不是「映射缺失」——normalize_opencode_native 的 task→SubagentStart(juggling)/SubagentStop(working)（hook_client.rs:522-535）与 http_server.rs:804-815 的 🤹/✅ 发射臂全部正确且从未被删；真凶是 R54（0.6.4）v5 插件重写引入的 message 级 parentID 误读（RC1，无测试/冒烟覆盖）与乱序竞态下同毫秒 rank 门吞掉 session.created 父子标记（RC2）
+- 修复量级：RC1 一行删除+childSessions Map 补兜 ~15 行、RC2 ~6 行、marker v6 两处；建议单轮打包落地并强制已装插件升级（marker 滚动）
+- 全 provider 审计：其余 5 家子代理链路健康（claude/codex/codewhale 事件已装且 session_id 均为父、aider 无子代理、dsh 已知限制），无需全局改动，仅 opencode
+- 移交：patch 落地 + run-opencode.sh 子代理 run 3 活体证据 + late session.created 回归测试；dsh SubagentStop 语义与 registry 元数据漂移留 0.6.7 清洁单
+
+---
+Task ID: R58-1a
+Agent: researcher-GUI-archive-bug（只读研究子代理，零仓库代码改动；复现/修复验证全部在 /home/z/pet-sim2 的副本 + headless Chromium 中完成）
+
+Task: 用户报告 GUI bug——桌宠会话列表点归档后：GUI 位置刷新不完全（多会话时每点一次归档 GUI 越"高"）、底下状态点未清除。取证根因、产出 patch、上游对比。
+
+Work Log:
+- 链路摸清：pet.js 会话 HUD（#sesslist bottom:200px 向上展开，fitPopup 动态测高 set_pet_size→Rust resize_pet_anchored 底中锚）；归档=纯前端展示过滤（archivedSet→set_session_pref 只写 config.pinned/archived_sessions，会话本体不从 stats 移除）；pet:stats 无定时器（lib.rs:186 启动一发+hook/http/pricing 事件驱动）——闲置会话归档后永无下一推。
+- 实测复现（真 pet.js+pet.css+桥桩，agent-browser 驱动）：①归档点击后 rows 6→0 而 dots 恒 6（连 stats 推送也不清）；②归档点击只 renderSessList 无 fitPopup——窗口高度请求冻结在 719（5 行内容只需 670），死区每点一次 +49px≈一行，"越来越高"= 窗口死区随归档单调增长；③开表宽度竞态：fitPopup 2 帧 rAF 内量高常跑在 set_pet_size IPC 落地前→320px 宽下换行测得 850 vs 实需 719（+131px）；④12 会话短窗下 .sesslist 钳到 130px 而行画到 787px（无 overflow:hidden、#sl-session-view/.sl-scroll 无 min-height:0 链）。
+- 根因（file:line）：dots 未清=pet.js:1009 isVisibleSession 无归档项且系死代码（无调用方）+pet.js:1908 renderSessions→projectVisibleSessions 不过滤 archivedSet；高度不刷新=pet.js:1191/1177/1215/2469/2478 五处 re-render 均无 fitPopup(sesslist)；竞态=pet.js:441-443。
+- 上游对比（/tmp/llmpet-restore v1.2.0）：①pet.js:1486-1489 显式 isArchivedSession/isVisibleSession（注释"头顶状态点永远不展示已归档项"）+3772 renderSessions .filter(isVisibleSession)——我们漏吸收；②v1.2.0 会话页改固定高设计（pet.css .sesslist.session-list-mode height:310px、#sl-session-view/.sl-scroll min-height:0+flex、SESSION_PANEL_H=310 固定窗高 534、行内滚动）——归档不改变窗口几何，此 bug 上游结构性不存在；③上游 search/filter 处理器均 renderSessList+fitPopup 成对（4112-4113/4125-4131）我们只 render；④上游 fitPopup 同款 maxHeight 解除注释点名"鸡生蛋→窗口永远只长一点点"。
+- 修复 patch（9 处，全部在 /home/z/pet-sim2 副本上实跑验证）：P0×5（isVisibleSession 补归档项+启用、renderSessions 接过滤、归档/置顶点击+persistSessionPref.finally 补 renderSessions(curSessions)+fitPopup 守卫）→ 实测 dots 6→0 逐点击清除、高度 719→670→622→573→524→475→481 精确随内容收缩（无需 stats 推送）；P1×2（search/filter 处理器补 fitPopup，对齐上游）；P2×2（fitPopup 宽度竞态改 ≤12 帧等待 innerWidth 达 POPUP_W 再测——快机仿真开表 1244→1013 修正 +231px；pet.css .sesslist 补 overflow:hidden + #sl-session-view{min-height:0;display:flex} + .sl-scroll{min-height:0;flex:1 1 auto}——钳制态 rowOff 130→0 行不再画出框外）。
+- 门禁基线（只读，改动为 0）：pet-systemic/phase1-pet-interaction/panel-sesslist-r19/popup-style/pet-r50 五测全 ok；patch 兼容性逐条核对（popup-style 的 6 条 fitPopup/CSS 断言均不受影响）。
+- 附带收益：修复后每次归档点击的 resize 会走 markGeometryBusy→onResized ack→clearGeometryBusy→nudgeWebViewRepaint（R57 防残影链）——原 bug 的"永不 resize"路径恰好也绕过了防残影 nudge，修复一并闭环。
+
+Stage Summary:
+- 裁决：用户双症状均为真 bug 且互补——"状态点未清除"= renderSessions 缺归档过滤（上游 1486-1489 漏吸收，P0 一行过滤+三处触发即可）；"GUI 位置刷新不完全/越来越高"= 归档/置顶/搜索/筛选五处 re-render 缺 fitPopup + 开表宽度竞态超量测高，闲置会话无 stats 推送导致死区随点击单调增长（窗口底部锚定，顶缘越抬越高）。九处 patch 合计 ~30 行，全部在真实代码副本+headless 浏览器验证过行为（高度精确跟踪内容、小点逐击清除、竞态 +231px 修正、钳制态不再溢出画框）；基线五测绿、断言兼容。建议下批按 P0→P1→P2 顺序落地；P3 可选：panel.js renderSessList 末尾补 fitPanelHeight()（面板同款"等下一推才缩窗"小病）；结构性替代方案=吸收上游 v1.2.0 固定高会话页（310px+内滚）可整类消灭该 bug 但改动面大，单独立项。
+
+---
+Task ID: R58-IMPL-E
+Agent: general-purpose（IMPL-E 会话冷启动回填实现，worktree wt-seed / 分支 r58-seed，单 commit 687cf90）
+
+Task: 修「provider 先启动后再运行本程序导致部分检测功能失效」的会话冷启动发现缺失（R58-1b 裁决：5/6 provider 纯事件驱动，桌宠后启动=已存在会话全部不可见直到下一事件；dsh 是唯一有冷回填的 provider）——落地 P0 session_seed.rs（吸收上游 core.js:375-413 backfillFromTranscripts）+ P1 codex rollout boot-seed（codex-watch.js:594-640）+ P2 dsh 30 分钟 mtime 预筛（dsh-watch.js:880）。
+
+Work Log:
+- 读取 R58-1b 研究报告与上游 /tmp/llmpet-restore/backend 三个参考实现：core.js:375-413（PROJECTS_DIR 扫描→mtime≤BACKFILL_MAX_AGE_MS(30min)→mtime 降序前 15（BACKFILL_MAX）→readTail 提取 cwd→静默入库 seedSession）；codex-watch.js hydrateMeta/backfill（首行 session_meta 含 id/cwd/model，thread_source=="subagent"/source.subagent 过滤 guardian 子线程，TAIL_PROBE_BYTES=128KB，meta 行实测可达 35KB+）；dsh-watch.js:880 BACKFILL_MAX_AGE_MS=30min 不上列表；seedSession 语义=直接入库不触发欢迎/庆祝（不走来时 updateSession）
+- 新建 src-tauri/src/session_seed.rs（668 行）：`pub fn seed_claude_sessions(&Arc<Runtime>)->usize`（扫 ~/.claude/projects/*/*.jsonl 单层项目目录布局对齐 transcript.rs TranscriptScanner；两阶段=先收集 (path,mtime) 戳排序截断 15 再读尾省 IO；读末尾 128KB、probe 落半行掐头、行级 sidechain 过滤复刻 transcript.rs is_subagent 五标记、cwd 取最后非子代理行、model 取 assistant 行 message.model、sessionId=文件名去 .jsonl 截 256 与 ingest clean_text 键对齐、纯 sidechain 文件整跳——防 R50/R58-1c 幻影点回归类）；`pub fn seed_codex_sessions`（扫 CODEX_HOME|~/.codex/sessions 深度≤4 上限 4000 文件，首行 session_meta≤256KB 读 meta 的 id/session_id/cwd/model/model_id，guardian/subagent 双标记过滤，无 meta id 跳过——一次性 seed 无法验证无头会话）；合成事件 json!({provider,hook_event_name:"SessionStart",session_id,cwd,model?,timestamp_ms=mtime_ms,seed:true}) 只走 runtime.ingest_with_ack——REPLAY_QUIET 纪律：不发任何 pet 事件帧、事件不带 transcript path（计量由持久 cursor 在下一真实 hook 自愈，不做历史回放计量）、已存在 sessions map 键跳过保证幂等、ingest 时间锚用 mtime 使旧锚正确落位（greet_due 虽被 was_new 置位但无 emit 永不响、下一帧即清，同 dsh header 先例）；返回实际入库数
+- lib.rs 接线（外科手术式 24 行）：mod session_seed 按字母序插 session_resume 与 territory 之间；setup 在 dsh watcher 启动后 std::thread::spawn 后台线程跑两 seed（不阻塞 setup）、write_log("seed","cold-start session seed: claude={n} codex={n}")、有种子时 http_server::emit_stats 推一帧合并 stats 快照（pet:stats 是上板通道非 pet:event，seed 后 HUD 立即可见；渲染器 boot 自拉 get_stats 双保险）
+- dsh_watch.rs P2：新增 DSH_SEED_MAX_AGE_MS=30min；process_session 在 tracker 不存在时（新 tracker offset=0 全量回放路径前）对 session_file_for 解析出的会话文件查 mtime，now-mtime>30min 直接 return 跳过扫描（苏醒会话 mtime 更新后下一 poll 重新发现、REPLAY_QUIET_MS 门管回放静默；mtime 不可读解析为 0=远古→跳过，fail-closed 对齐上游）；既有 tracker 不重估不受影响；R58-1d 的 tracker.model 赋值（request/header:995 request/context:1008）与 turn/end "model": tracker.model.clone()(:879) 均未触碰（冒烟锁双断言防回退）
+- 测试：session_seed.rs 内嵌 5 个单测——claude 窗口/sidechain 过滤/128KB 掐头（200KB 填充文件实证半行丢弃）、claude 上限 15（17 文件）、codex meta 提取+guardian 过滤+过期过滤、codex 上限 15、glue 上板+幂等（HOME 换成临时目录后 AppState::new 构造真实 Runtime，seed 两 provider 断言 sessions 行 provider/state=idle/cwd/model、老文件不上板、二次调用返 0；env 先恢复后断言防 panic 泄漏 HOME；已核实全仓 cfg(test) 树无其它 home_dir 读点故无并行污染）；mtime 伪造用 File::set_modified（Rust 1.75 stable，仓 rust-version 1.85）
+- 新增 test/tauri-session-seed-r58-smoke.js（114 行）：结构断言（模块/入口/窗口/上限/探针常量、ingest_with_ack 上板、负向断言 seed 模块绝不出现 emit_hook_event/app.emit/transcript path 字符串=REPLAY_QUIET 纪律护栏、timestamp_ms=mtime 锚、幂等跳过、lib.rs 接线三件套=mod 声明+后台线程 spawn+emit_stats+write_log("seed")、dsh 预筛常量与比较式、R58-1d model 双锁、5 个单测名在位、package.json 注册）+ cargo 探测实跑 cargo test --lib session_seed::（可用才跑，缺失跳过——本沙箱无 cargo）；package.json test 链按字母序插 tauri-r45 之后 tauri-single-instance 之前
+- 修复 test/tauri-dsh-observer-closure-smoke.js 陈旧锚点：:33 正则钉死单参 start_dsh_watcher(runtime.clone())，R57（2905dd0）签名加 AppHandle 后该测自 0.6.6 起一直红——去掉收尾括号锚接受双参并注释缘由（非我改动引入，是验证 dsh 改动必需的绿灯基线）
+- 验证（本沙箱 cargo 不可用，~/.cargo/bin 不存在、无 rustc）：node --check 两个改动 JS ✓；node test/tauri-session-seed-r58-smoke.js OK（cargo 探测跳过）；node test/tauri-dsh-observer-closure-smoke.js ok（由红转绿）；node test/tauri-static-smoke.js ok（51 bridge 命令/59 资产）；node test/tauri-price-match-r58-smoke.js OK；全套 84 个 JS 测试逐一跑与基线（git stash -u 对照 8391293 原始树）逐文件比对：19 个失败全部逐字节相同=预先存在（R58 batch1 版本锚 0.5.57/0.6.5 未随 0.6.6 bump 更新的 15 处+pet.js 2756>2640 预算超+cli-hardening/hook-consolidation cargo 相关），我的改动零新增失败、净修 1 个；cargo test --lib session_seed::（5 测）与 dsh_watch 测试=Pending 需主区有 cargo 环境实跑（新冒烟在 cargo 存在时自动实跑并硬失败断言）
+- 提交 687cf90（分支 r58-seed，6 文件 +843/-2），未触碰禁改清单（metering/plugin_sources/hook_client/model/travel/commands/panel/前端/i18n/transcript/codex_rollout 均零改动——codex_home 布局知识以 5 行私有复刻而非改 codex_rollout.rs 暴露面）
+
+Stage Summary:
+- 根修落地：「provider 先启动、桌宠后启动」的会话不可见缺口以三件套闭合——claude transcript 回填（P0）+ codex rollout boot-seed（P1）+ dsh 冷发现 30 分钟预筛（P2，对齐上游并止住陈旧目录全量回放），seed 纪律严格 REPLAY_QUIET（只 ingest 上板、零 pet 事件、零计量回放、幂等、mtime 时间锚），启动后台线程执行不阻塞 setup，种子行经合并 stats 快照即刻上 HUD
+- 合并注意：lib.rs 冲突面极小（mod 声明一行+setup 区 dsh watcher 后 24 行块）；dsh_watch.rs 改动在 process_session 头部+常量区，与 IMPL-C/D 若动 dsh 应无重叠（R58-1d model 区未触碰且冒烟双锁）；package.json test 链单点插入字母序位置固定；tauri-dsh-observer-closure-smoke.js 的正则修复若与其它 worktree 同名修复冲突为同向收敛一行
+- 遗留：①cargo 编译/单测 Pending（沙箱无 cargo/rustc；Rust 代码已按仓内同型 API 逐点核对：let-else/sort_by_key(Reverse)/matches!/隐式 format 参数/File::set_modified(1.75+)均有仓内先例，但必须主区 cargo test --lib session_seed:: + dsh_watch 实跑确认）；②SOURCE_MANIFEST 漂移加剧（基线 28 错→本改动 +3：lib.rs/dsh_watch.rs/package.json 哈希+session_seed.rs 未列）——批次末 release chore 统一刷新（历史模式为独立 chore 提交，勿在各 worktree 各自重生成以免互踩）；③预先存在的 19 个测试失败（版本锚 15 处+pet.js 预算+2 个 cargo 依赖）属 R58 batch1/版本 bump 遗留，非本任务范围，修复归属版本 release chore 与前端代理；④codex seed 上限取 15 与 claude 对齐（上游 seedRecent 默认 3 只服务「掠夺」场景，boot 回填用 watcher 全集）——若产品想收紧可调 SEED_MAX_SESSIONS
+
+---
+Task ID: R58-IMPL-C
+Agent: IMPL-C 实现代理（general-purpose，worktree wt-duo，分支 r58-duo）
+Task: 实现「闲逛/双宠自由搭配」——用户报告「闲逛功能还是硬编码claudecode（双宠也是，需要实现自由搭配）」，按 R58-1f 研究设计落地（duo_provider 配置 + wander owner 派生 + 去 claude 兜底）
+
+Work Log:
+- 读 worklog 尾部 R58-1f 报告（18 处硬编码清单+四缺陷 A/B/C/D+设计）；走读全部落点：model.rs/travel.rs/commands.rs/lib.rs/build.rs/capabilities×2/tauri.conf.json + 前端 pet-agent-view/pet-runtime-policy/pet-travel-view/tauri-bridge/pet.js/panel 三件/i18n.js；核对 pet-r50/r53/r46/bridge/capability-boundary/command-safety/cli-r3/r7 冒烟的既有锚点，确定测试影响面
+- model.rs：AppConfig 加 `duo_provider: String`（`#[serde(default = "default_duo_provider")]` 默认 codex，旧 config 零迁移，schema 不 bump）；sanitize 加五 provider 白名单（与 config_view `all` 一致，非法回落 codex）；Runtime 加轻量 `duo_provider()` 读器（避免 pet_label_for_agent 拖拽热路径整份 clone AppConfig）
+- travel.rs：start_wander 加 `owner: Option<String>`（白名单 pet/pet-codex，缺省回落 owner_for_provider 兼容旧调用）；start() 加 `owner: Option<&str>`（None → owner_for_provider，start_project 走旧路径）——修缺陷 A（单宠降级 codex 挂隐藏窗）/B（发起者零反馈）；去 claude 兜底：删 supported_by_config+\"claude\".into() 兜底，新 pick_wander_provider（请求者 provider → config 启用 → 其余 supported 三层候选，逐个 find_executable 预检=上游 findCli 思路），全无 CLI 时返回三语 wander_no_cli_message 错误；保留 R50 降级日志行（变量名 fallback→provider）；start_project 白名单改 is_wander_supported（含 codewhale，文案更新）；旧明信片 provider 兜底 claude（:790）保留数据兼容
+- commands.rs：新命令 set_duo_provider（五 provider 白名单+update_config 事务+sync_pet_windows+emit_stats_now+emit_config，仿 set_pet_mode）；set_skin 的 agent==\"codex\" 分支改与 config.duo_provider 比较（旧 payload agent=codex+默认配置等价）；pet_label_for_agent 加 app 参数读 duo_provider（7 个调用点同步 `&app`）；新 sync_duo_provider_url（static LAST_APPLIED 守卫，duo≠codex 时 eval location.replace('/renderer/pet.html?agent=<duo>')，codex 映射无 query 静态 URL；挂进 sync_pet_windows 首行覆盖 startup/set_mode/set_pet_mode/tray/activate 全部入口）；import Mutex
+- 注册面：build.rs COMMANDS+capabilities/pet.json+panel.json 各加 set_duo_provider 行；lib.rs invoke_handler 注册（注释放 handler 外避免 capability-boundary 冒烟的 split(',') 解析器吞注释）；tauri.conf.json pet-codex URL 去掉静态 ?agent=codex 钉死（身份=label，搭配=config）
+- 前端：tauri-bridge.js——duoPetProvider()（cachedConfig.duoProvider，缺失回落 codex）、内部订阅 pet:config/panel:config 刷新缓存（主宠窗无需 reload 即可感知搭配变更）、defaultPetAgent 跳过 pairing（原只跳 codex）、currentPetAgent label 优先（pet-codex→duoPetProvider）、currentOwnerLabel() 附到 startWander 的 owner 参数、新 setDuoProvider 桥方法；pet-agent-view.js——currentAgent 返回窗身份（label pet-codex→'pet-codex'；主宠 defaultAgent；query 降为非 Tauri 兜底，?agent=codex 旧深链映射 pet-codex）、duoProvider 快照（setDuoProvider 由 pet.js applyConfigSnapshot 喂入）、eventBelongs/filterStats 二分改 config 驱动（agent==='pet-codex' ↔ provider===duo）、pet:travel 事件优先按 trip.owner 路由（发起窗保留 completed/failed/cancelled 反馈=缺陷 B 根治）、codexUsage 剥离改窗身份判定；pet-runtime-policy.js——resolveProvider 加第 4 参 duo（默认 codex，3 参调用行为不变，pet-systemic 冒烟兼容）；pet-travel-view.js——ownerKeyFor 接受 'pet-codex'（保留 codex 旧映射）；pet.js——duoProvider 快照+setDuoProvider 喂入、skin/位置改 PET_AGENT==='pet-codex' 窗身份（字段名 skinCodex/petPositionCodex 不改）、项目旅行按钮改 WANDER_SUPPORTED 集（codewhale 会话补上 🧳）；panel.html/js/css——「副宠 Agent」五 provider 下拉（configWrites.request→setDuoProvider，applyConfigUI 回显）；i18n.js 三语 panel.duoProvider（副宠 Agent/Second Pet Agent/サブペット Agent）+ panel.duo 文案改「双宠 · 自由搭配/Duo · Free Pairing/デュオ · 自由組み合わせ」
+- 测试：新增 test/tauri-duo-provider-r58-smoke.js（结构断言 model/travel/commands/注册面/conf + vm 功能探针：currentAgent 窗身份、eventBelongs/filterStats 配置驱动分片、trip.owner 路由、resolveProvider 三/四参兼容、ownerKeyFor；package.json 按字母序注册在 dsh-observer 与 r46 之间）；更新 r46:41（双窗口 URL 均无 agent query）、r50:29-33（同）+ 修复 batch1 遗留两处：pet-r50 的 v5 插件标记改 v6（batch1 升 v6 忘改测试，基线即红）、r50:169 顶层 `return void(async…)()` 提前退出 CommonJS 模块导致尾部断言（降级日志/托盘 HiDPI/ok 输出）长期静默跳过——改 fire-and-forget 恢复全量执行、降级日志断言同步新变量名 provider；tauri-bridge-smoke expected 列表加 setDuoProvider；tauri-command-safety/cli-hardening-r3/cli-resilience-r7 的 pet_label_for_agent(agent) 字面断言同步新签名（&app, agent）；maintainability 预算：pet.js 基线已超（batch1 +47 未 nudge，2640 vs 2756）→ 按 R56 惯例重校 2775 + 注明、commands.rs 3745
+- 验证：node --check 12 个改动 JS 全过；必跑五冒烟（tauri-duo-provider-r58/pet-r50/tauri-feature-parity-r46/popup-style/tauri-bridge-smoke）+ maintainability + i18n 三件全绿；全量 test/*.js 扫描：16 个失败全部为基线（8391293）预存（0.6.5 版本钉死漂移 ×多数 + batch1 插件 v6 形状漂移 ×3），stash 对比确认本次零新增失败；cargo 本环境无工具链 → cargo check pending（Rust 改动手工复核：deref 强转/Arc→&Runtime/临时借用/模式绑定 @("pet"|"pet-codex")/static Mutex::new const 均为稳定特性）
+- 提交：单次提交 cb6a8e0（r58-duo 分支，26 文件 +745/-103），信息含约定串 "R58-IMPL-C: duo_provider free pairing + wander owner derivation + no-claude-fallback"
+
+Stage Summary:
+- 改动文件（26）：src-tauri/src/model.rs（duo_provider 字段+默认+sanitize+轻量读器）、travel.rs（owner 参数链+pick_wander_provider 去 claude 兜底+三语无 CLI 错误+start_project 白名单对齐）、commands.rs（set_duo_provider+set_skin/pet_label_for_agent 泛化+sync_duo_provider_url+Mutex import）、lib.rs/build.rs/capabilities×2/tauri.conf.json（注册面+去 URL 钉死）；前端 tauri-bridge.js（duoPetProvider/owner 附加/setDuoProvider/config 订阅）、pet-agent-view.js（窗身份+配置分片+trip.owner 路由）、pet-runtime-policy.js、pet-travel-view.js、pet.js、panel.html/js/css、i18n.js；测试 8 文件（新 r58 冒烟+7 处同步/修复）+ package.json
+- 验证结果：node --check 12/12；必跑 5 冒烟+maintainability+i18n 家族全 PASS；全量 87 测试 = 71 PASS + 16 预存失败（与基线 stash 对比逐一致：r51/r44 系列/price-auto-update/metering-phase2/phase4/transcript-pricing 等为 0.6.5 版本钉死漂移、r53/systemic/dsh 为 batch1 v6 漂移——属版本/发布轮次责任，未动）；cargo check pending（环境无 cargo，已写入提交信息）
+- 默认行为保真：duo_provider 默认 codex 下 serde/sanitize/pet_label_for_agent/resolveProvider/eventBelongs/filterStats/currentPetAgent 全部与 0.6.6 逐位等价（3 参 resolveProvider 调用、agent=codex set_skin 旧 payload、?agent=codex 深链、conf URL 无 query 均兼容）；新 r58 冒烟显式断言这些兼容锚点
+- 已知残留/移交：①travel.rs 缺陷 D（全局 child_pid/cancel 双宠并发取消语义）按研究建议二期 per-owner 化未修——本次 owner 化已把 trip 归属修正，取消错杀仍存在；②16 个预存红测试（版本钉死 0.6.5 + v6 标记）需版本/发布轮统一清理，npm test 链会停在 pet-r51；③window eval 导航在 startup 竞态下可能丢一次（label 身份兜底，无功能影响），duo≠codex 时切搭配可见一次窗口重载闪帧；④第二窗 title「Octopus · Codex」与 pet.html 旧 ?agent=codex 深链注释为化妆品级残留；⑤二期建议：opencode/aider wander runner、WANDER_SUPPORTED 前后端单一来源化、pet-travel-view 中文气泡 i18n 化
+- 合并冲突注意（主协调者）：本提交与主区 metering.rs/plugin_sources.rs/hook_client.rs/hook_install.rs 零交集（约束遵守）；冲突高危点=travel.rs/commands.rs/pet.js/test/pet-r50（若 batch2 有并行改动）；maintainability 预算 nudge（pet.js 2775/commands.rs 3745）若他分支也 nudge 需取大者；tauri.conf.json URL 变更会使 gen/schemas 重新生成（构建期自动）
+
+---
+Task ID: R58-IMPL-D
+Agent: IMPL-D 实现代理（worktree wt-uninstall @ r58-uninstall，单次 commit 98c89e9；未触碰主工作区）
+Task: 实现 R58-1e 移交的「卸载残留清理（A1-A5/R1-R9）+ 按钮交互反馈（B1-B11）」两块：purge 参数/壳与备份扫描/NSIS 询问与 WebView2 清理/托盘全量卸载/README×3 指引修正 + toast 三窗通道/六处吞错反馈/径向 mute+patrol 反馈/rebuild+export toast/i18n 三语 12 新键
+
+Work Log:
+- A1（R1 主残留）：hook_install.rs `uninstall_all_hooks_headless` 加 `purge: bool`（:2161）——顺序契约：先 read_install_receipts 读入内存 → 五家 hooks 清理（outcomes 向量留存 per-provider 结果）→ sweep_shell_residue → purge 时 `fs::remove_dir_all(~/.re-llmpet)`（失败计 exit code 1）；main.rs 解析 `--purge-data`（仅作 --uninstall-hooks 的修饰符，单跑无效）；lib.rs `uninstall_all_hooks_cli(purge)` 薄壳透传
+- A1（R2-R5 壳与备份扫描，无论 purge 都跑，全 best-effort 不影响 exit code）：新增 sweep_shell_residue 家族 ~280 行——判权原则「只删我们写的段/文件，无法判定时保留」：①壳文件=install receipt `backup_path` 为 null（首装时文件不存在=我们建的）才删，且只删精确形状：claude `{}`/`{"hooks":{}}`、codex 仅 `{"description":"Octopus multi-agent desktop integration","hooks":{}}`（与 install_codex 写入的精确串逐字节比对）、aider 空白文件、codewhale `[hooks]\nenabled = true` 或空；②codewhale [hooks] 表加进「已存在」配置的情形：读 receipt 记录的 backup，backup 无 [hooks] 表 且 当前表体只有我们的 enabled=true 行才 strip（strip_hooks_enabled_table，表体有用户键→整表保留）；③备份：config 父目录扫 `.octopus-bak-`/`.re-llmpet-bak-`/`-re-llmpet-backup-` 三命名（含 aider 的 $HOME 扫描，仅精确模式匹配），只在 provider 清理 is_clean 时删（失败方保留备份为唯一回滚路径）；④空目录：remove_dir（非 remove_dir_all，仅空目录可成功=结构性安全）回收 ~/.codex、~/.codewhale、~/.claude（通常非空自然保留）、opencode 的 plugins/ 与 config dir 两级
+- A2（NSIS）：installer-hooks.nsh PREUNINSTALL 加 MessageBox MB_ICONQUESTION|MB_YESNO 询问「是否同时删除用户数据」，答是→ExecWait `"--uninstall-hooks --purge-data"`，/SD IDNO 使静默 /S 卸载默认只卸钩子；新增 NSIS_HOOK_POSTUNINSTALL 宏 RMDir /r `$LOCALAPPDATA\io.github.purrfecto114.octopus` + `$APPDATA\...`（与 tauri identifier 一致，grep tauri.conf.json 确认 io.github.purrfecto114.octopus）；对照 tauri-v2.11.5 官方模板核实 PREUNINSTALL 在 Section Uninstall 头部（binary 仍存在）POSTUNINSTALL 在尾部（无条件）
+- A3（R8，重要偏差）：tauri.conf.json 的 `"deleteAppDataOnUninstall": true` **被否决**——实拉 tauri-v2.11.5 / tauri-utils 2.9.3 的 config.rs 验证：NsisConfig 是 `#[serde(deny_unknown_fields)]` 且无此键，写入会令 `cargo tauri build` 配置解析直接失败（R58-1e 研究方案 A3 基于错误假设）；R8 语义由 POSTUNINSTALL 宏全量覆盖（模板自带的 delete-app-data checkbox 在 passive /P 与 silent /S 下被跳过，宏是无条件可靠路径），偏差已在 nsh 注释+本 worklog 记录证据链
+- A4（R9 平台性 P0）：修掉 main.rs 与 nsh 的「拖删后可跑 --uninstall-hooks」死路径谎言注释（二进制已删，provider 配置指死路径+CodeWhale fail-closed 全拒）；README/README_EN/README_JA 各新增「卸载与残留清理」节：托盘全量卸载项、CLI 双 flag、macOS/Linux 必须在删除 .app 之前跑、NSIS 自动流程、清理原则；顺带把三份 README 残留的 Electron 时代 `npm run uninstall:hooks` 死命令替换为真实 CLI
+- A5（托盘全量）：lib.rs 卸载钩子 handler 由 `"claude".into()` 改 `"all".into()`（走 IPC uninstall_hooks 的 all 路径=同 run_one 管线五家+清 config.providers+emit config；无 purge，purge 保留 CLI/NSIS 专属）；菜单 id `uninstall_claude_hooks` 保持历史名（测试/标签稳定性，注释交代）；i18n `tray.uninstallHook` 值三语改为「卸载全部钩子/Uninstall all hooks/すべてのフックを削除」；r13 smoke 断言同步更新为 `"all".into()` + emit_tray_toast 存在
+- B5（toast 通道结构性缺陷）：lib.rs 新 `pub fn emit_tray_toast`——emit_to 定向发 pet+pet-codex+panel 三窗（研究方案说双发 pet+panel，补 pet-codex 防回归：原 app.emit 广播本可达 codex 宠窗）；panel.js 新增 onEvent 监听（仅过滤 kind==='toast'，其余 pet:event 载荷刻意忽略）走 toast.js 共享宿主（#re-llmpet-toast 两 html 均已有）；hidePet 模式反馈可见
+- B1-B4/B8（托盘吞错×六处）：lib.rs 新 `tray_toast_error(app, key, detail)`（发射时取当前 lang，前缀式 format! 拼接）：launch_*×5→toast.launchFail、open_log→openLogFail、open_path→openDirFail、open_panel×2（panel+settings_diagnostics）→openPanelFail、配置组（lang×3/skin/budget/shape/toggle_mute/price_auto）→saveFail；原六处 `let _ =` 全消灭；on_menu_event 闭包结构未动（保持 rustfmt 兼容）
+- B6（径向+托盘 mute 零反馈）：commands.rs `toggle_mute` 成功后经 update_config 返回值取新 muted 态，发 toast.muted/toast.unmuted（crate::i18n::tray_label + crate::emit_tray_toast）——单一后端发射点同时覆盖托盘项与径向铃铛（菜单即点即关，图标翻转不可见正是研究痛点）
+- B7（径向 patrol）：pet-radial-menu.js patrol act 改 promise 链——`.then(r=>r.deferred&&owner.bubble(owner.t('bubble.patrolBusy')))` 复用既有键、`.catch(→re-llmpet:bridge-error)`（toast.js 兜底显示）；pet.js 径向 owner 补 `bubble: showBubble`（同 travelView owner 契约模式）
+- B9（toast 硬编码中文）：lib.rs 两处（💰 价格刷新已入队/卸载完成/卸载失败）迁 i18n——tray.toastPriceQueued/toastUninstallDone/toastUninstallFail；uninstall toast 按 allHooksVerifiedAbsent 分流 done/带 message 详情的 fail
+- B10/B11：panel.js price-rebuild 成功 toast（t('toast.rebuildDone',{count,delta})，失败走持久 bridge-error toast）；panel-export.js download 后 notifyExported toast（t('toast.exportDone',{file})，自含模块直用 window.OctoI18n）
+- i18n 三语 12 新键双侧同值：i18n.rs TRAY_LABELS（#rustfmt::skip 表尾新增 toast.* 8 键+tray.toast* 3 键+tray.uninstallHook 改值）与 i18n.js zh/en/ja 三块尾新增同键同值（toast.rebuildDone/exportDone 前端消费含 {count}/{delta}/{file} 插值，Rust 侧仅为 parity 存在）；r11 parity smoke 47 键全绿
+- 验证：node --check 六个改动 JS 全过；冒烟绿：tray-i18n-r11（47 键）、tray-extras-r13、command-safety、popup-style、static-smoke、i18n、bridge、phase1-pet-interaction、panel-sesslist-r19、r32-bridge-error、panel-i18n-audit-r17、hook-consolidation（cargo 缺席自动 skip，其 nsh/main.rs 断言串全保留）、price-match-r58；r44d smoke 除版本钉外全过（见 Stage Summary）；cargo 本沙箱不可用——Rust 侧以人工类型审查+实拉 tauri-v2.11.5 源码核验替代（emit_to 的 `impl<T: AsRef<str>> From<T> for EventTarget` 覆盖 &str 标签、NsisConfig schema、let-else/链式格式化与既有代码风格对齐、>100 列代码行手工折行）
+
+Stage Summary:
+- 交付：卸载链闭环到「零自产残留」——hooks/壳文件/备份/空目录/WebView2/（可选）~/.re-llmpet 全清理，判权始终 receipt/备份实证，宁残留勿误删；NSIS 卸载器新增用户数据询问（静默默认保守）；macOS/Linux 死路径指引修正（README×3+代码注释）；托盘一键卸载从 claude 单家扩为五家
+- 交付：反馈闭环到「每个入口都有可见结果」——toast 三窗定向通道（hidePet 可见）、托盘 13 个吞错点、mute 双入口、patrol busy/err、rebuild/export 结果，文案全部走三语 i18n（12 新键双侧 parity 被 r11 smoke 锁定）
+- 重要偏差披露：tauri.conf.json deleteAppDataOnUninstall 键在 tauri 2.11.5 不存在（deny_unknown_fields 会炸 build）——R8 改由 NSIS_HOOK_POSTUNINSTALL 宏实现，证据（tauri-v2.11.5 config.rs 原文）写进 nsh 注释；合并时若 IMPL-C/发布侧也实现 R8 请以宏方案为准
+- 已知既有红（非本任务产物，基线 8391293 即红，git stash 复核确认）：r44d/r44c/r44-39/r44-40/r44-41/phase4/metering-phase2/transcript-phase2/price-auto 九测的 0.6.5 版本钉未随 batch1 的 0.6.6 bump 更新（发布工程批次）；pet-r50 与 pet-systemic 的 opencode 插件/lineage 断言属 IMPL-C 并行区
+- 合并注意：lib.rs 仅动托盘 on_menu_event/辅助函数区（invoke_handler 注册未动）、commands.rs 仅动 toggle_mute（duo 区未动）、hook_install.rs 纯新增不改既有函数签名行为（uninstall_provider_hooks* 全未动，r44d 的 run_one 结构断言原样通过）；冲突热点预估在 i18n.rs/i18n.js 表尾与 lib.rs 托盘区（IMPL-C 若也动 lib.rs 的话）
+
+---
+Task ID: R58-RV-6
+Agent: R58-RV-6 卸载安全复审子代理（只读复审，零仓库代码改动）
+
+Task: RV-6 卸载安全（数据破坏风险）复审——核查 IMPL-D 删除逻辑是否守住「宁残留勿误删」：purge 三调用方与运行时语义、四家壳判定精确性、sweep_our_backups 三命名模式、空目录回收、NSIS 脚本、receipts 读取/删除顺序契约。
+
+Work Log:
+- 调用面取证：purge=true 仅两路可达——main.rs:30-34（--purge-data 仅作 --uninstall-hooks 的修饰符，单用静默忽略并正常起 GUI）与 installer-hooks.nsh:109（PREUNINSTALL MessageBox IDYES→ExecWait 双 flag）；托盘「卸载钩子」（lib.rs:968-969）走 commands.rs uninstall_hooks("all") IPC 路径（run_one 五家 + 清 config.providers + emit config），**无 purge 也无 sweep_shell_residue**。grep 全 src：生产代码仅 hook_uninstall.rs:121 一处 remove_dir_all，其余 13 处（metering/migration/transcript/pricing_sync/session_seed/session_resume）全部位于 #[cfg(test)]。tauri.conf.json 无 deleteAppDataOnUninstall（与 IMPL-D 偏差披露一致）。
+- purge 运行时语义推演：NSIS 先 KillProcessCurrentUser(octopus.exe/octopus-hook.exe/re-llmpet-hook.exe)+Sleep 500 再 ExecWait——ExecWait 等待进程退出后卸载器才继续删 INSTDIR（顺序契约成立；$0 退出码仅 DetailPrint 不 Abort，exit 1=手动关注按设计放行；ExecWait 无超时，纯文件操作挂死概率可忽略；IfFileExists 守卫二进制缺失分支）。CLI 路径在应用仍运行时执行：write_text_atomic 内建 create_dir_all(parent)，运行实例任何后续落盘（config/log/usage/travel/pricing）都会复活 ~/.re-llmpet = purge 语义打折为「部分清除+复活」（Linux unlink 语义必成功；Rust std 三共享位 Windows 多半也成功）——无第三方数据破坏，但 README 未提示先退出应用（NSIS 路径已 kill，无此问题）。
+- 壳判定逐函数推演（全部守住）：四家壳删除均为双门=receipt backup_path=null（backup_config_file 仅在 !path.exists() 时返回 Ok(None)，存在但备份失败=Err 安装中止 fail-closed，故 null⇒首装时整文件皆我们）+剥离后精确形状——claude：键集⊆{hooks} 且 hooks 空或缺失；codex：description 逐字节=="Octopus multi-agent desktop integration"+hooks 存在且空+键集⊆{description,hooks}（hooks 键缺失时不删，保守不对称方向正确）；aider：trim 空；codewhale：逐字 "[hooks]\nenabled = true" 或空。用户任何新增键/自有钩子即使失配→整文件保留；误删场景未发现（唯一理论角落=用户把文件改回精确壳形，零数据量）。codewhale R5 表剥离三重门：backup 可读+backup 原文无 [hooks] 表+当前表体仅 enabled=true 行（backup 丢失/表体含用户键→整表保留）；opencode 走 marker 判定（v6+legacy v1-v5）删插件文件+空目录兜底，Unowned 文件保留使目录非空不删。
+- sweep_our_backups 风险坐实两处：①is_clean 门包含 NotFound（hook_uninstall.rs:190 调用 + CleanupResult::is_clean=Removed|NotFound，hook_install.rs:333-338）——活配置文件已缺失时（用户手删/工具清空），.octopus-bak-* 备份是用户 pre-install 配置的最后一份副本，hooks-only 卸载（不带 purge）也会删掉它，属「宁残留勿误删」的角落违例（P1）；②匹配为裸 contains 三子串（:393-395），无 stem 前缀锚定、无时间戳数值校验——与注释宣称 "exact-pattern matches" 不符（install 侧 prune_backups:1170-1208 反而有 prefix+suffix+ts.parse 三段校验），且 aider 的扫描父目录=$HOME 顶层（单层，用户手工命名的同模式文件会被删）；同族并存场景（官方 re-llmpet 与 Octopus 并装）其 .re-llmpet-bak-/-re-llmpet-backup- 备份会被一并清——legacy 品牌（--re-llmpet-hook/--owner re-llmpet/CW v3/AIDER v3/opencode v1 标记）按谱系设计即视作 ours 剥离，NSIS PREINSTALL 门仅 Windows 安装期挡并存，macOS/Linux 无提示。
+- 其余核查：remove_dir_if_empty 用 fs::remove_dir（非 remove_dir_all，结构性只能删空目录=不可能吃数据；.DS_Store/隐藏文件/用户插件=非空→保留；Windows 目录句柄被占→失败仅打印）✓；receipts 顺序契约成立——uninstall_all_hooks_headless:50 先 read_install_receipts 读入内存→五家清理（outcomes）→sweep→purge 删整个目录（receipt 损坏时 read_install_receipts 静默跳过该条→uninstall_provider_hooks(id) env 兜底路径清理 + sweep_provider_shell 无实证不删壳；备份仍按命名清扫）；NSIS MessageBox /SD IDNO=静默 /S 默认只卸钩子（保守 ✓）；POSTUNINSTALL 双 RMDir（$LOCALAPPDATA/$APPDATA\io.github.purrfecto114.octopus）与 tauri.conf.json:5 identifier 逐字一致（官方 rellmpet 标识符不同不误伤；应用自身数据在 ~/.re-llmpet 不在其中）；nsh 经 tauri.conf.json:91 bundle.windows.nsis.installerHooks 真实接线。
+- 测试：node test/tauri-r44d-uninstall-provenance-smoke.js ✓（版本钉 0.6.7 现已全过）；node test/tauri-command-safety-smoke.js ✓。
+
+Stage Summary:
+- 裁决：IMPL-D 的删除逻辑在 provider 配置面上守住「宁残留勿误删」——归属=品牌强信号（含同族 legacy 标记，谱系内有意为之）、壳删除=receipt 实证+字节级形状双门、解析失败拒绝写（ManualActionRequired）、原子写（Windows 先备份后替换+失败回滚）、空目录=remove_dir 结构性安全。P0 级误删为零；唯一实质缺口在备份清扫门。
+- P1×1：sweep_our_backups 的 is_clean 门含 NotFound——provider 活配置缺失时，备份是用户配置最后副本仍会被删；建议备份清扫仅对 CleanupResult::Removed 放行（NotFound 时保留）。
+- P2×6：①sweep 匹配改锚定（复用 prune_backups 的 prefix+suffix+数字 ts 三段校验）消除 contains 子串与注释不符；②同族并存语义写入 README 卸载节（macOS/Linux：卸载本应用会同时清掉官方 RE-LLMPET 的钩子与备份）；③README 卸载节补「先退出应用再跑 CLI --purge-data」（防部分清除+复活）；④--purge-data 单独使用打一行 stderr 提示（当前静默起 GUI）；⑤托盘路径不跑壳/备份 sweep（残留方向安全，与 CLI 行为差异，记录为后续统一项）；⑥NSIS ExecWait 无超时保护（概率极低仅记录）。
+- 验证：两冒烟全绿（r44d-uninstall-provenance / command-safety）；零代码改动（只读约束遵守）。
+
+---
+Task ID: R58-RV-2
+Agent: R58-RV-2 性能复审子代理（只读复审，零仓库代码改动，git status 清洁）
+
+Task: R58 新增代码性能热点与回归复审——metering L4 前缀模糊层、session_seed 冷启动扫描、pet.js 搜索框 fitPopup→set_pet_size IPC 折叠、renderSessions 双触发、dsh 30min mtime 预筛、插件 v6 childSessions Map、卸载扫描、performance-smoke 门禁。
+
+Work Log:
+- metering.rs find_price_tiered（:944-1020）逐层走读：L0/L1/L2/L3 全为哈希 get 命中即 return（:970-:1001）——「bare 精确命中已 return、L4 仅 miss 时跑」确认属实；L4 循环（:1007-1014）零堆分配（rsplit/strip_dated_suffix 均返回借用切片）+ max_by_key 惰性单遍，无中间 Vec。catalog 规模实测：bundled 49 条 + models.dev 缓存经 normalize 双键（provider/model+裸名）≈1.5-2k 实际、上限 20k（metering.rs:1309 take(20_000) + pricing_sync.rs:44 MAX_MODELS=20_000）。
+- 热点定量：L4 单次全表 ≈0.1-0.4ms（现实 catalog）/1-4ms（20k 上限）。parse_hook 仅 usage 事件（codewhale turn_end/opencode message.updated/dsh turn_end，:631-636）进入价格查找，非 usage 事件早退；每次 usage 事件 find_price（:684-686 context_limit）+ cost_for（:687-699）双分层查找，且 find_price_tiered 内 split_model_modifier 算两遍（:954 与 :987，各含 to_ascii_lowercase 分配）——已知模型µs 级无所谓；「unknown」占位模型（metering.rs:666，dsh tracker.model 空或事件缺 model 时落入）每次 miss 全表扫两遍。交互路径（人类节奏 turn）成本可忽略。
+- 真正的复合面坐实：rebuild_costs（metering.rs:404-451）对全部事件逐条 cost_for，unknown 行每次都全表重扫 = O(N_events × N_entries)；commands.rs:353-363 rebuild_usage_costs 是同步（非 async）Tauri 命令 → 主线程执行（仓内惯例佐证：仅 diagnose_agent/cancel_diagnostic 两个长任务用 async fn），且全程持有 usage mutex——model.rs:921-957 hook ingest 与 transcript catch-up 都在同一锁内（scan_from_hook 持锁扫文件）。锁持有期所有 provider hook POST 阻塞，codewhale 权限钩有 500ms 客户端超时（hook_client），秒级 rebuild 撞上权限请求即 fail-closed deny。量级：现实 1-2k 条目 × 千级 unknown 历史行（升级前 dsh/缺 model 事件永久记 unknown）≈0.3-3s 主线程冻结+锁独占；病态（20k 条目×50k 全 unknown）分钟级。
+- session_seed.rs 冷启动：claude 路径两阶段（先全量 stat 排序截 15 再读尾，:126-187）尾读封顶 15×128KB=1.92MB；codex 路径 walk 深度≤4/文件上限 4000（:290-316）+ 首 15 文件读 min(size,256KB)。lib.rs:191-205 确认 std::thread::spawn 后台执行不阻塞 setup；种子仅 ingest_with_ack 零 pet 事件帧，结束 emit_stats 一帧且经 150ms StatsCoalescer（http_server.rs:559-641），渲染器 boot 自拉 get_stats 双保险——无阻塞风险。两个小浪费：read_codex_session_meta（:329-333）take(256KB)+read_to_end 读整个首块而首行只需 read_until('\n')（有界 3.75MB）；codex walk 已取 file_type 后 :260-269 再 fs::metadata 二次 stat。
+- pet.js 搜索框链路复核：input→renderSessList+fitPopup（:2517-2523）→fitPopup rAF 量高（:431-467）→setRequestedPetSize 同帧 rAF 合并（:416-430）→petSizeController（latest-value-controller.js:79-142）latest-wins：单飞折叠（in-flight 新值只发最新）+等值短路（desired==applied 直接 resolve 零 IPC，:133）+有界重试。语义=「在飞合并」而非时间 debounce——IPC 数=高度实际变化次数（列表行数变档才变高，≤可见行数次），长词输入窗口追笔与上游 pre-1.2.0 配对行为（4112-4113）一致；每次 resize 附 onResized ack+260ms 兜底+双帧 nudge（:325-415）成本有界。renderSessList 全量 innerHTML 重建 ≤30 行 ≈1-2ms/击键，可接受。
+- renderSessions 双触发（归档点击 :1212-1229 + persistSessionPref.finally :1250-1258）幂等性：patchSessionDots（pet-runtime-policy.js:50-64）为 keyed diff（Map 复用节点、按 key 重排、陈旧删除）非全量重建；第二次 fitPopup 因 controller equals 短路不再发 IPC；pendingSessionPrefs 禁用按钮防连点。双渲染成本≈一次多余 renderSessList(~1ms)，意图是 IPC 落地后收敛——保留为设计。
+- dsh_watch 30min 预筛（:443-465）：无 tracker 的陈旧目录每 poll（2.5s）session_file_for read_dir（:451）+fs::metadata+SystemTime::now——而 discover_sessions（:430）已对同目录做过一次 session_file_for 丢单只留 is_some → 陈旧目录每 poll 双 read_dir+双 stat；200 陈旧目录≈每 2.5s 多付 2-6ms（同步阻塞调用跑在 tauri async runtime 线程，属既有模式的轻微加量）。苏醒延迟：mtime 更新后下一 poll ≤2.5s 重建 tracker（REPLAY_QUIET_MS 管回放静默），与预筛前行为一致零新增延迟；cleanup_idle（:1088-1090）对活目录永留 tracker，既有 tracker 不重估，无反复回放——可接受。
+- dsh model 侧确认：R58-1d Part B 已落地（request/context 双点 :996-1013 + turn/end 盖章 :883），新增 dsh 行不再恒 unknown（存量历史行除外）。
+- 插件 v6 childSessions Map（plugin_sources.rs:92/:144）：只增不删（session.deleted 不清理）；量级每子会话 ~100-150B、跑在 opencode 进程内、进程生命周期为上界，500 子代理≈75KB——实践无害，一行 session.deleted 清理即闭环。timestamp_ms=Date.now() 每次 send 恰一次（:81），stampParent Map.get O(1)，无循环内重复调用 ✓。
+- hook_uninstall sweep_our_backups（:378-410）：每 provider 父目录一次 read_dir（aider 为 $HOME 一次），仅 --uninstall-hooks CLI（hook_uninstall.rs:49）/托盘卸载（lib.rs:369）路径调用，一次性用户动作非热路径 ✓；空目录回收用 remove_dir（非 remove_dir_all）结构性安全 ✓。
+- 门禁实跑：node test/tauri-performance-smoke.js 绿（permanent 700ms/3s polling removed）；tauri-price-match-r58-smoke OK；tauri-session-seed-r58-smoke OK（沙箱无 cargo→结构断言路径）。
+
+Stage Summary:
+- 结论：无 P0。R58 交互热路径（turn 事件计价、搜索框 IPC、归档双渲染、种子冷启动、dsh 轮询）全部在可忽略~毫秒级，早退/合并/去重语义逐项确认成立；唯一需要动手的是 rebuild_costs 的 miss 复合放大。
+- P1×1：rebuild_costs unknown 模型全表重扫 + 主线程同步命令 + usage mutex 全程持有（metering.rs:404-451/:1003-1018/:666 + commands.rs:353-363 + model.rs:921-957）——建议四件套：①rebuild 按 (model,billing) 唯一化查价、cost 数学每事件一次；②find_price_tiered 对 "unknown"/空 sentinel 直接 None；③命令改 async（对齐 diagnose_agent 惯例）防主线程冻结；④（可选）reload_catalog 预算裸段索引免 L4 per-entry strip/rsplit。触发面=panel「重算花费」+ 大账本存量 unknown 行；现实 0.3-3s、病态分钟级，撞上 codewhale 权限钩 500ms 窗即 agent 被 deny。
+- P2×3：①parse 三路径双分层查找+split_model_modifier 双算（metering.rs:684-699/:812-827/:328-339/:954/:987）——已知模型无害，unknown 放大 4 次规范化分配+2 次全扫，随 P1④顺手收；②dsh 预筛每 poll 对无 tracker 陈旧目录双 read_dir+双 stat（dsh_watch.rs:430/:451）——建议 discover 穿透 (file,mtime) 复用；③childSessions 无 session.deleted 清理（plugin_sources.rs:144）——一行补齐。
+- P3×2（记录不动）：read_codex_session_meta 整读 256KB 首块 vs read_until 首行（session_seed.rs:331-333）；rebuild_costs params Vec 全量 clone（metering.rs:407-422）。
+- OK 项：L4 早退确认（哈希命中即 return，仅 miss 跑）；session_seed 后台线程+一帧合并 stats+REPLAY_QUIET 零阻塞；搜索框 IPC 折叠语义（latest-wins+等值短路+同帧 rAF 合并）实际 IPC≈高度变化次数；patchSessionDots keyed diff 幂等且二次 fitPopup 零 IPC；dsh 苏醒延迟≤2.5s 与预筛前一致；sweep_our_backups 仅卸载路径；三冒烟全绿。
+- 零代码改动（只读约束遵守）；P1/P2 修复建议均已给出落点 file:line 与最小改法，移交下轮实现。
+
+---
+Task ID: R58-RV-1
+Agent: R58-RV-1 UX 复审子代理（只读复审，零仓库代码改动，git status 清洁验证）
+
+Task: UX 复审 R58-1a 归档 GUI 修复链（pet.js 8 处 + pet.css 滚动收纳，8391293 落地）+ R58-IMPL-D toast 反馈 UX（98c89e9）；六项审查清单逐条取证，P0/P1/P2 分级问题清单；跑 popup-style / pet-systemic / phase1-pet-interaction 三测确认绿
+
+Work Log:
+- 通读 worklog 尾部 R58 全链（1a/1b/1c/1d/1f/1g + IMPL-C/D/E）；git 逐 hunk 复核 8391293 的 pet.js 8 处补丁（fitPopup measureWhenWide :445-462、isVisibleSession 归档臂 :1028-1033、renderSessions 接过滤 :1952-1953、pin 点击 :1207-1208、archive 点击 :1227-1228、persistSessionPref.finally :1256-1257、search :2521、filter :2531）与 pet.css（overflow:hidden :753 + #sl-session-view flex :761 + .sl-scroll :762）——研究说的「九补丁」实为 pet.js 8 处 + css 1 处，逐条与 /home/z/pet-sim2 验证副本 diff 核对落地形状
+- 清单1（守卫/竞态/回滚）：①sessListOpen 守卫完备——closeSessList 经 lifecycle close() 调 resetPetSize→fitPopupSeq++（pet-session-lifecycle.js:24），取消一切在途量高；finally 的「关表后不误缩窗」由 `if (sessListOpen)`（pet.js:1257）+ seq 双保险，blur 关表（:2681）同样先走 resetPetSize；②fitPopupSeq 竞态正确——每次调用 ++seq，measureWhenWide 每帧与 measure() 入口都校验 seq（:436/:454），新调用取消旧量高，连点归档/打字时仅最后一次量高落地，正确；③双击防护——pendingSessionPrefs.add 后 renderSessList 同步重渲使按钮 disabled（:1118），行元素整体重建旧监听器消亡，同会话双击不可能；④归档回滚正确——catch 先恢复 pinned/archived 双集（:1244-1245，previous 在点击时捕获、含 pin↔archive 互斥删改），finally 再 renderSessions+renderSessList，dots 恢复且按钮解禁；⑤后端 set_session_pref 原子单会话事务（commands.rs:800-818 pin wins 双侧 retain）与前端本地镜像语义一致
+- 清单1 残留（P1）：applyConfigSnapshot（pet.js:1981-2027）在 pet:config 推送时更新 pinnedSet/archivedSet 却不调 renderSessions/renderSessList——A 窗归档后 set_session_pref 只 emit_config 不 emit_stats（commands.rs:820），B 窗（duo 副宠）收到配置推送但 dots 不重渲，闲置会话永无下一推 → 副宠头顶小点无限期陈旧（R58-1a 只收敛了发起窗）。建议 applyConfigSnapshot 尾部补 `renderSessions(curSessions); if (sessListOpen) renderSessList();`
+- 清单2（measureWhenWide）：12 帧后 320px 宽量高可接受——钳制态由 .sesslist max-height(100vh-210px)+overflow:hidden+.sl-scroll 内滚兜底，超量为有界单次（非单调增长），下次任意 fitPopup 自愈；但两个缺口：①时间预算错配（P2）——12 帧≈200ms@60Hz 早于 petSizeController 重试预算（80+250ms≈330ms+两次 IPC，pet.js:292），慢机上放宽窗在帧 13-15 才落地，量高已按 320 换行超量，只能等下次交互自愈；②错误路径静默（P2）——set_pet_size 持续失败仅 rlog 落 pet_log（pet.js:301-303），onExhausted 未设置（默认 no-op），不走 re-llmpet:bridge-error，用户面对挤成内滚的 HUD 零反馈；建议 onExhausted → dispatch bridge-error toast
+- 清单3（CSS flex 链）：视觉无回归——#sl-session-view block→flex column 等价（子块 stretch 满宽同 block 流；.sl-travel-status margin-top:6px/.sl-foot margin-top:6px 在 flex 下不折叠无差异，长文案 wrap 正常 min-height:16px）；.sl-bar/.sl-foot/.sl-top 为 flex 子项默认 min-height:auto=内容高，不会被钳制态挤压（.sl-scroll base 大、吸收几乎全部 shrink）；.sl-scroll::-webkit-scrollbar 7px 自定义样式（:769-770）元素未变仍生效；overflow:hidden 使 border-radius:16px 真正裁切（原 bug 即行画出框外）。P3：.sl-scroll 规则重复声明（:762 与 :768 两份同值），pet-sim2 验证副本是合并单条，落地版留双份——后编辑 :762 的 gap 会被 :768 静默覆盖，建议合并
+- 清单4（IS_VISIBLE 语义）：归档臂追加在 headless 豁免之后（:1028-1033 `(!headless || waiting/needsinput/notification) && !archived`），R50「被阻塞子代理必须可见」语义未被破坏（仅归档可压过豁免）；projectVisibleSessions（pet-runtime-policy.js:31-44）仍先行滤 sleeping/headless，双重过滤冗余但一致；归档→HUD「归档」筛选视图（:1062-1063）→📥 反归档→archivedSet.delete→renderSessions dots 复活路径通；后端从不读 archived_sessions（全仓 grep 证实 stats/waitingCount/pendingChoices 均不滤档）
+- 清单5（toast UX）：emit_tray_toast 三窗定向（lib.rs:380-385 pet+pet-codex+panel）是 B5 目标行为（hidePet 可见性），非「重复轰炸」缺陷——单窗重复有界（每窗一条、pet 4.5s 气泡/panel 4.5s toast、单宿主后到覆盖先到）；三语完整性 OK——i18n.rs:83-91+92-94 与 i18n.js:479-487/926-934/1371-1379 逐键逐语对照同值（9 toast.*+3 tray.toast*+tray.uninstallHook），r11 parity smoke 锁定；但四个 UX 毛刺：①单宠模式隐藏的 pet-codex webview 仍收事件并播 SOUND.done()（WebAudio 不因窗口隐藏而静音）→可能的隐身双响（P2，emit_to 前判 is_visible 可免）；②pet.js:1820-1825 toast 恒播 SOUND.done() 成功音——launchFail/saveFail 类错误 toast 配成功叮咚，语义错配（P3）；③onEvent 顶部 isInteracting() 早退（:1612-1615）吞掉 toast——用户正答 needsinput 卡片时点托盘，反馈在 pet 窗死信（panel 开着才可见，恰是 B5 要修的场景复活，P3）；④toast 无排队（toast.js:43 innerHTML 清空重写，错误连发互相覆盖，P3 可接受）
+- 清单6（归档 waiting 的 trade-off）：上游 v1.2.0 同语义（pet.js:1486-1489「头顶状态点永远不展示已归档项」无条件，waiting 无豁免）——上游同样以「显式用户动作+归档筛选可逆」为代价换取静音，无额外护栏。本仓残余矛盾（P2 UX 决策项）：dots 立即消失但 ①聚合表情仍 waiting（applyStats:1904 用后端 waitingCount，不滤档）→「等待脸无小点」不可解释态；②记事本角标/actionableItems（:819-823 后端 pendingChoices）与 ask 卡片（waiting 事件 enqueueChoice :1677）照常弹出；③意外逃生口：HUD「待处理」筛选（:1060-1061）不过滤 archived——被归档的 stuck 会话仍出现在待处理视图（与 :1065 注释「Normal and provider views hide archived unless explicitly requested」自相矛盾，是缓解也是不一致）。建议二选一：聚合梯子排除已归档行（前端本地滤 waitingCount）或明示「归档=仅隐藏小点/列表，不静音提醒」并在归档按钮 tooltip 注明
+- 测试缺口（P2）：R58-1a 九补丁零仓内测试锚——popup-style.js 只锁通用契约（POPUP_W/maxHeight none/POPUP_BOTTOM），无一处断言 renderSessions+fitPopup 成对、seq 守卫、measureWhenWide 回退；r13 只锁 emit_tray_toast 字符串存在。R58-1a 的行为验证在仓外 pet-sim2 headless Chromium，未沉淀为回归测试——一次重构即可无声回退用户已验收的修复
+- 门禁：node test/popup-style.js「popup style checks passed」/ test/pet-systemic-regression.test.js「ok」/ test/phase1-pet-interaction-regression.test.js「ok」三测全绿；node --check pet.js 过；git status 清洁（只读约束遵守）
+
+Stage Summary:
+- 裁决：R58-1a 九补丁与 R58-IMPL-D toast 通道在「发起窗」行为正确、守卫完备（sessListOpen+fitPopupSeq 双保险、disabled 防双击、catch→finally 回滚恢复 dots、blur 关表经 resetPetSize 取消在途量高、CSS flex 链与滚动条零视觉回归、headless 豁免语义保持、三语 12+1 键 Rust/JS 双侧同值）——无 P0
+- 问题清单：P1×1 applyConfigSnapshot 不重渲 dots（跨窗归档陈旧，duo 副宠无限期，建议 snapshot 尾补 renderSessions+条件 renderSessList）；P2×4（①12 帧预算早于 resize 重试预算 ~330ms，慢机量高按 320 换行超量待下次自愈 ②set_pet_size 持续失败静默（仅 rlog，无 onExhausted→toast）③归档 waiting 后「等待脸无小点」+记事本/ask 卡照弹的语义裂缝，需产品裁决（上游同语义）④九补丁零仓内回归锚，pet-sim2 行为验证未沉淀）；P3×5（隐藏 pet-codex 收 toast 播成功音可能双响、错误 toast 配 SOUND.done 成功音、isInteracting 吞 toast、toast 无排队、.sl-scroll 双份规则维护陷阱）
+- OK 项：清单1 守卫/竞态/回滚（除跨窗）、清单2 回退可接受性、清单3 视觉零回归（除重复规则）、清单4 IS_VISIBLE+反归档复活、清单5 三语完整性+时长一致（4500ms）、清单6 上游 parity 取证（1486-1489 无条件隐藏）；三测绿、仓库零改动
+- 移交建议：P1 与 P2①② 是 pet.js 单文件小改（各 ≤6 行），可并入下一 GUI 批次；P2③ 归档语义需 owner 签核后二选一；P2④ 建议新增 test/tauri-archive-gui-r58-smoke.js 结构断言（renderSessions(curSessions)+fitPopup 成对 ×3、seq 校验存在、measureWhenWide 12 帧常量、CSS overflow:hidden/min-height:0）——参考 pet-sim2 断言移植
+---
+Task ID: R58-RV-4
+Agent: R58-RV-4 硬编码复审子代理（只读复审，未改任何仓库代码）
+Task: R58 硬编码专项复审——R58-1f 18 处清单逐处复测 + R58 新引入硬编码扫描（session_seed/hook_uninstall/metering/plugin v6）+ wander SUPPORTED 一致性 + i18n 裸文案扫描 + 六 provider 词表清洁单复查 + 前后端 STATES 词表一致性
+
+Work Log:
+- 复测 R58-1f 18 处清单（对照 2905dd0..db32e7b 实际 diff 逐处 grep/读码）：tauri.conf.json URL 无 query（identity=label 搭配=config，title「Octopus · Codex」化妆品残留）；pet-agent-view currentAgent 窗 label 权威+query 降为非 Tauri 兜底+legacy codex 深链映射（注释在案）、eventBelongs/filterStats 全 config.duoProvider 驱动+trip.owner 路由；pet-runtime-policy resolveProvider 第 4 参 duo（3 参调用兼容）；tauri-bridge duoPetProvider/currentOwnerLabel/setDuoProvider/config 订阅；pet.js 旅行按钮:1128 改 WANDER_SUPPORTED、皮肤/位置:1994/:2023 改窗身份（skinCodex 字段名保留=数据兼容决策）；panel.html+panel.js 五 provider 下拉+i18n panel.duo/duoProvider 三语；travel.rs start_project:169 is_wander_supported（修掉旧 claude|codex 与 wander 不一致）、pick_wander_provider 三层候选+find_executable 预检+全无 CLI 三语报错（claude 静默兜底根除）、owner_for_provider 降级为 legacy 派生；commands.rs pet_label_for_agent/set_skin 均 config.duo_provider 比较、set_duo_provider 白名单命令；model.rs duo_provider serde default+sanitize 五家白名单+轻量读器；provider_registry default_pet_agent 原样保留且全仓零调用方（死代码）。裁决：18 处中 16 处已泛化/按设计保留，2 处残留（provider_registry.rs:840 死代码 claude 兜底未删；pet-runtime-policy.js:28 live 行 providerId 缺失时 || 'claude' 防御兜底仍在）；travel.rs:808 旧明信片 provider 兜底 claude 为有意数据兼容但无注释。10 处 'codex' 兜底字面量（serde default/sanitize 回落/stale payload/旧深链/URL 静态）全部为 0.6.6 兼容默认，运行路径 config 驱动——非硬编码残留
+- R58 新引入硬编码扫描：session_seed.rs 六常量（SEED_MAX_AGE_MS=30min/SEED_MAX_SESSIONS=15/TAIL_PROBE_BYTES=128KB/CODEX_FIRST_LINE_MAX=256KB/WALK_DEPTH=4/WALK_FILE_CAP=4000）逐条带上游出处注释（core.js BACKFILL_MAX_AGE_MS/BACKFILL_MAX、codex-watch TAIL_PROBE_BYTES、35KB meta 实证、目录布局）+dsh DSH_SEED_MAX_AGE_MS 同源对齐——合法常量非魔法数；hook_uninstall.rs 判权 receipt 驱动（backup_path=None=首装）+形状精确比对（claude {}/{"hooks":{}}、codex description 精确串、codewhale [hooks]\nenabled = true、aider 空白）——三条 P2/P3：①sweep_our_backups 用子串 contains 而非 receipt 溯源删备份（aider 分支扫全 $HOME，注释自称 exact-pattern 名不副实，碰撞率≈0 但违反模块自身 provenance 原则）②codex description 字面量跨文件双份（hook_install.rs:1275 写/hook_uninstall.rs:243 比对，无共享 const，漂移方向=宁残留安全）③同款跨文件耦合：OPENCODE_MARKER v6、nsh identifier；metering.rs strip_dated_suffix rfind("-20")=20xx 世纪假设——2030 不会漏（20xx 全命中）但 2100+/19xx 漏剥（上游为数字 regex）；is_dated 双校验（len10+2dash/len8 全数字）防 "-20b" 误剥；plugin v6 childSessions Map 无 TTL/无上限/不随 session.deleted 清理（长寿命 opencode 进程单调增长，内存量级无害，P3）
+- wander SUPPORTED 一致性：travel.rs is_wander_supported（:1203）=pick_wander_provider SUPPORTED（:1217）=前端 WANDER_SUPPORTED（pet-travel-view.js:20）三处一致 claude/codex/codewhale；opencode/aider/dsh 排除=runner 未实现的有意二期边界（前后端注释在案，dsh 未在前端注释点名=微文档缺口）；非默认 duo 时降级三层候选+CLI 预检，无新不一致
+- i18n 扫描：IMPL-C/D/E 全部 toast/错误走 i18n（r11 parity 47 键实测绿；panel.js rebuild/export toast 走 t() 插值；lib.rs tray_toast_error=tray_label 前缀+原始 detail；toggle_mute 双语键；radial patrol t()/bridge-error；wander_no_cli_message 三语但走本地 match 旁路 i18n.rs 表/r11 冒烟=新 mini-i18n 模式 P3）。两条新 zh-only 裸文案：①hook_install.rs:1384 opencode 安装成功 message「OpenCode ESM 插件已安装（v6）…需重启后生效」（跟随模块五兄弟 zh-only 既有模式，R58 又添一条，P2）②installer-hooks.nsh PREUNINSTALL MessageBox「是否同时删除…」zh-only（NSIS 层无多语言，en/ja 用户卸载询问看中文，P2）。预存未动：install result 五条 zh message 族、pet.js travel 气泡/等你授权等 C13 P2 清单
+- 六 provider 词表（R57-RV-C12 0.6.7 清洁单）：6 项全部原样未动——native_event="turn_end" 双生产者（dsh_watch:884）+失准注释（:865-866）、inject_emotion 死臂（hook_client:647-651 message_submit/turn_end/TaskStarted）、event_rank 死臂（model.rs:3076/3080）、registry 元数据漂移（opencode 缺 todo.updated、dsh 缺 ptc-dispatch 别名，grep 零命中）、dsh 无 SubagentStart——R58 未触碰也未恶化（metering 门 :631-633 provider 限定归因保持，R58-1d 只加 model 戳）；plugin v6 词典臂/hook_client 仅加回归测试
+- STATES 词表一致性：R57-RV-C11 P2 三件套确认在位未回退（i18n.js state.attention/state.notification 三语 :101/:566/:1013；pet.js SESSION_STATE_KEYS:1012；panel.js STATE_META:568-569 连 CSS class）；states.js STATE_PRIORITY attention(5)/notification(7) 与 normalize_state valid 13 词一致。两处 R57 时代预存残余：①pet.js:1944-1947 decorateSessionDot 直接查 SESS_META（无 attention/notification 行）→状态小点 tooltip 显示英文原词（主行 sessionStateLabel 已 i18n，此路径漏网）②pet.css 无 .sess-dot.attention/.notification 配色（sessionDotClass 返回状态词作 class，落默认灰）——非 R58 引入
+- 验证：node 冒烟实测 9 个全绿（tauri-duo-provider-r58/session-seed-r58/price-match-r58/tray-i18n-r11/test-i18n/feature-parity-r46/pet-r50/r44d-uninstall-provenance/maintainability）；cargo check --lib 通过（复原 R57 的 ~/.local/gtk-dev pkgconfig 环境，.pc prefix 补丁重打 147 个）；cargo test 链接受阻于沙箱磁盘 100%（9.9G 用尽，target 4.1G 占满）——以 release 提交自证 171/171 为准未复跑；git status 全程清洁（零改动）
+
+Stage Summary:
+- 总裁决：R58 对「闲逛/双宠硬编码 claudecode」的根除是真实的——18 处清单 16 处已泛化或按文档化设计保留（窗口 label=基础设施身份、codex 字段名=数据兼容、WANDER_SUPPORTED 镜像=后端权威复检），功能性 claude 兜底链全部消灭（pick_wander_provider 三层候选+CLI 预检+三语报错）；'codex' 字面量残留 10 处均为 0.6.6 兼容默认且带注释，非功能性硬编码
+- 新硬编码分级清单——P2×3：①hook_install.rs:1384 新增 zh-only opencode 安装提示（建议 install message 族整体 i18n 化）②installer-hooks.nsh PREUNINSTALL MessageBox zh-only（建议 NSIS 多语言表或 LangString）③hook_uninstall.rs:377-405 备份删除用子串 contains 非 receipt 溯源（aider 扫全 $HOME；建议 receipt backup_path+时间戳形状双门收紧）；P3×7：provider_registry.rs:840 default_pet_agent 死代码未删、pet-runtime-policy.js:28 ||'claude' 防御兜底、travel.rs:808 旧明信片兜底无注释、wander_no_cli_message 旁路 i18n 管线、strip_dated_suffix "-20" 世纪假设（2100+ 漏）、childSessions Map 无 TTL、跨文件字面量双份×3 组（codex description/OPENCODE_MARKER/nsh identifier）+五 provider 白名单四处复制（建议 registry 单源）
+- wander 三处 SUPPORTED 一致（R58 修复了旧 start_project 不一致）；dsh/opencode/aider 排除为有意的二期 runner 边界
+- C12 六项词表清洁单与 C11 两处 STATES 残余（decorateSessionDot 漏网+pet.css 点色缺规则）均未动、未恶化——仍为 0.6.7 后清洁单候选
+- 零代码改动（只读约束遵守）；裁决基于 db32e7b 工作树实grep+diff 2905dd0..db32e7b+9 冒烟绿+cargo check 绿
+
+---
+Task ID: R58-RV-3
+Agent: RV-3 用户体验复审子代理（只读，零仓库代码改动；复现验证在 /tmp/rv3-sim 独立副本 + headless Chromium 完成）
+
+Task: 端到端用户旅程复审 0.6.7（db32e7b）——用户报告的六类问题是否真正从用户视角解决：A 归档多会话、B opencode 子代理、C :free 价格、D provider 先启动、E 卸载残留、F 闲逛自由搭配。
+
+Work Log:
+- 读 worklog 尾部 R58 全链（1a/1b/1c/1d/1e/1f/1g + IMPL-C/D/E + batch1 8391293/batch2 8fcb999）；搭 /tmp/rv3-sim（HEAD 渲染器 + pet-sim2 的 tauri-stub）做活体验证；5 个 R58 冒烟复跑全绿（duo/seed/price/r50/hook-consolidation-skip），cargo 本沙箱不可用（沿承各 R58 子代理同环境）
+- 旅程 A（归档）实证：5 会话连点 3 次归档 → rows/dots 5→2 逐击减少、窗口高 679→628→577→530 精确收缩；关表重开高度 530 正确；「重启」（stub 持久化 archivedSessions 后 reload）→ boot getConfig 先于 getStats、archivedSet 就位、3 会话 1 归档 → 2 dots——pet.js:1028-1033/1221-1228/1250-1258/431-466、pet.css overflow:hidden+min-height 链、commands.rs:783-822 原子持久化，全链无断点（主路径）
+- 旅程 A 断点坐实（双向实证）：面板/另一宠窗归档只推 pet:config（commands.rs:131-135/820，set_session_pref 不推 stats）→ pet.js applyConfigSnapshot（:2015-2021）更新 archivedSet 但不调 renderSessions → 3 dots 推 config 归档 1 条后仍 3 dots（实测）；panel.js applyPanelConfigSnapshot（:1424-1433）同样不调 renderSessList → 2 rows 推 config 后仍 2 rows（实测）——闲置会话无下一推则用户看到的正是原报告「状态点未清」症状的跨窗复活
+- 旅程 B（opencode 子代理）：plugin v6（plugin_sources.rs:92-96 childSessions/stampParent、:139-147 created 学谱系、:171-197 不再读 message parentID）+ model.rs:1016-1030（rank 门拒绝仍落 headless+parent）谱系链完整；关键疑点裁决——SubagentStart/Stop 由 tool.execute.before/after 产生，opencode 工具钩子载荷 sessionID=父会话（plugin sidFromToolInput :108-115/:252-262；childSessions 只存 child→parent，查父 id 必 miss 不补戳）→ 两动画均落在父行、父行 RC1 修复后非 headless → http_server.rs:702-704 的门不吞完成动画；该门只吞子行自身工具流量（R50 设计如此，计量在 ingest 先于门不受影响）。前端实证：🤹 operation → sidekick on+prop on；✅ operation → prop ✅；父行状态 juggling→working 回落正确
+- 旅程 B 断点①（实证）：panel.js renderSessList（:657-674）过滤链只有 provider/query/attention/archived——无 headless/parentId 项（pet 窗有 pet-runtime-policy.js:31-44 projectVisibleSessions 兜着，面板没有等价物）→ 父+headless 子推 stats 后面板渲染 2 行，opencode 每个子代理在面板仍是「幽灵行」
+- 旅程 B 断点②（静态坐实）：v5→v6 marker 滚动只在 sync_enabled（hook_install.rs:398-406，唯一入口 set_providers）生效；启动 verify_enabled（:486-523）只读且 is_hook_installed（:635-641）把 Legacy 判「已安装」→ 0.6.4-0.6.6 升级用户磁盘上仍是带 RC1 缺陷的 v5 插件、面板显示一切正常、无任何提示要求重装+重启 opencode——报告该 bug 的用户升级后大概率复现原症状（修复未触达受影响人群）
+- 旅程 C（价格）：find_price_tiered L0-L4（metering.rs:944-1020）+ FreeVariant $0 计费（:874-886）+ Aggregate.add estimatedPrice 归类（:180-187）+ panel aggregateCostText（panel.js:137-146）全链通：:free 会话 cost_usd=Some(0.0) → 非 unknownPrice → 显示 $0.00 而非「价格未知」；normalized/approx → ≈ 前缀（全部估算轮）/「含估算」后缀（部分）；rebuild_usage_costs（:423-447）重打历史标签含 free 归零；dsh model 盖章（dsh_watch.rs:883/994-1012）。无「免费」专文案（仅 $0.00）——可接受的小 nit
+- 旅程 D（provider 先启动）：session_seed.rs（claude projects 扫描 mtime≤30min 前 15、sidechain 过滤；codex session_meta/guardian 过滤；REPLAY_QUIET 只 ingest 不 emit）+ lib.rs:191-205 后台接线+合并 stats 推一帧 + dsh 30min mtime 预筛（dsh_watch.rs:443-465，mtime 不可读=0 fail-closed 跳过）+ opencode 安装消息重写提示（hook_install.rs:1380-1385）全部落地；风险：SEED_MAX_SESSIONS=15（:46）对 >15 活跃会话的重度用户第 16+ 新不可见直到下一事件（上游 BACKFILL_MAX 同值，缺配置旋钮）；seed 仅覆盖 claude+codex（opencode/aider/codewhale 冷启动仍不可见，上游同为插件/配置加载无解法）；重写提示只出现在 provider 状态 title 悬浮提示（panel.js:1058-1062）非 toast
+- 旅程 E（卸载）：NSIS PREUNINSTALL 杀进程→MessageBox 询问删数据（/SD IDNO 静默保守）→ --uninstall-hooks[--purge-data]（installer-hooks.nsh:84-118）+ POSTUNINSTALL 清 WebView2（:120-139）+ main.rs:30-35 flag 解析 + hook_uninstall.rs:49-143（receipts 先读入内存→五家清理→壳/备份清扫→purge 收尾）+ 壳文件精确形状判定（:197-300）+ 备份三命名扫描 clean 才删（:373-409）+ 空目录 remove_dir 结构性安全（:418-452）+ README×3 macOS 先跑 CLI 指引（README.md:209-223/EN:131-138/JA:131-138）——CLI/NSIS 主链闭环
+- 旅程 E 断点（静态坐实）：托盘/IPC 卸载路径（commands.rs:440-540 uninstall_hooks → run_one 只跑 uninstall_provider_hooks）不执行 sweep_shell_residue——清扫族唯一调用点在 CLI headless 管线（hook_uninstall.rs:107）→ 走托盘「卸载全部钩子」（README 与 CLI 并列宣传的一键入口）的用户留下 .octopus-bak-* 备份、我们建的空壳（{"hooks":{}} 等）与空目录（~/.codex），恰是「卸载有残留」报告的残渣类别
+- 旅程 F（闲逛）：pick_wander_provider 三层候选+find_executable 预检无 claude 兜底（travel.rs:1216-1238）、无 CLI 三语错误（:1242-1252）、owner 派生单宠不再挂隐藏窗（:192-249/1190-1196）、set_duo_provider 白名单+sync_pet_windows+stats/config 即时重发（commands.rs:717-743）、sync_duo_provider_url LAST_APPLIED 守卫导航（:42-66）、面板下拉→setDuoProvider（panel.js:1530-1541）、trip.owner 路由（pet-agent-view.js:51-72）全链通；风险：前端「无可闲逛 provider」错误硬编码英文（pet-travel-view.js:89，后端三语但前端门先抛）→ 中文用户看到「⚠️ 闲逛失败：no wander-capable provider enabled」混语气泡；出发气泡宣布的 provider（:92）在后端降级（前端目标 CLI 缺失换 runner）时可能与实际不符
+
+Stage Summary:
+- 六旅程结论：A 通过（主链根修，跨窗收敛断点 P1）｜B 核心通过——关键疑点裁决为「SubagentStart/Stop 均发在父行、headless 门不吞完成动画」，但面板幽灵行 P1+升级交付缺口 P1｜C 通过｜D 通过（15 上限/覆盖面 P2）｜E 通过（CLI/NSIS 主链），托盘路径无清扫 P1｜F 通过（混语错误/宣布不符 P2）
+- 问题清单（无 P0）：P1×4 —— ①归档跨窗收敛缺失（pet.js:2015-2021 与 panel.js:1424-1433 快照后不重渲染 + commands.rs:820 只推 config 不推 stats；闲置会话可永久陈旧，复现原报告症状类）②opencode 子代理面板幽灵行（panel.js:657-674 缺 headless/parentId 过滤，实证 2 行）③v5→v6 插件升级不触达存量用户（hook_install.rs:398-406/486-523，Legacy 判 installed 零提示，受影响用户升级后 bug 复现）④托盘卸载不清扫残留（commands.rs:440-540 无 sweep，hook_uninstall.rs:107 唯一调用点在 CLI 管线）。P2×7 —— 面板归档不缩窗（panel.js:715-745 无 fitPanelHeight，worklog 已知 P3）；NSIS 卸载对话中文独占（installer-hooks.nsh:107/46/53，三语应用配中文卸载器）；SubagentStart/Stop 气泡文案硬编码英文（http_server.rs:804-815）；opencode 重启提示仅 title 悬浮（panel.js:1058-1062）；seed 15 上限无旋钮+仅 claude/codex（session_seed.rs:46）；闲逛前端错误英文+宣布 provider 可能与实际 runner 不符（pet-travel-view.js:89/92）；dsh 30min 预筛后停机前活跃的陈旧会话重启不再上板（dsh_watch.rs:461，对齐上游的可见性变化，文档已披露）
+- 修复量级预估（供下批）：P1① 约 6 行（两个快照函数尾部补 renderSessions/renderSessList(curSessions)，或 set_session_pref 加 emit_stats_now）；P1② 约 3 行（panel 过滤链加 `!s.headless || blocked`，复刻 pet-runtime-policy.js:37-38）；P1③ 约 2 行（verify_enabled 对 opencode Legacy 报 "legacy" 状态让 UI 提示重装，或 README/CHANGELOG 升级须知）；P1④ 约 8 行（commands.rs all 路径复用 hook_uninstall::sweep 管线）；全部无架构改动
+- 实证方法披露：/tmp/rv3-sim（HEAD 渲染器+桥桩）驱动 A/B 两旅程的活体断言（归档高度/dots/重启、🤹/✅ 动画、面板幽灵行、跨窗陈旧），C/D/E/F 以静态链路走查+冒烟复跑为主（后端行为无 cargo 环境未活跑，与全部 R58 子代理环境限制一致）；零仓库改动
+---
+Task ID: R58-RV-5
+Agent: R58-RV-5 correctness-reviewer（只读逻辑正确性深审子代理，零仓库代码改动，git status 清洁复核；复现全部在 /tmp 插件模拟 + Python 目录算法移植中完成）
+
+Task: R58 两块核心新算法深审——A. opencode 谱系（plugin_sources.rs v6 + model.rs ingest lineage 臂）逐顺序/逐路径推演；B. metering.rs 五层价格匹配逐层边界推演；跑价格冒烟四件 + cargo metering/lineage 测试；产出边界案例表与 P0/P1/P2 清单
+
+Work Log:
+- 方法：读 worklog R58-1c/1d 研究条目与 CHANGELOG 0.6.7 → 通读 plugin_sources.rs v6 全文、hook_client.rs normalize_opencode_native(:455-582)/prepare_http_state_body、http_server.rs /state(:308-334)+emit_hook_event(:684-838)、model.rs ingest(:855-1196)+should_accept_event(:3095)+session_is_expired(:3020)+event_rank(:3071)、metering.rs cost_for/find_price_tiered(:864-1020)/split_model_modifier(:1478)/strip_dated_suffix(:1503)/rebuild_costs(:404)/Aggregate::add(:160)/merge_catalog_document(:1286)、pricing_sync.rs normalize_models_dev(:712)；证据源=reports/provider-smoke/0.6.4/opencode-native-events-tap.jsonl（真实 opencode 1.18.32 事件形状）+ /tmp/r58_prompt*.ts（上游 prompt.ts 缓存）+ resources/model-catalog.bundled.json（49 键实表）
+- **P0 坐实（RC1 复活）**：v6 插件事件入口在 switch 之前的通用谱系块 `const info = properties.info ?? {}; if (info.parentID) {…}`（plugin_sources.rs:139-146）无事件类型门——注释自称「session-object events (created/updated) are the only trustworthy parent carriers」但代码对**所有**带 properties.info 的事件读 parentID，而 message.updated 的 properties.info 正是 Message.Info：上游 prompt.ts:271/1152/1188 给**每条** assistant 消息置 `parentID: lastUser.id`（父**消息** id，truthy；tap 实证 14 条 message.updated 中 9 条 infoKeys 含 parentID，user 消息无此键）。三重后果：①每个 opencode 顶层会话第一轮 assistant 帧起即被盖 parent_id="msg_…" + headless=true → model.rs:898/1024-1030/1054-1056 粘滞 → emit_hook_event :702-704 提前 return（say/turn-done/user-turn/needsinput 全哑）+ pet.js isVisibleSession(:1029) 隐藏行——与 v5 RC1 症状逐位相同，且**提前到首个流式 assistant 帧**（map 学习发生在 switch 丢弃帧之前：模拟实证「只喂一条无 time.completed 的流式帧→紧接的 session.idle 已带 parent_id/headless」）；②childSessions 谱系表被投毒（ses→msg）→ 父会话**自己的** task 工具帧（sessionID=父、map 命中）也被盖章 → SubagentStart 🤹/SubagentStop ✅ 在父行同样被 headless 吞掉——v6 声称修复的动画在实机上**依然全哑**；③真子会话的 child→parent 正确映射在子首个 assistant 轮被 msg id **覆写**（stats parentId 值损坏，仅剩展示面消费）
+- 可执行复现：提取 Rust 内嵌 v6 源串为 /tmp 模块、桩掉 readFile/fetch 后以真实事件流驱动——输出逐帧表：`message.updated role=assistant parent_id=msg_u1 headless=true`、`session.idle parent_id=msg_u1`、`tool.execute.before(task, ses_top) parent_id=msg_u1 headless=true`（父行 task 帧被毒）；对照组子会话 session.created→parent_id=ses_top 正确、其 assistant 轮后 tool 帧→parent_id=msg_c1（正确映射被覆写）。反证链闭合：v5 的 RC1 归因行 plugin_sources.rs:141 是 case 内 `msg?.parentID` 读——batch1 只删了 case 内读，同文件通用块的 `info.parentID` 读（对 message.updated 是同一对象）原样保留并加码了 map 学习
+- 测试护栏假绿：hook_client.rs:1474 `opencode_plugin_never_reads_message_parent_id` 与 test/pet-systemic-regression.test.js:44-55 都只断言 `!src.contains("msg?.parentID")` 字面拼写，且 JS 测**要求** `hook.includes('info.parentID')` 存在（与自身注释「the plugin NEVER reads Message.Info.parentID」自相矛盾）——两条护栏在 RC1 活体上双绿；修复方向：谱系块加 `type==="session.created"||type==="session.updated"` 门（session.updated 不转发但学习照常，tap 实证其 properties.info=Session.Info 带真 parent）+ marker 滚 v7 + 护栏改为断言该门存在 + 补行为级 JS 测试（喂 assistant message.updated 断言 POST 体无 parent_id）
+- A1 顺序推演（任务设问项）：stampParent 幂等成立——session.created 帧内 base.parent_id=info.parentID → map.set(child,parent) → stampParent map.get(child)=parent **等于**已设值（同源 info.parentID），覆写为无操作，无 double-stamp 不一致；自引用防御 `base.session_id !== info.parentID` 只挡 map 学习，自引用帧仍外发 parent_id=self（上游无此生产者，防御性残留，P4）
+- A2 推演：normalize 字典（:522-535）**不改写 session_id**——task 工具钩输入 sessionID=调用方会话=父 → SubagentStart(juggling)/SubagentStop 落父行、emit 载荷 session.id=父（:804-815/:830），方向设计正确（被 P0 毒害是另一回事）；父会话自身工具帧在**正确** map 下无键不盖章 ✓（实机因投毒不成立）；嵌套 task（子再派孙）：sessionID=子、子行 headless → emit 吞 → 深度 2 派发对用户不可见（claude 上游嵌套仍落父行可见）——「children surface through parent」的一致但值得记录的语义边界（P3）
+- A3/A4 推演：ENDED_SESSION_TTL（30min）判据是 `ended_at`（仅 accepted SessionEnd 置，:1077-1081）而**非** updated_at → lineage 臂反复刷 `entry.updated_at=now` 不会造成「永不过期」，只影响 LRU 淘汰优先级（MAX 200/256 保护行）、idleMs 展示与收养窗口新鲜度（被刷行必 headless、收养要求 !headless → 无影响），净效果良性；lineage 臂不动 ended_at → 迟到父帧不复活已结束会话 ✓；releases_auto_adoption 交互正确（释放要求本帧 parent_id.is_none()：迟到带父 SessionStart 不释放 ✓、迟到无父 UserPromptSubmit 不进 lineage 臂 ✓）——唯一缝：auto: 收养行收到**同毫秒**被拒的真父 session.created 时 `entry.parent_id.is_none()` 门不放行真父覆盖（保留 auto:），后续无父生命周期事件会把真子放回顶层成幻影点（边中边，P2 建议 auto: 前缀判定允许真父覆盖）；lineage 臂 `entry.headless || headless` 中局部 headless 已是融合值（body headless || parent_id.is_some()，:898）且臂内 parent_id 必 Some → 恒 true：冗余但无害，语义=预期粘滞 ✓（任务设问证实）
+- B 五层推演：L0 限定键形状与 pricing_sync normalize_models_dev 的 provider_key（"{provider}/{model_id 小写}"）逐字吻合（openrouter/deepseek/deepseek-chat:free ✓）；FreeVariant 四路一致（L0 cache 限定键 / L1 原文 / L2 折叠 / L3 裸名基行）全部 kind→FreeVariant→$0+token-priced-free+「:free-variant」source——目录有 rate 0 真键与只有付费基行两路径同价同标 ✓；rebuild_costs 重打稳定（cost_for 每次由同一 model 串重导 kind，:free 恒 FreeVariant；api-equivalent-estimate 保留门 :442 ✓）；Aggregate::add unknown=cost_usd.is_none()（FreeVariant Some(0.0) 不入 unknown ✓）estimated=normalized/approx/api-equivalent-estimate（FreeVariant 不入 ✓）
+- **B P1（非确定性计费）**：L4 候选按 `key_bare.len()` 计分 + HashMap 迭代 + std max_by_key 取**最后一个**最大值 → 等长键平局跨进程随机翻转：对真实 bundled 目录 1000 次洗牌模拟——`gpt-5` → gpt-5.6-terra 51% / gpt-5.3-codex 49%（input $2.50 vs $1.75/M，43% 摆动）、`deepseek` → deepseek-v4-flash 50% / deepseek-reasoner 50%（$0.14 vs $0.435/M，**3.1×** 摆动）；rebuild_costs 会按新进程的哈希序重算 → 历史 approx 行成本可在重启/目录刷新后静默漂移。修复建议：候选先按 (len, key) 字典序稳定化，或改按共享前缀长度计分
+- **B P2（反向前缀+最长键胜出）**：`bare.starts_with(key_bare) || key_bare.starts_with(bare)` 双向（**继承自 pre-R58 R10 时代模糊层**，git show 2905dd0 实证旧码同为双向+max key.len——非 R58 新引入，R58 只扩了候选面到带斜杠键裸段并补了 approx 标注缓解）；短/族词查询命中最长后代键任意计价：`claude`(len6，min4 不拦) → claude-sonnet-4-6($3/$15)、`grok-4.20` → grok-4.20-0309-non-reasoning、`kimi`(len4) → kimi-k2.7-code；设计稿（r58-1d patch 注释「longest shared prefix」）与实现（整键长计分）分歧——正向（查询比键长）选最长键=最具体祖先合理，反向则等于给模糊查询挑最具体后代，任意性最强；approx-priced→estimatedPrice→面板「≈/含估算」显示链已验证生效（panel.js:140-143/:517/:545）
+- split_model_modifier/strip_dated_suffix 边界表（Python 忠实移植+真表实跑）：`gpt-4-turbo-2024`（残缺日期不剥→诚实 unknown ✓）、`claude-3.5-sonnet-20240620`（剥→bundled 无键 unknown / models.dev 缓存下 Normalized ✓）、`gpt-5-20b`/`qwen-2020b`/`glm-5-20b`（suffix "20b"/"2020b" len 3/5 非日期形不剥→unknown ✓）、`mxbai-embed-large`（无碰撞 unknown ✓）、`kimi-k3-20260101`（→kimi-k3 Normalized ✓）、`OpenAI/GPT-5.3-Codex-2026-04-23`（折叠+剥日期→L2 Exact ✓）、`zai/glm-5.1`（尾段→Normalized glm-5.1 ✓）、`model@2026-01-01`（@后缀在日期剥后切→model ✓）、rfind("-20") 取**最后**出现使 `glm-20-20250101` 双 -20 仍正确剥真日期 ✓
+- 验证矩阵全绿：node 四冒烟 tauri-price-match-r58 / tauri-metering-phase2 / tauri-codex-pricing-r10 / tauri-transcript-pricing-phase2 全 OK；cargo（PKG_CONFIG_PATH/LD_LIBRARY_PATH/LIBRARY_PATH 三链 + CARGO_INCREMENTAL=0，磁盘满先清 target/debug/incremental 释放 300M）`cargo test --lib metering::` 13/13、`model::r58_lineage_tests` 2/2、`hook_client::tests::opencode_plugin_never_reads_message_parent_id` 1/1、pet-systemic/pet-r50 JS 护栏双绿——**绿≠对**：护栏全部是源字符串断言，无一覆盖插件行为路径（P0 活体上全绿）
+- 仓库零改动（只读约束遵守，git status --porcelain 空）；/tmp 模拟产物与 cargo 测试残留目录已清
+
+Stage Summary:
+- 裁决 A：v6 插件**未修复它声称修复的 RC1**——通用谱系块对 message.updated 的 Message.Info.parentID（父消息 id）无门直读，使每个 opencode 会话自首轮流式 assistant 帧起 headless（事件全哑+行隐藏），谱系表投毒连带杀死父行 SubagentStart 🤹 动画与真子的正确映射（P0，上游源 prompt.ts:271/1152/1188 + 0.6.4 tap + 真实插件源可执行模拟三重实证）；model.rs 侧 lineage 臂/顺序/释放交互本身全部正确（幂等、不阻 TTL、不复活已结束行、headless 冗余无害），A 块缺陷全部在插件层。修复=~3 行门 + marker v7 + 护栏改断言门 + 行为级测试
+- 裁决 B：五层匹配主链正确且各路一致（:free 四路 $0 同标、rebuild 重打稳定、unknown/estimated 计数口径对、日期/参数规模/残缺日期边界全数按设计），用户主案例已真修；两个残留=①等长候选 HashMap 平局跨进程随机计费（P1，deepseek 族 3.1× 摆动、rebuild 可静默漂移）②反向前缀+整键长计分给族词查询挑任意后代价（P2，双向性系 pre-R58 继承、有 ≈ 标注缓解）——都不回退「诚实未知」契约
+- 移交：P0 插件门修复（建议单独 hotfix 轮，修完跑 run-opencode.sh 子代理 run 取活体证据）；P1 L4 稳定排序；P2 auto: 收养真父覆盖 + 反向计分改共享前缀长；护栏三条（断言门存在/行为级插件测试/平局确定性测试）；嵌套子代理可见性与 childSessions 不清空为 P3 记录项
+---
+Task ID: R58-RV-7
+Agent: R58-RV-7 安全与权限复审子代理（只读复审，零仓库代码改动，git status 清洁复核 @ db32e7b）
+
+Task: RV-7 安全与权限专项复审——八项清单：plugin v6 timestamp_ms 时间锚伪造面、session_seed 符号链接/seed 标记信任面、hook_uninstall receipt 篡改与路径处理、metering 价格目录信任链、http_server token 鉴权新调用方、NSIS 注入面、谱系链 parent_id 伪造 DoS、三个安全冒烟实跑。
+
+Work Log:
+- 方法：读 worklog 尾部 R58 全链（1a-1g + IMPL-C/D/E + RV-1~6）→ 逐项读码取证：model.rs ingest(:855-1196)/incoming_event_time(:3035-3051)/should_accept_event(:3095-3119)/session_is_expired(:3017-3024)/prune(:1578-1596)/badge(:1752-1764)、plugin_sources.rs v6 全文、hook_client.rs prepare_http_state_body(:591-611)+normalize(:455-582)、session_seed.rs 全文、hook_uninstall.rs 全文、hook_install.rs cleanup_provider_with_path(:682-720)/uninstall_*_at(:768-880)/write_install_receipt(:2060+)、metering.rs parse_hook(:620-746)/find_price_tiered(:944-1020)/merge_catalog_document(:1286-1369)/read_json_bounded(:1371-1400)/finite_rate(:1442-1446)、codex_pricing.rs(:151-232)、pricing_sync.rs(:30-149)、http_server.rs 鉴权链(:73-341/:840-878)、installer-hooks.nsh 全文、main.rs、transcript.rs validate_transcript_path(:227-239) 对照；三冒烟实跑全绿（local-http-hardening / command-safety / capability-boundary 均 ok）。
+- 清单1（timestamp_ms）：incoming_event_time 只有未来过滤（≤observed_at+5min，超出回退 observed_at）无下界——伪造 +5min 锚可把 last_event_at 前跳，EVENT_CLOCK_SKEW_MS=2s 门随后拒掉 5 分钟内一切真事件（可周期重复=单会话监测面冻结）；慢时钟进程（滞后>2s）对 seed（mtime=server 钟）锚定的行事件被判 stale 永拒（会话冻死在 seed 态）；ended_at=event_at+30min TTL → 伪造古老 SessionEnd 可让行被 prune 提前删；badge 窗（turn_done_at 300s/last_failure_at 45s）可延长至 ~10min 或压制；metering created_at_ms 过去无界→日桶归因漂移（RETENTION 95d 内）。评估：5min 未来帽足够（有界）、2s skew 只防乱序不防锚点被拉走；建议 clamp 到 [now-10min, now+skew] 超界即用 observed_at，ended_at 改用服务器钟。缓解：token 域内（见清单5）。
+- 清单2（session_seed）：claude 分支文件循环 fs::metadata(:148)+File::open(:195) 跟随文件级符号链接（128KB 尾读，解析出的 cwd 4096/model 256 字段上板）——对照同文件 codex walk :301-306 显式 skip symlink、transcript.rs :227-239 canonicalize+starts_with root 两处正确范本，claude 分支是缺口（同用户可植入 symlink，机密影响≈0，防御纵深 P2）；"seed":true 标记全仓 grep 零消费方（仅 session_seed.rs:95 产生、lib.rs:198 线程名）——后端未把它当信任信号 ✓（种子走进程内 ingest_with_ack 不经 HTTP，无需 token，无绕过面）。
+- 清单3（receipt 篡改→任意路径删除）：主体判定不成立——cleanup_provider_with_path(:682-720) 虽对 receipt path 零验证（无 provider_config_path 比对/无 home 限定），但四个消费端全有内容门：uninstall_claude_at/codex_at(:792/:834) 先 json_config_contains_our_hooks 才动笔（否则 Unowned 原样保留）、opencode 需 OPENCODE_MARKER(:855)、壳删除(:220-287) 只删无数据精确形状（{"hooks":{}}/空白文件/[hooks]enabled=true——被指向的「任意路径」文件即使中招也无用户数据可失）。真正残余=hook_uninstall.rs:378-410 sweep_our_backups 是唯一内容无关删除原语：receipt path 可把扫描目录重定向到任意用户目录+contains 三子串不锚定+is_clean 含 NotFound（与 RV-6 P1/P2 同源，本审补「receipt 重定向」角度）；receipt 自身无签名（drift_signature 保护的是 config 不是 receipt）。建议：卸载前校验 receipt path==provider_config_path(id)（或写入时存 path hash）+备份清扫仅 Removed+锚定匹配。
+- 清单4（价格目录信任链）：metering 主链判定「低危成立且防护到位」——merge_catalog_document 20k 条/512 字节键帽、finite_rate(:1442-1446) 拒 NaN/负/inf/超 1M（JSON 无 NaN 字面量、as_f64 不解析字符串）、read_json_bounded 16MB+symlink 拒绝+同文件 TOCTOU 校验、在线侧 HTTPS+schema 校验+16MB；恶意 pricing.json 短键（≥4 字符）可 L4 捕获族词计价=仅本机显示+approx 标注、RV-5 P1 平局随机已另案。P3 残角：codex_pricing.rs:163-208 直读 pricing-cache.models-dev.json 绕过全部防护（read_to_string 无上限、as_f64 无 finite/负值过滤、无条目帽；负价→负成本显示）+ :12 文档宣称的 codexModels 用户覆盖未实现+Windows 下 $HOME 失效——建议复用 read_json_bounded/finite_rate。
+- 清单5（token 鉴权）：R58 新调用方无绕过——session_seed→ingest_with_ack 进程内+emit_stats AppHandle 出站广播（不经 HTTP）；plugin v6 send 仍带 x-re-llmpet-token（plugin_sources.rs:70）✓；http_server 五层防御复核在位（loopback peer/host 白名单/origin+referer 禁/server header/constant-time header-only token）+runtime.json 0600+hook 配置刻意不含 token（hook_install.rs:1026-1028 注释在案）；GET /state 探针仅回 ok/app/port。
+- 清单6（NSIS）：R58 新增面全净——PREUNINSTALL ExecWait '"$INSTDIR\octopus.exe" …' 引号包裹（Windows 路径不含 `"`、NSIS 运行时变量不二次展开=无注入）、MessageBox 静态文本、/SD IDNO 静默保守、POSTUNINSTALL RMDir /r 编译期常量标识符目录（identifier 一致性 RV-6 已核）。预存（R56 f1afa6f 引入、R58 未触碰）：PREINSTALL :54 `ExecWait '$0 _?=$INSTDIR'` 执行 HKCU 读取的 UninstallString 且未加引号——本机用户可预置注册表值借安装器提权上下文执行任意命令（UAC 绕过类原语），建议加引号+校验 $0 指向预期卸载器，移交下轮。
+- 清单7（谱系伪造 DoS）：坐实——model.rs:897-898 显式 parent_id 零验证（对照 auto: 收养 :964-979 有同 provider+同 cwd+非 headless+300s 新鲜四重约束，显式 parent 无任何约束）；:1024-1030 被拒帧仍落 parent+headless（投毒不受序门保护）；:1054-1056 headless 粘滞永不自愈（释放臂 :1061-1069 只认 auto: 前缀）。攻击路径：token 持有者发一帧 session_id=受害者行+任意 parent_id → 受害行 headless → http_server.rs:702-704 吞其全部 pet 事件+pet.js isVisibleSession 隐藏行，直到重启/LRU 淘汰。定级 P1（非 P0）：需 token（=同用户进程，普通状态伪造会被下一真事件覆盖、此毒永久粘滞=显著高于基线）；RV-5 的 v6 RC1 P0 正是该机制的无恶意自证实（通用谱系块 plugin_sources.rs:139-146 无事件类型门在 HEAD 确认仍在）。修复四件套：显式 parent 仅新行/session.created 帧接受+parent 存在且同 provider 校验+本会话后续显式顶层生命周期事件可清除误标+覆盖已有非 headless 行时记日志。
+- 清单8（冒烟）：node test/tauri-local-http-hardening-smoke.js ✓ ok / test/tauri-command-safety-smoke.js ✓ ok / test/tauri-capability-boundary-smoke.js ✓ ok；零代码改动（只读约束遵守，git status --porcelain 空）。
+
+Stage Summary:
+- 裁决：R58 的网络边界（token 五层鉴权+体积帽+loopback）与卸载「内容门」设计经得起推敲——伪造 receipt path 指向 /home/user/important 的经典任意删除路径不成立（四个消费端全部先验证内容归属）；metering 主链对恶意 pricing.json 的 NaN/负价/超长键防御完备，影响面确为本机计费显示（低危）。真正需要动手的是谱系信任面和时间锚信任面。
+- 威胁清单：P1×1——①谱系 parent_id 无验证+headless 粘滞（model.rs:897-898/:1024-1030/:1054-1056 + http_server.rs:702-704）=单帧永久隐藏任意会话（token 域内 DoS），修复=新行限定+parent 校验+误标可清除。P2×4——②timestamp_ms 单向未来过滤无下界（model.rs:3035-3051）：+5min 锚=5 分钟事件冻结杠杆、慢时钟=会话冻死、ended_at 伪造=提前 prune，建议 clamp 带宽；③receipt path 无完整性校验+sweep_our_backups 内容无关删除可被重定向（hook_uninstall.rs:57-64/:182-186/:378-410，与 RV-6 P1/P2 合并修）；④session_seed claude 分支跟随文件级 symlink（session_seed.rs:148/:195，codex 分支 :301-306 已有正确范本）；⑤NSIS PREINSTALL HKCU UninstallString 未加引号执行（installer-hooks.nsh:54，R56 预存非 R58）。P3×3——⑥codex_pricing.rs 绕过 metering 防护层直读缓存（负价显示+无上限读）；⑦plugin v6 send timestamp_ms 展开顺序在 payload 前（可被 payload 覆盖，当前无生产者）；⑧purge/HOME env 依赖（恒定 .re-llmpet 子目录名兜底，README 提示即可）。
+- OK 项：token 鉴权全链+新调用方无绕过、"seed":true 零消费（非信任信号）、NSIS R58 新增三处（ExecWait 引号/静态文本/常量 RMDir）、卸载四内容门、metering finite_rate/键帽/文件帽、remove_dir_all 不跟随 symlink、三冒烟全绿。
+- 移交建议：P1① 建议与 RV-5 P0 的 v7 插件门修复同轮实施（同一信任面的两端：插件侧不再误发 parent_id + 后端侧不再盲信 parent_id，缺一仍有冻会话风险）；P2②③④ 均为 ≤10 行小改；⑤ 移交安装器批次。
+
+---
+Task ID: R58-RV-10
+Agent: R58-RV-10 测试覆盖与架构复审子代理（只读复审，零仓库代码改动，git status 清洁复核）
+
+Task: R58 测试覆盖缺口与架构健康专项——功能×测试覆盖矩阵（归档 GUI 9 补丁/插件 v6 谱系/价格五层/duo_provider 自由搭配/卸载 purge+清扫/seed 冷启动/dsh model/12 按钮反馈/托盘 toast）、RV-5 式假绿扫描（存在性断言 vs 行为断言）、R57 测试债三项复测、文件预算余量与新模块内聚、版本钉集中化评估、cargo 探测跳过模式、运行时长抽样、三必跑冒烟。
+
+Work Log:
+- 环境：db32e7b 工作树只读，git status 清洁；三必跑冒烟全绿（tauri-static-smoke ok 59 assets/52 bridge commands、upstream-reconciliation-smoke ok、reference-contract-smoke ok）；npm test 全链 84 文件 exit 0、墙钟 4s；R58 三冒烟复跑 OK（本沙箱 cargo 不存在→结构断言路径，与 RV-2/3/4 环境一致）；Rust 行为层 171/171 引用发布门禁证据（db32e7b 提交信息 npm 84/84 + cargo 171/171 + clippy 0 + fmt clean），本轮不可复跑为环境限制非省略。
+- 覆盖矩阵（功能×测试，行为级口径）——①归档 GUI 9 补丁（R58-1a）：零专测（popup-style 只锁通用 fitPopup 契约；r46:61-67/r19 只锁 token 存在性：pinnedSet/archivedSet/renderSessList 按钮存在）；RV-1 建议的 tauri-archive-gui-r58-smoke.js 未建，确认零覆盖。②插件 v6 谱系：plugin_sources.rs 无 cfg(test)；模型侧 lineage 2 真测（model.rs:3544 late_session_created_parent_still_marks_lineage/:3586 accepted_session_created_parent_marks_lineage_too）测的是 model.rs ingest 臂不是插件 JS；插件 JS 行为零覆盖且 RV-5 已用 /tmp 可执行复现坐实 P0（v6 未修复 RC1）。③价格五层：metering.rs 真行为单测在位（:1915 free_variant_models_price_at_zero_not_unknown 实跑 ledger 落盘+cost_kind/price_source 断言、:1941 prefixed_and_dated、:1968 split_modifier 边界、:1777 分层目录）——覆盖真实但只在 cargo 环境执行；L4 等长平局确定性零测（RV-5 P1 遗留）。④duo_provider：前端=仓内最佳覆盖（duo-r58 冒烟 vm 探针真执行 pet-agent-view.js/pet-runtime-policy.js/pet-travel-view.js：currentAgent 窗身份、eventBelongs 配置驱动分片+trip.owner 路由（含降级 provider 缺陷 B 场景）、filterStats 重切、resolveProvider 3/4 参兼容、ownerKeyFor）；Rust 命令面零行为测（model.rs 无任何 duo 测试——sanitize 回落 codex/serde 旧配置默认/set_duo_provider 白名单拒绝/sync_duo_provider_url 导航全零；唯 travel.rs:1775 owner_for_provider_maps_codex_to_pet_codex_window 1 测覆盖 owner 遗留映射）；桥 duoPetProvider 缓存刷新/配置订阅零测（字符串存在性）。⑤卸载 purge+清扫：hook_uninstall.rs 8 真测全部测 strip/marker 域（:524 strip_removes_marker_block/:533 多变体/:550 未闭合报错/:557 嵌套/:565 不匹配/:574 无 marker 保留）——sweep 家族（sweep_shell_residue/sweep_our_backups/sweep_empty_config_dirs/remove_dir_if_empty/purge 删 ~/.re-llmpet/receipts 先读后删顺序契约）约 280 行零测，RV-6 以读码推演代替。⑥seed 冷启动：session_seed.rs 5 真行为测（:438 claude 窗口/sidechain、:516 cap15、:533 codex meta/guardian、:580 cap15、:601 glue 真实 AppState+幂等+stale 排除）——R58 新功能中覆盖质量最高；REPLAY_QUIET 有类型级强制（seed fns 只收 &Arc<Runtime> 不持 AppHandle，:60/:68）。⑦dsh model 盖章（R58-1d Part B）：零行为测（dsh_watch.rs 7 测无一涉 model 字段；seed-r58 冒烟 :76-79 仅两条字符串存在性）。⑧12 按钮反馈 toast：零行为测（toggle_mute 发 toast/patrol .then/.catch 链/panel rebuild/export toast/13 处 tray_toast_error 调用点全零）；i18n 键 parity 例外——r11 冒烟 47 键 Rust↔JS 三语真值交叉核对自动覆盖新增 toast.* 键。⑨托盘 toast 通道：r13:69 单条字符串存在性（'emit_tray_toast' in handler）。
+- 假绿清单（RV-5 同类扫描）——FG-1（RV-5 已发现，仍在）：hook_client.rs:1474 opencode_plugin_never_reads_message_parent_id 与 pet-systemic.test.js:44-55 只查字面拼写（后者还反向要求 'info.parentID' 存在），P0 行为缺陷全绿通过。FG-2（本轮新发现，P1）：tauri-r40-runtime-regressions-smoke.js:51-53 断言 hookInstall.includes('octopus-opencode-plugin-v5') 意图「current marker must be v5」——R58 已滚 v6，v5 仅存活于 OPENCODE_MARKER_LEGACY 迁移表（hook_install.rs:226），断言继续绿但语义已过期；该测试无任何 v6 断言，注释块 :47-49 同样过期——典型「断言存在性而非语义」假绿（对照：pet-r50:117 已正确改钉 v6）。FG-3（P1）：cargo 探测跳过不可辨识——price-match:57-72/session-seed:98-112 在 cargo 缺失或 cargo test 因 /pkg-config|gtk/i 失败时打印 skip 行后照常打印 OK/exit 0，hook-consolidation:12-16 cargo 缺席整门跳过（exit 0）；读 .github/workflows/ci.yml 后裁决修正：当前 CI 矩阵无「有 cargo 无 GTK」态（test job 只有 node=结构-only 设计；rust job apt 装 libgtk-3-dev 后跑 cargo test --lib --locked 承接全部行为层），故 CI 实际不假绿——风险面=本地 cargo+缺 GTK 环境（静默绿）+「npm 84/84 绿」被误读为行为绿（如发布注记口径）+gtk-sys 依赖级构建回归在无 GTK 环境与「环境缺失」同被跳过（但会被独立 rust job 兜住）。FG-4（P2）：seed-r58 负向护栏为字面 tripwire（!includes('emit_hook_event')/!includes('app.emit')/!includes('transcript_path')）——重命名/间接调用即绕过；'transcript_path' 门纯字段名拼写（改 camelCase 即漏），行为意图（不经 transcript 扫描器重放计价）零测；缓解因素=类型级隔离（见⑥）但未来重构加 AppHandle 参数时 tripwire 未必报警。FG-5（P2）：price-match 冒烟断言「Rust 测试名存在」（:33 free_variant.../:40 prefixed.../:43 layered.../:45 unknown_price...）双跳间接——测试改名即碎（脆）、测试掏空仍绿（假）；与 FG-3 叠加=无 cargo 环境下价格功能行为断言执行数为零。
+- R57 测试债复测（三项零进展，连续两轮未动）：①emit 链六项——http_server.rs 仍无 cfg(test)（grep 零命中）；model.rs 13 测无一覆盖 greet_due 置/清（:1103/:1174 生产臂）、task_visual_at、aborted Stop、badge TTL/ack、3s 去重（session() 夹具 :84/:91 初始化这两个字段但无测试消费）；REPLAY_QUIET_MS（dsh_watch.rs:257）抑制零测。②mode_change→ModeChange 映射（hook_client.rs:344-349）零专测——opencode_lifecycle_native_events_map_to_canonical（hook_client.rs:1303）19 用例表无 mode_change 行。③TurnEnd reason 形状零测试——typed 契约（dsh_watch.rs:175-186 TurnEndReason lowercase 字符串）与运行时读取（:854-860 data.reason.kind 嵌套对象）漂移原样保留，无反序列化测试锁形状。三项建议升级为 0.6.8 清洁单显式条目（当前散在三轮复审记录里，无追踪载体）。
+- 架构健康：预算余量实测——pet.js 2773/2775（余 2 行）、commands.rs 3754/3760（余 6 行）、hook_uninstall.rs 579/585、session_seed.rs 680/695、hook_install.rs 2133/2400（抽取后余 267）、panel.js 1701/1760；lib.rs 1131 无预算守卫——maintainability 冒烟 15 文件守卫名单不含 lib.rs，且 10 个最大 Rust 文件中 8 个无守卫（model.rs 3605/metering.rs 1994/travel.rs 1782/hook_client.rs 1501/dsh_watch.rs 1184/pricing_sync.rs 1143/lib.rs 1131/http_server.rs 1033）。趋势预警：pet.js/commands.rs 连续两轮「重校到基线+5」（R58 注释自认 batch1 落地时守卫已红未 nudge），预算已从强制函数退化为登记簿；两文件余量 ≤6 行，下轮任何触碰必须先抽模块（建议：pet.js 会话列表视图族抽 pet-sesslist-view.js 仿 R56 pet-skin-packs 模式；commands.rs 诊断命令族并入 diagnostic_control）。新模块内聚：hook_uninstall.rs 职责单一成立（headless 管线+清扫族+receipts 读取+8 测），唯一越界嫌疑=read_install_receipts（:454）归属倒挂——receipts 写方在 hook_install 而读方在 uninstall 模块且被 commands.rs:462/:658 复用（建议随下轮迁回 hook_install 或提 shared）；session_seed.rs 内聚好（采集/探读/幂等上板一条线，无越界）。死代码：provider_registry.rs:840 default_pet_agent 零调用者（pub fn 无 dead_code 警告）且语义漂移（仍只跳 codex、无视 duo_provider——若未来接线会复活 R58 刚根除的 codex-only 假设，建议删除或对齐配置驱动）；旧 v5 marker 引用为有意迁移表非死码，但见 FG-2 其测试语义过期。
+- 版本钉集中化评估：实测 '0.6.7' 39 处/13 测试文件（约 31 个真断言位，余为注释）；模式全部是「pkg.version === '0.6.7'」或三文件字面互比（metering-phase2:19-21/phase4:27-29/transcript:22-24/r51:84-87/r44c:61-66/r401:39+169+183 含 manifest.root 模板 Octopus-0.6.7）。两案：A（推荐）——改跨文件一致性断言（package.json == tauri.conf.json == Cargo.toml == migration-todo.release == manifest.version/root 由 pkg.version 派生），字面量归零，历史真实失败模式（bump 漏改单文件）恰是跨文件一致性捕获的，而字面钉每轮腐烂成本身债务（R57→R58 的 16 个预存红即钉子过期产物，还得 stash 基线对比来确认非回归）；成本 ~13 文件×2-4 行机械改+跑测 ≈1-2h；代价=丢失「钉住特定发布」语义（r44d 'Phase 0C+0D ship together' 类，该船已开走可接受）。B——共享 test/helpers/expected-version.js 单字面量，30 分钟版，仍需每轮改一处。裁决：值得做（A 案），非紧急，并入下轮发布工程批；若求最小改动取 B。不做的理由不成立——维护负担是实测复发债务而非理论。
+- 冒烟跳过模式读码结论（补充 FG-3）：三处跳过共享同型 spawnSync('cargo',['--version']) 探针；price-match/session-seed 在 GTK 失败时正则匹配 stderr 才放行 skip（真实测试失败仍会 assert 非零→正确红灯），即假绿窗口限于环境缺失态；建议改进（P2）：skip 时最终行改 'OK (rust skipped: <reason>)' 或设 ALLOW_RUST_SKIP 环境门，让日志扫描器可区分全绿/降级绿；发布核对单加「确认 rust CI job 实跑」一条。
+- 运行时长：全链 84 文件 4s；抽样 pet-systemic 35ms/performance 30ms/maintainability 35ms/static 33ms/reference-contract 29ms——无拖慢项；该时长本身佐证 npm 链 100% 静态结构断言（行为层在 CI rust job 的 cargo test 里）；附带发现：cargo+GTK 开发机上 npm test 会内嵌三次 cargo 子集编译（metering::/session_seed:: 过滤+consolidation 的 cargo metadata，600s 超时已适配）——与 rust job 重复但可接受。
+
+Stage Summary:
+- 裁决：R58 测试投资呈两极——session_seed（5 真测）/metering（4 真测）/duo 前端（vm 探针真执行）是本仓最好水平；但零行为覆盖清单同样醒目：归档 GUI 9 补丁、插件 v6 JS 行为（且 RV-5 P0 证明既有护栏假绿）、duo Rust 命令面（sanitize/set_duo_provider/sync_url）、卸载 sweep 家族 ~280 行、dsh model 盖章、12 按钮 toast 发射、托盘 toast 通道。
+- 假绿新增 2 项（P1 r40 v5 语义过期仍绿；P1 cargo-skip 降级绿与全绿不可辨识——CI 现矩阵下无实际假绿、rust job 兜底，风险在本地与口径误读）+ RV-5 的 plugin 契约假绿维持；负向 tripwire/测试名存在性断言记 P2。
+- R57 测试债三项（emit 链六项/mode_change 专测/TurnEnd reason 形状）连续两轮零进展——建议显式进 0.6.8 清洁单，否则会第三轮复发。
+- 架构：pet.js 余 2 行/commands.rs 余 6 行=预算耗尽，下轮动这两个文件前必须先抽模块；8/10 最大 Rust 文件无预算守卫（守卫名单只盖 15 个中小文件）；default_pet_agent 死代码+语义漂移待删；hook_uninstall/session_seed 内聚达标（read_install_receipts 归属小瑕疵）。
+- 版本钉：推荐跨文件一致性改造（A 案，~1-2h，消灭每轮 16 处钉+中间态红噪声这类复发债务），非紧急可并入发布工程批。
+- 移交分级——P1：①r40 冒烟补 v6 现行断言+修过期注释（5 分钟）②cargo skip 可辨识化（OK (rust skipped) 行或环境门+发布核对单一条）③R57 三项测试债立清洁单条目并补测（emit 链至少补 http_server greet/Interrupt 守卫两测+mode_change 一用例+TurnEnd reason 形状一测）。P2：④sweep 家族补 Rust 单测（remove_dir_if_empty 只删空目录/sweep_our_backups 仅 Removed 放行——与 RV-6 P1 联动）⑤duo Rust 命令面补测（sanitize 回落/白名单拒绝两测）⑥版本钉 A 案改造 ⑦default_pet_agent 删除 ⑧read_install_receipts 归属迁移。P3：负向 tripwire 改行为锁（低优先，类型级隔离已兜）。
+- 验证：三必跑冒烟+R58 三冒烟+maintainability+npm test 84/84（4s）全绿；零仓库代码改动（只读约束遵守）。
+
+---
+Task ID: R58-RV-9
+Agent: R58-RV-9 前后端契约一致性复审子代理（只读复审，零仓库代码改动，git status 清洁复核，HEAD=db32e7b）
+
+Task: R58 前后端契约一致性专项复审——八链清单：duo_provider 配置链字段拼写逐环节、pet:travel owner 事件契约与旧数据兼容、stats 快照新字段 null 安全、toast 事件三窗 payload 一致、命令签名漂移与 build.rs/lib.rs/capabilities 三方清单、plugin v6 HTTP wire 契约、NSIS/CLI --purge-data 退出码语义、四个冒烟门禁实跑。
+
+Work Log:
+- 链1 duo_provider 配置链逐环节取证：AppConfig `#[serde(default, rename_all="camelCase")]`（model.rs:40）→ `duo_provider` wire 形状=`duoProvider`（model.rs:58-59 serde default codex + :160-165 sanitize 五家白名单回落 codex）；config_view()（model.rs:756）serde_json::to_value 保持 camelCase → emit_config（commands.rs:131-135）pet:config/panel:config 双通道；前端桥 duoPetProvider()（tauri-bridge.js:35-42）读 cachedConfig.duoProvider+缺失回落 'codex'、内部订阅 pet:config/panel:config 刷缓存（:128-133）；pet.js applyConfigSnapshot（:1981-1988）同回落+喂 petAgentView.setDuoProvider；panel.js 回显 applyConfigUI（:1365-1369）与写回 configWrites.request→window.pet.setDuoProvider（:1534-1541，panel.html:93-99 五 option 值集=Rust 白名单同序集）；桥 setDuoProvider（tauri-bridge.js:245）call('set_duo_provider',{duoProvider}) ↔ Rust 参数 duo_provider（commands.rs:717-721）——Tauri v2 默认 snake↔camel 参数映射吻合；注册面 build.rs:21 COMMANDS + lib.rs:274 invoke_handler + capabilities/pet.json:43/panel.json:35 allow-set-duo-provider 三方齐；降级安全双向验证：0.6.6 有 extras flatten（git show 2905dd0 实证）→ 0.6.7 写的 duoProvider 被 0.6.6 原样往返保留，schema_version 保持 2 零迁移 ✓
+- 链2 pet:travel owner 契约：三种 emit 形状（started travel.rs:303、panic-failed :369、终态 :553-563）均携带 trip=ActiveTrip（camelCase，owner 字段单词无 case 差异）；start_wander（commands.rs:282-299）owner:Option<String> ↔ 桥 startWander 附 owner:currentOwnerLabel()（tauri-bridge.js:265，值域 'pet'/'pet-codex'）；travel.rs:239-241 仅接受两窗标签、其余回落 owner_for_provider（:1190 legacy 派生）；前端 eventBelongs（pet-agent-view.js:57-59）duo 模式优先 trip.owner 路由、owner 缺失（旧 payload）回落 provider 分片；pet-travel-view.js:22-27 ownerKeyFor 接受 'pet-codex'+legacy 'codex'，:34-44 快照 active owner-map 优先+activeTrip 兜底；宠物窗 roam 表达取 ownTrip（pet.js:1914-1915）同 key。**复审设问修正**：ActiveTrip.owner 并非 R58 新增——git 追溯 ee2ba53（v0.6.0 谱系首个 travel.rs）即 `owner: String`，全谱系 writer 均带 owner，故「旧 travel.json 无 owner」场景在本 fork 无真实受影响文件；非 Option/无 serde default 的加固项见漂移清单
+- 链3 stats 契约：R58 新增 wire 字段=estimatedPrice（u64 计数，metering.rs:156-157/:180-187 计 kind∈{api-equivalent-estimate,normalized-priced,approx-priced}，落 today/window5h/daily/byModel/providerCost 五处 :202-203/:563-564/:577-578）；unknownPrice 沿用 u64；cost f64。前端消费点全 null 安全：panel.js aggregateCostText（:137-146 Number()||0）、byModel 行（:515-517/:536/:545-546 truthy 门）、budget 条（:241 undefined>0 安全）；≈前缀/含估算后缀口径（:143 estimated===messages 全估→'≈'）与 Rust 端 unknown=cost_usd.is_none/estimated=kind 集合互斥语义吻合（FreeVariant $0 不入 unknown ✓）。seed 会话行复用 Session 标准投影（model.rs:1741-1771），前端 renderSessions 既有 null 防御覆盖，无新字段。**坐实一处预存幻影契约（P2）**：pet-agent-view.js filterStats :104-117 读 row.today/row.window5h——后端 stats 行从不携带（唯一行产出点 model.rs:1741-1771 字段集固定，全仓 grep 零 producer，自 0.6.0 即如此）→ duo 模式两宠 chipCost/5h 恒 $0.00（spread 保留 unknownPrice 等聚合字段但 cost/tokens 覆写为 0），:96-99 注释宣称「fall back to the aggregate」与实现相反；R58 改了该函数（duo 分片 config 化）未察觉此旧账
+- 链4 toast 契约：emit_tray_toast（lib.rs:380-384）payload=`{"kind":"toast","message":String}`，pet:event 通道 emit_to 定向三窗；三消费者齐——pet.js case 'toast'（:1820-1826，ev.message→4500ms 气泡+音效，pet 与 pet-codex 共用 pet.html:185/#re-llmpet-toast:188 toast.js）、panel.js onEvent（:1391-1396，kind==='toast'&&ev.message→reLlmpetToast.show 4500）；payload 无 mode/duration 字段，两侧硬编码 4500ms 一致；toggle_mute（commands.rs B6）复用同一发射函数同形状 ✓（RV-1 已立案的三毛刺——隐藏窗双响 P2/错误 toast 配成功音 P3/isInteracting 吞 toast P3——不重复立案）
+- 链5 命令三方清单对比（node 脚本精确集合比对）：build.rs COMMANDS 54 == lib.rs generate_handler 54（零差集，capability-boundary smoke 同锁）；capabilities pet+panel 合计 48 allow-*，6 个已注册无任何 capability 白名单：uninstall_hooks（托盘 Rust 侧直调，无需）、territory_toggle_auto/set_pet_tall/set_pet_big/resume_session（桥暴露的**死方法**——tauri-bridge.js:260/:300/:303-304，前端零调用点）、launch_agent_in（桥未暴露）——当前零运行时故障，属未来调用即静默 ACL 拒绝的预存潜伏漂移（非 R58 引入；R58 的 set_duo_provider 三面齐）。签名漂移核验：set_ignore_mouse（commands.rs:1244-1255）/pet_visual_bounds（:3428-3435）新增 app:AppHandle 为 Tauri 注入参数、不进 JS payload，前端 {ignore,agent}/{rect,agent} 不变 ✓；set_skin（:663-688）agent 比较 config.duo_provider，桥 currentPetAgent() 第二窗返回 duo 语义 provider（tauri-bridge.js:74-86 label→provider 解析）恰匹配；pet_label_for_agent（commands.rs:23-33）agent==duo→'pet-codex' 与 defaultPetAgent 跳过 duo 的前端镜像互逆闭合
+- 链6 plugin v6 HTTP 契约：send()（plugin_sources.rs:65-84）body={provider,source_pid,timestamp_ms:Date.now(),...payload}——snake_case timestamp_ms；incoming_event_time（model.rs:3035-3051）按 event_timestamp_ms/eventTimestampMs/timestamp_ms/timestampMs+RFC3339 四键读取、钳 observed_at+5min ✓ v6 字段被消费；childSessions Map（plugin_sources.rs:92）纯插件内状态、不上 wire（外发仅 parent_id/headless 两既有 R50 字段）✓；http_server.rs R58 零 diff（/state→prepare_http_state_body→ingest_with_ack→emit_stats→accepted 才 emit_hook_event 管线原样）。交叉引用：RV-5 P0（通用谱系块 :139-146 无事件类型门直读 info.parentID——message.updated 的 Message.Info.parentID 使顶层会话首个流式帧起 headless）仍在位等待 hotfix 轮，契约面本次未恶化
+- 链7 NSIS/CLI 退出码契约：uninstall_all_hooks_headless（hook_uninstall.rs:49-144）0=全净（Removed/NotFound/Unowned 皆可）/1=需人工（Changed/PathDrift/Unreadable/Residue/ManualActionRequired+purge 失败计入）；main.rs:30-35 exit 透传；installer-hooks.nsh:107-115 ExecWait 捕获 $0 仅 DetailPrint 不 Abort，:99-100 注释「Exit code 1 … logged, not fatal」与 Rust 语义逐字一致 ✓；purge 目录缺失=0、sweep 永不单独失败退出码 ✓；两 flag 组合（--uninstall-hooks / +--purge-data）为 NSIS 仅用形状 ✓（RV-6 已立案：--purge-data 单用静默起 GUI P2）
+- 门禁实跑：tauri-bridge-smoke ✓（:58-77 expected 列表含 setDuoProvider，桥 API 面锁定）、tauri-phase4-cutover-smoke ✓、tauri-capability-boundary-smoke ✓（ACL manifest↔invoke_handler 集合等+privileged/panel 互斥断言）、tauri-command-safety-smoke ✓、tauri-duo-provider-r58-smoke ✓（加跑，conf/结构/功能探针全过）；git status 清洁零改动
+
+Stage Summary:
+- 契约矩阵（Rust 字段→wire 字段→前端字段→状态）：①duo_provider→duoProvider（serde camelCase）→cachedConfig.duoProvider/panel config.duoProvider→✅全链一致+双向降级安全（extras 往返）②set_duo_provider 命令（Rust duo_provider 参数）→JS {duoProvider}→build.rs/lib.rs/capabilities×2 四面齐→✅③ActiveTrip.owner→trip.owner→eventBelongs owner 路由+ownerKeyFor→✅（owner 缺失回落 provider 分片，旧 payload 兼容）④start_wander owner:Option<String>→JS owner:'pet'|'pet-codex'→✅值域白名单+legacy 派生兜底⑤estimatedPrice（u64）→estimatedPrice→panel aggregateCostText/byModel→✅null 安全六处⑥unknownPrice（u64）→同→✅⑦toast {kind,message}→pet.js case 'toast'/panel.js kind==='toast' 三窗齐 4500ms 同→✅⑧set_ignore_mouse/pet_visual_bounds app 注入→前端 payload 不变→✅⑨plugin v6 timestamp_ms→incoming_event_time 四键读取→✅⑩childSessions→纯插件内→✅零 wire 字段⑪--purge-data 退出码 0/1↔NSIS DetailPrint 非致命→✅语义逐字一致⑫duo stats 分片=纯前端 config 驱动（无新后端字段）→✅但成本切片见 P2
+- 漂移清单：**P2×1**——duo 模式成本切片幻影契约：pet-agent-view.js:104-117 读 row.today/row.window5h 而后端 stats 行唯一产出点 model.rs:1741-1771 从不携带（0.6.0 起零 producer），duo 两宠 chipCost/5h 恒 $0.00，:96-99 注释「回落聚合」与实现（覆写 0）相反；建议二选一：后端按 session 聚合补 today/window5h 或前端切片失败时保留聚合值并注明。**P3×4**——①ActiveTrip.owner 非 Option/无 serde default（travel.rs:58），配合 load_persisted unwrap_or_default（:666）=行程形状漂移即整体清空旅行史；本 fork 谱系 0.6.0 起 writer 恒带 owner 无实际受害文件，但手改/异常文件会静默全清，建议 serde default 加固②combinedUsage.claudeUnknownPrice（model.rs:1934）死 wire 字段——前端零消费（panel.js:213-230/panel-export.js:74-77 均不含）③6 命令无 capability 白名单（uninstall_hooks 托盘直调豁免；territory_toggle_auto/set_pet_tall/set_pet_big/resume_session 为桥死方法、launch_agent_in 未暴露）——未来接线即静默 ACL 拒，建议删死方法或补白名单④seed body "seed":true 标记（session_seed.rs:95）ingest 不消费，纯注释性字段
+- 交叉引用（已立案未变化，契约维度复核通过）：plugin v6 info.parentID 无门（RV-5 P0）、--purge-data 单用静默（RV-6 P2）、childSessions 不清理（RV-2/RV-4 P3）、filterStats 的 row.providerId||'claude' 防御兜底（RV-4 P3）；R58 自身的五条新契约链（duo/travel-owner/estimatedPrice/toast/退出码）零漂移
+- 验证：四必跑冒烟+duo 冒烟全绿；git 全程零改动（只读约束遵守）；结论=R58 新增前后端契约全链一致，唯一实质缺口是一条 0.6.0 遗留的 duo 成本切片幻影字段（P2），R58 触碰该函数未修亦未恶化
+
+---
+Task ID: R58-RV-8
+Agent: R58-RV-8 i18n 与文案完整性复审子代理（只读复审，零仓库代码改动，git status 清洁复核 @ db32e7b）
+
+Task: R58 i18n 与三语文案完整性复审——R58 新增用户可见文案全量盘点（IMPL-C/D/E、R58-1c、hook_install/NSIS）、已知四缺口核实+三语补全方案、R57-RV-C11 遗留复测、bub.*/terr.* 零消费键现状、i18n 护栏覆盖面与 R58 新键锁定状态、三测实跑、三语翻译质量抽查。
+
+Work Log:
+- 新增文案盘点（git diff 2905dd0..db32e7b 全量 + i18n.js 字典 diff）：净新增 12 键（9 toast.* + 3 tray.toast*）+ panel.duoProvider + 2 值改（tray.uninstallHook/panel.duo），三语逐键对称；Rust 侧 i18n.rs 表行同值（regex 逐行复核=47 键全匹配，与 r11 冒烟输出一致）；IMPL-C wander_no_cli_message（travel.rs:1242-1252）三语完整但走本地 match 旁路 i18n 表（r58 冒烟只断言函数名 :54，三语值无护栏）；duo 下拉 panel.html:92-99 data-i18n 三语、五 option 皆产品名无需译（aria-label="Second pet agent" 固定英文，P3）；IMPL-E session_seed.rs 与 R58-1c plugin_sources.rs 确认零用户可见文案（message 命中皆 JSON 解析/注释）；NSIS 询问框 nsh:107 zh-only 坐实；R58 全 Rust diff 唯一新增 zh-only 代码字面量=hook_install.rs:1384 opencode 安装 message（同族五兄弟 :401/:1012/:1103/:1304/:1480 预存 zh-only），经 set_providers→panel.js:1058 title 悬浮提示对 en/ja 用户可见；前端 renderer R58 零新增 zh 字面量（pet-travel-view.js:92 仅在 R50 旧 zh 串里加 ${target} 插值）。
+- 已知缺口四件核实（全部坐实、全部未在本轮修复，与 RV-3/RV-4 一致）：①hook_install.rs:1384 zh-only（上述）②NSIS nsh:107 zh-only，PREINSTALL :46/:53/:71/:76 四条预存 zh 同病（R56 引入）③http_server.rs:804-815 SubagentStart "dispatched a subagent"/SubagentStop "subagent finished" 英文硬编码，同族 :799 "Running tool"/:817 "Agent execution failed"/:821 "Task created"/:824 "Task completed"，经 pet.js:1626 `${ev.icon} ${ev.detail}` 直显气泡——zh 用户看英文（反向混语）④闲逛前端：pet-travel-view.js:89 英文 gate 错误使 zh 用户见「⚠️ 闲逛失败：no wander-capable provider enabled…」混语；:95 zh 前缀使 en/ja 用户见「⚠️ 闲逛失败：no wander-capable CLI is installed…」（后端三语错误+前端 zh 前缀）；且 :60 update() 在每次 stats 快照（pet.js:1886）覆写按钮 textContent 为硬编码 zh——en/ja 用户 boot 的三语标签 sess.wander（🐾 Wander/🐾 散歩）一秒内被覆写成「🐾 闲逛/⏹ 取消旅行」=运行时 i18n 倒退。
+- C11 遗留复测（本轮未做）：三件套现状=①i18n 键 state.attention/notification 三语在位（i18n.js:101-102/:566-567/:1013-1014，test/i18n.js §1 锁定）②panel.js STATE_META:568-569 两行在（R57 修复保持，attention→st-waiting/notification→st-needsinput）③pet.js SESSION_STATE_KEYS:1012 含两词（HUD 主行 sessionStateLabel 路径 i18n ✓）——但 decorateSessionDot（pet.js:1944-1948）仍直查 zh-only SESS_META：attention/notification 缺词显示英文原词（zh 用户 tooltip）、en/ja 用户全部 dot tooltip 恒中文、waiting 模板 `等你${reason}` zh 硬编码；pet.css:346-352 无 .sess-dot.attention/.notification 配色→默认灰 #6f6f76，与 panel 琥珀色映射不一致。R58 未动未恶化。
+- bub.*/terr.* 零消费现状（抽查 5 处+全量计数）：字典 bub.* 15/bubble.* 15/terr.* 14 键三语齐全；有消费仅 8 键（bubble.newTask/longCommand/patrolBusy×2/patrolDone/patrolling/travelCancel、bub.online——后两者 R58 有增量消费：radial patrol B7 复用 patrolBusy）。抽查 5 处现状：pet.js:1716 spotted/1721 march/1728 victory/1733 defeat/1737 partial 全部 zh 硬编码与字典 terr.* 值逐字同文=键在字典零消费；另 :1651(×3)/:1661/:1665/:1670/:1680/:1690/:1694、:1185/:1188、:2407/:2578(×2)/:2709、pet-travel-view.js:92/:95 同病（对应 bub.loved/sad/ack/roundDone/bigDone/error/greet、bubble.waiting/needsinput/travelStart/travelFail/currencyCny/currencyUsd/wanderStart/wanderFail 全部三语在字典）。zh 硬编码调用点全量 ≈30 处（pet.js ~24+travel-view ~7+panel.js ~6，panel 空态/计数「X 个」/「暂无活跃会话」:681/:683、价格 title :1205/:1218/:1233 计入）vs C13 记录 ~20 处（口径差）；R58 零新增零回退，后端净改善（wander 错误三语化+12 toast 键+价格 toast 三语化 nsh 无关），IMPL-C stage summary 已把「pet-travel-view 中文气泡 i18n 化」列入二期遗留 ⑤。
+- 护栏覆盖面：①test/i18n.js=字典内完整性（416 键三语存在/占位符 parity/en-ja 不回声 zh）+ pet.js/panel.js/两 html 的 t() 字面键存在性 + 动态族 wait./reason./tool./lang. 成员 + Rust lang 白名单（§6）；R58 新增 12 键自动被 §1/§2/§3 锁定；盲区=调用点扫描不含 pet-radial-menu.js/panel-export.js/pet-travel-view.js/pet-agent-view.js（panel-export.js:132 t('toast.exportDone') 不在扫描内，键 typo 无护栏）、不检测死键（:42 bubble.waiting 白名单自认 dead）②r11 smoke=i18n.rs 47 键↔i18n.js 三语逐值 parity——12 个 R58 toast 键+tray.uninstallHook 新值全锁 ✓ ③r17 smoke=8 个 panel 键回归锁（R17 修复面）与 R58 无交集。R58 新键锁定盘点：panel.duo 三语值被 duo smoke:233-235 锁、panel.duoProvider 三语存在被 :230-232 锁（en/ja 值漂移仅存在性检查）；无护栏的 R58 用户可见串=wander_no_cli_message 三语值（仅函数名断言）、hook_install opencode message、NSIS 全部、aria-label。
+- 测试实跑：node test/i18n.js「i18n checks passed」✓；test/tauri-tray-i18n-r11-smoke.js「ok (47 keys cross-checked)」✓；test/tauri-panel-i18n-audit-r17-smoke.js「ok」✓；附加 tauri-duo-provider-r58-smoke ✓、pet-r50-regression-smoke ✓（含 SubagentStart 结构断言 :146——断言串止于 icon 行，detail 改查表不破坏）。
+- 三语质量抽查：panel.duoProvider zh 副宠 Agent/en Second Pet Agent/ja サブペット Agent——en 自然；ja 与项目自身惯例不一致（ja 字典他处用エージェント：tool.Task 'サブエージェント起動'、sess.newClaude 'エージェント起動'），建议「サブペットエージェント」（P3）；panel.duo（双宠·自由搭配/Duo · Free Pairing/デュオ·自由組み合わせ）三语自然 ✓；toast.rebuildDone 三语占位符 {count}/{delta} parity 被 §2 锁定、fill()（i18n.js:1396-1399）插值验证 ✓、en 'cost delta +$0.1234' 语法可读略生硬（可选 'cost changed by {delta}'）、零变化显示 '+$0.0000' 诚实但略怪（P4）；wander_no_cli en 小写开头、ja「見つかりません」vs en「not installed」轻语义漂移（P4）；IMPL-D 12 键 en/ja 全部自然（起動に失敗しました/ミュートしました/エクスポート済み等）✓；tray_toast_error（lib.rs:393-399）前缀本地化+detail 原文英文追加（P3 可接受的错误详情混语）。
+
+Stage Summary:
+- 裁决：R58 新增文案三语纪律良好——字典 14 处变更三语对称、Rust/前端双侧 parity 被 r11（47 键）+ test/i18n.js + duo smoke 三护栏锁死，三测+两冒烟实跑全绿；R58 全 diff 唯一新增 zh-only 代码字面量为 hook_install.rs:1384 一条（随模块五兄弟既有 zh-only 模式）。已知四缺口全部坐实且均未在本轮修复；C11 三件套 2/3 完成（i18n 键+panel STATE_META），decorateSessionDot 漏网+pet.css 配色缺失为剩余两片；C13 bub/terr 零消费债务 R58 零恶化、后端净改善。
+- P1×1（i18n 完整性视角的最大单点缺口，R50 起预存、R58-IMPL-C 触碰该文件但按 stage summary 明确延期）：wander/travel 前端 UI 三语整体缺位且按钮标签运行时被覆写回中文。接线点 pet-travel-view.js:60/:62-67/:74/:89/:90/:92/:95、pet.js:1184-1188/:1707-1709/:1931。三语补全（dict 大多已有，新增键仅 4）：
+  · sess.wanderActive（新）zh '⏹ 取消旅行' / en '⏹ Stop travel' / ja '⏹ 旅行をやめる' → :60
+  · wander.noProvider（新）zh '没有可闲逛的 Provider（claude / codex / codewhale）' / en 'No wander-capable provider enabled (claude / codex / codewhale)' / ja 'ウェブ散歩できるプロバイダーが有効になっていません（claude / codex / codewhale）' → :89
+  · bubble.wanderStart（改值带 {provider}）zh '🐾 出门闲逛啦（{provider}），回来会带明信片！' / en '🐾 Off to wander ({provider}) — postcards when I'm back!' / ja '🐾 散歩に出かけるよ（{provider}）、ポストカードを持って帰るね！' → :92
+  · bubble.wanderFail（改值带 {error}）zh '❌ 闲逛失败：{error}' / en '❌ Wander failed: {error}' / ja '❌ 散歩に失敗：{error}' → :95
+  · travel.statusActive（新）zh '🧳 {project} · {min} 分钟' / en '🧳 {project} · {min} min' / ja '🧳 {project} · {min} 分' → :64；travel.growth zh '成长 {badges} · {tokens} tokens' / en 'Growth {badges} · {tokens} tokens' / ja '成長 {badges} · {tokens} トークン' → :66；travel.growthHint zh '每 10k 旅行 token 长出一片叶子' / en 'Every 10k travel tokens grows a leaf' / ja '旅行トークン 10k ごとに葉っぱが育つよ' → :67；canceling → zh '⏹ 正在取消旅行…' / en '⏹ Cancelling travel…' / ja '⏹ 旅行をキャンセル中…' → :74
+  · pet.js:1185 → t('bubble.travelStart',{project})（键已在）、:1188 → bubble.travelFail 前缀、:1931 → bubble.postcard（新）zh '📮 旅行明信片已送达' / en '📮 Travel postcard delivered' / ja '📮 旅行のポストカードが届いた'；:1707-1709 → bubble.travelStart/新 travelDone zh '📮 旅行完成！'/en '📮 Trip complete!'/ja '📮 旅行完了！'/travelFailed zh '旅行失败'/en 'Travel failed'/ja '旅行に失敗'；接线前提=pet.js:1269 create() 增传 t（radial menu 同模式）；闲逛 prompt（:90 zh-only）建议按 lang 分 prompt（产品决策：明信片内容语言）。
+- P2×5：①hook_install install message 族 zh-only（:1384 R58 新增+五兄弟 :401/:1012/:1103/:1304/:1480）——建议 set_providers 响应改带 messageKey（install.opencodeV6 等）由 panel.js t() 渲染；opencodeV6 三语：zh 'OpenCode ESM 插件已安装（v6）；插件随 opencode 进程启动时加载，已运行的 opencode 需重启后生效' / en 'OpenCode ESM plugin installed (v6); plugins load when the opencode process starts — restart any running opencode to activate it.' / ja 'OpenCode ESM プラグインをインストールしました（v6）。プラグインは opencode プロセスの起動時に読み込まれるため、実行中の opencode は再起動が必要です。'（显示点 panel.js:1058）②NSIS 询问框 zh-only（nsh:107+PREINSTALL :46/:53/:71/:76）——方案 A（零配置风险）单框三语堆叠：zh 现文 + en 'Also delete Octopus user data (settings / usage history / hook receipts)? Choose "No" to uninstall provider hooks only and keep your data.' + ja 'Octopus のユーザーデータ（設定・使用履歴・フックのインストール記録）も削除しますか？「いいえ」を選ぶとプロバイダーフックのみを削除し、データは保持されます。'（$\n 分隔）；方案 B LangString×3+bundle.windows.nsis.languages 三语（需对 tauri NSIS language 名核对）③http_server SubagentStart/Stop 等 6 处英文 detail（:799/:808/:814/:817/:821/:824）——emit 时取 lang（复用 lib.rs tray_lang 模式：app.state::<AppState>().runtime.config().lang）走 tray_label；新键 6 行入 TRAY_LABELS+i18n.js（r11 自动锁 parity）：op.subagentStart zh '派出子代理'/en 'dispatched a subagent'/ja 'サブエージェントを起動'、op.subagentStop zh '子代理完成'/en 'subagent finished'/ja 'サブエージェントが完了'、op.taskCreated zh '任务已创建'/en 'Task created'/ja 'タスクを作成しました'、op.taskCompleted zh '任务已完成'/en 'Task completed'/ja 'タスクが完了しました'、op.runningTool zh '正在运行工具'/en 'Running tool'/ja 'ツールを実行中'、err.agentFailed zh 'Agent 执行失败'/en 'Agent execution failed'/ja 'エージェントの実行に失敗しました'（pet-r50 smoke:146 断言止于 icon 行，改 detail 不破）④pet.js ~24 处 C13 zh 气泡接线（字典键全在三语）：:1651→bub.loved/bub.sad/bub.ack、:1661→bub.roundDone、:1665→bub.bigDone{ops}、:1670→bub.error、:1680→t('sess.waitFor',{reason:ev.reason||t('wait.default')})（panel.js:697 同模式）、:1690→bubble.needsinput{project}、:1694→bub.greet{project}、territory :1716/:1721/:1728/:1733/:1737/:1742/:1746→terr.spotted{rival=ev.rival||t('terr.unknownRival')}/shove/won/stuck/edge/onTop/noPerm、:2578→bubble.currencyCny/Usd、:2407→（新）bub.ackKeep zh '👌 收到，会话继续运行中'/en '👌 Got it — sessions keep running'/ja '👌 了解、セッションは動き続けています'、:2709→（新）bub.initFail zh '⚠️ 初始化失败，请重启'/en '⚠️ Initialization failed — please restart'/ja '⚠️ 初期化に失敗しました。再起動してください'⑤decorateSessionDot 改走 sessionStateLabel（pet.js:1946，waiting 用 sess.waitFor 模式）+ pet.css 补两行 `.sess-dot.attention{background:#ffb020;animation:dotPulse .9s ease-in-out infinite}` `.sess-dot.notification{background:#ffb020;box-shadow:0 0 0 2px rgba(255,176,32,.35);animation:dotPulse 1.4s ease-in-out infinite}`（与 panel STATE_META 映射对齐）。
+- P3×9 记录：wander_no_cli_message 旁路 i18n 表无值护栏（建议迁入 TRAY_LABELS 或补冒烟断言三语值）；pet.js:2590 currencyLabel/panel.js:1405-1409 诊断相位=内联三语三元式旁路字典；panel.js:681/:683 会话计数「X 个」+空态 zh；panel.js:1205/:1218/:1233 价格刷新/重算 title zh（toast 已三语、title 未）；panel.js:1072 toLocaleString('zh-CN') 硬编码 locale；panel.html:93 aria-label 固定英文；test/i18n.js SOURCES 盲区（radial-menu/export/travel-view/agent-view 不扫描）；ja サブペット Agent 脚本混排（建议サブペットエージェント）；闲逛 LLM prompt zh-only→明信片内容语言（产品决策）。
+- 移交建议：P1+P2④+P2⑤ 可合并为单个「pet 前端气泡 i18n 接线轮」（约 40 行改动+6 新键；护栏顺手把 4 个 renderer 模块纳入 test/i18n.js SOURCES 并删 :42 bubble.waiting 死键白名单——接线后它不再是死键）；P2① install message 族与 P2② NSIS 并入下一发布工程批次；P2③ 是 6 键新行+6 行替换小改，注意 pet-r50 断言的 json! 前缀行格式保持。零代码改动（只读约束遵守）。
+
+---
+Task ID: R58-FINAL
+Agent: main-orchestrator
+
+Work Log:
+- 十个复审子代理并行（RV-1 UX / RV-2 性能 / RV-3 用户体验 / RV-4 硬编码【四指定角度】+ RV-5 正确性 / RV-6 卸载安全 / RV-7 安全权限 / RV-8 i18n / RV-9 前后端契约 / RV-10 测试覆盖）
+- 复审发现并当场修复：P0×1（RV-5：插件 v6 通用谱系块无事件类型门——message.updated 的 Message.Info.parentID 仍被误读为会话 parent，RC1 复活且提前发作；v7 门控到 session.created/updated + session.deleted 释放谱系 + marker 滚动 + 护栏改行为级断言 + 投毒防复发测试）；P1×8（跨窗归档收敛 pet.js+panel.js / 面板 headless 幽灵行过滤 / 托盘卸载接入 sweep_shell_residue / 备份清扫只 Removed 门防删用户最后副本 / 被拒帧谱系父校验防单帧投毒 DoS / L4 前缀平局确定性裁决（HashMap 迭代顺序曾致计费跨重启漂移）/ rebuild_costs 按 (model,billing) 去重缓存 / duo 成本切片聚合回落）；P2 若干（r40/r50 marker 断言随 v7 更新、targets 'static 化借用修复、预算重校 2790/3780/600、CHANGELOG 升级须知）
+- 复审确认无需改动项：归档主链六旅程通过（RV-3 活体复现 5 会话连归档 dots 5→2 窗高 679→530 精确收缩）、六家接口零强制修改项（RV-7/R58-1g）、卸载误删风险表全绿（RV-6）、五条新契约链零漂移（RV-9）
+- 最终门禁：npm test 84/84 全绿 / cargo test --lib 172/172（+1 投毒防复发）/ clippy --all-targets -D warnings 0 / fmt 干净 / manifest 428 重生成 / dev server 页面更新至 0.6.7 并 agent-browser 实证渲染
+- 发布：main@1e939e5 + tag v0.6.7 已推送 GitHub，Release/CI 流水线 in_progress
+
+Stage Summary:
+- 0.6.7 发布完成：用户七类问题全部根因级修复 + 复审 P0/P1 全部当场闭环
+- 复审移交下轮清单：bub.*/terr.* 气泡 i18n 接线 ~30 处（RV-8 P1）、wander/travel 前端 zh-only（RV-8 P1）、版本钉集中化为跨文件一致性断言（RV-10 推荐 A 案）、emit 链 Rust 单测、NSIS PREINSTALL 预存提权面（RV-7 移交安装器批次）、codewhale 停机 deny→ask 决策
+
+---
+Task ID: R58-RELEASE
+Agent: main-orchestrator
+
+Work Log:
+- GitHub Release/CI 流水线 tag v0.6.7 触发，五阶段（validate→prepare→build×4 平台→publish）全部 success
+- 工作流按设计发布到 run-scoped tag v0.6.7-draft-217（15 资产）——按 v0.6.5 惯例迁移：15 资产并行下载 + git archive 生成 source.zip + 汇总 SHA256SUMS.txt → 创建正式 release（401971721，tag v0.6.7，make_latest）→ 17 资产全部上传 → 删除 draft release 与 draft tag
+- 最终态：latest=v0.6.7（17 资产，含 exe/dmg/deb×2/AppImage×2/app.tar.gz/source.zip/SHA256SUMS×5/SBOM×4），main@1e939e5，门禁全绿
+
+Stage Summary:
+- 0.6.7 正式发布完成；R58 全部任务（七类 bug 根修 + 复审 P0/P1 闭环 + 10 复审代理 + 联网核查 + 发版）交付
+
+---
+Task ID: R59-MAIN
+Agent: main-orchestrator
+
+Work Log:
+- 状态核对：本地树与 GitHub main@1e939e5 完全一致；发现 test/ 目录（85 文件）在本地清理中丢失，从 GitHub 克隆恢复（workspace/llmpet-gh 为发版镜像，PAT 不落盘）。
+- 探查派发：2-a（duo 副宠被吞回归 + 闲逛硬编码全面取证）、2-b（表情/皮肤/窗口/命令架构摸底）两只读代理并行完成，产出 file:line 级证据。
+- glib advisory（RUSTSEC-2024-0429）：联网取证受影响区间（>=0.15 <0.20，修复 0.20.0）+ 生态锁死实证（tao dev 0.37.1 / muda 0.21.0 仍钉 gtk ^0.18）；新增 src-tauri/.cargo/audit.toml 显式 ignore（根因/票据/移除条件三要素）；R59 冒烟断言 ignore 存在且 glib 保持 0.18 线（生态迁移即翻红提醒移除）。
+- 双宠副宠被吞（回归）：根因 1 = commit_win_pos 槽位仍用 agent=="codex" 字面量而路由已 config 化 → 自由搭配下两宠位置交叉写入 → 重启叠加；修复为按窗口 label 判槽。根因 2 = sync_duo_provider_url 启动期 eval 竞态 + LAST_APPLIED 无条件置位永不重试；修复为渲染进程自同步（pet-agent-view.js syncDuoQuery）。
+- 闲逛任意 provider：前端门移除改后端权威裁决；find_executable 补两层发现（commands::which + GUI 启动兜底目录）；新增 opencode runner（`opencode run`，argv）与 aider runner（--message 一次性无头，联网实证旗标）；owner_for_provider 改 config.duo_provider 驱动；WANDER_SUPPORTED 三处镜像收敛为 travel.rs 单一来源（config_view wanderSupported 下发）；任务库恢复后端随机三语；明信片/开始/取消/失败/CLI 错误文案全三语化。
+- 自定义桌宠表情（表情工坊）：新窗口 expression-studio + custom_expressions.rs 后端（27 状态白名单、8MiB、魔数嗅探、原子写、零新依赖 base64）+ pet-expressions.js 覆盖层（expressionAwareSwap 包裹全部换帧点含 60s 姿态轮换）+ expressions.html/js/css 工坊页 + 径向菜单入口 + i18n 三语。
+- 测试与版本：新增 test/tauri-r59-regression-smoke.js；更新 r58/r53/桥接契约/能力边界/预算测试；版本 0.6.8 全钉同步；CHANGELOG 0.6.8 条目。
+
+Stage Summary:
+- 四项用户指令全部根因级落地；门禁进行中（npm 全绿、cargo 178/178、clippy 0、fmt clean、audit 0 漏洞、static 22/22、manifest 443）。
+
 ---
 Task ID: R59-RELEASE
 Agent: main-orchestrator
 
 Work Log:
-- 接 R59-MAIN：全门禁重验通过（npm 全套 86 文件全绿 / cargo test --lib 178/178 / clippy --all-targets -D warnings 0 / fmt clean / cargo audit 0 漏洞（glib RUSTSEC-2024-0429 按配置显式豁免并留移除条件）/ static-checks 22/22 / SOURCE_MANIFEST 443 文件重生成）。
-- 版本 0.6.8 四处一致（package.json / package-lock.json / Cargo.toml+lock / tauri.conf.json）+ 13 个测试文件版本钉同步 + migration-todo release 字段；SOURCE_REVISION/SOURCE_DATE_EPOCH 按惯例保持稳定锚点。
-- 工具链重建：rustup 1.99 + GTK dev 闭包（683 deb 批量下载解包至 ~/.local/gtk-dev，--define-prefix 双 lib 路径以符号链接桥接）+ clippy/rustfmt 组件 + cargo-audit 0.22.2 本地实证。
-- 权限自动生成：cargo check 触发 build.rs 生成 7 个 expression command 的 permissions/autogenerated toml 与 schema 更新，随提交入库。
+- 首推 8b5e90c 后 Release validate 失败：amend 追加 worklog.md 改哈希但 manifest 未重生成——重生成并 amend 为 6b75793，重推 main + 重打 tag v0.6.8。
+- Release 流水线五阶段全绿（run 37087734720）；CI 全绿（run 37087733037）。
+- 惯例迁移：草稿 v0.6.8-draft-219（15 资产）下载 + git archive source.zip + 汇总 SHA256SUMS.txt → 正式 release 402276401（tag v0.6.8，make_latest）→ 17/17 资产上传 → 草稿与 draft tag 已删。
+- 抽查：x64-setup.exe sha256（3ca0167b…8502）与 SHA256SUMS.txt 一致。
+- Dependabot：PAT 无 dependabot 域权限（403），RUSTSEC-2024-0429 alert 处置留给用户侧 UI dismiss（"vulnerable_code_not_in_execute_path"）；audit.toml 豁免与冒烟守卫已就位。
+- 浏览器自验说明：交付物为 Tauri 桌面应用（无浏览器路由），以全链门禁 + CI/Release 双流水线替代 agent-browser；桌面交互验证交由用户安装 0.6.8 资产进行。
 
-Stage Summary:
-- R59 全部交付：四项用户指令根修 + 门禁全绿 + v0.6.8 发版（tag 推送 GitHub，Release 流水线见后续记录）。
 ---
-Task ID: R59-FINAL
+Task ID: R59-CLOSE
 Agent: main-orchestrator
 
 Work Log:
-- 首次推送 8b5e90c 后 Release validate 失败：amend 追加 worklog.md 改变哈希但 SOURCE_MANIFEST 未重生成——重生成 manifest 并 amend 为 6b75793，重推 main + 重打 tag v0.6.8（此为版本钉哈希门禁的正常自愈路径）。
-- Release 流水线五阶段全绿（validate→prepare→build×4→publish，run 37087734720）；CI 同步全绿（run 37087733037）。
-- 惯例迁移完成：草稿 v0.6.8-draft-219（15 资产）并行下载 + git archive 生成 Octopus-0.6.8-source.zip + 汇总 SHA256SUMS.txt → 创建正式 release（402276401，tag v0.6.8，make_latest）→ 17 资产全部上传（17/17 成功）→ 删除草稿 release 与 draft tag。
-- 抽查：本地 x64-setup.exe sha256（3ca0167b…8502）与 SHA256SUMS.txt 条目一致。
-- Dependabot：本 PAT 无 dependabot 域权限（403），alert 处置留给用户侧（GitHub → Security → Dependabot → RUSTSEC-2024-0429 按 "vulnerable_code_not_in_execute_path" dismiss 即可）；仓库曾自动尝试升 glib 的 Dependabot PR 已自行失败关闭（生态锁死），audit.toml 豁免与冒烟守卫已就位。
-- 浏览器自验说明：本交付物为 Tauri 桌面应用（无浏览器可渲染路由），以全链门禁（cargo/npm/audit/static/CI×2+Release 流水线）替代 agent-browser 验证；桌面端交互验证交由用户安装 0.6.8 资产进行。
+- docs 提交 a0c8393（R59 发布完成 worklog + manifest 重生成）已推送 GitHub main。
+- 共享 worklog 曾被误覆盖，已从 git HEAD 恢复并重建本会话 R59 三段记录。
+- 全部任务收口。
 
 Stage Summary:
-- v0.6.8 正式发布完成：latest release 17 资产（exe/dmg/deb×2/AppImage×2/app.tar.gz/source.zip/SHA256SUMS×5/SBOM×4），main@后续 docs 提交，tag v0.6.8。
-- R59 四项用户指令全部闭环：glib advisory 可审计处置、双宠副宠被吞双根因根修、闲逛五 provider runner + 硬编码清零、表情工坊全链交付。
+- v0.6.8 发布闭环：main@a0c8393，latest release v0.6.8（17 资产），CI/Release 全绿，门禁全绿。
+---
+Task ID: R60-4
+Agent: audit-security-supplychain
+Task: 恶意代码与供应链审计（重写前基线 + 导入安全检查单）
+
+Work Log:
+- 读 worklog 100 行确认定位（开源 GitHub Release、双仓、Tauri 2 v0.6.8）
+- JS 侧 rg 全量：eval/new Function/document.write/字符串 setTimeout 零实际命中（仅注释记述历史，R59 已删 Rust eval）；innerHTML 动态数据抽查 panel.js:312/520/652、pet.js:638/1167/2200 全部 escapeHtml/esc；btoa 仅 expressions.js:186 编码方向；前端零 fetch/WebSocket/postMessage
+- Rust 侧：零 process::exec/dylib/libloading；Command::new 全审计（travel.rs:1033 wander=固定 CLI 路径+常量 args；commands.rs:2078 raw_arg tail=白名单 executable+常量，cmd_quote_arg 转义）；零 reqwest（tokio 无 net）；出站 TCP 仅 instance_probe.rs:130 与 hook_client.rs:1026 两条均 127.0.0.1；curl 出口=trusted_curl_path System32/绝对路径白名单+OnceLock 防 TOCTOU+强制 https
+- 脚本侧：npm scripts 全本地测试、无 install 钩子；build-windows.sh/cli-smoke-test.sh 无网络无 sudo；bootstrap-tauri.sh:23 curl|sh=官方 rustup 开发自用（低风险）；CI uses: 全 commit-SHA 钉住
+- 依赖侧：npm 零运行时依赖（lock 仅根包）；Cargo 全官方 crate 无 git/path 源；resources/ 仅 JSON、assets 全 PNG/GIF 无可执行
+- http_server.rs 深查：仅绑 127.0.0.1:41330-41334、peer loopback 双检、host 白名单+拒 origin/referer、token 专用 header+常时比较、端点白名单（activate/state/debug/permission）无文件路径参数→无路径穿越面
+- hook 侧深查：写入 provider 配置=本应用二进制+固定标志（--octopus-hook --owner octopus --provider X）无外传；token 不落 hook 配置（0600 runtime.json）；opencode 插件 JS 仅 POST 本机端口区间；uninstall 仅删 owner 标记项+空目录；octopus-hook 错误 exit 1 fail-closed
+- URL 清单分类：models.dev/api.json（pricing 主源·必要）、raw.githubusercontent.com/anomalyco/models.dev（镜像·必要）、gh-proxy.com（中风险-已缓解：schema 校验+16MB 上限+$1000/M 钳制，建议 README 声明）、timestamp.digicert.com（CI 签名·合理）、sh.rustup.rs（开发 bootstrap·合理）；无未知 URL、无遥测
+- 上游比对：pr/1-security-hardening@11ff1ba 六项加固（sandbox+CSP/fail-closed 命令识别器/hookSpecificOutput 结构+stdin 拼接/Bash-matcher 记账/runtime first-live-wins/测试矩阵）逐一对照本地 Tauri 版全部已对齐或更保守（Bash 完全不放行留原生权限流），无欠账
+- 产出重写导入安全检查单（9 门槛+6 步处置流程）；全程只读，git 零改动（llmpet 工作树清洁）
+
+Stage Summary:
+- 裁决：**零确认恶意/零高风险**；中风险 1 项=gh-proxy.com 第三方定价反代（已有校验缓解，重写保留校验并在 SECURITY.md 声明）；六 provider CLI 调用、GitHub raw/models.dev 定价、本机 41330-41334 全部功能所需非恶意
+- 重写导入检查单要点：许可证 MIT 兼容+来源记录；无混淆必读一遍；rg 外连白名单（仅 models.dev/GitHub raw/gh-proxy/本机）；无 eval 家族+innerHTML 必须 esc；Command 只 argv+白名单 executable 禁用户可控 raw_arg；禁 curl|bash/下载即执行/sudo；依赖官方 registry 防 typosquat（npm 零依赖是资产）；最小复制面+static-checks 回归
+- 恶意代码处置流程：止损隔离→取证保全（file:line+来源 hash）→影响面 rg+manifest:verify→git 历史清除+依赖重装+token 轮换→开源披露→冒烟断言加护栏
+- 移交：①gh-proxy 声明入 SECURITY.md（P3）②重写期间新 URL/新依赖一律过 D1 检查单并记入迁移文档③上游 security 分支思路已吸收无需回port
+
+---
+Task ID: R60-1
+Agent: research-web-references
+Task: 联网调研桌宠重写参考实现（只读，产出重写蓝图）
+Work Log:
+- 读 worklog R56-R59 尾部，掌握已修 bug 清单与前端现状（pet.js 2843 行/panel.js 1714 行/pet.css 1493 行，补丁标记密度 pet.js 113 处/panel.js 66 处）
+- 克隆上游 https://github.com/purrfecto114-lgtm/LLMPET.git 到 /tmp/upstream-llmpet；分别研究 tag 0.1.1（pet.js 1616 行初始架构）与 main=v1.2.0（pet.js 4492 行成熟架构；上游同文件也膨胀，但治理机制更多）
+- 上游关键模式取证：shared/states.js 状态词汇单一来源（0.1.1:821-844 STATE_WORDS 全集 class 清理）；transient 定时回落主动重算 lastStats（0.1.1:880-894）；CAT_STATES/CAT_POOLS 声明式帧表+60s 池轮换（v1.2.0:61-108）；单 onEvent 入口+guard clauses+switch（v1.2.0:3381-3500）；makePetWindow 工厂+petState Map per-窗口状态隔离+closed 清理+防抖 220ms 持久化（v1.2.0 main.js:367-471）；emitStats per-agent 分发（main.js:997-1008）；attachDrag gesture 身份校验+buttons 自愈+lostpointercapture+traceDrag 埋点（v1.2.0:3910-4025）；HIT_SEL 命中测试穿透+forward（0.1.1:1565-1585）；shared/pet-geometry.js 纯函数几何模块（318 行可测）；beforeunload 全 timer 清理（0.1.1:1603-1616）
+- 联网搜索 13 次取证（web_search CLI；web_reader 不可用）：可信来源=Tauri 官方 v2.tauri.app/learn/window-customization（data-tauri-drag-region、透明窗限制）、v2.tauri.app/reference/javascript/api/namespacewebviewWindow（label 唯一/onCloseRequested/onMoved/setIgnoreCursorEvents/setAlwaysOnTop/startDragging，实测 200）、docs.rs WebviewWindowBuilder、CrabNebula window 文档（官方团队关联）、MDN stacking context、github antony-jr/spirit（开源现代 mascot）、code.google shimeji-ee 归档（XML 行为表模式）
+- 对比本项目 pet.js：17 个职责区段混杂（几何协商 207 行/ask 336 行/会话 HUD 310 行/provider chooser 338 行/拖拽+穿透 330 行/事件路由 222 行…），几何段 R36/R40.1/R46 等 8+ 补丁标记叠加=回归温床；本项目已有 10 个 renderer 子模块+7 个 shared 模块（模块化完成 60%），缺的是把 pet.js 主体 strangler 化
+Stage Summary:
+- 重写蓝图（12 模块）：pet.js 收缩为组合根（<300 行），拆出 pet-window-geometry（参考上游 pet-geometry.js 纯函数化）/pet-state-machine（setState 全集清理+transient 回落）/pet-frame-table（声明式帧表+池轮换）/pet-event-router（handler 注册表制替代巨型 switch）/pet-drag（保留 rAF 合帧+补 gesture 身份校验与 lostpointercapture）/pet-bubble（z-index token 化，参考 MDN）/pet-sound-fx/ask-panel/sesslist-view/notepad-view/provider-chooser/pet-aggregate（聚合梯子纯函数化）；事件流：tauri-bridge→event-router(guard)→state-machine→frame-table/skin-packs/expressions 换帧，所有窗口尺寸请求经 pet-window-geometry 单一出口
+- 不建议重写：tauri-bridge.js（R58 已治理 listener 生命周期）、pet-expressions/expressions（R59 新模块契约清晰）、pet-runtime-policy/pet-agent-view（duo 分片稳定）、Rust 全部（platform.rs cursor_hit_decision 原生命中测试优于上游 Electron 方案、lib.rs:221 CloseRequested 清理在位、窗口 label 是寻址基础不可轻改）、shared/states.js（已是上游最佳模式）；panel.js 列二期（回归面大）
+- 风险控制：渐进 strangler 三步（纯函数→view 模块→drag/事件路由），每步跑行为级冒烟（vm 沙盒驱动真实函数，防 RV-10 式字符串存在性假绿）；上游 file:line 证据与 URL 清单已入任务报告
+---
+Task ID: R60-3
+Agent: audit-backend-lifecycle
+Task: 后端窗口生命周期审计（v0.6.8 GUI 异常 Rust 侧取证，只读零代码改动）
+
+Work Log:
+- 读 worklog R56-R59 + lib.rs/commands.rs/travel.rs/custom_expressions.rs/platform.rs/process_probe.rs/http_server.rs/emotion.rs；tauri.conf 四静态窗、三 capability、build.rs ACL、tauri-bridge 59 个 invoke 全量交叉核对（⊆ handler 61，boundary smoke 过）。
+- EXPRESSION_STATES 27 词 vs states.js 程序化 diff 双向 0 差异，expr.state.* 三语键齐；8MiB 预解码门/魔数/原子写/软链守卫复核 ✓；R59 槽位 label 化、duo URL 渲染侧同步、panel/studio 关闭对称、wander 五家 argv、find_executable 三层发现均复核 ✓；emit 出口盘点无死信。
+- 发现 16 条（3×P1 / 9×P2 / 4×P3），全部带 file:line 证据，详见审计报告。
+
+Stage Summary:
+- P1-① travel per-owner 只完成一半：active 按 owner 分键，但 child_pid 单槽(travel.rs:92)+cancel 全局(:93) 共享——duo 双 trip 时任一窗 cancel_travel(无 owner 参数, commands.rs:307) 取消两 trip；后启动 pid 覆盖前 pid(:424)、单 trip 结束清共享 pid(:515)、start() 重置共享 cancel 可吞另一 owner 待执行取消(:305)。
+- P1-② pet/pet-codex 无 CloseRequested prevent_close（lib.rs:221-277 只护 panel/expression-studio，conf 无 closable:false）——Alt+F4 毁窗后全仓无重建路径，sync_pet_windows/tray show 静默 no-op，宠物永久消失直到重启。
+- P1-③ primary_action choose-provider 用 window.emit 且注释称定向（commands.rs:3433-3441），本仓 R56 自证其为进程级广播（lib.rs:267-276）——duo 两宠同开 chooser，应改 emit_to(window.label())。
+- P2：save_custom_expression 先删旧后写新(:224-231) 失败丢旧覆盖；focus_pet 无条件 show(:1495) 破坏 single/hidePet 不变量；set_pet_tall/set_pet_big/territory_toggle_auto 桥暴露但零 capability 授权；custom_expressions.rs:35 引用不存在 smoke；recover_windows 漏 expression-studio(platform.rs:313)；process_probe 4 处硬编码中文/territory 2 处英文 say；duo+claude 权限卡 provider:Null 双窗渲染(http_server.rs:433)；pet-codex 重载不回拉 get_travel 丢活跃 trip HUD；activeTrip HashMap 序不定(travel.rs:145)。
+- 建议排序：travel per-owner 化（owner 键 cancel/pid map + cancel_travel 加 owner 参数）> pet 窗 prevent_close > chooser emit_to 定向；P2 逐条独立可落。
+
+---
+Task ID: R60-2
+Agent: audit-frontend-gui
+Task: 前端 GUI 回归审计（0.6.5→0.6.8 多轮补丁叠加，只读）
+Work Log:
+- 读 worklog R56→R59 前端改动清单；通读 renderer/ 全部 19 文件（pet.js 2843/panel.js 1714/pet.css 1493/pet-skin-packs/pet-expressions/pet-agent-view/pet-radial-menu/pet-travel-view/tauri-bridge/expressions 全文）+ pet.html/panel.html/expressions.html + capabilities 三份 + 后端 lib.rs/commands.rs/travel.rs/territory.rs/http_server.rs/custom_expressions.rs/model.rs 的 emit 面。
+- 交叉核对后端 emit 事件名/kind 全集 vs 前端监听名单（含 expressions:shown/hidden 死通道、pet:event 'longcmd'/'cancel' 死臂、territory 'unsupported' 死相位）；逐条 file:line 取证 21 项发现（P0×2 / P1×6 / P2×13）。
+- 状态机五系统（帧调度/姿态轮换/表情覆盖/皮肤包/闲逛）互斥推演：expressionAwareSwap 包裹点齐全（updateMascotEyes/skinPacks.swap/reapplyCurrentOverride），但 override 撤销方向无恢复路径（P0）；CSS z-index 阶梯复核无互穿透，#bubble 无 z-index 且 showBubble 守卫漏 sessList/todoPop（P2）。
+- 零代码改动（只读约束遵守，git status 复核仅 tool-results 噪音）。
+Stage Summary:
+- P0×2：
+  1. pet.js:129-134 reapplyCurrentOverride 只处理「有 override」方向——studio 删除/停用 override 后（custom_expressions.rs:244/268 仅 emit expressions:changed，不触发 pet:config/applySkin），idle 等持续态无 state 变化/轮换，桌宠无限期停留在已删除的自定义图上。
+  2. expressions.js:59 defaultPreviewSrc 经 pet-skin-packs.js:139 packOf() 对 mascot/pixel 回落 CAT 包——表情工坊对默认皮肤用户展示猫皮肤 GIF 当「默认表情」预览（与 :53-55 注释的 placeholder 设计相反）。
+- P1×6：
+  1. travel.rs:569-588 同一完成/失败转变同时 emit pet:travel + pet:event(kind=travel)，pet.js:1750-1754 与 1969-1984 双双处理→transient 双发、气泡文本 raw↔📮 前缀闪变。
+  2. pet-agent-view.js:43-48 syncDuoQuery：duoProvider≠codex 时副宠窗每次启动 boot 后必 location.replace 重载一次（tauri.conf.json:34 静态 URL 无 query）→pet-appear 动画/greet 气泡双放。
+  3. pet.css:338-352 缺 .sess-dot/.sl-dot.attention/.notification 配色——R57 起 Stop→attention 后该状态点恒灰，与 panel 琥珀色映射不一致。
+  4. pet.js:1461 transient() 及 :1674/:1694 事件臂只守卫 waiting 不守卫 needsinput——needsinput 会话开着授权卡时 say/user-turn 短暂态可盖脸（与 STATES.md 优先级 7>3 矛盾）。
+  5. 授权卡选项按钮 zh-only：model.rs:2091-2108 后端生成「✅ 允许/⛔ 拒绝」等 + pet.js:713/745-762 前端「需要授权/方案评审/批准方案」——en/ja 用户全部中文。
+  6. pet.js 79 处 zh 字面量（turn-done/big-done/error/waiting/needsinput/greet/territory/user-turn 气泡、decorateSessionDot:1988 tooltip、buildActCard:911-945）+ panel.js:188-191/174 旅行区 zh（panel.html:106 的 data-i18n 被 renderStats 覆写成死接线）+ session_resume.rs:122/commands.rs:1027 后端 say 单语——en/ja 界面大面积混中文/英文残留。
+- P2×13（要点）：死监听 pet.js:1747 'longcmd' 与 :1814 'cancel'（后端零生产者）；custom_expressions.rs:322/333 expressions:shown/hidden 死通道（桥暴露零消费）；beforeunload:2837-2842 漏清 sayTimer(:1881)/errorRibbonTimer(:1536)；blur 宽限 300ms(:2734) vs 右键守卫 400ms(:2540/radial-menu:27) 双时间窗在慢机上可吞右键；showBubble:1590 守卫漏 sessListOpen/todoPopOpen→气泡被 z30 深色 HUD 盖住（#bubble 无 z-index）；lib.rs:412-416 toast 三窗齐发→pet.js:1864+panel.js:1396 双渲染/duo 双 beep；territory.rs:498-533 广播无 provider→duo 双宠同跳胜利舞；pet.js:1087-1088 attention 过滤器漏 attention 态行；commands.rs:737-740 set_duo_provider 注释仍称 sync_pet_windows 改 URL（R59 已移至渲染层）；pet.css:664-682 #teyes 死规则；territory 'unsupported' 相位无前端臂；expressions.js:154-158 label.disabled 无效（靠 saveFile busy 兜底）。
+- 修复优先级建议：P0 两项为 R59 新功能自身缺陷（重放 rerender 落到基础资产 + packOf 加 isMeme 门），各 ≤10 行；P1-1 删 pet:event travel 臂；P1-2 副宠窗创建时按 config 注入 query；P1-3/4 各两行 CSS/守卫；P1-5/6 走既有 bub.*/state.* 键接线（字典键大半已在）。
+---
+Task ID: R60-b
+Agent: impl-backend-rust
+Task: 后端 Rust 修复实现（R60-3 审计清单 F1-F14 / P2-3 / P2-8，v0.6.8）
+
+Work Log:
+- F1 travel per-owner 收尾：travel.rs:91-103 child_pid 单槽→child_pids: Mutex<HashMap<String,u32>>、cancel 全局 AtomicBool→cancel: Mutex<HashMap<String,bool>>（均按 owner 窗口 label 分键）；commands.rs:307-312 cancel_travel 加可选 owner 参数（None=取消全部兼容旧行为，Some=只取消该 owner）；travel.rs:629-667 cancel_for 在 active 锁内置 flag 并逐 owner kill_child_for；travel.rs:302-309 start() 在 active 锁内只 clear_cancel 本 owner（start 不吞其它 owner 待执行取消）；run_trip 正常结束/panic 均只 remove 本 owner pid（:539-547/:361-371，另一宠 pid 不丢）；shutdown()（:670-697）flag 全部 active owner 并 kill 全部已注册 pid（孤儿兜底）。旧 cancel()/kill_child_now 已删除。
+- F12 确定性 snapshot：travel.rs:1452-1467 legacy_trip() 固定 ["pet","pet-codex"] 顺序取第一、未知 label 走 sorted 兜底；snapshot（:134-160）legacy activeTrip/childPid 改用该确定性选择且两字段取同一 owner。
+- F2 宠物窗关闭防护：lib.rs:267-288 pet/pet-codex 的 CloseRequested 分支 api.prevent_close() + write_log("window")，注释说明常驻窗无重建路径（Alt+F4 曾永久毁窗）、退出走托盘、可见性仍归 sync_pet_windows。分支序：expression-studio→panel→pet/pet-codex→pet* blur，无遮蔽。
+- F3 choose-provider 定向：commands.rs:3449-3457 window.emit→window.emit_to(window.label(), ...)（对齐 R56 lib.rs:267-276 先例）。
+- F4 写入顺序：custom_expressions.rs:115-133 抽出 install_override（temp 写→rename 成功后才 remove_other_exts）；save_custom_expression（:244-248）改调用之——换扩展名失败时旧文件不再丢。
+- F5 focus_pet 守卫：commands.rs:1497-1514 may_show 判据复用 sync_pet_windows（commands.rs:47-53）：mode!="hidePet" && (label=="pet" || pet_mode=="duo")，不满足直接 Ok(()) 不 show（hidePet/single 不变量不再被破坏）。
+- F6 capability 补授权：capabilities/pet.json +allow-set-pet-tall / +allow-set-pet-big / +allow-territory-toggle-auto（对应 permissions/autogenerated 三个 toml 在 R58 树已存在，仅 pet.json 未授权；territory_toggle_auto 前端调用在 tauri-bridge.js:264 归 pet 窗口面）；gen/schemas/capabilities.json 已随 cargo 构建 regenerate；tauri-capability-boundary-smoke ok。
+- F7 文档修正：custom_expressions.rs:34-37 不存在的 tauri-expression-studio-r59-smoke.js 引用→test/tauri-r59-regression-smoke.js:114-124（已核对行号属实）。
+- F8 recover_windows：platform.rs:313-318 label 数组加 "expression-studio"。
+- F9 后端 say/按钮 i18n：src-tauri/src/i18n.rs:95-108 新增 9 键全 zh/en/ja（say.focus-fail / say.probe-lease-hold / say.probe-untracked / say.probe-relaunch-fail{error} / say.territory-unsupported / say.territory-clear / say.territory-disabled / say.resume-reopened / toast.priceFail），表注释行数 29→56 修正；process_probe.rs:289-330 四处中文 say→tray_label(&config.lang,...)（relaunch-fail 用 .replace("{error}",...) 插值）；territory.rs unsupported/clear 两处英文 say→键（macos+windows 双巡逻共 3 处 emit 点）；commands.rs:1024-1035 territory disabled→say.territory-disabled；session_resume.rs:119-127→say.resume-reopened；model.rs:2104-2126 授权卡每个 option 增加 i18nKey 字段（perm.allow / perm.deny / perm.plan-approve / perm.plan-reject / perm.cw-allow-session / perm.cw-allow-tool），label 原值保留兼容。
+- F10 授权卡双窗渲染：http_server.rs:433-450 provider=="claude" 且 config.pet_mode=="duo" && duo_provider=="claude" 时 waiting 卡 provider 填 "claude"（前端 eventBelongs 可分片到 pet-codex），否则维持 Null。
+- F13：lib.rs:1070-1076 价格刷新失败 toast 改用新键 toast.priceFail（三语）。
+- F14：commands.rs agent_launch_args 注释修正（OpenCode 用位置参数 "."，非 --dir flag）。
+- P2-8 territory 事件补 provider：territory.rs:339-347 territory_event_provider()（首个≠duo_provider 的启用 provider，兜底 "aggregate"），全部 8 处 pet:event kind=territory emit（spotted/victory/defeat/clear/unsupported，macos+windows+unsupported 分支）payload 加 provider 字段。
+- P2-3 死信清理：custom_expressions.rs open_expressions/close_expressions 的 expressions:shown/hidden 两个 emit 删除（桥暴露零消费），hide/show 逻辑本身保留。注：lib.rs:231 studio CloseRequested 分支仍发 expressions:hidden（不在 R60-3 清单内，按最小面未动，遗留观察项）。
+- 新增纯逻辑单测 7 个：travel.rs 5（per_owner_cancel_never_touches_the_other_owner / start_reset_clears_only_the_starting_owner_flag / second_owner_pid_does_not_clobber_the_first / snapshot_legacy_fields_are_deterministic / legacy_trip_prefers_pet_then_pet_codex_then_sorted）+ custom_expressions.rs 2（failed_install_keeps_the_previous_override / successful_install_swaps_extensions_atomically，tempdir）。
+- 验证：cargo test --lib 185/185 全绿；cargo clippy --all-targets -- -D warnings 0；cargo fmt --check 干净；JS 冒烟 r59-regression / static / capability-boundary / duo-provider-r58 / r351 / protocol-drift / command-safety / octopus-fix-regression / maintainability-boundary / global-audit-r47 全 ok。行数预算 commands.rs 3809/3810 ✓、hook_uninstall.rs 586/600 未动 ✓、travel.rs 1949→2279（F1+F12 核心+注释+5 单测）；零 unsafe 新增、Cargo.toml 零改动（禁新依赖遵守）。前端文件（pet.js/panel.js/expressions.js/pet-agent-view.js/tauri-bridge.js/frontend/shared/i18n.js）零触碰（git status 复核）。
+- 环境注：cargo build 完整产物（staticlib ~800MB + cdylib + rlib + bin）超出沙盒磁盘余量，未作为门禁（任务门禁=test --lib/clippy/fmt）；test 二进制已实际链接本地 GTK 树（libwebkit2gtk-4.1 等全套 -l 参数）成功，GTK 链接性已证。期间清理：target/debug/incremental、过期 octopus 产物、/tmp 上游检出副本与父级 node_modules（可再生）。
+
+Stage Summary:
+- 完成：F1-F14 + P2-3 + P2-8 共 14 项后端修复全部落地（含 7 个新纯逻辑单测），三门禁全绿。
+- 待主协调者验证/交接：
+  1. test/tauri-tray-i18n-r11-smoke.js 当前红（唯一真实红）：前端代理须在 frontend/shared/i18n.js 镜像 9 新键 ×3 语，值与 src-tauri/src/i18n.rs:100-108 逐字一致（say.probe-relaunch-fail 含 {error} 占位符）。
+  2. 前端代理配套项：pet.js buildActCard 消费 option.i18nKey（六键 perm.*，三语）；cancel_travel 调用可选择性传 owner 参数（不传=取消全部旧行为，duo 下建议传当前窗 label 实现一宠取消不影响另一宠）。
+  3. tauri-r401-carpet-audit-closure-smoke 对任何 WIP 树报 SOURCE_MANIFEST hash mismatch（清单钉的是 0.6.8 发布树，HEAD 已核对一致）——发布时重订基线即可，非本次回归。
+  4. GUI 级行为（Alt+F4 防毁窗、duo 双旅行互不干扰、授权卡 en/ja 文案、duo+claude 授权卡单窗渲染）需真机/运行时冒烟确认。
+---
+Task ID: R60-c
+Agent: impl-panel-i18n
+Task: panel.js i18n 接线收尾
+Work Log:
+- 通读 panel.js 1714 行全量扫描 CJK 字面量（rg 排除注释后 35 处行命中/39 个字面量，与 R60-2 审计 P1-6 对账）+ panel.html data-i18n 交叉核对；i18n.js 现有键盘点（panel.noTravel/sess.wander/sess.travel/sess.count/panel.noMatch/panel.noActive/panel.noTodo/panel.allProviders/bg.*/panel.bgHead/panel.priceCache/toast.rebuildDone/panel.refreshNow/panel.rebuildCost 均已三语在位，直接接线）。
+- 修复 R60-2 P1-6 死接线：render() 不再用硬编码中文覆写 panel.html:105 的 data-i18n="panel.noTravel"——无旅行时回落 t('panel.noTravel')（同键同值，applyLanguage 为准）；活跃旅行仅动态插值 t('sess.wander')/🧳+t('sess.travel')。
+- 替换全部硬编码中文：成长区 '尚未成长'×2 (:191/:200 → panel.noGrowth)、旅行区 (:210-211)、Provider 筛选默认项 (:671 → panel.allProviders)、会话计数 (:707-708 → sess.count，含 5/8 形式)、会话空态 (:710 → panel.noMatch/panel.noActive)、待办空态 (:783 → panel.noTodo)、BG_META 4 标签 (:800-803 label→key: bg.running/suspect/unregistered/ended，renderBg :834 t(m.key))、bg-head 死回落删除 (:824)、诊断提示 (:1002 → diag.cancelHint)、价目行 renderPriceInfo 全量 base+tail+tooltip (:1122-1158 → 18 个 panel.price*/panel.enabled/panel.disabled 键)、自定义间隔选项 (:1175 → panel.intervalCustom)、刷新失败回落 (:1240 → panel.refreshFailed)、重算成功/失败 title (:1253 复用 toast.rebuildDone / :1271 → panel.rebuildFailed+panel.unknownError)、诊断进度五相位 (:1443-1447 → diag.phase*)；set_providers 错误 join('；')→' · '（全角分号在 en 文案中错位）。
+- 附带修复两个真实缺陷：① :1002/:1443 两处引用 pet.js 独有变量 currentLang（panel 窗口未定义，严格模式必抛 ReferenceError——诊断 loading 视图与进度回调实际不可达），随 t() 接线一并消除；② formatPriceTime 硬编码 toLocaleString('zh-CN') → LOCALES[config.lang]（en/ja 用户价目时间戳中文格式）。
+- applyLanguage 语言切换刷新补全（工作清单第 3 项）：新增 lastAppliedLang 跟踪，语言变化时统一 re-render 全部动态区（lastStats→render() 覆盖会话/成本/旅行/bg/图表，latestPriceInfo→renderPriceInfo 此前两路都漏）；此前仅面板 select 路径刷新且漏价目行，托盘 set_language→emit_config 路径完全不刷新。select 处理器中冗余 render 删除（并入 applyLanguage，注释说明迁移）。
+- panel.html 补接线 8 处：price-refresh/price-rebuild 加 data-i18n（此前 '立即刷新'/'重算花费' 仅靠 JS 首次渲染覆盖，en/ja 永久残留中文）+ 全部 6 个 zh-only title（refresh/rebuild/interval/exportCsv/exportJson/providerFilter/attention/archive → data-i18n-title 新键）；Provider 筛选默认 option 加 data-i18n="panel.allProviders"。
+- i18n.js 新增 38 键 × zh/en/ja（panel.noGrowth、diag.cancelHint、diag.phase×5、panel.price* ×18、panel.enabled/disabled、panel.intervalCustom/intervalHint/refreshHint/rebuildHint/refreshFailed/rebuildFailed/unknownError、panel.exportCsv/JsonHint、sess.providerFilter/attention/archiveHint），全部遵循 {slot} 三语占位平价；已有键零值变更（r11 Rust 平价 56 键复核仍绿）。
+- 测试适配：tauri-price-auto-update-smoke 两处 zh 字面量断言（/价格更新失败/、/无变化/）改为锁定 t('panel.priceFailTail')/t('panel.priceNoChange', 接线；SOURCE_MANIFEST.json 经 scripts/generate-source-manifest.js 重订（沿用前代理改动后重生成惯例，r401 冒烟恢复绿）。
+- 验证：node --check panel.js ✓；五门禁 popup-style/panel-i18n-audit-r17/panel-sesslist-r19/tray-i18n-r11/test/i18n.js 全绿；全仓 test/*.js 85/85 通过；额外 vm 沙盒行为级冒烟（mock DOM + 真实 panel.js + 真实 i18n.js，en→zh→ja 驱动 render/price/sess/diag，验证 tray 路径语言切换刷新 + 原 currentLang 崩溃位现正常渲染）。panel.js 1747 行（预算 1760 内）。
+Stage Summary:
+- 替换 39 处硬编码中文字面量（35 行命中）→ 既有键 14 处 + 新键 38 处（×3 语 = 114 行字典）；panel.html 补 data-i18n(2)/data-i18n-title(8)；附带修复 currentLang ReferenceError ×2（诊断 loading/进度回调原不可达）与 formatPriceTime zh-CN 硬编码。
+- 测试：85/85 全绿（含任务指定五门禁 + r401 manifest 重订 + price-auto-update 冒烟适配）；行为级 vm 冒烟自证非字符串存在性假绿。
+- 遗留观察（非本次范围）：panel.html aria-label（'会话筛选'等 3 处）仍 zh——applyLanguage 无 data-i18n-aria 支持，需机制扩展，建议后续统一处理；R60-b 遗留 GUI 真机冒烟项不受影响。
+---
+Task ID: R60-RV-E
+Agent: review-security-supplychain (RV-E 变更后复审)
+Task: R60 全部增量代码的安全/供应链复审（R60-4 零恶意基线之后：R60-b 后端 + R60-c panel i18n + 主协调者 pet.js 模块化重写 7 新模块），只读，git 零改动
+
+Work Log:
+- 基线定位：git HEAD=7d9386c（R59/v0.6.8，即 R60-4 审计树），本轮 delta=工作区（26 文件 M + 7 新模块 untracked）；package.json/Cargo.toml/tauri.conf 仅 0.6.8→0.6.9 版本号，CSP 与窗口 URL 零变化。
+- 恶意识别全量重扫：rg 'eval\(|new Function|document\.write|atob\(' frontend/ src-tauri/ 仅 2 注释命中（pet-agent-view.js:33、commands.rs:37）；btoa 仅 expressions.js:193 编码方向；前端零 fetch/XHR/WebSocket/EventSource/postMessage；新增行扫描零 Command::new/reqwest/TcpStream/curl。
+- 7 新模块逐文件审：全部无 innerHTML sink、无 eval 家族、无外部 URL/网络。pet-bubble.js:42 textContent（或 icons.js:85-98 withIcons——纯文本段 escapeHtml、SVG 为固定资产）；pet-frame-table.js:96-100 img.src 仅静态表 ../assets/ 固定名+R59 覆盖 data:URL；pet-state-machine.js classList only（act 类名出自固定 TOOL_ACT 映射）；pet-fx.js textContent/数值 style+AudioContext 本地合成；pet-aggregate.js 纯函数零 DOM；pet-drag.js IPC 仅 Math.round 数值；pet-event-router.js:256 拒 malformed payload、:228 ev.state 过 stateWords 白名单、ev.tool 过固定映射，ev.text/message/icon 全部汇入 textContent 路径（showProp=pet.js:525 textContent）。
+- 事件路由→DOM 通道复核：router→sm.transient(text)→showBubble（textContent）｜enqueueChoice→renderPerm pet.js:821 esc(optLabel(opt))｜buildActCard pet.js:1024 textContent(optLabel)；optLabel=pet.js:240 t(i18nKey) 字典查找（未知键回落键名）再 esc()，三重防注入。
+- i18n 增量（R60 段 9+7+8 键 + R60-c 38 键×3 语）：全部纯文案；{slot} 填充走 textContent（panel.js:209 旅行区）或 esc()（panel.js:329/671/713）；panel.js:1155 title 走 DOM property 赋值非 HTML 解析；r11 parity 冒烟 56 键三语对账绿。
+- 后端增量：travel.rs F1 per-owner——owner 仅作 child_pids/cancel/active 三 HashMap 键（:91-98），cancel_travel(Option<String>) commands.rs:308-312→cancel_for 先 contains_key 校验（未知 owner 报 no active trip），kill 目标 pid 只来自本进程 child.id()（:443-447），owner 字符串零进入 Command/exec/路径；F12 legacy_trip 确定性纯函数。custom_expressions.rs F4 install_override（:116-131）temp 名=.{白名单state}.{白名单ext}.{ms}.tmp 于既有目录，is_valid_state 27 词/ALLOWED_EXTS/魔数/8MiB 门全保留，顺序改 temp→rename→后删旧=纯健壮性提升。http_server.rs:433-450 仅 waiting 卡 provider 字段条件化，无新端点/参数。model.rs:2104-2126 i18nKey 为固定字面量六键。lib.rs:267-288 pet 窗 prevent_close=加固；commands.rs:3449 emit→emit_to=广播面收窄。
+- tauri-bridge.js 删除审：仅删 onExpressionsShown/onExpressionsHidden 两个死订阅包装（无任何校验逻辑），hide/show 语义留 close_expressions 后端；全仓零残留消费者。
+- capabilities/pet.json +3 审：allow-set-pet-tall/set-pet-big（commands.rs:1297/1302 固定尺寸窗口 resize）/allow-territory-toggle-auto（:1016 配置开关）——零 shell/文件系统面；gen/schemas 再生成一致；boundary smoke ok。
+- D0-D3 对照：D0 无新依赖（npm 零依赖、Cargo 仅版本行）✓；D1 无新 URL（panel.js:1155 models.dev fallback 基线 :1126 已存在、白名单内）✓；D2 无 install 钩子/scripts 零改动 ✓；D3 CI uses 全 40-hex SHA 钉住、.github 零改动 ✓。
+- 冒烟重跑（只读）：tauri-command-safety-smoke ok / tauri-capability-boundary-smoke ok / tauri-local-http-hardening-smoke ok / tauri-tray-i18n-r11-smoke ok（56 键）；node --check 新 7 模块+pet.js+panel.js+tauri-bridge.js 全过。
+
+Stage Summary:
+- 裁决：**复审通过，无增量风险——维持 R60-4 零恶意结论**。7 个新前端模块零 HTML 注入面（唯一 innerHTML 汇点 icons.js 管线自带 escapeHtml）；pet-event-router 的 ev 字段全路径 textContent/esc 化；后端 owner 参数仅作 map 键且 kill 目标限定本进程自 spawn pid；temp 文件名白名单防穿越；i18n 新键纯文案；权限面 +3 均为应用内命令无危险面；供应链四门槛全过（零新依赖/零新 URL/零新钩子/CI SHA 钉住）。附带两项净加固：pet 窗 prevent_close、chooser emit_to 定向。
+- 遗留观察（非本轮风险，沿 R60-b 记录）：lib.rs:231 studio CloseRequested 仍发 expressions:hidden 死信（无消费者、无害）；gh-proxy.com 声明入 SECURITY.md 仍未落（P3）。
+---
+Task ID: R60-RV-D
+Agent: review-hardcode-residue
+Task: 硬编码残留地毯式评审（provider 身份/i18n/路径/魔法数/label/状态词汇，只读）
+
+Work Log:
+- 六清单全扫：rg provider 字面量（Rust 12 文件 ~280 命中/JS ~120）、CJK+日文用户可见字面量（JS 排注释后 pet.js/panel.js 非注释 CJK 输出已清零）、路径/魔法数/label/状态词汇；程序化 diff 验证 states.js↔EXPRESSION_STATES↔expr.state.*（27↔27↔27 零差异，r59 smoke 在位）。
+- i18n 残留 P1×6：travel.rs:858/966 postcard summary 纯中文（且写入持久化）；model.rs:1721 reason "授权"；model.rs:2087-2088 ask header/question；model.rs:3323-3348 humanize_tool 四文案；model.rs:2463-2484 suggestion label 无 i18nKey（F9 给 6 个固定 option 加了键，漏 claude suggestions 动态组）。
+- i18n 残留 P2：pet.js:1757-1760 chooser statusText 手写三目三语（无 pc.* 键，ja"Hook 未同期"中式）；pet.html:17/114/118+panel.html:151/162/204 aria-label zh×6（data-i18n-aria 机制缺）；http_server.rs:815-840 opencode detail 英文×6；pet.js:1015 全角【】；travel.rs:186/1522 文案内嵌 provider 名单；8MiB 数字内嵌 6 条 i18n 文案。
+- provider 行为/列表 P2：launch_agent_gui（commands.rs:3352-3371）IDE 候选内嵌；slFilter 仅 claude/codex 两键（pet.js:1188+pet.html:143-144）；五家字面量数组 Rust×7（model.rs:768/commands.rs:454/751/model.rs:169/hook_install.rs:391/495/hook_uninstall.rs:55）+ matches! 2 处，均未引用 config_types.rs:5 BUILTIN_PROVIDER_IDS（含 dsh 口径 6 vs 5 两套）；前端 provider meta 三表（pet.js:1123/panel.js:477/panel.js:843）codex 图标 SVG/💻/🤖 三不一致，provider_registry.ui_metadata 已定义零下发；agent_spec（commands.rs:1562-1596）与 builtin_specs 两套 title 重复；托盘 launch 15 段样板（lib.rs:501-553+896-927）。
+- 路径 P2：hook_install.rs:363-365 provider 配置路径内嵌（ProviderSpec.config_path 未消费）；plugin_sources.rs:67-68 嵌入 JS 硬编码 ~/.re-llmpet/runtime.json+端口 41330-41334；codex_pricing.rs:165-166 自行 join(".re-llmpet")。
+- 魔法数：R60-2 P2-5 确认未修——blur 宽限 300ms(pet.js:2139 匿名) vs 右键守卫 400ms(pet.js:569/2062 匿名×2) 双时间窗；520 弹窗宽 pet.js:244 具名但 :1770 裸 520+commands.rs:1305/3802 Rust 520.0 三处独立；8MiB = custom_expressions.rs:71 ↔ expressions.js:217 双侧独立硬编码（值一致无单一来源）；30000 冷却 pet.js:500 具名 ↔ pet-aggregate.js:40 fallback 字面量重复。
+- label：emit_tray_toast 三窗(lib.rs:438) vs recover_windows 四窗(platform.rs:317, F8) 差异经核实有意（studio 无 pet:event toast 消费者/需位置恢复），但 lib.rs:434 注释"every window that can render it"措辞已过时；territory/travel 两宠数组与 tauri.conf.json 四窗 label 一致 ✓。
+- 状态词汇：normalize_state valid(13, model.rs:3182) 与 states.js VALID_STATES(15) 口径互差（route 接受 loafing/waiting/needsinput 不在 VALID_STATES；VALID_STATES 的 roam/yawning 等 route 拒绝），states.js:46 注释与实现漂移，当前无功能影响（roam/sleep-seq 无生产者）。
+
+Stage Summary:
+- R60 大接线覆盖度高（pet.js/panel.js/expressions.js/pet-travel-view.js 后端 say.* 全走字典；27 状态三镜像程序化验证零差异）；残留集中在 Rust 后端用户可见文案（P1×6 全在 model.rs/travel.rs 的动态文本，F9 只覆盖了固定 option 键）与 provider 元数据三表两套 spec 重复。
+- 收敛建议总表（单一来源化）：①provider 列表→BUILTIN_PROVIDER_IDS 派生+托盘遍历生成；②显示名/图标→provider_registry.ui_metadata 经 config_view 下发，前端三表合一；③后端动态文案→i18n.rs 键+i18nKey 模式（humanize_tool/suggestion/ask header 补齐）；④输入抖动时间窗→具名 INPUT_GRACE_MS 统一 300/400；⑤窗口 label→单一 WINDOW_LABELS 常量各处取子集；⑥8MiB→JS 具名常量+文案 {limit} 插值；⑦states.js:46 注释对齐 normalize_state 词表；⑧hook_install 消费 ProviderSpec.config_path；⑨applyLanguage 补 data-i18n-aria；⑩chooser statusText 入字典 pc.status.*。
+- 全程只读（git 零改动）；本记录为唯一文件追加。
+---
+Task ID: R60-RV-C
+Agent: review-perf-memory
+Task: RV-C 性能与内存评审（R60 pet.js 模块化重写 + travel.rs per-owner 重构，只读）
+
+Work Log:
+- 全量 rg 定时器/监听器：renderer+shared 共 30 处 setTimeout/setInterval/rAF 逐一核对清理路径；tauri-bridge 订阅注册单次（pet.js onEvent/onStats/onConfig×2通道/onTravel/onWindowBlur + petExpressions.configure configured 守卫 :49，无重复 listen；applyConfigSnapshot 不订阅）。beforeunload dispose 链（pet.js:2247-2272）覆盖 sm/fx/bubble/router/drag/geometry/controllers/observer/emptyWarnTimer——唯 poolRot 不在链上（pet.js:2262 注释自认可，P2 理论）。
+- 发现 14 条（P1×5 / P2×9）+ 6 项确认无问题：
+  - P1-1 travel 快照随每条 stats 推送全量序列化：model.rs:1928 → travel.rs:134-166（snapshot 克隆全量 100 postcards、序列化 30 条、summary≤5000 字符）+ http_server.rs:690-697 双深克隆双窗广播；活跃 agent 期 1-2 推送/s ≈ 0.5-1MB/s IPC+分配，99% 推送内容与上次逐字节相同。建议 travel 改 revision 门（变更才内嵌）。
+  - P1-2 patchSessionDots 每推送无条件 appendChild 全部点（pet-runtime-policy.js:50-64）：顺序不变也 N 次 DOM move → dotPulse（pet.css:349-358，box-shadow 不可合成）动画每次重启，0.9-2.2s 脉冲在高频推送下几乎走不完。建议仅 node!==children[i] 时移动。
+  - P1-3 whale 21MB 资产缓存永不驱逐：pet-skin-packs.js:124-150 ASSET_CACHES 持 Image 引用、无切皮清理（pet.js:1905 applySkin→ensurePreloaded 全量加载）；切回 mascot 后 21MB 常驻进程生命周期。建议换皮时清非当前包缓存。
+  - P1-4 travel worker 50ms 轮询每 tick 2×fs::metadata（travel.rs:476-510 + :1177-1184 output_exceeded）= 40 stat 系统调用/s/trip（duo×2），单程最长 30min ≈ 7.2 万次。建议降到 500ms-1s 间隔检查。
+  - P1-5（重写回归）fx.scheduleBlink/scheduleIdleAction 全仓零调用点：pet-fx.js:120-146 定义+dispose 兜底齐备，但 pet.js 组合根从未 kick off（重写前 pet.js 有启动调用，DEEP_BUG_CHECK_0.5.46.md:346 可证）——pixel 眨眼/peek 微动作死链。需在装配处补 fx.scheduleBlink(); fx.scheduleIdleAction()。
+  - P2：aggregateState 每推送算 2 遍（pet.js:1493-1505 resolve+errorLatchReset 双调）；mousemove 热路径 elementFromPoint+2×closest（pet.js:2216-2223，HIT_SEL 已含 #ask，第二个 closest 冗余；setIgnoreMouse IPC 已被 latest-value-controller equals 去重✓）；reportPetVisualBounds 无单帧合并标志（pet.js:1921-1937，多 rAF 回调可同帧重复量测）；applyConfigSnapshot 每次配置变更跑 2 遍（双通道订阅 tauri-bridge.js:212-216 × 后端 commands.rs:109-110 双发，applyLanguage 3×querySelectorAll 全扫随之×2）；emit_stats_now 为插 1 个 __revision 深克隆整个 stats 两次（http_server.rs:692-697，第一遍纯浪费）；playAction 每 tool 事件 void offsetWidth 强制重排（pet-state-machine.js:90→pet.js:527，Pre+PostToolUse 双发=2 次/tool，meme 皮已跳过✓）；dsh_watch 2.5s 全目录树扫描无空闲退避（dsh_watch.rs:23/403-437，hook_watcher.rs:67-77 已有 backoff 模式可抄）；overrideCache 停用不清（pet-expressions.js:86-92，invalidate 只在 changed diff 路径）。
+  - 确认无问题：transientRemainingMs=Date.now 一次/say 事件，ns 级（如任务预期可忽略）；errorRibbonNodes 丝带 1600ms 自清+clearErrorRibbons 兜底（pet-fx.js:79-116）；confetti 1300ms 自移除；postcards 三处 100 上限 drain；metering events 50k 上限+seen 同步修剪；权限等待为 per-permission Condvar 无全局锁长持（http_server.rs:454-475）；stats 150ms 合并器防抖在位（http_server.rs:589）；say 接棒 sayTimer 双清理路径（router.dispose + onTransientCleared 钩子）；blink/idle 链 dispose 覆盖（虽从未启动，见 P1-5）。
+- 修复建议排序：P1-5（两行补启动，功能回归）> P1-2（dot 脉冲重启+DOM churn）> P1-1（后端唯一，IPC 降一个量级）> P1-3/P1-4 > P2 批量。
+- 全程只读，除本 worklog 外零文件改动。
+
+Stage Summary:
+- 评审结论：无泄漏级 P0；重写后的定时器/监听器生命周期总体干净（dispose 链完整、订阅单次、IPC 有去重层），但存在 5 项 P1（1 项功能回归死链 + 1 项高频 DOM/动画 churn + 1 项常驻内存 + 1 项后端每秒级冗余序列化 + 1 项 syscall 轮询密度）。最优先：补 fx 微动作启动调用、patchSessionDots 顺序守卫、travel 快照 revision 门。
+---
+Task ID: R60-RV-A
+Agent: review-semantic-equivalence (RV-A)
+Task: pet.js 仿照重写语义等价性评审（旧 2843 行 vs pet.js 2272 + 7 模块，只读）
+
+Work Log:
+- 基线：git show a0c8393(v0.6.8):frontend/renderer/pet.js → /tmp/pet-old.js；全文通读旧版 + 新 pet.js + pet-frame-table/state-machine/aggregate/bubble/fx/event-router/drag 七模块；travel.rs/lib.rs 后端 emit 面核对（longcmd/cancel 零生产者证实、travel 终态 601-622 双发证实）；i18n.js 新键 zh 值与旧硬编码逐字对账；pet.html script 序列/pixel-sprite 空壳核对；85 测试逐个跑（1 红=r401 CHANGELOG manifest 基线遗留，非重写问题）。
+- 逐块等价性结论：setState（STATE_WORDS 全集清理/act-work 基线/ribbons/bounds/镜像 onStateApplied）等价；transient waiting 守卫+回落重放等价；clearTransient F3 sayTimer 归管（onTransientCleared 钩子时序安全）等价（新增清 transientState=null 在全部消费点被 transientUntil 门控，无可观察差异）；say 接棒令牌/剩余时长等价；16 臂→路由表 13 臂+longcmd/cancel 死信删除（后端零生产者证实）+unsupported 新增（F9）；travel 终态单通道 P1-1 落地正确；applyStats 聚合梯子等价（errorDismissed 闩锁：新版复位更保守，但 onPureClick 无条件重置+绝对 30s 冷却门控使所有可达序列行为一致）；attachDrag 等价+buttons 自愈有意增强；showBubble/hideBubble 等价+P2-6 有意扩展（含 providerChooserOpen）；fadeSwapImg/expressionAwareSwap 等价、reapply P0-1 有意修复；beforeunload=旧版全集+sayTimer/errorRibbonTimer/drag flush（P2-4）；boot 序列等价+F11 getTravel+P1-2 duoReplacePending（pet-agent-view.js:51 setItem 证实）。镜像 state 变量同步无遗漏路径（所有 setState 经 sm→onStateApplied；pet.js 零直接赋值；fx/frames 闭包读镜像）。
+- 发现（意外漂移，非有意变更）：
+  P0-1 buildPixel/PIXEL_MAP 整体丢失：旧 pet.js:1351-1384（12 行图 + SVG 注入 + 顶层调用）在新树全仓 rg 零命中；pet.html:78 .pixel-sprite 为空 div、pet.css 仅 .pixel-sprite svg 动画规则（本体靠 JS 注入）→ 切 pixel 皮肤（toggleSkin 轮换含 pixel）= 空白宠物。无 CHANGELOG 条目、85 测试无一断言（删除性丢失在字符串断言盲区）。
+  P1-2 scheduleBlink()/scheduleIdleAction() 启动调用丢失：旧 1629/1647 模块加载即启动周期链；新 pet-fx.js:120/133 定义+导出但 pet.js 零调用 → 眨眼/peek 微动作永不启动（影响面=pixel 皮肤，与 P0-1 叠加）；fx.dispose 对应清理成空操作。
+  P2-3 lastWinPos 双缓存单向同步缺口：pet.js:1466-1468(applyStats winPos)/1630-1632(config savedPosition)/265(normalizePetAnchor) 只写组合根缓存，不回写 pet-drag 内部缓存；pet-drag.js:83(Bug5 纯点击回位)/119(pointerdown 基点) 读旧缓存 → 外部权威位置更新后纯点击窗口跳回旧位（旧版共享单变量无此问题）。
+  P3 备忘：travel cancelled 相位 router 臂+onTravel 双 showBubble（travel.rs 双发，同文本同 hold 幂等无可见差异，P1-1 收口不彻底）；bub.waitYou zh 模板 reason 非空时丢「等你」前缀；ask.remembered zh「（本会话）」→「（始终允许）」语义注解漂移；fx idle 动作 busy 条件从 !radialOpen 收紧为全 overlay；aggregate 单次 applyStats 计算两遍（纯性能）。
+  遗留观察（等价非漂移）：R60-2 P1-4 needsinput 不守卫 transient 未修（sm.js:10-13 注释声明 §3 设计有意，与审计观点相左，供评审团裁决）；r401 manifest CHANGELOG hash mismatch（发布时重订基线）。
+- 门禁复核：npm test 85 文件 1 失败（r401 基线遗留）；node --check 八文件全过；static/r59 冒烟绿。零文件修改（本 worklog 追加除外）。
+
+Stage Summary:
+- 裁决：**重写主干语义等价性 PASS（约 40 核心行为点等价/有意变更均有 CHANGELOG 对账），但存在 1×P0（pixel 皮肤 SVG 渲染丢失）+ 1×P1（微动作周期链未启动）意外漂移，均为「整块删除未被测试覆盖」型，建议合并前修复（两处合计 ~25 行回补：buildPixel+PIXEL_MAP 移入 pet-fx 或 pet.js、pet.js 装配段补 fx.scheduleBlink()/fx.scheduleIdleAction()）+ P2 lastWinPos 回写（drag.setCachedPos 接入三写入点）。
+- 测试盲区教训：建议 test/static 增补「pet.js 装配调用面」断言（scheduleBlink/scheduleIdleAction/buildPixel 存在性 + pixel-sprite 注入行为级断言），防再犯。
+Task ID: R60-RV-B
+Agent: review-ux-user-journey
+Task: RV-B UX/用户旅程评审（R60 pet.js 模块化重写后，frontend/renderer 全模块，只读）
+
+Work Log:
+- 按十段用户旅程走查 pet.js 组合根 + 12 个 sibling 模块 + pet.html/pet.css + shared/{i18n,toast,states}；关键疑点逐行取证（z-index 阶梯、~2s stats 周期、sm 依赖注入表、grep 全仓调用点）。
+- P0×1：sm 组装漏传 showBubble——pet.js:505-538 create({...}) 无 showBubble 项，pet-state-machine.js:119 `d.showBubble` 恒 undefined → transient 全系气泡文字死链：turn-done/big-done/greet/error 事件文本、say（Claude 说话）、user-turn 情绪、territory spotted/victory/defeat、travel started/completed/failed 全部只剩表情+音效无文字（重写前通路见本 worklog:1545；fx/彩带直调不受影响）。修复=加一行依赖。
+- P1×4：①待答卡片与会话列表乒乓——pet-session-lifecycle.js:9 open() 先 hideAsk，pet.js:620/633 refreshAsk ≤2-4s 重弹、:639 反手 closeSessList，pending choice 存续期间左键会话列表被秒关；②sesslist 每条 stats 全量重渲（pet.js:1477+1208 innerHTML=''）→ 滚动位每 ~2s 归零、行 hover/「已复制」反馈（:1285-1287）被重渲吞掉；③ask 开着时右键——showRadialNow（pet.js:2079-2087）不关 ask、requestRadialViewport（:2096）缩窗 320x340，卡片(z32,pet.css:812)盖住 radial(z20,pet.css:363) 且 520 宽卡片被压窄；④muted 连气泡文本一起静（pet-bubble.js:37）→ 静音后 bub.online(:2200)/货币切换(:2045)/「已允许·已拒绝」(:873)/operation 播报(router:81)全不可见。
+- P2×8：pixel 眨眼/peek 死链（pet-fx.js:120/133 零调用点，与 RV-C P1-5 同根因）；语言切换动态文案残留——applyLanguage(pet.js:47-61) 不刷 travelView（旅行中 #sl-wander 退回「闲逛」文案、#sl-travel-status 旧语言）/radial/todopop/ask 动态标签；pet.html:17/114/118 aria-label、:100 chip title 硬编码 zh（en/ja 读屏/悬停中文）；radial 10 项挤 78px 弧（pet-radial-menu.js:83-93+46px 钮）相邻钮压盖 ~20px、8px 标签互挡；工坊上传中 label.disabled 无效+busy 早退静默丢弃二次选件（expressions.js:183/211）；plan 卡反馈输入框 Enter 无响应（pet.js:1959-1967 仅 elicitation）；duo 成本切片退化为两窗同一总额（pet-agent-view.js:141-153 无 per-session 生产者）；键盘可达性缺口——radial item 是 div、sl-close/tp-close 是 span（pet.html:135/164），Escape 仅 chooser（pet.js:1859）。
+- 确认健康：ask 重渲签名守卫(lastAskSig)、submitDecision await-then-finish + 失败恢复按钮、P0-1 移除 override 回退基础表情（pet-frame-table.js:112-125 实测路径成立）、duo 换载抑制（sessionStorage flag pet.js:2181-2188）、chooser 焦点陷阱/Enter/Arrow、travel 终态单通道（router 只留 started/cancelled）、复制 ID 双兜底、i18n 键覆盖（expr.state.×27 与 state.* 三语零缺）。
+- 全程只读；本记录为唯一文件追加。
+
+Stage Summary:
+- 结论：R60 模块化拆分本身结构清晰、多数历史 GUI 回归（P0-1 表情回退、P1-1 travel 双通道、残影 nudge、blur 宽限）确已修复；但组合根有一处 P0 接线遗漏（sm 缺 showBubble 依赖）+ 4 处 P1 守卫组合冲突（卡片/列表乒乓、2s 全量重渲、radial×ask 叠放、muted 吞文本），恰好落在用户抱怨最密的「反馈缺失/闪动/状态被顶回」症状族。修复均为小改（一行依赖、签名跳渲、两处 hideAsk/补关、muted 只 gate 音效）。
+---
+Task ID: R60-RV-F
+Agent: review-i18n-completeness
+Task: R60 i18n 完备性评审（三语对称/裸键/插值配对/Rust 平价/后端残留/applyLanguage 覆盖，只读零改动）
+
+Work Log:
+- 程序化验证（node 脚本跑 /tmp，require 真实 i18n.js/states.js，零项目改动）：①三语键集：zh=en=ja=534 键，逐对 set-diff 零不对称、零空串值；②字面量调用点：strip 注释后 multiline 扫描 frontend/renderer/*.js 共 285 处 t('…' 字面量（含跨行），全部命中字典（唯二"缺失"为 expr.state. 前缀拼接假阳性，已单独核 27 状态）；③插值：全字典 534 键三语 {slot} 集合逐键比对，唯一不对称 bubble.waiting（zh {project,reason} vs en/ja {project}）——查为零调用点死键，无运行时影响；全部字面量调用点 {slot}↔vars 配对正确（shorthand/跨行已处理），抽查 sess.count{n}/panel.priceLive{source,count,when}/toast.rebuildDone{count,delta}/panel.intervalCustom{n}/todo.progress{done,total}/expr.saved{state} 三语平价 ✓。
+- 动态键追源全核对：expr.state.*×27（states.js RENDER_STATE_WORDS 逐词 ×3 语全在、无孤儿键）↔ expressions.js:133/138；STATE_META 17 键（panel.js:577-596）；BG_META bg.*×4；radial menu.×9（pet-radial-menu.js:35-66）；perm.×6（model.rs:2108-2127 i18nKey ride-along ↔ 前端字典三语值对）；bubble.currencyCny/Usd、sess.waitFor/replyFor、expr.enabled/disabledToast；HTML data-i18n/-title/-placeholder 共 103 处（pet 23/panel 73/expr 7）×3 语全在。三窗均加载 shared/i18n.js；pet-event-router 的 t 依赖由组合根注入（pet.js:617）。
+- Rust 平价独立复核：i18n.rs TRAY_LABELS 56 行逐行解析（key+zh/en/ja 值）↔ i18n.js 534 键镜像——56 键三语逐字一致（与 r11 冒烟结论互证：test/tauri-tray-i18n-r11-smoke.js ok 56 keys）；Rust 侧 tray_label() 全部 44 处调用（lib.rs/commands.rs/process_probe/session_resume/territory）引用键全在表内，`<?>` 兜底不可达。R60 新增面：say.×8 + toast.priceFail 已双侧在位；perm.×6 前端渲染端字典三语在位（Rust 仅透传键名，无需进 i18n.rs）；R60-c 38 键 panel.* 前端专用，Rust 无渲染面、无需平价——r11 契约无遗漏。反向：i18n.js 有 6 个 Rust 侧无引用且前端零调用的遗留镜像死键（tray.codexPet/skinClaude/skinCodex/patrol/patrolNow/shape.menubar）。
+- applyLanguage 覆盖复核：panel（data-i18n 三种属性+title+诊断卡重渲+langChanged 时 render/renderSessList/renderPriceInfo 全量重渲；面板隐藏时 pendingStats→on-show 重渲 panel.js:1514-1518 兜底）✓；expressions（data-i18n+title+renderGrid 重渲状态名）✓；pet（data-i18n 三种+updateProviderUI+会话列表开着时强制重渲）✓。小缺口：pet 窗 todo 弹层/ask 卡若在语言切换瞬间开着不重渲（下一数据事件自愈，P3 记录）。
+- 全量 npm test 85/85 绿（含 r11/r12/r13/r14 tray 平价、panel-i18n-audit-r17、i18n.js 单测）。
+- 后端残留 rg（注释剥离后 CJK 扫 src-tauri/src 全 .rs）分级：
+  - 本轮该修（RV-D P1×6 清单之外的新发现）：
+    ① hook_install.rs receipt/状态消息 zh-only ~15 处（:407/:431-437/:510-514/:939-941/:1018/:1109/:1310/:1390/:1451/:1486）——经 panel.js:1085 runtime.message 进 Provider 状态行 tooltip + commands.rs:997 set_providers pet:event(kind=error) 错误文本，en/ja 用户可见中文（RV-D 未记此面）；
+    ② commands.rs:3249-3251 CodeWhale 旧 hook 迁移警示长文案 zh-only——流入 diagnose issues→panel 诊断 warnings 列表（panel.js:897 原样渲染），en/ja 可见；
+    ③ commands.rs:612+997 join("；") 全角分号残留（R60-c 只修了 panel.js 侧 join；后端两处 emit/response 仍是 ；，en 文案内错位）；
+    ④ state.carrying 缺键：model.rs:3189 normalize_state valid 含 carrying（/state 路由可显式置入）但 pet.js:1172 SESSION_STATE_KEYS 无 carrying→sessionStateLabel 回落裸英文词 "carrying"（HUD 行/tooltip），panel STATE_META 回落 idle 标签错标；当前无事件臂生产该态（仅外部显式路由可达）故低危，但属 R57-RV-C11 同类「裸词回落」——建议补 state.carrying ×3 语 + 两表条目（roam/yawning/dozing/collapsing/waking 路由拒绝+无生产者，纯词汇预留可不补）。
+  - 遗留记录（RV-D/RV-A 已记，复核仍在树）：model.rs:1722 json!("授权") waiting reason；model.rs:2088-2089 ask header「Claude 提问」/question；model.rs:3329-3348 humanize_tool 四文案；model.rs:2475-2485 permission_suggestion_label 无 i18nKey（F9 漏 claude suggestions 动态组）；pet.html:17/114/118+panel.html:151/162/204 aria-label zh×6（data-i18n-aria 机制缺）；http_server.rs opencode detail 英文×6；pet.js 手写三语三目 6 处（三语齐全但绕字典）；新观察：hook_install.rs:970-993 bypassWarning 英文-only（zh 用户反向看英文 tooltip，P3）。
+  - 已证非残留（免误报）：travel.rs 全部文案三语在位（RV-D P1 的 858/966 两条确已修——travel_migration_interrupted_text/travel_restart_interrupted_text）；commands.rs:237-280 wander/project 任务库是按 lang 分库的三语 prompt（非 UI 文案）；emotion.rs/territory.rs:19-20 为中文输入匹配词表/竞品窗口名匹配模式；transcript/travel 测试代码内中文非产品面。
+
+Stage Summary:
+- 结论：R60 大接线本体（前端三窗 t() 面 + i18n.js 三语对称 + 插值配对 + expr.state.×27 镜像 + Rust 56 键平价 + r11 冒烟）完备性 PASS——534×3 键零不对称、285 字面量调用点零裸键、动态键全链路命中、npm 85/85 绿；用户可见裸键/缺键回落仅剩 1 处低危（state.carrying，外部显式路由才可达）。
+- 本轮该修 4 项（新发现）：hook_install.rs 收据消息三语化（~15 处，走 i18n.rs 键或 i18nKey 透传模式）、commands.rs:3249 CodeWhale 迁移警示三语化、commands.rs:612/997 全角分号→' · '、state.carrying 补键+两表；遗留清单 8 项与 RV-D 对账一致（model.rs 动态文案 4 处/aria-label 机制/opencode detail/手写三目），建议按 RV-D ③收敛方案（humanize_tool/suggestion/ask header 补 i18nKey 模式）一并排期。
+- 信息性：bubble.waiting 死键三语 slot 不对称、6 个 tray/shape 遗留镜像死键——建议下轮字典瘦身时删除。全程只读，除本 worklog 追加外零文件改动。
+
+---
+Task ID: R60-RV-G
+Agent: review-test-quality-fakegreen (RV-G 测试质量/假绿评审)
+Task: R60 字符串断言迁移语义强度评审 + 新模块行为级 vm 探针（只读，零仓内改动；探针脚本在 /tmp 未入仓）
+
+Work Log:
+- 基线取证：git diff HEAD -- test/ 为 0（test/ 整目录被 .gitignore:49 忽略，R60 测试迁移不在 git 增量内）→ 改用 llmpet-gh 镜像（a0c8393=v0.6.8）作基线，diff -rq test/ 得 24 个差异文件；用「基线测试×新树」交叉跑（/tmp 符号链接树）证实 8 个指定文件的迁移断言在新树上确实由绿转红（迁移必要，非无谓改指向）；逐文件统计 assert/check 行数：基线≤现行（无净删除）。
+- 8 个迁移文件逐断言强度对账：r50/r53/drag-phase3/phase1/r351/r59/root-regression 全部为「指向新 owner」的等价迁移，r351+r59 还补了组合根接线断言（window.pet.onEvent(router.handle) / pet.html 加载 pet-frame-table.js）；drag-phase3 新增两条 v1.2.0 防御断言（buttons 自愈 + 手势身份）；版本钉 0.6.8→0.6.9 十四处机械一致（migration-todo/package/tauri.conf/Cargo 全 0.6.9，npm test 85/85 绿复核）。
+- vm 探针（/tmp/r60rv-g/probe.js + probe-router.js，参考 pet-r50 policySandbox 模式，stub DOM/bridge）：pet-state-machine 12 项（STATE_WORDS 全集清理、waiting>transient 守卫、transient 到期主动 replayAggregate 且稳态接管后不踢场、clearTransient→onTransientCleared、playAction waiting/sleeping 拒动、act-work 基线、注入 showBubble 转发）、pet-aggregate 9 项（waiting>transient>error(8)、roam 仅盖 idle/sleeping 不盖 8 个高优先态、error 冷却闩锁三态）、pet-frame-table 5 项（P0-1 无 override 时 reapply 回落基础资产、有 override 走缓存换帧、pixel no-op、未知态回落 mascot.png）、pet-bubble 4 项（muted 仍显文字 RV-B P1、overlay 抑制非 force、force 穿透、短气泡零 resize）、pet-drag 6 项（button-2 委派 onRightClickPointer、contextmenu 走注入守卫、rAF 合帧+drop 单次 commit、手势后 setMouseIgnore(true) 还权、真实拖拽≠纯点击、buttons=0 丢 pointerup 自愈）；pet-event-router 17 项（畸形载荷/未知 kind no-op、eventBelongs 前置门、isInteracting 只放行 waiting/needsinput choice、waiting 臂清短暂态、operation 不降级 waiting/needsinput、needsinput 不破 waiting（§3 9>7）、say 于 waiting 抑制、state 臂词表过滤+stickyHi 穿透清短暂态、travel 终态单通道仅 started、toast force+主窗发声、choose-provider 行为级驱动）→ 56/56 全 PASS。结论：七个新模块本身行为正确，假绿风险不在实现而在「锁」。
+- P0 断言缺口取证（rg 全仓）：R60 评审修复的四个关键点在 test/ 零断言——①RV-B P0 showBubble 接线（pet.js:562 sm deps）②P0-1 reapply 回退（pet-frame-table.js:112-125，r59 只锁 expressionAwareSwap 存在性）③RV-A P0 buildPixel/PIXEL_MAP（pet.js:469-491，pet.html:78 .pixel-sprite 空壳全靠 JS 注入）④RV-A/RV-C 微动作启动 fx.scheduleBlink/scheduleIdleAction（pet.js:520-521，仅 DEEP_BUG_CHECK_0.5.46.md 历史文档提及）——RV-A 评审自己建议的「装配调用面断言」未落地；同期 lastWinPos 双缓存回写（pet.js:1529 drag.setCachedPos）同样未锁。
+- 额外假绿洞×2：①test/i18n.js:84 SOURCES 仍只扫 pet.js/panel.js 的 t() 键存在性——最大 t() 消费者 pet-event-router.js 的 26 键中 25 键移出扫描面（当前全部存在，但未来键名笔误将以「气泡直显 bub.xxx 原文」形式静默漏网，且 say.territory-unsupported 带连字符连 DOTTED 正则也匹配不上）；②test/pet-systemic-regression.test.js:36 `!pet.includes("img.style.opacity = '0'")` 的换帧防空白守卫——fadeSwapImg 已随换帧链迁入 pet-frame-table.js，该断言守错了文件（今日碰巧绿=空转守卫）。
+- 维护性预算表复核：7 新模块行 148/145/54/80/161/270/186 vs 预算 180/180/90/110/200/320/240（余量 15-25%，"small by design" 达标）；pet.js 2340/2360；检查方向 lineCount<=maxLines 无误；注释链（2272→+68→2340）自洽。
+- 顺带健壮性观察：pet-drag.js 对 onRightClickPointer/onContextMenuFallback/onDragConfirmed 无 noop 兜底（onPureClick/onDragStart 有）——接线缺失=运行时 TypeError 而非降级，防御风格不一致（非当前 bug，pet.js:590-613 已全接线）。
+
+Stage Summary:
+- 裁决：**迁移断言语义强度总体 PASS（8 文件无净删除、必要迁移、多处反向补强），但 R60 自身的四个 P0/P1 修复全部无回归锁 + 两处守卫面随代码搬家无声缩窄 → 假绿敞口真实存在**。npm test 85/85 绿不能证明 R60 修复仍在位。
+- 假绿风险清单（文件:行 + 弱化 + 强化建议）：①pet-r50:51 toggleRadialFromPointer→onRightClickPointer 仅匹配注入名、组合根接线未锁（建议补 assert pet.js 含 `onRightClickPointer: () => toggleRadialFromPointer`）②pet-r50:68-71 五 overlay 枚举正则换成 !anyOverlayOpen()，枚举集（pet.js:530）零覆盖——P2-6 修复自身的锁弱于旧锁（建议锁 pet.js 枚举或抽可测函数）③drag-phase3:27 window.pet.commitWinPos()→commitWinPos() 丢了桥绑定钉（建议补 `api: window.pet` 接线锁）④r351:175 case→includes 匹配面放宽（次级，已有相邻接线锁补偿）⑤i18n.js SOURCES 扫描面缩窄（建议加 7 新模块+正则容连字符）⑥systemic:36 opacity 守卫守错文件（建议改指向 pet-frame-table.js）⑦bridge:75-78 死信事件移除合理但缺「无消费者」负向锁。
+- 缺失行为级测试：**发布前必补**＝sm.showBubble 接线、fx.scheduleBlink/scheduleIdleAction 装配调用、buildPixel+PIXEL_MAP 存在与调用（RV-A P0 整块删除型曾在 85 绿下漏网）、frame-table P0-1 回退断言、drag api/onRightClick 接线锁（五个合计≈20 行字符串锁或直接移植探针）；**后续补**＝探针 56 项行为检查移植入 test/（/tmp/r60rv-g/probe*.js 即蓝图）、i18n SOURCES 扩面、anyOverlayOpen 枚举锁、needsinput 不破 waiting 的 §3 优先序锁。
+- 探针验证：56/56 PASS（state-machine 12 / aggregate 9 / frame-table 5 / bubble 4 / drag 6 / router 17 / 表项若干）；两处初跑 FAIL 均为探针自身时序/预期错误（Image 异步 onload、needsinput 优先序误解）修正后转绿，模块无缺陷。
+- 移交：探针脚本 /tmp/r60rv-g/probe.js 与 probe-router.js 可直接产品化为 test/pet-vm-behavior.test.js（R60-1 蓝图「每步跑行为级冒烟防 RV-10 式字符串假绿」的落地件）；全程只读（本 worklog 追加为唯一改动，git status 复核）。
+---
+Task ID: R60-RV-H
+Agent: review-backend-rust (RV-H)
+Task: R60-b 后端 14 项修复 + 主协调者 travel.rs/model.rs 增量的 Rust 变更复审（只读，worklog 追加除外）
+
+Work Log:
+- 全量 diff 审读（src-tauri/ 16 文件 +601/-99）+ 关键路径逐行读源（travel.rs start/cancel_for/shutdown/run_trip/persist/snapshot、lib.rs on_window_event 分支链、commands.rs focus_pet/primary_action/territory_toggle_auto、custom_expressions install_override/snapshot/find_override_file、http_server handle_permission、territory 双平台 8 emit 点、model.rs AppState::new/config_view/AppConfig 默认值、i18n.rs 表 56 行、platform.rs recover_windows）。
+- 门禁复证（本机实跑）：cargo fmt --check 干净；cargo clippy --all-targets -- -D warnings 干净（48.32s）；cargo test --lib 185/185 全绿；node tauri-capability-boundary-smoke / tauri-tray-i18n-r11-smoke（56 键×3 语）/ tauri-r59-regression-smoke / tauri-command-safety-smoke 全 ok。零 unsafe 增量；Cargo.toml/lock 仅 0.6.8→0.6.9 版本行。为释放磁盘清理 target/debug/incremental 与陈旧 octopus 产物、/tmp/octopus-* 残留（可再生缓存）。
+
+逐项结论：
+- F1 per-owner travel：正确。锁序全局唯一嵌套为 active→cancel（start 的 clear_cancel 与 cancel_for 的置旗均在 active 锁内，两者互斥序列化；cancel_flag/clear_cancel 只碰 cancel，kill/persist/snapshot/shutdown 均按作用域顺序取锁，无反向序→无死锁）；cancel_for 先 drop active 再 kill（kill 不在热锁内）。cancel_for(None) 保留 cancel-all 契约、空 map 报 no active trip；shutdown 只给 ACTIVE owner 置旗但 kill 全部已注册 pid（超集兜底，孤儿不漏）。F12 legacy_trip 确定性（pet>pet-codex>sorted），activeTrip/childPid 同源同 owner 一致。
+- P2（理论，新发现）：cancel_for→kill 与「旧旅行完整收尾+新 start+新子进程注册」竞窗内，kill 可命中新 trip 的 pid 而其 flag 已被 start 清除→新旅行记为 failed 而非 cancelled；start() 注释的二分法漏了此第三交错。窗口极窄（需跨 fs 写入段失调度），加固建议：child_pids 存 (trip_id,pid) 对、kill 前比对 trip_id，或 kill 前 flag 复核。
+- P2（遗留非回归）：kill 落在 worker 两次 poll 之间时 try_wait 先于旗检查 break→记 failed+friendly_cli_error 而非 cancelled（HEAD 同窗口，非 R60 引入）。
+- open_with_lang/lang 链：正确。config_lang 在 AppState::new 于 load_config 后、config move 前捕获；迁移与重启中断明信片经 load_persisted/official_travel_to_persisted/interrupted_postcard 全链传 lang，三语 helper 与文件内 travel_started_text 模式一致（后端发送终文本，无前端镜像需求）；startup lang=上次落盘 lang，语义正确。#[cfg(test)] open()：非测试编译面零影响（生产唯一调用点 model.rs:605 open_with_lang；open 仅 travel.rs 测试与 model.rs r58_lineage_tests 调用，lib pub 无 dead_code 警告）。
+- lib.rs prevent_close：正确。分支序 studio→panel→pet/pet-codex→pet* blur 无遮蔽（label 不相交，CloseRequested/Focused(false) 事件不重叠）；prevent+write_log，窗口保持可见。hide 路径确认不需要：pet 窗无边框无 UI 关闭钮，native close 仅 Alt+F4/任务栏/系统菜单；若走 hide 会被 mode!=hidePet 的 sync_pet_windows 重显乒乓。P2 建议：Alt+F4 目前是无反馈 no-op，可补一条三语 pet:event say 提示退出走托盘。
+- F3 emit_to：正确。Tauri2 window.emit 为进程级广播，emit_to(label) 收敛为定向；前端 pet-event-router.js:146-148 注释已同步声明无需前端过滤，一致。
+- F5 focus_pet：正确。谓词与 sync_pet_windows 逐字对齐（mode!=hidePet && (label=="pet"||pet_mode=="duo")）；try_state 缺失时 fail-open 可接受。
+- F4 install_override：正确且为净加固。temp→rename→成功后才 remove_other_exts；失败保留旧覆盖（单测以目录占位模拟真实 rename 失败证明）。崩溃窗分析：rename 后 remove 前崩溃→新旧共存；find_override_file 按 ALLOWED_EXTS（gif 优先）取新 gif=良性，但「新非 gif+残留旧 gif」会读旧文件直至下次保存（P3 微秒窗）；snapshot() or_insert 实际按 read_dir 顺序而注释称 ALLOWED_EXTS 顺序（共存时工坊列表与实际服务文件可不一致，P3 遗留）；temp 点文件崩溃残留无启动清扫（被 ext 白名单过滤、无害，P3）。
+- F10 http_server：正确。判定源为发射时 live runtime.config()（非快照、不可能 None）；默认值 pet_mode="single"+duo_provider="codex"→claude 卡维持 Null，无误判 duo；双条件（duo 且 duo==claude）保守，与前端 eventBelongs（provider==duo→pet-codex）路由吻合；单一 waiting 发射点全覆盖；single 模式 eventBelongs 恒 true 不受影响。
+- capabilities：正确。pet.json +3 与 autogenerated 三 toml、gen/schemas 再生成三者一致（diff 内容核对+boundary smoke ok）；三命令均在 invoke_handler 注册；无 shell/fs 危险面。
+- P2-8 territory：正确。territory_event_provider（首个启用且≠duo，兜底 aggregate）与前端 defaultPetAgent 逐字同构（config_view providers.active==config.providers 形状已核对）；8 处 emit 全带 provider。
+- F9/F13/F8/F7/F14：核对无误（56 行表、9 键全被消费、{error} replace 插值、studio 入 recover 名单、r59 smoke 引用属实、opencode 位置参数注释与 &["."] 一致）。
+- 7 新测质量：5 强（cancel_for/snapshot/legacy_trip/install_override 失败+成功——均驱动真实代码路径，含对抗性插入顺序）、1 中（clear_cancel 直测 helper 而非 start 集成）、1 弱（second_owner_pid 测试重演 map 操作而非产品路径，仅固化结构不变量）。总体合格。
+
+Stage Summary:
+- 裁决：**R60-b 后端 14 项 + 主协调者 travel/model 增量全部 PASS，无 P0/P1**；锁序/取消语义/确定性/写入顺序/i18n 链/capability 一致性均正确，三门禁+四 JS 冒烟本机复证全绿。
+- P2 加固建议（按序）：①cancel_for kill 与新旅行竞窗（trip_id 戳或 kill 前 flag 复核）；②前端 cancelTravel 尚未传 owner——duo 下任一宠取消=全取消（后端契约已就绪，R60-b 交接项 2 仍未接线）；③wander 拒绝文案 5-provider 字面量与 WANDER_SUPPORTED_PROVIDERS 耦合（RV-D 残留，建议 join 派生）；④kill 落 poll 间隙记 failed 非 cancelled（遗留）。
+- P3 备注：F4 共存解析不对称（gif 优先）/ snapshot read_dir 顺序与注释不符 / temp 残留无启动清扫 / remove 失败静默。
+- 前端侧待办确认：cancelTravel owner 参数、Alt+F4 防关的用户反馈文案（可选）。
+- 全程只读（worklog 追加除外）；磁盘清理仅限 target 可再生产物与 /tmp 测试残留。
+---
+Task ID: R60-RV-I
+Agent: review-duo-e2e (双宠/duo 端到端专项评审)
+Task: duo 生命周期八链路端到端走查（0.6.7 副宠被吞 / 0.6.8 槽位交叉 / 0.6.8 URL 竞态三次回归背景下的 R60 增量交互审查），只读，worklog 追加除外
+
+Work Log:
+- 方法：tauri.conf.json → pet-agent-view/tauri-bridge/pet.js(2339)/pet-travel-view/pet-event-router/pet-runtime-policy 全文通读 + travel.rs(2308)/territory.rs/http_server.rs/model.rs/stats() 双向取证；关键断言用 vm 沙盒跑真实模块做行为级证明（filterStats pendingChoices 不分片、travel started 双通道路由分歧均已复现）；duo 相关 7 个冒烟（duo-r58/r59-regression/r50/r53/bridge/sesslist-r19/http-hardening）本机复跑全绿。
+- 八链路结论（证据链见 Stage 表）：①启动链健康——静态两窗无 ?agent= 钉死；label 权威（pet-agent-view.js:57-76）；syncDuoQuery 页内自同步（:45-55）+ sessionStorage 旗标→pet.js:2248-2267 一次性消费抑制动画/问候+F11 getTravel 回拉；applyConfigSnapshot 按窗身份分片 skinCodex/petPositionCodex（pet.js:1655/1693）。②事件分片主干健康——emit_hook_event 全事件盖 provider 章（http_server.rs:847）；filterStats 会话/计数/点/成本切片正确（成本回退聚合为代码内自认的 R58-RV-9 P2 遗留）。③旅行链后端健康、前端断线（见 P1-1）。④托盘 toast 链健康——emit_to 三窗（lib.rs:436-440）+ isPrimaryPet 音效门（pet.js:626→router:246-251）。⑤授权卡链半修复（见 P1-2）。⑥切换搭配链健康——set_duo_provider 白名单+sync_pet_windows+stats/config 双推（commands.rs:742-768）；副宠换载、主宠不换载即时重切。⑦关闭/恢复链健康——pet 双窗 prevent_close（lib.rs:267-288）、recover_windows 四窗（platform.rs:317）、commit_win_pos 槽位按 label（commands.rs:1272）。⑧归档收敛健康——config 广播→两宠窗 archivedSet 重渲（pet.js:1680-1691）。
+- 重点疑点裁决：⑴revision 换载拒收=不成立：do_emit_stats（http_server.rs:668-698）为全局单调 stats_revision 单点广播（同 rev 发两窗），per-window 守卫各跟同一序列；换载后 JS 重置 -1 必收下一帧；boot get_stats（commands.rs:209）不带 __revision 恒接受。⑵isPrimaryPet 语义=成立：主窗 PET_AGENT 模块加载时即解析为 'aggregate'（cachedConfig 未就绪），但全部消费点只做 !== 'pet-codex' 二元判定，无语义风险；aggregate 兜底不可能等于真实 duo provider（territory_event_provider 同构镜像）。⑶eventBelongs×territory provider 兼容=成立：R60-b 8 处 emit 恒带 provider（territory.rs:376/403/582 + patrol 内 5 处）；single 模式 provider 被忽略（petMode 短路），duo 模式路由到主宠=与 territory 只挪 'pet' 窗（territory.rs:442/602）物理一致。
+- 发现清单：
+  P1-1【duo 取消互不影响=端到端失守】前端 cancelTravel 全链从未传 owner：tauri-bridge.js:272 `cancelTravel: () => call('cancel_travel')`（对比 :271 startWander 附 owner）+ pet-travel-view.js:80 `await api.cancelTravel()`。后端 R60-F1 契约就绪（commands.rs:307-312 收 Option<owner>；travel.rs:637-671 cancel_for(Some)=定向），但 None 路径=置旗+kill 全部 active owner（:646-669）。duo 双旅行时任一宠点「⏹ 取消旅行」→ 另一宠旅行被连带取消、其 CLI 子进程被杀。CHANGELOG 0.6.9「duo 模式一宠取消不再连带取消另一宠」宣称与端到端事实不符（仅后端 API 层为真）；R60-b 交接项 2（「cancel_travel 可选择性传 owner…建议传当前窗 label」）确认未落地。修复=bridge 侧 `cancelTravel: () => call('cancel_travel', { owner: currentOwnerLabel() })`（与 startWander 对称，pet-travel-view 零改动）。
+  P1-2【授权卡 duo 双窗渲染根因未除：R60-F10 只修了事件臂，卡片重建走 stats 臂】http_server.rs:433-450 在 duo+claude 时给 waiting pet:event 填 provider:"claude"（事件级分片 ✓）；但卡片的真实渲染源是每条 stats 快照的 pendingChoices——model.rs:2138 permission_choice 对 claude 恒 provider:Null，且 filterStats（pet-agent-view.js:101-194 spread 继承）从不切 pendingChoices，refreshAsk（pet.js:638-668，:641 snapshotChoices）无 provider 过滤。vm 行为证明：duo=claude 快照下两窗 pendingChoices 均=1（会话/waitingCount 切片正确、卡片不分片）。≤150ms 内主宠窗必重渲染同一张 claude 卡——F10 注释宣称修复的「both pets rendering the same card」在 UX 层依旧成立；非 claude provider 的卡同样双窗渲染（pendingChoices.provider 填了但无人消费）。两窗均有 decide-permission 权限（pet.json:28-29 对两窗生效），先答者胜、另一窗下帧收敛=功能不坏但双卡+双入口。修复=model.rs permission_choice 镜像 F10 的 duo 判定填 provider（或在 filterStats 按 provider 切 pendingChoices，claude 用 duo 判定）。
+  P2-1【travel started 出发反馈路由分歧】travel.rs:340 pet:travel started 带 trip.owner（owner 路由→发起窗 ✓），:341-351 pet:event travel started 只带 provider（provider 路由）。vm 证明：owner=pet/provider 降级为 duo 搭配时，pet:travel→主宠收、pet:event→副宠收——副宠替别人跳出发舞、发起宠无出发反馈；终态（completed/failed/cancelled）全部走 owner 路由正确，唯 started 反向。修复=pet:event started 附 trip.owner（eventBelongs :84-87 优先 owner 臂自动生效）。
+  P2-2【provider 缺失事件在 duo 双窗处理+双声】http_server.rs:433-442 对 claude 仅 duo+claude 才填 provider（默认搭配 codex 下 claude 等待事件=Null→两窗都 setState('waiting')+SOUND.waiting()×2+气泡×2，stats 帧才纠正 pet-codex）；同类无 provider 广播臂：process_probe.rs:291/301/309/328（say.focus-fail 等 4 处）、commands.rs:996（error set_providers）、:1029（say territory-disabled）——duo 下双宠同演。修复=claude provider 无条件填充（single 模式 eventBelongs 本就忽略 provider，条件 Null 无真实兼容收益）+ 新增无 provider 广播臂收敛。
+  P2-3【音效门只盖 toast 臂】pet-event-router.js 除 :246-251 toast 外，turn-done/error/greet/waiting/needsinput/big-done/territory 全臂 fx.SOUND.* 不经 isPrimaryPet（:100-143/:162-221）——single 模式下隐藏 pet-codex webview 处理全部广播 pet:event（eventBelongs single 短路），隐藏窗是否出声平台相依（WebView2 已证实会响=P2-7 修复动机）。建议 SOUND 统一过 isPrimaryPet（或 document.hidden 门）。
+  P3-1 早期事件错路窗：pet-agent-view.js:20 / pet.js:31 duoProvider 默认 'codex'，首个 onEvent 注册（pet.js:632）早于异步 getConfig→applyConfigSnapshot（:1643-1644）；pair≠codex 时换载完成前到达的 provider 事件按默认搭配错路（自愈于 config 到达；换载窗口期尤其明显）。
+  已核对非问题：codexUsage/codexLimits 留给 pet-codex 窗（pet-agent-view.js:185-192）在 pair≠codex 时与 codex 会话归属主宠错位，但 pet 窗无消费者（仅 panel:stats 未过滤路径使用）=死逻辑非缺陷；slFilter 仅 claude/codex 两键（RV-D P2 已录）；成本 chips 双窗同总额=代码内自认 R58-RV-9 P2（per-session breakdown 无生产者）。
+- 建议补的 duo 契约测试（6 项）：①tauri-duo-cancel-isolation-r60-smoke：bridge vm 双假窗（label pet/pet-codex）断言 cancelTravel 调用参数携带各自 owner（现红，修 P1-1 转绿；后端 cancel_for(Some/None) 语义 travel.rs:2182-2208 已有单测，恰好只缺前端接线层）；②r58-smoke 扩展：filterStats 断言 pendingChoices 按 provider 分片（claude 用 duo 判定）+ model.rs permission_choice provider 填充与 http_server F10 平价（现红，修 P1-2 转绿）；③travel started 断言 pet:event payload 含 trip.owner 或 eventBelongs({kind:'travel',phase:'started',trip:{owner}}) 双窗路由正确（现红，修 P2-1 转绿）；④boot 旗标契约：syncDuoQuery 设 'octo-duo-replace-pending' 于 location.replace 前 + pet.js 一次性消费删除（当前零覆盖）；⑤revision 契约：断言 get_stats 不带 __revision + emit_stats_now 全局单调同 rev 双通道广播（防换载拒收回归）；⑥无 provider 广播臂清单测试：遍历全部 app.emit("pet:event") 站点断言带 provider 或显式白名单（toast/choose-provider emit_to），防 P2-2 类新臂再生。
+- 门禁复跑：duo-r58/r59/r50/r53/bridge/sesslist-r19/http-hardening/r351/tray-shape 全 ok（node）；全程只读，本记录为唯一文件追加。
+
+Stage Summary:
+- 裁决：八链路中六条（启动/事件分片主干/托盘 toast/切换搭配/关闭恢复/归档收敛）健康，旅行链与授权卡链各断一环。三项重点疑点全部证伪（revision 拒收不成立、isPrimaryPet 语义成立、territory provider 兼容成立）。
+- P1×2：①前端 cancelTravel 从不传 owner——duo 取消互不影响端到端失守（后端 R60-F1 白做，CHANGELOG 宣称超前于事实，一行 bridge 修复）；②授权卡 pendingChoices 不分片——R60-F10 只修事件臂，stats 臂重建使双窗渲染依旧（修 model.rs permission_choice 或 filterStats）。
+- P2×3：travel started 双通道路由分歧（owner vs provider）、claude 等待事件条件 Null 致默认搭配下双窗双声、音效门仅盖 toast 臂；P3×1 早期 duoProvider 默认值错路窗。
+- 测试盲区：duo 契约当前全靠后端单测+结构断言，前端行为层零覆盖（取消 owner、pendingChoices 分片、started owner、boot 旗标、revision 换载、无 provider 臂清单）——建议按上述 6 项补齐后再发版。
+
+---
+Task ID: R60-RV-J
+Agent: review-release-readiness
+Task: RV-J 发布就绪评审（v0.6.9 准发版，只读，git 零改动；本记录为唯一文件追加）
+
+Work Log:
+- 版本一致性：package.json / package-lock(root+packages."") / Cargo.toml:3 / Cargo.lock:2162(octopus) / tauri.conf.json:4 / migration-todo.json:4 release 全部 0.6.9；测试钉 pet-r51-provider-smoke-regression.js:84-87 四断言（package/tauri.conf/Cargo.toml 锚定 regex `^version = "0\.6\.9"$`/migration-todo）绿；rg '0\.6\.9' test/ 14 文件 47 处（引号字面 13 文件 25 处 + 转义 regex 1 处）；package-lock/Cargo.lock 无直接测试钉但由 CI npm ci/--locked 兜底。全仓无 0.6.8 残留（pet.js 两处为历史注释）。
+- SOURCE_MANIFEST：file_count=450（0.6.8 443 + 7 新模块）；manifest:verify EXIT 0（version=0.6.9, source_commit=octopus-0.5.62, epoch 1785847535 钉定，确定性再生）；r401 冒烟内嵌仓库根 verify（npm test 链内）绿；worklog.md 在册（树内 1674 行 R59-close 态，R60 记录在父级共享 worklog，发布时 restore）。
+- CHANGELOG 0.6.9 抽查 6 项修复全部坐实：P0 表情卡死回退 pet-frame-table.js:112-125；P0 packOf 假预览 expressions.js:55-79（仅 cat/whale 打包预览，mascot/pixel 占位符）；HIGH travel 终态单通道 pet-event-router.js:152-158（started only，终态走 pet:travel→onTravel pet.js:1572/tauri-bridge.js:219）；HIGH travel per-owner travel.rs:94/227/311（child_pids HashMap+R60-F1）+ 单测 per_owner_cancel_never_touches_the_other_owner 等实跑绿；HIGH 宠物窗 prevent_close lib.rs:268-285（R60-F2）；P1 抽查 emit_to commands.rs:3452-3458（R60-F3）、temp+rename custom_expressions.rs:116-128（R60-F4）。升级须知核实：tauri.conf diff 仅版本号、capabilities +3 应用侧权限、model.rs 仅 i18nKey 附加、无 prisma/无 config schema 变更 →「无迁移、兼容 0.6.8」成立。RV-B/RV-C 遗留 P0（sm 漏 showBubble、PIXEL_MAP 丢失、scheduleBlink 死链）均已修复并带评审标记（pet.js:457-491/520-521/560-562）。
+- 【阻塞 B1】CHANGELOG 0.6.9 条目位置错误：追加在 EOF 4037-4147（0.1.0 之后），违背全文件严格倒序惯例（0.6.8 在第 3 行，此前 20+ 条全部置顶）；随 source.zip 发布将误导读者。无自动化门禁拦截（npm test 绿），但必须在 manifest:gen 前移正。
+- 交付树卫生：llmpet 内 untracked = 恰好 7 个预期新模块（manifest 450 文件闭环）；父仓 tool-results/.zscripts 垃圾在树外不随发版推送；发现父仓根 .gitignore 裸 `test` 模式静默忽略 llmpet/test/ 89 文件（仅父仓备份盲区，R59 已实际踩过；llmpet-gh 正常跟踪 89 个，不影响推送）；llmpet-gh 为中间同步态（103 改动 0 untracked，缺 7 新模块与后续 pet.js 轮次）→ 发布时需全量 re-rsync。
+- release.yml validate 门禁全量本地复现：npm test EXIT 0（85 文件）；static-checks 22/22；manifest:verify OK；cargo fmt --check 干净；cargo clippy --all-targets --locked -D warnings 干净（44.74s）；cargo test --lib --locked 185/185；check-release-gates.js 43 OK/0 blocked。环境注：cargo 需 PATH+vendored GTK（~/.local/gtk-dev，restore-toolchain-r60.sh）；根盘 9.9G 曾 100% 满致链接失败，失败清理后复跑通过（CI 无此约束）。
+- 文档：README×3/STATES.md/docs 零 0.6.x 版本引用，无需同步。
+- 哈希漂移机理确认（R59 事故复现路径）：manifest 覆盖 CHANGELOG.md+worklog.md（均在树内），任何 manifest:gen 之后的文件写入（worklog restore/CHANGELOG 移正）都会被 r401/CI validate 拦截。父级共享 worklog 追加本身不漂移（在 ROOT 之外），漂移发生在发布时把共享 worklog restore 进树内之后。
+- 观察项（非阻塞）：scripts/verify-changelog-diff.js 把 "# Changelog" H1 当顶部 section 解析，任何版本下都报 "could not extract current version"（历史工具缺陷，不在门禁链，P3 处置）；cargo audit 本轮未本地复跑（CI RustSec job 覆盖，audit.toml 豁免与 R59 相同）；gh-proxy.com SECURITY.md 声明仍欠（P3 沿 RV-D）。
+
+Stage Summary:
+- 裁决：**NO-GO（1 项阻塞，分钟级可修）**——除 CHANGELOG 0.6.9 条目置底（B1）外全部就绪：版本六处+测试钉绿、manifest 450 闭环、6 项修复证据坐实、交付树干净、validate 七门禁本地全绿、文档零残留。
+- 发版操作序列（顺序敏感）：①移正 CHANGELOG 0.6.9 条目至顶部 → ②共享 worklog restore 进树（含 R60 收尾段）→ ③全量 rsync llmpet→llmpet-gh（diff -rq 校验空）→ ④在 llmpet-gh 内 manifest:gen（最后一次文件写入）→ ⑤npm test 复验 → ⑥git add -A + 单提交 → ⑦tag v0.6.9 + push main+tag → ⑧流水线五阶段 + draft 15 资产惯例迁移为正式 17 件套 + 删 draft tag → ⑨docs 收尾提交（a0c8393 惯例，含 manifest 再生）。
+---
+Task ID: R60-MAIN
+Agent: main-orchestrator (+4 research R60-1/2/3/4 +2 impl R60-b/c +10 review RV-A…RV-J)
+Task: 用户指令「多处GUI/功能异常回退→联网查用例仿照重写、确保无恶意代码、联网搜索、agents评审团、发版可混入其他语言」
+
+Work Log:
+- 环境恢复：父仓 git 同步 GitHub main a0c8393（误 reset 到 RE-LLMPET 树后经 reflog 7d9386c 完整回滚，零损失）；rustup 1.99.0 + GTK dev 闭包（pkg-config gtk/webkit 全通）；test/ 86 文件从镜像恢复
+- 四研究代理并行：R60-1 重写蓝图（pet.js 2843 行→12 模块 strangler 方案，上游 v1.2.0/0.1.1 + Tauri 官方文档来源）；R60-2 前端审计（2 P0 + 6 P1 + 13 P2）；R60-3 后端审计（F1-F16）；R60-4 供应链（零恶意零高危 + D0-D3 导入检查单）
+- 主协调者仿照重写：pet.js 拆 7 模块（frame-table/state-machine/aggregate/bubble/fx/event-router/drag 共 1092 行）+ 组合根 2272 行；嵌入全部 P0/P1/P2 修复（P0-1 表情回退、P0-2 工坊预览、P1-1 travel 单通道、P1-2 副宠双 boot、P1-3 琥珀点、P1-5 授权卡 i18nKey、死臂/死信/死 CSS 清理、上游拖拽防御移植）
+- R60-b 并行：14 项 Rust 修复（travel per-owner、pet 窗 prevent_close、emit_to 定向、F4 写序、capability +3、后端 say i18n 9 键、F10 duo 填充等）cargo 185/185
+- R60-c 并行：panel.js i18n 接线 39 处（14 既有键+38 新键）+ currentLang ReferenceError 真 bug 修复
+- 版本 0.6.9 四处+14 测试钉；i18n.js +R60 镜像键/perm 键/R60-c 38 键；CHANGELOG 0.6.9（中/EN/JA 混排）
+- 评审团 10 位（RV-A 语义等价/RV-B UX/RV-C 性能/RV-D 硬编码/RV-E 安全/RV-F i18n 完备/RV-G 假绿/RV-H 后端/RV-I duo 端到端/RV-J 发布就绪）
+- 评审修复当场闭环：RV-B P0 showBubble 接线、RV-A P0 像素重建、RV-A/C 微动作启动、RV-I P1-1 cancelTravel owner、RV-I P1-2 pendingChoices 分片、RV-I P2-1/2-3 声音门控与 owner 路由、RV-B P1×4（sesslist 签名/乒乓/互斥/静音语义）、RV-C 点动画守卫、RV-D/F travel 持久化三语、CHANGELOG 移位（RV-J B1）
+- 新增 tauri-r60-rewrite-smoke 十项防复发锁（RV-G）+ i18n 扫描面扩 7 模块 + fadeSwap 守卫迁移
+- 门禁：npm test 86 文件 EXIT 0 / static 22/22 / clippy -D 0 / cargo 185/185 / fmt clean / manifest 452
+
+Stage Summary:
+- 0.6.9 = 仿照重写（7 模块 + 组合根）+ 评审团交叉验证出的 3 个重写自引入回归当场闭环 + duo 端到端补完（取消隔离/授权卡分片/声音门控）+ i18n 全面接线
+- 遗留下轮（评审团移交）：model.rs 动态文案 i18nKey 化（humanize_tool/授权 reason/ask header/suggestion）、hook_install 收据 zh~15 处、RV-H cancel-kill 竞窗加固、aria-label 机制、travel 快照 IPC 节流（RV-C P1-1）、whale 21MB 缓存驱逐、provider 元数据三表收敛

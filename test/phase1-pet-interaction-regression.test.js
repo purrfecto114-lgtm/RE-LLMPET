@@ -54,9 +54,11 @@ assert.deepStrictEqual(radialEvents,
   ['prevent-pointer', 'stop-pointer', 'claim', 'note-pointer', 'toggle-open-menu',
    'prevent-menu', 'stop-menu', 'note-menu', 'toggle']);
 
-const pointerStart = pet.indexOf("el.addEventListener('pointerdown'");
-const pointerEnd = pet.indexOf("el.addEventListener('pointermove'", pointerStart);
-const pointer = pet.slice(pointerStart, pointerEnd);
+// R60: the drag gesture listeners moved to pet-drag.js (focused owner).
+const petDrag = read('frontend/renderer/pet-drag.js');
+const pointerStart = petDrag.indexOf("el.addEventListener('pointerdown'");
+const pointerEnd = petDrag.indexOf("el.addEventListener('pointermove'", pointerStart);
+const pointer = petDrag.slice(pointerStart, pointerEnd);
 assert(pointer.includes('if (e.button === 2)'),
   'right pointerdown must explicitly claim the gesture');
 assert(pointer.indexOf('setMouseIgnore(false)') < pointer.indexOf('if (e.button !== 0)'),

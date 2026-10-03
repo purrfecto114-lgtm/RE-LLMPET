@@ -345,8 +345,10 @@ body.skin-whale #cat { display: flex; }
 /* 与会话列表 HUD 的 .sl-dot 同一套配色 */
 .sess-dot.working, .sess-dot.thinking, .sess-dot.juggling, .sess-dot.sweeping { background: #4a9eff; }
 .sess-dot.loafing { background: #8fb8e8; }
+/* R60 P1-3: amber pair for head dots (same fix as .sl-dot above). */
 .sess-dot.waiting { background: #ffb020; animation: dotPulse 0.9s ease-in-out infinite; }
 .sess-dot.needsinput { background: #ffb020; box-shadow: 0 0 0 2px rgba(255, 176, 32, 0.35); animation: dotPulse 1.4s ease-in-out infinite; }
+.sess-dot.attention, .sess-dot.notification { background: #e8a13a; animation: dotPulse 2.2s ease-in-out infinite; }
 .sess-dot.error { background: #ff5a52; }
 .sess-dot.done { background: #34c759; }
 .sess-dot.idle, .sess-dot.sleeping { background: #8a8a94; }
@@ -661,10 +663,11 @@ body.skin-whale #cat { display: flex; }
 #mascot.idle #mascot-img { animation: bob 3.4s ease-in-out infinite; }
 #mascot.working #mascot-img { animation: bob 1.9s ease-in-out infinite; }
 #mascot.thinking #mascot-img { animation: ponder 2.6s ease-in-out infinite; }
-#mascot.thinking #teyes { transform: translateY(-3px); }
+/* R60 P2-12: #teyes rules removed — the mascot has been a single <img>
+   since R57; #teyes doesn't exist, so thinking/sleeping/blink/glance/
+   act-read eye rules were dead selectors. */
 #mascot.happy #mascot-img { animation: happyJump 0.55s ease-in-out 3; }
 #mascot.sleeping #mascot-img { animation: breathe 4.5s ease-in-out infinite; }
-#mascot.sleeping #teyes { transform: scaleY(0.12); transform-origin: center 84px; }
 /* waiting keeps its filter on #mascot (filter is layout-stable); the
    attn animation moves to #mascot-img. */
 #mascot.waiting { filter: drop-shadow(0 0 10px rgba(255,190,80,0.95)) drop-shadow(0 6px 10px rgba(150,70,40,0.3)); }
@@ -678,11 +681,8 @@ body.skin-whale #cat { display: flex; }
 #mascot.error #mascot-img { filter: saturate(0.9) sepia(0.25) hue-rotate(-25deg) brightness(0.96); }
 #mascot.greet #mascot-img { animation: greetWave 0.5s ease-in-out 4; transform-origin: bottom center; }
 #mascot.dragging #mascot-img { animation: grabbed 0.45s ease-in-out infinite; }
-#mascot.blink #teyes { transform: scaleY(0.12); transform-origin: center 84px; }
-#mascot.glance #teyes { animation: glance 1.6s ease-in-out; }
 #mascot.act-type #mascot-img { animation: actType 0.22s ease-in-out infinite; }
 #mascot.act-read #mascot-img { animation: actRead 1.2s ease-in-out infinite; }
-#mascot.act-read #teyes { animation: actScan 1.2s ease-in-out infinite; }
 #mascot.act-search #mascot-img { animation: actSearch 0.55s ease-in-out infinite; }
 #mascot.act-crank #mascot-img { animation: actCrank 0.14s linear infinite; }
 #mascot.act-web #mascot-img { animation: actWeb 1s ease-in-out infinite; }
@@ -777,7 +777,11 @@ body.skin-cat #prop { display: none !important; }
 .sl-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: #8a8a8e; }
 .sl-dot.working, .sl-dot.thinking, .sl-dot.juggling, .sl-dot.sweeping { background: #4a9eff; box-shadow: 0 0 7px rgba(74, 158, 255, 0.65); }
 .sl-dot.loafing { background: #8fb8e8; }
+/* R60 P1-3: attention/notification finally get their amber — Stop lands on
+   attention (R57) and OpenCode idle/notification rows fell through to the
+   default grey, contradicting the panel's STATE_META amber mapping. */
 .sl-dot.waiting, .sl-dot.needsinput { background: #ffb020; box-shadow: 0 0 7px rgba(255, 176, 32, 0.65); }
+.sl-dot.attention, .sl-dot.notification { background: #e8a13a; box-shadow: 0 0 6px rgba(232, 161, 58, 0.55); }
 .sl-dot.error { background: #ff5a52; box-shadow: 0 0 7px rgba(255, 90, 82, 0.6); }
 .sl-dot.done { background: #34c759; }
 .sl-dot.idle, .sl-dot.sleeping { background: #8a8a94; }

@@ -579,6 +579,7 @@ impl AppState {
         let (config, config_state) = load_config(&config_path);
         let price_auto_update = config.price_auto_update;
         let price_refresh_hours = config.price_refresh_hours;
+        let config_lang = config.lang.clone();
         let usage = UsageLedger::open(&app_dir, now_ms());
         let transcript_root = home_dir().join(".claude").join("projects");
         let transcripts = TranscriptScanner::open(&app_dir, transcript_root);
@@ -601,7 +602,7 @@ impl AppState {
                 })),
                 price_refresh_tx: Mutex::new(None),
                 diagnostic_control: crate::diagnostic_control::DiagnosticControl::default(),
-                travel: crate::travel::TravelManager::open(&app_dir),
+                travel: crate::travel::TravelManager::open_with_lang(&app_dir, &config_lang),
                 stats_revision: Mutex::new(0),
                 stats_coalescer: Mutex::new(StatsCoalescerState::default()),
                 app_dir,
@@ -2101,13 +2102,16 @@ fn permission_choice(permission: &PendingPermission, project: &str) -> Value {
             "project":project,
             "header":"ExitPlanMode",
             "question":humanize_tool(&permission.tool_name, &permission.tool_input),
-            "options":[{"label":"✅ 批准方案","key":"allow"},{"label":"✏️ 打回并反馈","key":"deny"}],
+            // R60-F9: i18nKey rides alongside label (zh compat) so the
+            // renderer can look up the trilingual text — label is kept as
+            // the fallback for older frontends / unmatched keys.
+            "options":[{"label":"✅ 批准方案","key":"allow","i18nKey":"perm.plan-approve"},{"label":"✏️ 打回并反馈","key":"deny","i18nKey":"perm.plan-reject"}],
             "multi":false,
             "allowInput":true,
             "provider":Value::Null
         });
     }
-    let mut options = vec![json!({"label":"✅ 允许","key":"allow"})];
+    let mut options = vec![json!({"label":"✅ 允许","key":"allow","i18nKey":"perm.allow"})];
     if permission.provider == "claude" {
         for (index, suggestion) in permission.permission_suggestions.iter().take(8).enumerate() {
             options.push(json!({
@@ -2117,10 +2121,10 @@ fn permission_choice(permission: &PendingPermission, project: &str) -> Value {
         }
     }
     if permission.provider == "codewhale" {
-        options.push(json!({"label":"✅✅ 本轮全部允许","key":"cw-allow-session"}));
-        options.push(json!({"label":"🔓 本会话允许此工具","key":"cw-allow-tool"}));
+        options.push(json!({"label":"✅✅ 本轮全部允许","key":"cw-allow-session","i18nKey":"perm.cw-allow-session"}));
+        options.push(json!({"label":"🔓 本会话允许此工具","key":"cw-allow-tool","i18nKey":"perm.cw-allow-tool"}));
     }
-    options.push(json!({"label":"⛔ 拒绝","key":"deny"}));
+    options.push(json!({"label":"⛔ 拒绝","key":"deny","i18nKey":"perm.deny"}));
     json!({
         "kind":"perm",
         "sessionId":permission.session_id,

@@ -289,7 +289,8 @@ pub(crate) fn focus_session_guarded(
                     }
                     let _ = app.emit(
                         "pet:event",
-                        json!({"kind":"say","text":"会话进程仍在运行，但无法聚焦它的窗口（macOS 请检查辅助功能权限）。为避免双进程写同一会话，未重新拉起。"}),
+                        // R60-F9: i18n table key (was a zh-only literal).
+                        json!({"kind":"say","text":crate::i18n::tray_label(&state.runtime.config().lang, "say.focus-fail")}),
                     );
                     Ok(())
                 }
@@ -298,14 +299,16 @@ pub(crate) fn focus_session_guarded(
         FocusPlan::LeaseHold => {
             let _ = app.emit(
                 "pet:event",
-                json!({"kind":"say","text":"这个会话的任务仍在运行（心跳未超时），未重新拉起终端；若终端确实已关，请约 90 秒后再试。"}),
+                // R60-F9: i18n table key (was a zh-only literal).
+                json!({"kind":"say","text":crate::i18n::tray_label(&state.runtime.config().lang, "say.probe-lease-hold")}),
             );
             Ok(())
         }
         FocusPlan::Untracked => {
             let _ = app.emit(
                 "pet:event",
-                json!({"kind":"say","text":"该会话由后台观察器跟踪，无法聚焦或重开，已为你打开详情面板。"}),
+                // R60-F9: i18n table key (was a zh-only literal).
+                json!({"kind":"say","text":crate::i18n::tray_label(&state.runtime.config().lang, "say.probe-untracked")}),
             );
             open_panel(app.clone())
         }
@@ -323,7 +326,9 @@ pub(crate) fn focus_session_guarded(
                     let safe_error: String = resume_error.chars().take(80).collect();
                     let _ = app.emit(
                         "pet:event",
-                        json!({"kind":"say","text":format!("无法重新打开会话：{safe_error}。已为你打开详情面板。")}),
+                        // R60-F9: i18n table key with {error} interpolation
+                        // (was a zh-only literal).
+                        json!({"kind":"say","text":crate::i18n::tray_label(&state.runtime.config().lang, "say.probe-relaunch-fail").replace("{error}", &safe_error)}),
                     );
                     open_panel(app.clone())
                 }

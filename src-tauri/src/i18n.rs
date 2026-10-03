@@ -33,7 +33,7 @@
 /// toast.exportDone) are consumed by panel.js / panel-export.js.
 ///
 /// R22 (2026-07-30): `#[rustfmt::skip]` keeps the table on single lines
-/// so it stays human-readable (29 rows, one per line) and the smoke-test
+/// so it stays human-readable (56 rows, one per line) and the smoke-test
 /// regex can parse each row. Without this, `cargo fmt`'s default
 /// `array_width=60` splits long rows (e.g. Japanese text) into 6 lines
 /// per entry, making the table unreadable and breaking the cross-source
@@ -92,6 +92,20 @@ pub const TRAY_LABELS: &[(&str, &str, &str, &str)] = &[
     ("tray.toastPriceQueued",    "💰 价格刷新已入队",               "💰 Price refresh queued",                  "💰 価格更新をキューに入れました"),
     ("tray.toastUninstallDone",  "🧹 全部 Provider 钩子已卸载",     "🧹 All provider hooks uninstalled",        "🧹 すべてのプロバイダーフックを削除しました"),
     ("tray.toastUninstallFail",  "🧹 卸载失败",                     "🧹 Uninstall failed",                      "🧹 削除に失敗しました"),
+    // ── R60-F9/F13 (backend say texts + price toast) ──────────────────
+    // Rust-resolved pet bubbles: the backend reads runtime.config().lang
+    // at emission time and sends the FINAL text (same pattern as the
+    // travel.rs trilingual helpers). The r11 parity smoke requires every
+    // row here to be mirrored key-for-key in frontend/shared/i18n.js.
+    ("say.focus-fail",          "会话进程仍在运行，但无法聚焦它的窗口（macOS 请检查辅助功能权限）。为避免双进程写同一会话，未重新拉起。", "The session process is still running, but its window could not be focused (check the macOS Accessibility permission). Not relaunching, to avoid two processes writing the same session.", "セッションのプロセスはまだ実行中ですが、ウィンドウを前面に出せませんでした（macOS のアクセシビリティ権限を確認してください）。同じセッションを二つのプロセスが書き込まないよう、再起動はしていません。"),
+    ("say.probe-lease-hold",    "这个会话的任务仍在运行（心跳未超时），未重新拉起终端；若终端确实已关，请约 90 秒后再试。", "This session's task is still running (heartbeat not stale); the terminal was not relaunched. If the terminal is really gone, try again in about 90 seconds.", "このセッションのタスクはまだ実行中です（ハートビート未タイムアウト）。ターミナルは再起動しませんでした。ターミナルが本当に閉じている場合は、約 90 秒後にもう一度お試しください。"),
+    ("say.probe-untracked",     "该会话由后台观察器跟踪，无法聚焦或重开，已为你打开详情面板。", "This session is tracked by a background observer and cannot be focused or reopened; the dashboard has been opened for you.", "このセッションはバックグラウンドの観測器が追跡しているため、前面表示も再起動もできません。代わりに詳細パネルを開きました。"),
+    ("say.probe-relaunch-fail", "无法重新打开会话：{error}。已为你打开详情面板。", "Could not reopen the session: {error}. The dashboard has been opened for you.", "セッションを再び開けませんでした：{error}。代わりに詳細パネルを開きました。"),
+    ("say.territory-unsupported", "对手桌宠推挤仅支持 macOS/Windows，已把章鱼窗带回前台。", "Territory rival push requires macOS/Windows. Octopus window brought to front.", "ライバルペットの押し出しは macOS/Windows 専用です。タコのウィンドウを最前面に戻しました。"),
+    ("say.territory-clear",     "巡逻完成，没有发现对手桌宠。", "Patrol complete, no rival pets found.", "パトロール完了、ライバルペットは見つかりませんでした。"),
+    ("say.territory-disabled",  "已关闭领地模式。", "Territory mode disabled.", "テリトリーモードをオフにしました。"),
+    ("say.resume-reopened",     "已为你重新打开这个会话。", "Reopened this session for you.", "このセッションを再び開きました。"),
+    ("toast.priceFail",         "⚠️ 价格刷新失败",                   "⚠️ Price refresh failed",                  "⚠️ 価格の更新に失敗しました"),
 ];
 
 /// Return the localized value for `key` in `lang`, falling back to `zh`

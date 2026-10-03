@@ -264,6 +264,28 @@ pub fn run() {
                         }
                     }
                 }
+            } else if (window.label() == "pet" || window.label() == "pet-codex")
+                && matches!(event, WindowEvent::CloseRequested { .. })
+            {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    // R60-F2: pet windows are RESIDENT — tauri.conf creates them
+                    // exactly once at startup and the app has NO recreate path,
+                    // so a native close (Alt+F4 / taskbar / system menu) destroyed
+                    // the pet until the next relaunch: every later show (tray
+                    // "show pet", sync_pet_windows, territory run_now) silently
+                    // no-opped on a missing window. Prevent the destroy instead;
+                    // visibility stays sync_pet_windows' business (hidePet/duo),
+                    // and quitting the whole app is the tray menu's job.
+                    api.prevent_close();
+                    let state = window.app_handle().state::<AppState>();
+                    state.runtime.write_log(
+                        "window",
+                        &format!(
+                            "native close on resident pet window '{}' prevented",
+                            window.label()
+                        ),
+                    );
+                }
             } else if window.label().starts_with("pet")
                 && matches!(event, WindowEvent::Focused(false))
             {
@@ -1045,7 +1067,10 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 let msg = match result {
                     Ok(_) => i18n::tray_label(&lang, "tray.toastPriceQueued").to_string(),
                     Err(e) => {
-                        format!("{}: {}", i18n::tray_label(&lang, "toast.saveFail"), e)
+                        // R60-F13: a dedicated price-refresh-failure key — the
+                        // old fallback reused toast.saveFail (misleading "failed
+                        // to save settings" for a network/pricing failure).
+                        format!("{}: {}", i18n::tray_label(&lang, "toast.priceFail"), e)
                     }
                 };
                 emit_tray_toast(app, msg);

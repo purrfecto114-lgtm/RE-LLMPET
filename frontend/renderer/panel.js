@@ -29,8 +29,17 @@ const configWrites = window.OctoConfigWrites.createConfigWriteController({
   reportError: reportConfigWriteError,
 });
 
+// R60-c: lastAppliedLang tracks the previously applied language so a switch
+// arriving through EITHER path (the panel select below, or a config push from
+// another window, e.g. the tray language menu) refreshes every dynamic
+// region. Before this, only the panel-select path re-rendered and it missed
+// the price line; tray-driven switches refreshed nothing until the next
+// stats push (mixed-language UI for en/ja users).
+let lastAppliedLang = null;
 function applyLanguage(next) {
   const lang = i18n ? i18n.setLang(next) : 'zh';
+  const langChanged = lastAppliedLang !== null && lastAppliedLang !== lang;
+  lastAppliedLang = lang;
   config.lang = lang;
   document.documentElement.lang = LOCALES[lang] || 'zh-CN';
   document.querySelectorAll('[data-i18n]').forEach((node) => {
@@ -46,6 +55,14 @@ function applyLanguage(next) {
   if (latestProviderDiagnostic) renderProviderDiagnostic(latestProviderDiagnostic);
   const picker = $('language');
   if (picker && picker.value !== lang) picker.value = lang;
+  if (!langChanged) return;
+  // R25 (2026-07-30) → R60-c: re-render ALL dynamic sections (sessions /
+  // cost rows / travel area / bg list / chart+calendar summaries), plus the
+  // price line, so no region keeps the old language. render() covers the
+  // stats-driven sections; renderSessList alone covers the no-stats-yet case.
+  if (lastStats) render(lastStats);
+  else if (latestSessions.length) renderSessList(latestSessions);
+  if (latestPriceInfo) renderPriceInfo(latestPriceInfo);
 }
 
 function fmtCost(cost, currency, fxRate) {
@@ -171,7 +188,7 @@ function render(s) {
   const growthEl = $('travel-growth');
   if (growthEl) {
     const icons = `${'🌿'.repeat(Number(growth.leaves) || 0)}${'⭐'.repeat(Number(growth.stars) || 0)}${'🌙'.repeat(Number(growth.moons) || 0)}${Number(growth.days) ? `☀️×${growth.days}` : ''}`;
-    growthEl.textContent = `${icons || '尚未成长'} · ${fmt(growth.totalTokens || 0)} tok`;
+    growthEl.textContent = `${icons || t('panel.noGrowth')} · ${fmt(growth.totalTokens || 0)} tok`;
   }
   // R11 backport: machineGrowth — whole-machine rank combining Claude + Codex
   // lifetime tokens (10M tokens per unit, QQ-style 4-to-1 promotion:
@@ -180,15 +197,18 @@ function render(s) {
   const mgEl = $('machine-growth');
   if (mgEl) {
     const icons = `${'👑'.repeat(Number(mgRank.crown) || 0)}${'☀️'.repeat(Number(mgRank.sun) || 0)}${'🌙'.repeat(Number(mgRank.moon) || 0)}${'⭐'.repeat(Number(mgRank.star) || 0)}${'🐾'.repeat(Number(mgRank.leaf) || 0)}`;
-    mgEl.textContent = `${icons || '尚未成长'} · ${fmt(mg.totalTokens || 0)} tok`;
+    mgEl.textContent = `${icons || t('panel.noGrowth')} · ${fmt(mg.totalTokens || 0)} tok`;
   }
   const activeTravel = $('travel-active');
   // `travel.active` is now an owner-keyed map after the dual-pet refactor;
   // `activeTrip` is the backward-compat single trip for display.
   const travelTrip = travel.activeTrip || null;
+  // R60-c: #travel-active carries data-i18n="panel.noTravel" in panel.html —
+  // the idle text stays owned by that key (applyLanguage renders it); JS
+  // only renders the active-trip interpolation, never a hardcoded label.
   if (activeTravel) activeTravel.textContent = travelTrip
-    ? `${travelTrip.mode === 'wander' ? '🐾 闲逛' : '🧳 项目旅行'} · ${travelTrip.project || ''} · ${travelTrip.mission || ''}`
-    : '当前没有旅行';
+    ? `${travelTrip.mode === 'wander' ? t('sess.wander') : '🧳 ' + t('sess.travel')} · ${travelTrip.project || ''} · ${travelTrip.mission || ''}`
+    : t('panel.noTravel');
   const postcardEl = $('travel-postcard');
   if (postcardEl) {
     const card = Array.isArray(travel.postcards) ? travel.postcards[0] : null;
@@ -648,7 +668,7 @@ function refreshSessionProviderOptions(sessions) {
   if (!select) return;
   const providers = [...new Set(sessions.map(sessionProviderId))].sort();
   const previous = sessionProviderFilter;
-  select.innerHTML = '<option value="">全部 Provider</option>' + providers
+  select.innerHTML = '<option value="">' + escapeHtml(t('panel.allProviders')) + '</option>' + providers
     .map((id) => `<option value="${escapeHtml(id)}">${escapeHtml((PROVIDER_META[id] && PROVIDER_META[id].label) || id)}</option>`)
     .join('');
   if (providers.includes(previous)) select.value = previous;
@@ -683,9 +703,11 @@ function renderSessList(sessions) {
     return pa - pb;
   });
   const count = $('sess-count');
-  if (count) count.textContent = filtered.length === latestSessions.length ? `${latestSessions.length} 个` : `${filtered.length}/${latestSessions.length} 个`;
+  if (count) count.textContent = filtered.length === latestSessions.length
+    ? t('sess.count', { n: latestSessions.length })
+    : t('sess.count', { n: `${filtered.length}/${latestSessions.length}` });
   if (!filtered.length) {
-    el.innerHTML = `<div class="empty">${latestSessions.length ? '没有匹配的会话' : '暂无活跃会话'}</div>`;
+    el.innerHTML = `<div class="empty">${latestSessions.length ? t('panel.noMatch') : t('panel.noActive')}</div>`;
     return;
   }
   el.innerHTML = filtered
@@ -758,7 +780,7 @@ function renderTodos(todos, proj) {
   const prog = $('todo-prog');
   const pj = $('todo-proj');
   if (!todos.length) {
-    el.innerHTML = '<div class="empty">当前没有待办</div>';
+    el.innerHTML = '<div class="empty">' + t('panel.noTodo') + '</div>';
     if (prog) prog.textContent = '';
     if (pj) pj.textContent = '';
     return;
@@ -775,10 +797,10 @@ function renderTodos(todos, proj) {
 }
 
 const BG_META = {
-  running: { label: '该跑', cls: 'st-working' },
-  suspect: { label: '可疑', cls: 'st-waiting' },
-  unregistered: { label: '疑似僵尸', cls: 'st-waiting' },
-  ended: { label: '已结束', cls: 'st-idle' },
+  running: { key: 'bg.running', cls: 'st-working' },
+  suspect: { key: 'bg.suspect', cls: 'st-waiting' },
+  unregistered: { key: 'bg.unregistered', cls: 'st-waiting' },
+  ended: { key: 'bg.ended', cls: 'st-idle' },
 };
 function ageStr(sec) {
   if (sec == null) return '';
@@ -799,7 +821,7 @@ function renderBg(bg) {
   const items = (bg.items || []).filter((x) => x.alive);
   if (block) block.style.display = items.length ? '' : 'none';
   const head = $('bg-head');
-  if (head) head.textContent = t('panel.bgHead') ? t('panel.bgHead', {running: bg.running || 0, zombie: bg.zombie || 0}) : `后台任务 ✅${bg.running || 0} · 🧟${bg.zombie || 0}`;
+  if (head) head.textContent = t('panel.bgHead', { running: bg.running || 0, zombie: bg.zombie || 0 });
   if (!items.length) {
     el.innerHTML = `<div class="empty">${t('panel.bgClean')}</div>`;
     return;
@@ -809,7 +831,7 @@ function renderBg(bg) {
       const m = BG_META[it.status] || BG_META.ended;
       const ic = it.status === 'running' ? '✅' : it.status === 'ended' ? '⚪' : '🧟';
       const purpose = it.purpose ? escapeHtml(it.purpose) : escapeHtml(String(it.cmd).slice(0, 48));
-      return `<div class="row sess"><span class="badge ${m.cls}">${ic}${m.label}</span><span class="sess-proj">${purpose}</span><span class="sess-op">${ageStr(it.ageSec)} · ${it.stop ? escapeHtml(it.stop) : ''}</span></div>`;
+      return `<div class="row sess"><span class="badge ${m.cls}">${ic}${escapeHtml(t(m.key))}</span><span class="sess-proj">${purpose}</span><span class="sess-op">${ageStr(it.ageSec)} · ${it.stop ? escapeHtml(it.stop) : ''}</span></div>`;
     })
     .join('');
 }
@@ -977,7 +999,7 @@ async function diagnoseProvider(provider) {
         <button type="button" class="diag-close" data-diag-action="cancel" title="${escapeHtml(t('diag.close'))}">✕</button>
       </div>
       <div class="diag-loading">${escapeHtml(t('diag.running'))}</div>
-      <div class="diag-hint" style="font-size:9px;color:#8c6a5a;margin-top:4px;">${escapeHtml(currentLang === 'en' ? 'Click ✕ to hide result and stop background task' : currentLang === 'ja' ? '✕で結果を非表示にしバックグラウンド停止' : '点 ✕ 隐藏结果并停止后台任务')}</div>`;
+      <div class="diag-hint" style="font-size:9px;color:#8c6a5a;margin-top:4px;">${escapeHtml(t('diag.cancelHint'))}</div>`;
   }
   try {
     const result = await window.pet.diagnoseAgent(provider);
@@ -1074,7 +1096,9 @@ function formatPriceTime(value) {
   if (!value) return '';
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return '';
-  return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  // R60-c: follow the UI language (was hardcoded zh-CN, so en/ja users got
+  // Chinese-formatted timestamps in the price line).
+  return date.toLocaleString(LOCALES[config.lang] || 'zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 function renderPriceInfo(message) {
@@ -1097,33 +1121,41 @@ function renderPriceInfo(message) {
 
   let base;
   if (live) {
-    const when = formatPriceTime(updated) || '缓存';
-    base = `💲 价目：${source === 'user-override' ? '用户覆盖' : 'models.dev 缓存'} ${count} 项 · ${when} 更新`;
+    // R60-c: was hardcoded zh (价目/用户覆盖/models.dev 缓存/项/更新).
+    const when = formatPriceTime(updated) || t('panel.priceCache');
+    const sourceLabel = source === 'user-override' ? t('panel.priceSourceUser') : t('panel.priceSourceCache');
+    base = t('panel.priceLive', { source: sourceLabel, count, when });
   } else {
-    base = `💲 价目：内置兜底表 ${count ? '· ' + count + ' 项' : ''}`;
+    base = count ? t('panel.priceBundledCount', { count }) : t('panel.priceBundled');
   }
 
   let tail = '';
   if (inProgress || state === 'refreshing' || state === 'queued') {
-    tail = ' · 正在检查最新价格…';
+    tail = t('panel.priceChecking');
   } else if (state === 'not-modified') {
-    tail = ` · ${formatPriceTime(checked) || '刚刚'}检查，无变化`;
+    tail = t('panel.priceNoChange', { when: formatPriceTime(checked) || t('panel.priceJustNow') });
   } else if (state === 'updated') {
-    tail = ` · ${formatPriceTime(checked) || '刚刚'}已同步`;
+    tail = t('panel.priceSynced', { when: formatPriceTime(checked) || t('panel.priceJustNow') });
   } else if (state === 'error') {
-    tail = ` · 价格更新失败${consecutiveFailures ? `（连续 ${consecutiveFailures} 次）` : ''}，${next ? formatPriceTime(next) + '重试' : '保留旧价'}`;
+    tail = t('panel.priceFailTail')
+      + (consecutiveFailures ? t('panel.priceFailStreak', { n: consecutiveFailures }) : '')
+      + (next ? t('panel.priceRetryAt', { when: formatPriceTime(next) }) : t('panel.priceKeepOld'));
   } else if (state === 'network-disabled') {
-    tail = ' · 网络更新已被环境变量关闭';
+    tail = t('panel.priceNetOff');
   } else if (!autoUpdate || state === 'auto-disabled') {
-    tail = ' · 自动更新已关闭';
+    tail = t('panel.priceAutoOff');
   } else if (next) {
-    tail = ` · 下次 ${formatPriceTime(next)} 检查`;
+    tail = t('panel.priceNext', { when: formatPriceTime(next) });
   } else {
-    tail = ` · 每 ${refreshHours} 小时自动检查`;
+    tail = t('panel.priceEvery', { n: refreshHours });
   }
 
   el.textContent = base + tail;
-  el.title = error || `固定来源：${message.sourceUrl || 'https://models.dev/api.json'}；条件请求：${message.conditionalRequests ? '已启用' : '未启用'}；失败退避：${message.failureBackoff ? '已启用' : '未启用'}`;
+  el.title = error || t('panel.priceSrcDetail', {
+    url: message.sourceUrl || 'https://models.dev/api.json',
+    conditional: message.conditionalRequests ? t('panel.enabled') : t('panel.disabled'),
+    backoff: message.failureBackoff ? t('panel.enabled') : t('panel.disabled'),
+  });
   el.classList.toggle('price-error', state === 'error');
   el.classList.toggle('price-live', live && state !== 'error');
 
@@ -1140,7 +1172,7 @@ function renderPriceInfo(message) {
     if (!exact) {
       const option = document.createElement('option');
       option.value = String(refreshHours);
-      option.textContent = `每 ${refreshHours} 小时`;
+      option.textContent = t('panel.intervalCustom', { n: refreshHours });
       interval.appendChild(option);
     }
     interval.value = String(refreshHours);
@@ -1170,12 +1202,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const lang = String(event.target.value || 'zh');
     applyLanguage(lang);
     void configWrites.request('language', lang, (value) => window.pet.setLanguage(value));
-    // R25 (2026-07-30): re-render ALL sections, not just sessList.
-    // The old code only called renderSessList, leaving 8 other sections
-    // (providerCost/byModel/todos/chart/cal/diagnostics/ops/bg) showing
-    // mixed-language content for ~2s until the next stats push.
-    if (lastStats) render(lastStats);
-    else if (latestSessions.length) renderSessList(latestSessions);
+    // R25 (2026-07-30): re-render ALL dynamic sections on a language switch.
+    // R60-c: that re-render now lives inside applyLanguage itself (see
+    // lastAppliedLang above) so tray-driven config pushes refresh too;
+    // the explicit render() call here would be a duplicate.
   });
   const sessionProvider = $('sess-provider-filter');
   const sessionSearch = $('sess-query');
@@ -1207,7 +1237,7 @@ document.addEventListener('DOMContentLoaded', () => {
     priceRefresh.disabled = true;
     priceRefresh.textContent = t('panel.refreshing');
     window.pet.refreshModelPrices().then(renderPriceInfo).catch((error) => {
-      renderPriceInfo({ ...(latestPriceInfo || {}), state: 'error', inProgress: false, lastError: String(error || '刷新失败') });
+      renderPriceInfo({ ...(latestPriceInfo || {}), state: 'error', inProgress: false, lastError: String(error || t('panel.refreshFailed')) });
     });
   });
   // R11 backport: rebuild usage costs with current price catalog
@@ -1220,7 +1250,10 @@ document.addEventListener('DOMContentLoaded', () => {
       priceRebuild.textContent = t('panel.rebuildCost');
       const delta = Number(result.delta) || 0;
       const sign = delta >= 0 ? '+' : '';
-      priceRebuild.title = `重算完成：${result.eventCount} 个事件，${sign}$${delta.toFixed(4)}`;
+      priceRebuild.title = t('toast.rebuildDone', {
+        count: Number(result.eventCount) || 0,
+        delta: `${sign}$${(Number(delta) || 0).toFixed(4)}`,
+      });
       // R58-IMPL-D (B10): the result was title-only (hover) — the click had
       // no visible feedback unless the user hovered the button. Toast it.
       if (window.reLlmpetToast && typeof window.reLlmpetToast.show === 'function') {
@@ -1235,7 +1268,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }).catch((error) => {
       priceRebuild.disabled = false;
       priceRebuild.textContent = t('panel.rebuildCost');
-      priceRebuild.title = '重算失败：' + String(error || '未知错误');
+      priceRebuild.title = t('panel.rebuildFailed', { error: String(error && (error.message || error) || t('panel.unknownError')) });
       // R58-IMPL-D (B10): failures were also title-only; route through the
       // persistent bridge-error toast so they cannot be missed.
       window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
@@ -1290,7 +1323,7 @@ document.addEventListener('DOMContentLoaded', () => {
           // Hooks partially failed, but selection was saved. Show a toast
           // so the user knows which hooks failed; do NOT revert checkbox.
           const errs = Array.isArray(result.errors) && result.errors.length
-            ? result.errors.join('；') : 'hook install partial failure';
+            ? result.errors.join(' · ') : 'hook install partial failure';
           window.dispatchEvent(new CustomEvent('re-llmpet:bridge-error', {
             detail: { command: 'set_providers', message: errs }
           }));
@@ -1407,11 +1440,11 @@ if (window.pet.onDiagnosticProgress) {
     if (el) {
       const loading = el.querySelector('.diag-loading');
       if (loading) {
-        const phaseText = ev.phase === 'starting' ? (currentLang === 'en' ? 'Starting...' : currentLang === 'ja' ? '開始中...' : '启动中...')
-          : ev.phase === 'version' ? (currentLang === 'en' ? 'Checking version...' : currentLang === 'ja' ? 'バージョン確認中...' : '检查版本中...')
-          : ev.phase === 'doctor' ? (currentLang === 'en' ? 'Running doctor...' : currentLang === 'ja' ? 'doctor実行中...' : '运行诊断中...')
-          : ev.phase === 'auth' ? (currentLang === 'en' ? 'Checking auth...' : currentLang === 'ja' ? '認証確認中...' : '检查认证中...')
-          : (currentLang === 'en' ? 'Checking...' : currentLang === 'ja' ? '確認中...' : '检查中...');
+        const phaseText = ev.phase === 'starting' ? t('diag.phaseStarting')
+          : ev.phase === 'version' ? t('diag.phaseVersion')
+          : ev.phase === 'doctor' ? t('diag.phaseDoctor')
+          : ev.phase === 'auth' ? t('diag.phaseAuth')
+          : t('diag.phaseChecking');
         loading.textContent = phaseText;
       }
     }

@@ -39,27 +39,36 @@ assert(agentView.includes("current.label === 'pet-codex'") && agentView.includes
   'second pet identity must be the window label with a config-driven pairing');
 
 // ── 2. right-click opens the radial from pointerdown (contextmenu guard) ────
+// R60: the drag/gesture machinery moved to pet-drag.js (focused owner);
+// the assertions below read the module, not the composition root.
 const pet = read('frontend/renderer/pet.js');
-const pointerdownIdx = pet.indexOf("el.addEventListener('pointerdown'");
-const button2Idx = pet.indexOf('if (e.button === 2)', pointerdownIdx);
+const petDrag = read('frontend/renderer/pet-drag.js');
+const pointerdownIdx = petDrag.indexOf("el.addEventListener('pointerdown'");
+const button2Idx = petDrag.indexOf('if (e.button === 2)', pointerdownIdx);
 assert(button2Idx > pointerdownIdx, 'pointerdown must classify button 2');
-const contextIdx = pet.indexOf("el.addEventListener('contextmenu'", pointerdownIdx);
+const contextIdx = petDrag.indexOf("el.addEventListener('contextmenu'", pointerdownIdx);
 assert(contextIdx > pointerdownIdx, 'contextmenu fallback must stay registered');
-assert(pet.slice(button2Idx, pet.indexOf('if (e.button !== 0)', button2Idx)).includes('toggleRadialFromPointer();'),
-  'right-click must toggle the radial directly on pointerdown');
-assert(pet.slice(contextIdx, pet.indexOf('});', contextIdx)).includes('rightClickHandledAt > 400'),
-  'contextmenu fallback must be guarded against double-firing with pointerdown');
+assert(petDrag.slice(button2Idx, petDrag.indexOf('if (e.button !== 0)', button2Idx)).includes('onRightClickPointer'),
+  'right-click must toggle the radial directly on pointerdown (via the injected callback)');
+assert(petDrag.slice(contextIdx, petDrag.indexOf('});', contextIdx)).includes('onContextMenuFallback'),
+  'contextmenu fallback must be guarded by the injected double-fire guard');
+assert(pet.includes('rightClickHandledAt > 400'),
+  'the double-fire guard (400ms) must stay owned by the composition root');
 assert(pet.includes('await-free radial settle: petSizeController.request') || /Promise\.resolve\(petSizeController\.request\(\[320, 340\]\)\)/.test(pet),
   'radial opening must await the resize IPC chain before building (alignment)');
 
 // ── 3. bubbles do not resize the window when they fit ───────────────────────
-assert(pet.includes('function fitBubbleToViewport'), 'bubble fit helper missing');
-assert(pet.includes('let bubbleOwnsResize = false'), 'bubble resize ownership flag missing');
+// R60: bubble ownership moved to pet-bubble.js.
+const petBubble = read('frontend/renderer/pet-bubble.js');
+assert(petBubble.includes('function fitBubbleToViewport'), 'bubble fit helper missing');
+assert(petBubble.includes('let bubbleOwnsResize = false'), 'bubble resize ownership flag missing');
 // R56: guard extended with !radialOpen && !providerChooserOpen — the radial
 // lays its items out against the CURRENT viewport, so a mid-menu shrink
 // would clip them (same ownership semantics, two more occupants).
-assert(/if \(bubbleOwnsResize && !askActive && !sessListOpen && !todoPopOpen && !radialOpen && !providerChooserOpen\)/.test(pet),
-  'window must only shrink when THIS bubble grew it');
+// R60 P2-6: anyOverlayOpen() now covers ALL overlays (ask/sesslist/todo/
+// radial/chooser) — the audit flagged sessListOpen/todoPopOpen as missing.
+assert(/if \(bubbleOwnsResize && !anyOverlayOpen\(\)\)/.test(petBubble),
+  'window must only shrink when THIS bubble grew it and no overlay is open');
 
 // ── 4/5/6. runtime policy: oneshot leases + headless blocked visibility ─────
 const policySource = read('frontend/renderer/pet-runtime-policy.js');

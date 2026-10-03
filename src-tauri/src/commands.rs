@@ -305,8 +305,10 @@ pub fn start_wander(
 }
 
 #[tauri::command]
-pub fn cancel_travel(state: State<'_, AppState>) -> Result<Value, String> {
-    state.runtime.travel.cancel()
+pub fn cancel_travel(state: State<'_, AppState>, owner: Option<String>) -> Result<Value, String> {
+    // R60-F1: owner=Some cancels only that pet's trip (duo isolation);
+    // None keeps the legacy cancel-all contract for old callers.
+    state.runtime.travel.cancel_for(owner.as_deref())
 }
 
 #[tauri::command]
@@ -1022,9 +1024,10 @@ pub fn territory_toggle_auto(
     emit_config(&app, &state);
     if !config.territory {
         let result = json!({"enabled":false});
+        // R60-F9: was hard-coded English — now an i18n table key.
         let _ = app.emit(
             "pet:event",
-            json!({"kind":"say","text":"Territory mode disabled."}),
+            json!({"kind":"say","text":crate::i18n::tray_label(&config.lang, "say.territory-disabled")}),
         );
         return Ok(result);
     }
@@ -1495,6 +1498,17 @@ pub fn set_panel_height(app: AppHandle, height: f64) -> Result<[f64; 2], String>
 pub fn focus_pet(app: AppHandle, agent: Option<String>) -> Result<(), String> {
     let label = pet_label_for_agent(&app, agent.as_deref());
     let window = app.get_webview_window(label).ok_or("pet window missing")?;
+    // R60-F5: same visibility predicate as sync_pet_windows — show() here
+    // must not resurrect a window hidden by hidePet / single mode.
+    let may_show = app
+        .try_state::<crate::model::AppState>()
+        .is_none_or(|state| {
+            let config = state.runtime.config();
+            config.mode != "hidePet" && (label == "pet" || config.pet_mode == "duo")
+        });
+    if !may_show {
+        return Ok(());
+    }
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())
 }
@@ -3430,12 +3444,13 @@ pub fn primary_action(
         // R35.1: if >1 provider enabled, don't silently launch array[0]
         // (0.5.11 P0-5 trust issue). Emit pet:event so frontend opens its
         // #provider-chooser modal (frontend has UI context; Rust doesn't).
-        // P5-4 fix (R3): emit only to the calling window (not broadcast)
-        // so only the clicked pet opens the chooser.
         // Phase 2: always open chooser, never auto-launch on click.
         // Users should explicitly choose which agent to launch.
         if !providers.is_empty() {
-            let _ = window.emit(
+            // R60-F3: emit_to the calling window only (R56 pet:window-blur
+            // precedent) — window.emit is a process-wide broadcast.
+            let _ = window.emit_to(
+                window.label(),
                 "pet:event",
                 json!({"kind":"choose-provider","providers":providers}),
             );
@@ -3495,10 +3510,10 @@ fn cmd_call(path: &Path) -> String {
 }
 
 fn agent_launch_args(spec: AgentSpec) -> &'static [&'static str] {
-    // OpenCode documents --dir as its explicit TUI working-directory
-    // contract. Keep current_dir as a process-level fallback as well, but pass
-    // the provider-native flag so Windows Terminal and wrapper scripts cannot
-    // silently reset the workspace to the user's home directory.
+    // R60-F14 (comment fix): OpenCode takes the working directory as the
+    // POSITIONAL "." argument, not a --dir flag the argv never passes.
+    // current_dir stays as the process-level fallback so wrappers cannot
+    // reset the workspace to the user's home directory.
     match spec.id {
         "opencode" => &["."],
         _ => &[],

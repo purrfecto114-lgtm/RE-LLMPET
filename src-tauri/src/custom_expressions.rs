@@ -32,7 +32,9 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Mirror of `frontend/shared/states.js` RENDER_STATE_WORDS (27 words).
-/// Cross-checked by `test/tauri-expression-studio-r59-smoke.js`.
+/// Cross-checked by `test/tauri-r59-regression-smoke.js:114-124` (the only
+/// actual R59 smoke — the previously cited `tauri-expression-studio-r59-smoke.js`
+/// never existed; F7 fixed the stale reference).
 pub(crate) const EXPRESSION_STATES: [&str; 27] = [
     "error",
     "notification",
@@ -109,6 +111,25 @@ fn remove_other_exts(dir: &Path, state: &str, keep_ext: &str) {
         }
         let _ = fs::remove_file(dir.join(format!("{state}.{ext}")));
     }
+}
+
+/// R60-F4: temp+rename install, with remove_other_exts AFTER a successful
+/// rename only. Extracted from save_custom_expression so the ordering is
+/// unit-testable without a Tauri AppHandle: the old order (delete other
+/// exts → write new) lost the previous override whenever the write/rename
+/// failed (disk full, permissions) — a same-ext retry then found NEITHER
+/// file. With this order a failed install keeps the old image intact; only
+/// a successful swap retires the others.
+fn install_override(dir: &Path, state_name: &str, ext: &str, bytes: &[u8]) -> Result<(), String> {
+    let temp = dir.join(format!(".{state_name}.{ext}.{}.tmp", now_ms()));
+    fs::write(&temp, bytes).map_err(|error| format!("write expression: {error}"))?;
+    let target = dir.join(format!("{state_name}.{ext}"));
+    if let Err(error) = fs::rename(&temp, &target) {
+        let _ = fs::remove_file(&temp);
+        return Err(format!("install expression: {error}"));
+    }
+    remove_other_exts(dir, state_name, ext);
+    Ok(())
 }
 
 fn find_override_file(dir: &Path, state: &str) -> Option<PathBuf> {
@@ -221,17 +242,7 @@ pub fn save_custom_expression(
 
     let dir = expressions_dir(&state.runtime);
     ensure_real_dir(&dir)?;
-    remove_other_exts(&dir, &state_name, &ext);
-    // Atomic write: temp file in the SAME directory, then rename over the
-    // target. A crash mid-write can never leave a truncated GIF that the
-    // pet window would try to decode.
-    let temp = dir.join(format!(".{state_name}.{ext}.{}.tmp", now_ms()));
-    fs::write(&temp, &bytes).map_err(|error| format!("write expression: {error}"))?;
-    let target = dir.join(format!("{state_name}.{ext}"));
-    if let Err(error) = fs::rename(&temp, &target) {
-        let _ = fs::remove_file(&temp);
-        return Err(format!("install expression: {error}"));
-    }
+    install_override(&dir, &state_name, &ext, &bytes)?;
     state.runtime.write_log(
         "expressions",
         &format!("saved override for state '{state_name}'"),
@@ -319,7 +330,9 @@ pub fn open_expressions(app: AppHandle) -> Result<(), String> {
     window.set_always_on_top(true).map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
-    let _ = app.emit("expressions:shown", ());
+    // R60-P2-3: no `expressions:shown` emit — the frontend has zero
+    // listeners for it (R60-3 audit dead letter); the snapshot refresh
+    // already travels on expressions:changed.
     Ok(())
 }
 
@@ -330,7 +343,8 @@ pub fn close_expressions(app: AppHandle) -> Result<(), String> {
         .ok_or("expression studio window missing")?;
     let _ = window.set_always_on_top(false);
     window.hide().map_err(|e| e.to_string())?;
-    let _ = app.emit("expressions:hidden", ());
+    // R60-P2-3: no `expressions:hidden` emit — dead letter (no frontend
+    // consumer); the hide itself is the contract (studio window lifecycle).
     Ok(())
 }
 
@@ -509,6 +523,72 @@ mod tests {
             }
         }
         assert_eq!(found, 1, "only the whitelisted state counts");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── R60-F4: install ordering (temp → rename → only then retire others) ──
+
+    #[test]
+    fn failed_install_keeps_the_previous_override() {
+        let dir = std::env::temp_dir().join(format!(
+            "octopus-expr-f4-fail-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        // A previous override exists under a different extension…
+        fs::write(dir.join("happy.png"), b"\x89PNG-old-override").unwrap();
+        // …and the install of the new gif MUST fail: the target path is
+        // occupied by a directory (rename(file, dir) errors on every
+        // platform — simulates disk/permission failure without fixtures).
+        fs::create_dir_all(dir.join("happy.gif")).unwrap();
+        let result = install_override(&dir, "happy", "gif", b"GIF89a-new-bytes");
+        assert!(result.is_err(), "install must fail: {result:?}");
+        // F4 invariant: the OLD file is still there, byte-for-byte.
+        assert_eq!(
+            fs::read(dir.join("happy.png")).unwrap(),
+            b"\x89PNG-old-override".to_vec(),
+            "a failed install must not lose the previous override"
+        );
+        assert!(
+            dir.join("happy.gif").is_dir(),
+            "the blocked target stays untouched"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn successful_install_swaps_extensions_atomically() {
+        let dir = std::env::temp_dir().join(format!(
+            "octopus-expr-f4-ok-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("happy.png"), b"\x89PNG-old-override").unwrap();
+        install_override(&dir, "happy", "gif", b"GIF89a-new-bytes").unwrap();
+        // New file in place, old extension retired, no temp residue.
+        assert_eq!(
+            fs::read(dir.join("happy.gif")).unwrap(),
+            b"GIF89a-new-bytes".to_vec()
+        );
+        assert!(
+            dir.join("happy.png").symlink_metadata().is_err(),
+            "old ext must be retired"
+        );
+        let residue: Vec<String> = fs::read_dir(&dir)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|entry| entry.file_name().to_string_lossy().to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert_eq!(
+            residue,
+            vec!["happy.gif".to_string()],
+            "no temp files left: {residue:?}"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }

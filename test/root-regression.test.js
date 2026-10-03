@@ -3,7 +3,9 @@ const fs = require('fs');
 const assert = require('assert');
 
 const pet = fs.readFileSync('frontend/renderer/pet.js', 'utf8');
-assert.match(pet, /if \(petAnchor\) attachDrag\(petAnchor\)/,
+// R60: attachDrag lives in pet-drag.js; the composition root attaches it to
+// the stable geometric anchor.
+assert.match(pet, /if \(petAnchor\) drag\.attachDrag\(petAnchor\)/,
   'stable pet anchor must own drag and context-menu gestures');
 assert.doesNotMatch(pet, /stateEls\.forEach\(attachDrag\)/,
   'skin-specific gesture ownership reintroduces interaction loss');

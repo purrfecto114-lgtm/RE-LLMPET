@@ -37,12 +37,18 @@
   // second half of the 0.6.7 "secondary pet swallowed" regression). Running
   // the check from inside the page means the document is loaded by
   // construction; it is a no-op whenever the query already matches.
+  // R60 P1-2: the replacement boot used to replay every one-shot boot
+  // artifact (pet-appear entrance animation, online bubble, greet sound).
+  // sessionStorage survives location.replace in the same tab, so we set a
+  // pending flag the replacement document consumes exactly once to suppress
+  // those artifacts (pet.js boot reads it).
   function syncDuoQuery(cfg) {
     const agent = currentAgent();
     if (agent !== 'pet-codex') return;
     const desired = cfg && typeof cfg.duoProvider === 'string' && cfg.duoProvider ? cfg.duoProvider : 'codex';
     const current = new URLSearchParams(global.location.search).get('agent') || 'codex';
     if (current !== desired) {
+      try { global.sessionStorage.setItem('octo-duo-replace-pending', '1'); } catch (_) {}
       const query = desired === 'codex' ? '' : `?agent=${encodeURIComponent(desired)}`;
       global.location.replace(`/renderer/pet.html${query}`);
     }
@@ -71,13 +77,10 @@
 
   function eventBelongs(event, petMode, agent) {
     if (!event || typeof event !== 'object') return false;
-    // R58-IMPL-C: travel lifecycle events carry the trip's OWNER (initiating
-    // window label). Routing by owner keeps completed/failed/cancelled
-    // feedback on the initiator even when the backend degraded the trip's
-    // provider to the OTHER pet's pairing (research defect B).
-    if (petMode === 'duo' && event.trip && typeof event.trip.owner === 'string') {
+    const eventOwner = event.owner || (event.trip && event.trip.owner);
+    if (petMode === 'duo' && typeof eventOwner === 'string') {
       const ownOwner = agent === 'pet-codex' ? 'pet-codex' : 'pet';
-      return event.trip.owner === ownOwner;
+      return eventOwner === ownOwner;
     }
     const provider = event.provider || (event.trip && event.trip.provider);
     if (petMode !== 'duo') return true;
@@ -153,6 +156,19 @@
     const result = {
       ...snapshot,
       sessions,
+      // RV-I P1-2 (R60 review): pendingChoices were inherited unsliced via
+      // the spread — a claude permission card (provider: Null upstream,
+      // filled only for the waiting EVENT arm by R60-b F10) rendered on BOTH
+      // pet windows in duo mode. Claude cards (provider null/'claude')
+      // belong to the window that owns claude sessions: the paired window
+      // when duoProvider === 'claude', else the aggregate window.
+      pendingChoices: (snapshot.pendingChoices || []).filter((choice) => {
+        if (petMode !== 'duo') return true;
+        const cp = choice && choice.provider;
+        const isClaude = cp == null || cp === 'claude';
+        if (agent === 'pet-codex') return isClaude ? duo === 'claude' : cp === duo;
+        return isClaude ? duo !== 'claude' : cp !== duo;
+      }),
       active: latest ? {
         sessionId: latest.sessionId,
         project: latest.project,

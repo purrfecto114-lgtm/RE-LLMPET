@@ -20,11 +20,18 @@ assert(!platform.includes('mouse_ignore_requested.load(Ordering::Acquire) || sel
 for (const cadence of ['CURSOR_HIT_TEST_NEAR_MS', 'CURSOR_HIT_TEST_FAR_MS', 'CURSOR_HIT_TEST_IDLE_MS', 'CURSOR_HIT_TEST_HIDDEN_MS']) {
   assert(platform.includes(cadence), `adaptive cursor cadence missing: ${cadence}`);
 }
-assert(pet.includes('setMouseIgnore(false);'), 'pointerdown must disable click-through intent');
-assert(pet.includes('queueWindowMove('), 'drag should retain upstream manual movement semantics');
-assert(pet.includes('requestAnimationFrame(() =>'), 'drag movement must be frame-throttled');
-assert(pet.includes('window.pet.commitWinPos()'), 'drag must persist only after completion');
-assert(/setMouseIgnore\(true\);[\s\S]{0,240}if \(gesture\.moved\) commitWindowMove\(\)/.test(pet), 'drag end must return cursor-ignore ownership to the native hit guard');
+// R60: the drag gesture machinery moved to pet-drag.js (focused owner).
+// The composition root keeps the resize controller + preload paths.
+const petDrag = read('frontend/renderer/pet-drag.js');
+assert(petDrag.includes('setMouseIgnore(false);'), 'pointerdown must disable click-through intent');
+assert(petDrag.includes('queueWindowMove('), 'drag should retain upstream manual movement semantics');
+assert(petDrag.includes('requestAnimationFrame(() =>'), 'drag movement must be frame-throttled');
+assert(petDrag.includes('commitWinPos()'), 'drag must persist only after completion');
+assert(/setMouseIgnore\(true\);[\s\S]{0,240}if \(gesture\.moved\) commitWindowMove\(\)/.test(petDrag), 'drag end must return cursor-ignore ownership to the native hit guard');
+// R60 port of the upstream v1.2.0 defenses: buttons self-heal (a lost
+// pointerup must not stick the window to the cursor) + gesture identity.
+assert(petDrag.includes('e.buttons === 0 && gesture.moved'), 'a move with no button held must finish the gesture (lost pointerup self-heal)');
+assert(petDrag.includes('if (g !== gesture) return;'), 'stale async IPC results must not override a newer gesture');
 assert(commands.includes('pub fn commit_win_pos'), 'native final-position commit command missing');
 
 // DPI/window geometry parity: renderer reports logical pixels; Rust converts

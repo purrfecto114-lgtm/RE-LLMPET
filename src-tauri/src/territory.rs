@@ -330,6 +330,21 @@ pub fn run_now(
     run_now_inner(app, runtime)
 }
 
+/// R60-P2-8: the provider bucket territory events belong to. Mirrors the
+/// frontend defaultPetAgent() (tauri-bridge.js): the first enabled provider
+/// that is NOT the duo pair — eventBelongs routes provider != duo to the
+/// primary pet, so patrol feedback lands on exactly one window in duo mode.
+/// The "aggregate" fallback (no enabled provider escapes the pair) can
+/// never equal a real duo provider, so it still routes to the primary pet.
+fn territory_event_provider(config: &crate::model::AppConfig) -> String {
+    config
+        .providers
+        .iter()
+        .find(|provider| provider.as_str() != config.duo_provider.as_str())
+        .cloned()
+        .unwrap_or_else(|| "aggregate".into())
+}
+
 fn run_now_inner(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
     // R2-BUGFIX: read config from runtime (was missing `config` binding).
     let config = runtime.config();
@@ -357,6 +372,8 @@ fn run_now_inner(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
+        // R60-P2-8: territory emits carry a provider (duo slicing).
+        let event_provider = territory_event_provider(&config);
         let result = json!({
             "supported": false,
             "detected": 0,
@@ -368,7 +385,9 @@ fn run_now_inner(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
             json!({
                 "kind":"territory",
                 "phase":"unsupported",
-                "text":"Territory rival push requires macOS/Windows. Octopus window brought to front."
+                "provider":event_provider,
+                // R60-F9: i18n table key (was an English-only literal).
+                "text":crate::i18n::tray_label(&config.lang, "say.territory-unsupported")
             }),
         );
         Ok(result)
@@ -380,6 +399,8 @@ fn macos_patrol(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
     use std::process::Command;
 
     let config = runtime.config();
+    // R60-P2-8: territory emits carry a provider (duo slicing).
+    let event_provider = territory_event_provider(&config);
     let custom_rivals = config
         .territory_rivals
         .into_iter()
@@ -497,7 +518,7 @@ return output
         let (target_x, target_y) = edge_target(work_area, x, y, width, height);
         let _ = app.emit(
             "pet:event",
-            json!({"kind":"territory","phase":"spotted","rival":process.clone()}),
+            json!({"kind":"territory","phase":"spotted","rival":process.clone(),"provider":event_provider.clone()}),
         );
         let move_script = format!(
             "tell application \"System Events\" to tell application process \"{}\" to set position of window {} to {{{}, {}}}",
@@ -512,12 +533,12 @@ return output
             moved += 1;
             let _ = app.emit(
                 "pet:event",
-                json!({"kind":"territory","phase":"victory","rival":process.clone()}),
+                json!({"kind":"territory","phase":"victory","rival":process.clone(),"provider":event_provider.clone()}),
             );
         } else {
             let _ = app.emit(
                 "pet:event",
-                json!({"kind":"territory","phase":"defeat","rival":process.clone()}),
+                json!({"kind":"territory","phase":"defeat","rival":process.clone(),"provider":event_provider.clone()}),
             );
         }
         details.push(json!({
@@ -532,7 +553,8 @@ return output
     if detected == 0 {
         let _ = app.emit(
             "pet:event",
-            json!({"kind":"territory","phase":"clear","text":"Patrol complete, no rival pets found."}),
+            // R60-F9: i18n table key (was an English-only literal).
+            json!({"kind":"territory","phase":"clear","provider":event_provider,"text":crate::i18n::tray_label(&config.lang, "say.territory-clear")}),
         );
     }
     Ok(json!({
@@ -556,6 +578,8 @@ fn windows_patrol(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
     };
 
     let config = runtime.config();
+    // R60-P2-8: territory emits carry a provider (duo slicing).
+    let event_provider = territory_event_provider(&config);
     let custom_rivals = config
         .territory_rivals
         .into_iter()
@@ -696,7 +720,7 @@ fn windows_patrol(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
         let (target_x, target_y) = edge_target(work_area, x, y, width, height);
         let _ = app.emit(
             "pet:event",
-            json!({"kind":"territory","phase":"spotted","rival":process_name.clone()}),
+            json!({"kind":"territory","phase":"spotted","rival":process_name.clone(),"provider":event_provider.clone()}),
         );
 
         let moved_ok = unsafe {
@@ -714,12 +738,12 @@ fn windows_patrol(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
             moved += 1;
             let _ = app.emit(
                 "pet:event",
-                json!({"kind":"territory","phase":"victory","rival":process_name.clone()}),
+                json!({"kind":"territory","phase":"victory","rival":process_name.clone(),"provider":event_provider.clone()}),
             );
         } else {
             let _ = app.emit(
                 "pet:event",
-                json!({"kind":"territory","phase":"defeat","rival":process_name.clone()}),
+                json!({"kind":"territory","phase":"defeat","rival":process_name.clone(),"provider":event_provider.clone()}),
             );
         }
         details.push(json!({
@@ -734,7 +758,8 @@ fn windows_patrol(app: &AppHandle, runtime: &Runtime) -> Result<Value, String> {
     if detected == 0 {
         let _ = app.emit(
             "pet:event",
-            json!({"kind":"territory","phase":"clear","text":"Patrol complete, no rival pets found."}),
+            // R60-F9: i18n table key (was an English-only literal).
+            json!({"kind":"territory","phase":"clear","provider":event_provider,"text":crate::i18n::tray_label(&config.lang, "say.territory-clear")}),
         );
     }
     Ok(json!({

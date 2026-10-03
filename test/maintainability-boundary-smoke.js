@@ -128,7 +128,30 @@ for (const [name, source, maxLines] of [
   // R59: duo URL self-sync moved to pet-agent-view.js (-16); wander
   // capability snapshot wiring (+9) and the expression override hooks
   // (wrapper + re-apply + configure, +22) audited at 2843.
-  ["frontend/renderer/pet.js", pet, 2850],
+  // R60 (仿照重写): the 0.6.5→0.6.9 patch rounds stacked seven distinct
+  // responsibilities into pet.js; per the R60-1 blueprint the frame table /
+  // state machine / aggregate ladder / bubble / fx / event router / drag
+  // gesture moved to focused modules (see the new budget rows below).
+  // pet.js is now the composition root + HUD views: audited 2272.
+  // R60 review-fix batch (RV-A/B/C): +68 audited lines — pixel-skin sprite
+  // builder restored (RV-A P0), sesslist signature/scroll preservation
+  // (RV-B P1), lastWinPos cache sync + no-steal ask guard. Audited 2340.
+  ["frontend/renderer/pet.js", pet, 2360],
+  // R60: focused owners extracted from pet.js. Budgets are small by design.
+  ["frontend/renderer/pet-frame-table.js",
+    read('frontend/renderer/pet-frame-table.js'), 180],
+  ["frontend/renderer/pet-state-machine.js",
+    read('frontend/renderer/pet-state-machine.js'), 180],
+  ["frontend/renderer/pet-aggregate.js",
+    read('frontend/renderer/pet-aggregate.js'), 90],
+  ["frontend/renderer/pet-bubble.js",
+    read('frontend/renderer/pet-bubble.js'), 110],
+  ["frontend/renderer/pet-fx.js",
+    read('frontend/renderer/pet-fx.js'), 200],
+  ["frontend/renderer/pet-event-router.js",
+    read('frontend/renderer/pet-event-router.js'), 320],
+  ["frontend/renderer/pet-drag.js",
+    read('frontend/renderer/pet-drag.js'), 240],
   // R59: focused owner for the custom-expression override layer (snapshot
   // cache + data-URL resolution + change invalidation). Small by design.
   ["frontend/renderer/pet-expressions.js",

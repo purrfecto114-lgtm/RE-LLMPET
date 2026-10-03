@@ -221,9 +221,11 @@ function currentPetAgent() {
     onPanelShown: (cb) => subscribe('panel:shown', cb),
     onPanelHidden: (cb) => subscribe('panel:hidden', cb),
     // R59: expression studio lifecycle + override table changes.
+    // R60 P2-3: expressions:shown/hidden removed — the backend no longer
+    // emits them (dead letters: emitted, bridged, never consumed by any
+    // renderer). The hide/present semantics live in close_expressions +
+    // panel:hidden.
     onExpressionsChanged: (cb) => subscribe('expressions:changed', cb),
-    onExpressionsShown: (cb) => subscribe('expressions:shown', cb),
-    onExpressionsHidden: (cb) => subscribe('expressions:hidden', cb),
 
     getConfig: () => call('get_config').then((cfg) => {
       cachedConfig = cfg || null;
@@ -267,7 +269,11 @@ function currentPetAgent() {
     // R58-IMPL-C: owner = initiating window label — the trip stays on this
     // window even when the backend degrades the provider.
     startWander: (mission, provider) => call('start_wander', { mission, provider, owner: currentOwnerLabel() }),
-    cancelTravel: () => call('cancel_travel'),
+    // RV-I P1-1 (R60 review): the backend's per-owner cancel contract is
+    // ready (travel.rs cancel_for(Some(owner))) but the bridge never sent
+    // the owner — in duo mode a cancel from either pet killed BOTH trips,
+    // and the CHANGELOG claim was ahead of the wiring. Owner = window label.
+    cancelTravel: () => call('cancel_travel', { owner: currentOwnerLabel() }),
     // R59: expression studio (custom pet expressions). save() posts the
     // picked file's bytes as base64; read() returns a data: URL (the CSP
     // already allows img-src data:).

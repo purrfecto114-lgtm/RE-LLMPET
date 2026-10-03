@@ -424,13 +424,29 @@ fn handle_permission(
     let response = registered.response.clone();
     if !duplicate_retry {
         emit_stats(&app, &runtime);
+        // R60-F10: the claude permission card's provider field stays Null for
+        // upstream compatibility (0.6.x frontends treat a missing provider as
+        // "the aggregate pet owns it") — EXCEPT in duo mode when the pair
+        // provider IS claude: then the card must carry provider:"claude" so
+        // the frontend eventBelongs can slice the waiting event to the
+        // pet-codex window instead of both pets rendering the same card.
+        let provider_field = if provider == "claude" {
+            let config = runtime.config();
+            if config.pet_mode == "duo" && config.duo_provider == "claude" {
+                Value::String("claude".into())
+            } else {
+                Value::Null
+            }
+        } else {
+            Value::String(provider.clone())
+        };
         let _ = app.emit(
             "pet:event",
             json!({
                 "kind":"waiting",
                 "sessionId":session_id,
                 "permId":id,
-                "provider":if provider == "claude" { Value::Null } else { Value::String(provider.clone()) }
+                "provider":provider_field
             }),
         );
     }

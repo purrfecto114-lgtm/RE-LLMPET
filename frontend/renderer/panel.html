@@ -149,10 +149,10 @@
         <div id="price-src" class="price-src" data-i18n-title="panel.priceSrcTitle" title="价目数据来源与更新时间"></div>
         <div id="usage-diagnostics" class="usage-diagnostics"></div>
         <div class="price-controls" aria-label="模型价格自动更新">
-          <button id="price-refresh" type="button" title="立即检查 models.dev 最新价目">立即刷新</button>
-          <button id="price-rebuild" type="button" title="用当前价目重算历史花费">重算花费</button>
+          <button id="price-refresh" type="button" title="立即检查 models.dev 最新价目" data-i18n="panel.refreshNow" data-i18n-title="panel.refreshHint">立即刷新</button>
+          <button id="price-rebuild" type="button" title="用当前价目重算历史花费" data-i18n="panel.rebuildCost" data-i18n-title="panel.rebuildHint">重算花费</button>
           <label class="price-auto"><input id="price-auto" type="checkbox" /> <span data-i18n="panel.autoUpdate">自动更新</span></label>
-          <select id="price-interval" title="自动检查间隔">
+          <select id="price-interval" title="自动检查间隔" data-i18n-title="panel.intervalHint">
             <option value="6" data-i18n="panel.interval6">每 6 小时</option>
             <option value="12" data-i18n="panel.interval12">每 12 小时</option>
             <option value="24" data-i18n="panel.interval24">每 24 小时</option>
@@ -160,8 +160,8 @@
             <option value="72" data-i18n="panel.interval72">每 72 小时</option>
           </select>
           <span class="export-controls" aria-label="导出用量数据">
-            <button id="export-csv" type="button" title="导出 CSV（可导入 Excel/Numbers）">📊 CSV</button>
-            <button id="export-json" type="button" title="导出 JSON（完整结构化数据）">📄 JSON</button>
+            <button id="export-csv" type="button" title="导出 CSV（可导入 Excel/Numbers）" data-i18n-title="panel.exportCsvHint">📊 CSV</button>
+            <button id="export-json" type="button" title="导出 JSON（完整结构化数据）" data-i18n-title="panel.exportJsonHint">📄 JSON</button>
           </span>
         </div>
       </section>
@@ -202,13 +202,13 @@
             <span id="sess-count" class="session-count"></span>
           </div>
           <div class="session-filters" aria-label="会话筛选">
-            <select id="sess-provider-filter" title="按 Provider 筛选"><option value="">全部 Provider</option></select>
+            <select id="sess-provider-filter" title="按 Provider 筛选" data-i18n-title="sess.providerFilterHint"><option value="" data-i18n="panel.allProviders">全部 Provider</option></select>
             <input id="sess-query" type="search" maxlength="128" data-i18n-placeholder="panel.sessPlaceholder" placeholder="项目或会话 ID" autocomplete="off" />
             <!-- R19 (2026-07-30): attention filter + archive toggle.
                  "Attention" shows only waiting/needsinput sessions.
                  "Archived" toggles whether archived sessions are visible. -->
-            <button id="sess-attention" class="sess-filter-btn" type="button" title="只看待处理" data-i18n="sess.filterAttention">待处理</button>
-            <button id="sess-show-archived" class="sess-filter-btn" type="button" title="显示归档" data-i18n="sess.showArchived">归档</button>
+            <button id="sess-attention" class="sess-filter-btn" type="button" title="只看待处理" data-i18n-title="sess.attentionHint" data-i18n="sess.filterAttention">待处理</button>
+            <button id="sess-show-archived" class="sess-filter-btn" type="button" title="显示归档" data-i18n-title="sess.archiveHint" data-i18n="sess.showArchived">归档</button>
           </div>
           <div id="sess-list" class="rows"><div class="empty" data-i18n="panel.noActiveSession">暂无活跃会话</div></div>
         </section>

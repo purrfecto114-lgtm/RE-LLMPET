@@ -169,9 +169,13 @@ assert(commands.includes('"kind":"choose-provider"'),
   'R35.1: Rust primary_action must emit choose-provider pet:event');
 assert(commands.includes('!providers.is_empty()'),
   'R35.1: Rust primary_action must check !providers.is_empty() before emitting');
-// Frontend handles the choose-provider event
-assert(petJs.includes("case 'choose-provider'"),
-  'R35.1: pet.js onEvent must handle choose-provider case');
+// Frontend handles the choose-provider event (R60: the pet:event dispatch
+// table lives in pet-event-router.js — pet.js wires router.handle into
+// window.pet.onEvent).
+assert(read('frontend/renderer/pet-event-router.js').includes("'choose-provider'"),
+  'R35.1: the event router must handle the choose-provider kind');
+assert(petJs.includes('window.pet.onEvent(router.handle)'),
+  'R35.1: pet.js must register the router as the pet:event handler');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0-6: release.yml platform signing semantics

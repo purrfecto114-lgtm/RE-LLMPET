@@ -32,6 +32,9 @@ assert.deepStrictEqual(studio.windows, ['expression-studio']);
 const petRequired = [
   'get_config', 'get_stats', 'get_win_pos', 'set_win_pos', 'commit_win_pos', 'set_ignore_mouse',
   'set_pet_size', 'set_skin', 'set_currency', 'toggle_mute', 'territory_run_now',
+  // R60-F6: bridge-exposed commands that were missing their capability grant
+  // (setPetTall / setPetBig / territoryToggleAuto silently denied).
+  'set_pet_tall', 'set_pet_big', 'territory_toggle_auto',
   'open_panel', 'blur_pet', 'decide_permission', 'decide_permission_batch',
   'launch_agent', 'focus_session', 'primary_action', 'open_log', 'pet_log',
   'ui_busy', 'pet_visual_bounds', 'quit_app', 'set_session_prefs', 'set_pet_mode',

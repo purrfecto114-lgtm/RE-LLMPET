@@ -53,9 +53,14 @@
   // Override first; otherwise the active meme skin's bundled asset (the
   // studio is a settings window, so it previews the PRIMARY pet's skin);
   // mascot/pixel have no <img> pack table — placeholder.
+  // R60 P0-2 (R60-2 audit): packOf() falls back to the CAT pack for
+  // non-meme skins, so mascot/pixel users saw cat-*.gif as every state's
+  // "default expression" — misleading them about what they were replacing.
+  // Only meme skins (cat/whale) get pack previews now.
   function defaultPreviewSrc(state) {
     if (!skinPacks) return null;
     try {
+      if (!skinPacks.isMeme(skin)) return null;
       const pack = skinPacks.packOf(skin);
       const file = (pack && pack.states && (pack.states[state] || pack.states.idle));
       if (file && pack.dir) return `../assets/${pack.dir}/${file}`;

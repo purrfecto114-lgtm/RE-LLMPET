@@ -310,7 +310,11 @@ impl PlatformState {
         }
 
         let mut moved = false;
-        for label in ["pet", "pet-codex", "panel"] {
+        // R60-F8: expression-studio joins the recovery roster — a display
+        // topology change could strand the studio window off-screen the same
+        // way it strands the pet/panel windows; the studio is created once
+        // at startup (hidden), so a lost window was unrecoverable.
+        for label in ["pet", "pet-codex", "panel", "expression-studio"] {
             if let Some(window) = app.get_webview_window(label) {
                 if ensure_window_visible(&window, &monitors)? {
                     moved = true;

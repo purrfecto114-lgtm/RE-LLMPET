@@ -89,16 +89,23 @@ const focusFn = commands.slice(
 // (commands.rs) into process_probe.rs's focus_session_guarded — assert the
 // same contract at its new owner.
 const processProbe = read('src-tauri/src/process_probe.rs');
-assert(processProbe.includes('无法重新打开会话'), 'focus fallback bubble must be localized');
-assert(processProbe.includes('已为你打开详情面板'), 'focus fallback must name the dashboard fallback');
+// R60-F9: the bubble texts moved from zh-only literals in process_probe.rs
+// into the i18n.rs table (say.* keys, zh/en/ja). Assert the key is wired AND
+// that the zh value still carries the same message.
+const i18nRust = read('src-tauri/src/i18n.rs');
+assert(processProbe.includes('"say.probe-relaunch-fail"'), 'focus fallback bubble must use the i18n say key');
+assert(i18nRust.includes('无法重新打开会话：{error}'), 'i18n.rs must carry the zh focus-fallback bubble');
+assert(i18nRust.includes('已为你打开详情面板'), 'i18n.rs must name the dashboard fallback');
 assert(!processProbe.includes('Cannot focus terminal'),
   'the English focus error must be gone');
 assert(processProbe.includes('.chars().take(80)'), 'focus error excerpt must be bounded to 80 chars');
 assert(processProbe.includes('crate::session_resume::resume_session_inner'),
   'focus fallback must try the provider resume path before erroring');
 const sessionResume = read('src-tauri/src/session_resume.rs');
-assert(sessionResume.includes('已为你重新打开这个会话。'),
-  'resume feedback bubble must be localized');
+assert(sessionResume.includes('"say.resume-reopened"'),
+  'resume feedback bubble must use the i18n say key');
+assert(i18nRust.includes('已为你重新打开这个会话。'),
+  'i18n.rs must carry the zh resume feedback bubble');
 
 // ── 5. CodeWhale 15-event contract ───────────────────────────────────────────
 // Installer: 14 managed events (shell_env excluded as a steering contract).
@@ -149,12 +156,16 @@ for (const event of ['session_idle', 'session_error', 'waiting_for_user', 'sessi
 }
 
 // ── 6. expressions: roam producer + mascot badges/animations ─────────────────
+// R60: the mascot frame table moved to pet-frame-table.js, the aggregate
+// ladder (with the roam override) to pet-aggregate.js.
 const pet = read('frontend/renderer/pet.js');
-const mascotEyes = pet.slice(pet.indexOf('const MASCOT_EYES'), pet.indexOf('// B3: smooth fade'));
+const frameTable = read('frontend/renderer/pet-frame-table.js');
+const aggregateSrc = read('frontend/renderer/pet-aggregate.js');
+const mascotEyes = frameTable.slice(frameTable.indexOf('const MASCOT_EYES'), frameTable.indexOf('function fadeSwapImg'));
 assert(mascotEyes.includes("roam: 'mascot.png'"), 'mascot roam mapping missing');
 // Wander-active override: only over idle/sleeping (roam ties with idle per STATES.md).
-assert(pet.includes("ownTrip.mode === 'wander'"), 'wander-active detection missing');
-assert(pet.includes("next === 'idle' || next === 'sleeping'"),
+assert(aggregateSrc.includes("ownTrip.mode === 'wander'"), 'wander-active detection missing');
+assert(aggregateSrc.includes("next === 'idle' || next === 'sleeping'"),
   'roam must only override idle/sleeping, never waiting/error/busy states');
 // states.js vocabulary covers roam for class cleanup.
 const states = read('frontend/shared/states.js');

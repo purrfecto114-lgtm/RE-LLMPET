@@ -49,6 +49,8 @@
 
   function patchSessionDots(container, rows, decorate) {
     const existing = new Map(Array.from(container.children).map((node) => [node.dataset.sessionId, node]));
+    const children = Array.from(container.children);
+    let index = 0;
     for (const row of rows) {
       const key = `${providerId(row) || 'unknown'}:${String(row.sessionId || row.project || '')}`;
       let node = existing.get(key);
@@ -57,7 +59,12 @@
         node.dataset.sessionId = key;
       }
       decorate(node, row);
-      container.appendChild(node);
+      // RV-C P1-2 fix (R60): only re-append when the node is NOT already in
+      // the right slot — an unconditional appendChild re-parents every dot on
+      // every stats push, restarting the infinite dotPulse animation (paint
+      // driven) and churning the DOM 1-2×/s for order-preserving snapshots.
+      if (children[index] !== node) container.insertBefore(node, children[index] || null);
+      index += 1;
       existing.delete(key);
     }
     for (const stale of existing.values()) stale.remove();

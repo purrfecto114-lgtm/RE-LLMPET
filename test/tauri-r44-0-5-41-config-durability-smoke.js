@@ -29,8 +29,8 @@ const changelog = read('CHANGELOG.md');
 const packageJson = JSON.parse(read('package.json'));
 
 // Version
-assert.strictEqual(packageJson.version, '0.6.8',
-  '0.6.8: package.json version must be 0.6.8');
+assert.strictEqual(packageJson.version, '0.6.9',
+  '0.6.9: package.json version must be 0.6.9');
 
 // ──────────────────────────────────────────────────────────────────────────
 // 1. schemaVersion + unknown-field preservation

@@ -39,8 +39,8 @@ const packageJson = JSON.parse(read('package.json'));
 // Version
 // ──────────────────────────────────────────────────────────────────────────
 
-assert.strictEqual(packageJson.version, '0.6.8',
-  '0.6.8: package.json version must be 0.6.8');
+assert.strictEqual(packageJson.version, '0.6.9',
+  '0.6.9: package.json version must be 0.6.9');
 
 // ──────────────────────────────────────────────────────────────────────────
 // P0-01: Config recovery commands in panel capability + bridge + UI

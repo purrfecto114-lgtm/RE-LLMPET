@@ -119,9 +119,10 @@ pub(crate) fn resume_session_inner(
     );
     // R54 interaction feedback: the pet tells the user the conversation is
     // back instead of silently opening a terminal.
+    // R60-F9: i18n table key (was a zh-only literal).
     let _ = app.emit(
         "pet:event",
-        json!({"kind":"say","text":"已为你重新打开这个会话。"}),
+        json!({"kind":"say","text":crate::i18n::tray_label(&state.runtime.config().lang, "say.resume-reopened")}),
     );
     // R57 (R57-1d P1-3②): the blind both-window `set_always_on_top(true)`
     // re-assert is gone — both pet windows are permanently topmost via

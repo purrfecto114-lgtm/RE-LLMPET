@@ -72,7 +72,10 @@ const expected = [
   // on a hardcoded ?agent= query, so the bridge exposes the configured default.
   'defaultAgent',
   // R59: expression studio (custom pet expressions) + lifecycle events.
-  'onExpressionsChanged', 'onExpressionsShown', 'onExpressionsHidden',
+  // R60 P2-3: expressions:shown/hidden were dead letters (backend emitted,
+  // bridge exposed, no renderer consumed) — removed from both sides. Only
+  // the table-change subscription remains.
+  'onExpressionsChanged',
   'getCustomExpressions', 'saveCustomExpression', 'clearCustomExpression',
   'setCustomExpressionsEnabled', 'readCustomExpression',
   'openExpressions', 'closeExpressions',

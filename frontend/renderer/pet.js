@@ -1,5 +1,26 @@
 'use strict';
 
+// R60 rewrite (仿照重写): pet.js is now the COMPOSITION ROOT of the pet
+// window, per the R60-1 blueprint (upstream LLMPET v1.2.0 keeps its pet
+// renderer as a thin assembly over focused modules). The responsibilities
+// that 0.6.5→0.6.8 patch rounds had stacked into this one 2843-line file
+// now live in sibling modules, each with a single owner:
+//
+//   pet-frame-table.js   state → image swap chain (mascot table + overrides)
+//   pet-state-machine.js setState / transient / tool actions
+//   pet-aggregate.js     pure (stats, now) ⇒ state ladder
+//   pet-bubble.js        showBubble / hideBubble / viewport fit
+//   pet-fx.js            sounds / confetti / error ribbons / micro-motions
+//   pet-event-router.js  pet:event dispatch table (guard + handler map)
+//   pet-drag.js          pointer gesture → window move queue
+//
+// What stays here: DOM ownership, geometry negotiation (fitPopup /
+// petSizeController / geometryRevision-ack), the ask panel, session-list
+// HUD, notepad, provider chooser, config/stats snapshot application, and
+// the transient-UI (radial/blur) lifecycle. Tests that previously asserted
+// implementation strings in pet.js for the moved parts now point at the
+// owning module.
+
 const petAgentView = window.OctoPetAgentView;
 const runtimePolicy = window.OctoPetRuntimePolicy;
 const PET_AGENT = petAgentView.currentAgent();
@@ -36,7 +57,7 @@ function applyLanguage(next) {
     node.placeholder = t(node.dataset.i18nPlaceholder);
   });
   updateProviderUI();
-  if (sessListOpen) { slTitle.textContent = t('sess.title'); renderSessList(); }
+  if (sessListOpen) { slTitle.textContent = t('sess.title'); lastSessListSig = ''; renderSessList({ force: true }); }
 }
 
 // R50 (2026-08-30): right-click must not depend on the contextmenu event.
@@ -56,90 +77,14 @@ const pixel = document.getElementById('pixel');
 const mascot = document.getElementById('mascot');
 const mascotImg = document.getElementById('mascot-img');
 const cat = document.getElementById('cat'), petAnchor = document.getElementById('pet-anchor');
-
-const MASCOT_EYES = {
-  working: 'mascot-work.png', // 干活：对着笔记本敲代码 + 咖啡（整幅工作场景）
-  juggling: 'mascot-work.png', // 并行子任务：无独立图，回落到干活
-  sweeping: 'mascot-work.png', // 清理上下文：无独立图，回落到干活
-  loafing: 'mascot-sleep.png', // 间隙摸鱼：无独立图，回落到闭眼待机
-  idle: 'mascot-sleep.png',   // 无任务：闭眼
-  sleeping: 'mascot-sleep.png',
-  thinking: 'mascot-think.png', // 思考：往上看
-  happy: 'mascot-happy.png',  // 完成：^^ 笑眼
-  greet: 'mascot-happy.png',
-  talking: 'mascot-happy.png',
-  waiting: 'mascot-wait.png', // 等你处理：瞪大
-  needsinput: 'mascot-think.png', // 等你回复：往上看(期待)
-  attention: 'mascot-wait.png', // 需要注意：瞪大（CodeWhale turn_end / OpenCode idle）
-  error: 'mascot-wait.png',
-  // R53: 闲逛中 —— 基础形象 + waddle 动画 + 🐾 徽标（STATES.md 的 roam 态
-  // 终于有了生产者：闲逛进行中不再回落到闭眼睡觉）。
-  roam: 'mascot.png',
-  // 情绪短暂态 → 就近回落（专属图未画）
-  loved: 'mascot-happy.png',
-  excited: 'mascot-happy.png',
-  sad: 'mascot-wait.png',
-  sorry: 'mascot-wait.png',
-  puzzled: 'mascot-think.png',
-};
-// B3: smooth fade when swapping mascot/cat images on state change.
-function fadeSwapImg(img, newSrc) {
-  if (!img || img.getAttribute('src') === newSrc) return;
-  // Keep the current decoded frame visible. Hiding first made every stats
-  // transition flash, and failed GIF loads could leave the pet transparent.
-  const preload = new Image();
-  preload.onload = () => {
-    const decoded = typeof preload.decode === 'function' ? preload.decode().catch(() => {}) : Promise.resolve();
-    decoded.then(() => { img.src = newSrc; img.style.opacity = '1'; });
-  };
-  preload.onerror = () => { img.style.opacity = '1'; };
-  preload.src = newSrc;
-}
-function updateMascotEyes(s) {
-  if (!mascotImg) return;
-  const f = MASCOT_EYES[s] || 'mascot.png';
-  // R59: route through expressionAwareSwap so overrides apply to the mascot
-  // skin as well.
-  if (!mascotImg.getAttribute('src').endsWith(f)) expressionAwareSwap(mascotImg, '../assets/' + f);
-}
 const catImg = document.getElementById('cat-img');
 // R56: meme skin packs (cat/whale tables, lazy caches, pose rotation) moved to
-// pet-skin-packs.js — pet.js keeps only these thin wrappers so call sites are
-// unchanged. whale (鲸鱼女仆) is the upstream main(v1.2.0) dsh-companion skin.
+// pet-skin-packs.js — the frame table routes meme skins through it.
 const skinPacks = window.OctoPetSkinPacks;
-// R59: custom expression overrides (expression studio). The swap wrapper
-// intercepts EVERY asset swap — the initial state update AND the skin packs'
-// 60s pose-rotation timer — so an override for a pooled state (working×4,
-// thinking×2 …) is not reverted by rotation a minute later. Cached overrides
-// swap immediately; uncached ones show the pack asset for one frame and swap
-// in when the data: URL arrives (guarded against a state change mid-fetch).
-// The pixel skin renders CSS/SVG with no <img> target — overrides skip it.
+// R59: custom expression overrides (expression studio); the override layer
+// wraps every asset swap (see pet-frame-table.js).
 const petExpressions = window.OctoPetExpressions;
-function expressionAwareSwap(img, src) {
-  const swapState = state;
-  if (petExpressions && petExpressions.hasOverride(swapState)) {
-    const cached = petExpressions.peek(swapState);
-    if (cached) return fadeSwapImg(img, cached);
-    petExpressions.resolve(swapState).then((url) => {
-      if (url && state === swapState) fadeSwapImg(img, url);
-    }).catch(() => {});
-  }
-  return fadeSwapImg(img, src);
-}
-function reapplyCurrentOverride() {
-  if (!petExpressions || skin === 'pixel') return;
-  if (!petExpressions.hasOverride(state)) return;
-  const img = skin === 'mascot' ? mascotImg : catImg;
-  if (img) expressionAwareSwap(img, img.getAttribute('src') || '');
-}
-skinPacks.configure({ img: catImg, swap: expressionAwareSwap });
 const isMeme = () => skinPacks.isMeme(skin);
-function updateCat(s) { skinPacks.update(skin, s); }
-function maybePreloadMemeAssets() {
-  if (isMeme()) skinPacks.ensurePreloaded(skin);
-}
-if (typeof requestIdleCallback === 'function') requestIdleCallback(maybePreloadMemeAssets, { timeout: 1600 });
-else setTimeout(maybePreloadMemeAssets, 250);
 
 const bubble = document.getElementById('bubble');
 const bubbleText = document.getElementById('bubble-text');
@@ -288,6 +233,11 @@ const choiceKey = (c) => (c && (c.sessionId || '') + '|' + (c.permId || '') + '|
 const snapshotChoices = (stats) => Array.isArray(stats && stats.pendingChoices)
   ? stats.pendingChoices
   : ((stats && stats.sessions) || []).filter((x) => x.choice).map((x) => x.choice);
+
+// R60-F9/P1-5: backend options now carry an i18nKey (perm.*) alongside the
+// zh-compat label — resolve the localized text for the active language and
+// keep the label as the fallback for old payloads.
+const optLabel = (opt) => (opt && opt.i18nKey && i18n ? t(opt.i18nKey) : (opt && opt.label) || '');
 
 // 动态定高：保持上游 1.1.1 的逻辑像素尺寸和底部锚定语义。Rust 会按
 // 当前 DPI 换算为物理像素，并在扩窗/缩窗时保持可见桌宠的底部中心不跳动。
@@ -497,6 +447,198 @@ function resetPetSize() {
   setRequestedPetSize(0, 0);
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// R60 module assembly. Order matters only where noted.
+// ════════════════════════════════════════════════════════════════════════
+let muted = false;
+let state = 'idle'; // mirror of the state machine's state, kept in sync via
+                    // the module hook below (tests and legacy call sites read it)
+
+// ── pixel 皮肤本体（RV-A P0 修复：重写时 PIXEL_MAP/buildPixel 丢失会让
+// pixel 皮肤渲染空白——.pixel-sprite 是空容器，SVG 由 JS 注入）──
+const PIXEL_MAP = [
+  '..##############..',
+  '..##############..',
+  '..##############..',
+  '#####OO####OO#####',
+  '#####OO####OO#####',
+  '..##############..',
+  '..##############..',
+  '..##############..',
+  '..##############..',
+  '...##.##..##.##...',
+  '...##.##..##.##...',
+];
+function buildPixel() {
+  if (!pixel) return;
+  const sprite = pixel.querySelector('.pixel-sprite');
+  const rows = PIXEL_MAP.length;
+  const cols = PIXEL_MAP[0].length;
+  const cell = 9;
+  const W = cols * cell;
+  const H = rows * cell;
+  let rects = '';
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const c = PIXEL_MAP[y][x];
+      if (c === '.') continue;
+      const fill = c === 'O' ? '#2a1b2e' : '#c2694a';
+      rects += `<rect x="${x * cell}" y="${y * cell}" width="${cell}" height="${cell}" fill="${fill}"/>`;
+    }
+  }
+  sprite.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${rects}</svg>`;
+}
+buildPixel();
+
+// ── effects (sound / confetti / ribbons / micro-motions) ─────────────────
+const curSkinEl = () => (skin === 'pixel' ? pixel : isMeme() ? cat : mascot);
+const fx = window.OctoPetFx.create({
+  stage, pixel,
+  muted: () => muted,
+  skin: () => skin,
+  state: () => state,
+  currentSkinEl: curSkinEl,
+  uiBusy: () => !!lastUiBusy,
+});
+
+// ── frame table (mascot images + override-aware swap chain) ──────────────
+const frames = window.OctoPetFrameTable.create({
+  mascotImg, catImg, skinPacks, petExpressions,
+  skin: () => skin,
+  state: () => state,
+});
+skinPacks.configure({ img: catImg, swap: frames.swap });
+function updateMascotEyes(s) { frames.updateMascot(s); } // legacy call-site shim
+function updateCat(s) { frames.updateCat(s); }           // legacy call-site shim
+function maybePreloadMemeAssets() {
+  if (isMeme()) skinPacks.ensurePreloaded(skin);
+}
+if (typeof requestIdleCallback === 'function') requestIdleCallback(maybePreloadMemeAssets, { timeout: 1600 });
+else setTimeout(maybePreloadMemeAssets, 250);
+// RV-A/RV-C 评审修复（R60）：旧 pet.js 在模块加载时启动微动作链，重写后
+// 装配调用丢失（眨眼/peek 全失）。补回启动调用。
+fx.scheduleBlink();
+fx.scheduleIdleAction();
+
+// ── bubble owner ──────────────────────────────────────────────────────────
+const bubbleApi = window.OctoPetBubble.create({
+  bubble, bubbleText,
+  muted: () => muted,
+  // P2-6 (R60-2): the guard now covers EVERY overlay (ask/radial/sesslist/
+  // todo/chooser) — the old guard missed sessListOpen/todoPopOpen, so the
+  // dark HUD panels covered the bubble entirely.
+  anyOverlayOpen: () => !!(radialOpen || todoPopOpen || sessListOpen || askActive || providerChooserOpen),
+  fitPopup,
+  resetPetSize,
+});
+const showBubble = (text, holdMs, force) => bubbleApi.showBubble(text, holdMs, force);
+
+// ── state machine ─────────────────────────────────────────────────────────
+const STATE_WORDS = (window.OctoStates && window.OctoStates.RENDER_STATE_WORDS) || [];
+const stateEls = [pixel, mascot, cat].filter(Boolean);
+const DEBUG_STATE = null; // 调试用：强制某状态（如 'sleeping'）；正常运行设为 null
+const ERROR_DISMISS_COOLDOWN_MS = 30000; // 30s 冷却期
+let errorDismissed = false;   // 用户已确认错误，冷却期内不重入 error
+let errorDismissedAt = 0;     // 确认时间戳
+// say 接棒定时器的清理钩子（router 创建后回填，见 below）
+let clearSayTimerHook = () => {};
+const sm = window.OctoPetStateMachine.create({
+  stateEls, thinkEl, sleepEl, stateWords: STATE_WORDS,
+  log: rlog,
+  perfNow: () => perfNow(),
+  hideBubble: () => bubbleApi.suppress(),
+  onFrameUpdate(s) {
+    if (skin === 'mascot') frames.updateMascot(s);
+    if (isMeme()) frames.updateCat(s);
+    if (petExpressions && petExpressions.hasOverride(s)) frames.reapply();
+  },
+  onErrorRibbons: () => fx.syncErrorRibbons(),
+  reportBounds: () => reportPetVisualBounds(),
+  replayAggregate: () => { if (lastStats) applyStats(lastStats, true); },
+  onTransientCleared: () => clearSayTimerHook(),
+  onStateApplied(s) { state = s; }, // composition-root mirror (legacy reads)
+  // RV-B P0 fix (R60 评审团)：漏接 showBubble —— transient 的气泡文字
+  // （任务完成/问候/报错/说语/领地/旅行）曾全链不显示（守卫恒 false）。
+  showBubble: (text, holdMs) => bubbleApi.showBubble(text, holdMs),
+  toolAction: (toolName) => runtimePolicy ? runtimePolicy.toolAction(toolName, activeProviderForPet()) : null,
+  showProp(act, icon) {
+    // R57 (upstream pet.js:2984)：cat / whale 的 GIF 已经表达工具动作，
+    // 不再叠外围道具 emoji（叠加会污染皮肤画面——「皮肤不正确」的根因之一）。
+    if (!isMeme() && icon) {
+      propEl.textContent = icon;
+      propEl.className = 'prop';
+      void propEl.offsetWidth; // 重启动画
+      const pm = PROP_MOTION[act];
+      propEl.className = 'prop on' + (pm ? ' ' + pm : '');
+    }
+  },
+  clearProp() { propEl.classList.remove('on'); },
+  showSidekick() {
+    sidekickEl.classList.remove('on');
+    void sidekickEl.offsetWidth;
+    sidekickEl.classList.add('on');
+  },
+});
+const setState = (s) => sm.setState(s);          // legacy call-site shims
+const transient = (s, ms, text, holdMs) => sm.transient(s, ms, text, holdMs);
+const clearTransient = () => sm.clearTransient();
+
+// ── aggregate ladder (pure) ───────────────────────────────────────────────
+const aggregate = window.OctoPetAggregate;
+
+// ── drag owner ────────────────────────────────────────────────────────────
+const drag = window.OctoPetDrag.create({
+  api: window.pet,
+  log: rlog,
+  setMouseIgnore,
+  getWinPosCache: () => lastWinPos,
+  onPosCached: (pos) => { lastWinPos = pos; },
+  onPureClick() {
+    // Error state unlock: clicking pet while in error state clears the lock
+    // so other sessions can update the pet again.
+    if (state === 'error') {
+      errorDismissed = true;
+      errorDismissedAt = perfNow();
+      setState('idle');
+      showBubble(t('bub.errorAck'), 3000, true);
+      return;
+    }
+    if (radialOpen) closeRadial();
+    else toggleSessList();
+  },
+  onDragStart: () => { pendingRadialOpen = false; },
+  onDragConfirmed: () => { if (radialOpen) closeRadial(); },
+  onRightClickPointer: () => toggleRadialFromPointer(),
+  onContextMenuFallback: () => { if (perfNow() - rightClickHandledAt > 400) toggleRadial(); },
+});
+
+// ── event router ──────────────────────────────────────────────────────────
+const router = window.OctoPetEventRouter.create({
+  t,
+  stateMachine: sm,
+  fx,
+  showBubble,
+  isInteracting,
+  eventBelongs: eventBelongsToThisPet,
+  enqueueChoice,
+  openProviderChooser,
+  replayAggregate: () => { if (lastStats) applyStats(lastStats, true); },
+  isPrimaryPet: PET_AGENT !== 'pet-codex', // P2-7: hidden pet-codex must not beep on toasts
+  // RV-I P2-3: single-mode double-audio gate — the hidden pet-codex webview
+  // processes every broadcast event; its AudioContext still beeps. Only the
+  // primary window plays in single mode; both windows play their own
+  // (event-filtered) sounds in duo mode.
+  canPlaySound: () => petMode !== 'single' || PET_AGENT !== 'pet-codex',
+  isMeme,
+  stateWords: STATE_WORDS,
+  perfNow: () => perfNow(),
+});
+clearSayTimerHook = () => router.clearSayTimer();
+window.pet.onEvent(router.handle);
+
+// ── tool action map (prop motion variants — kept for the prop DOM above) ──
+const PROP_MOTION = { crank: 'spin', web: 'spin', search: 'hunt', type: 'jit' };
+
 // 从快照重建队列（多任务都在、且标明项目）
 function refreshAsk(stats) {
   // 记事本行动中心开着时，事项在那里处理，别再另弹选项面板抢窗口
@@ -522,6 +664,10 @@ function refreshAsk(stats) {
   if (askIdx >= askQueue.length) askIdx = 0;
   const sig = askQueue.map(choiceKey).join(',');
   if (askActive && sig === lastAskSig) return; // 内容没变，别重渲（保住正在输入/勾选的）
+  // RV-B P1 修复（R60）：会话列表开着时不抢面板——旧版每 ~2s 快照重弹 ask
+  // 面板并强关 sesslist，形成「列表↔卡片」乒乓。列表关闭后下一条快照
+  // （≤2s）自然重开面板。
+  if (sessListOpen) { lastAskSig = ''; return; }
   lastAskSig = sig;
   showAskPanel();
 }
@@ -559,7 +705,7 @@ function showAskPanel() {
     else renderContinue(c);
   }
 
-  bubble.classList.add('hidden');
+  bubbleApi.suppress();
   askEl.classList.remove('hidden');
   lastAskSig = askQueue.map(choiceKey).join(',');
   askActive = true;
@@ -589,7 +735,7 @@ function renderElicitation(c) {
   askLabel.textContent = t('ask.needsInput');
   const qs = elic.questions;
   const q = qs[elic.qIdx] ||
-    { question: c.question || '需要你回答', options: (c.options || []).map((o) => ({ label: o.label, description: o.desc })) };
+    { question: c.question || t('ask.needAnswer'), options: (c.options || []).map((o) => ({ label: o.label, description: o.desc })) };
   askQhead.textContent = q.header || '';
   askQ.textContent = q.question || '';
   const multi = !!q.multiSelect;
@@ -675,8 +821,8 @@ let emptyWarnTimer = null;
 function warnEmptyInput() {
   askText.focus();
   askText.classList.add('warn');
-  if (!askText.dataset.ph) askText.dataset.ph = askText.placeholder || '输入自定义回答…';
-  askText.placeholder = '⚠️ 还没输入内容，是不是忘了填？';
+  if (!askText.dataset.ph) askText.dataset.ph = askText.placeholder || t('ask.placeholder');
+  askText.placeholder = t('ask.emptyWarn');
   clearTimeout(emptyWarnTimer);
   emptyWarnTimer = setTimeout(() => {
     askText.classList.remove('warn');
@@ -700,7 +846,7 @@ function elicNextOrSubmit(c) {
   else elic.answers[c.question || '_'] = val;
   if (elic.qIdx < (qs.length || 1) - 1) { elic.qIdx++; renderElicitation(c); return; }
   // R32 (2026-07-31): await IPC before removing the choice card.
-  submitDecision(c, { type: 'elicitation-submit', answers: { ...elic.answers } }, '✅ 已提交回答');
+  submitDecision(c, { type: 'elicitation-submit', answers: { ...elic.answers } }, t('ask.submitted'));
 }
 
 function elicBack(c) {
@@ -710,9 +856,9 @@ function elicBack(c) {
 // ② 授权：允许(绿)/拒绝(红) + 可选会话级批量授权按钮
 function renderPerm(c) {
   clearAskBody();
-  askLabel.textContent = '需要授权';
+  askLabel.textContent = t('ask.needPerm');
   askQhead.textContent = c.header || '';
-  askQ.textContent = c.question || '需要你授权';
+  askQ.textContent = c.question || t('ask.needPermQ');
   const opts = c.options || [];
   if (opts.length === 2) askOpts.classList.add('perm-row'); // 仅允许/拒绝时并排
   opts.forEach((opt) => {
@@ -722,8 +868,10 @@ function renderPerm(c) {
     const kind = isAllow ? 'allow' : opt.key === 'deny' ? 'deny' : 'sugg';
     const card = document.createElement('button');
     card.className = 'ask-opt act ' + kind;
-    card.innerHTML = `<span class="ask-ot"><span class="ask-ol">${esc(opt.label)}</span></span>`;
-    card.addEventListener('click', () => submitPerm(opt.key, c, opt.label));
+    // R60-F9/P1-5: backend options carry i18nKey (perm.*); old payloads keep
+    // the zh label fallback. en/ja users finally see localized buttons.
+    card.innerHTML = `<span class="ask-ot"><span class="ask-ol">${esc(optLabel(opt))}</span></span>`;
+    card.addEventListener('click', () => submitPerm(opt.key, c, optLabel(opt)));
     askOpts.appendChild(card);
   });
   askFoot.classList.add('hidden');
@@ -734,7 +882,7 @@ function renderPerm(c) {
 function renderContinue(c) {
   clearAskBody();
   askLabel.textContent = t('ask.needsInput');
-  askQ.textContent = c.question || firstProviderLabel() + ' 在等你回复';
+  askQ.textContent = c.question || t('perm.continueQuestion', { who: firstProviderLabel() });
   askFoot.classList.add('hidden');
   askTerm.classList.remove('hidden');
 }
@@ -742,24 +890,24 @@ function renderContinue(c) {
 // ④ ExitPlanMode 方案评审：展示方案 + 批准 / 打回并反馈
 function renderPlan(c) {
   clearAskBody();
-  askLabel.textContent = '方案评审';
+  askLabel.textContent = t('ask.planLabel');
   askQhead.textContent = c.project ? '📂 ' + c.project : '';
-  askQ.textContent = c.question || '请审阅这个方案';
+  askQ.textContent = c.question || t('ask.planQ');
   const approve = document.createElement('button');
   approve.className = 'ask-opt act allow';
-  approve.innerHTML = '<span class="ask-ot"><span class="ask-ol">✅ 批准方案</span></span>';
-  approve.addEventListener('click', () => submitPerm('allow', c, '✅ 已批准方案'));
+  approve.innerHTML = `<span class="ask-ot"><span class="ask-ol">${esc(t('ask.approve'))}</span></span>`;
+  approve.addEventListener('click', () => submitPerm('allow', c, t('ask.approved')));
   askOpts.appendChild(approve);
   const reject = document.createElement('button');
   reject.className = 'ask-opt act deny';
-  reject.innerHTML = '<span class="ask-ot"><span class="ask-ol">✏️ 打回并反馈</span></span>';
+  reject.innerHTML = `<span class="ask-ot"><span class="ask-ol">${esc(t('ask.reject'))}</span></span>`;
   reject.addEventListener('click', () => {
     // R32 (2026-07-31): await IPC before removing the choice card.
-    submitDecision(c, { type: 'plan-feedback', feedback: (askText.value || '').trim() }, '✏️ 已打回方案');
+    submitDecision(c, { type: 'plan-feedback', feedback: (askText.value || '').trim() }, t('ask.rejected'));
   });
   askOpts.appendChild(reject);
   askInputRow.classList.remove('hidden');
-  askText.placeholder = '可写修改意见，打回让 Claude 改…';
+  askText.placeholder = t('ask.rejectPlaceholder');
   askFoot.classList.add('hidden');
   askTerm.classList.remove('hidden');
 }
@@ -778,16 +926,16 @@ function finishChoice(choice, bubbleMsg) {
   }
 }
 function submitPerm(key, choice, label) {
-  const msg = key === 'allow' ? '✅ 已允许' : key === 'deny' ? '⛔ 已拒绝' : '🔓 已记住（本会话）';
+  const msg = key === 'allow' ? t('ask.allowed') : key === 'deny' ? t('ask.denied') : t('ask.remembered');
   // W11/W24: CodeWhale batch authorization keys.
   // R32 (2026-07-31): all paths now go through submitDecision() so the IPC
   // is awaited and the choice card is only removed on actual success.
   if (key === 'cw-allow-session') {
-    submitDecision(choice, { __cw_batch: 'session' }, '✅✅ 本轮全部自动允许');
+    submitDecision(choice, { __cw_batch: 'session' }, t('ask.cwSessionDone'));
     return;
   }
   if (key === 'cw-allow-tool') {
-    submitDecision(choice, { __cw_batch: 'tool' }, '🔓 本会话内此工具自动允许');
+    submitDecision(choice, { __cw_batch: 'tool' }, t('ask.cwToolDone'));
     return;
   }
   submitDecision(choice, key, msg);
@@ -801,7 +949,7 @@ function gotoSession(choice) {
   if (!choice.permId) {
     // No permission to deny — just focus the terminal and finish.
     window.pet.focusSession(choice.sessionId || '');
-    finishChoice(choice, '💬 已带你去终端');
+    finishChoice(choice, t('ask.toTerminal'));
     return;
   }
   // With a permission: await the deny, then focus the terminal and finish.
@@ -811,7 +959,7 @@ function gotoSession(choice) {
     .then(() => routeDecision(choice, 'deny'))
     .then(() => {
       window.pet.focusSession(choice.sessionId || '');
-      finishChoice(choice, '💬 已带你去终端');
+      finishChoice(choice, t('ask.toTerminal'));
     })
     .catch((err) => {
       const msg = String(err && (err.message || err) || 'unknown');
@@ -879,7 +1027,7 @@ function updateNotepad(s) {
 function renderTodoPop() {
   const acts = actionableItems();
   const done = curTodos.filter((t) => t.status === 'completed').length;
-  tpProg.textContent = curTodos.length ? `待办 ${done}/${curTodos.length}` : '';
+  tpProg.textContent = curTodos.length ? t('todo.progress', { done, total: curTodos.length }) : '';
   // 需要你处理
   if (acts.length) {
     tpActSec.classList.remove('hidden');
@@ -908,14 +1056,15 @@ function renderTodoPop() {
 function buildActCard(c) {
   const card = document.createElement('div');
   card.className = 'tp-act';
-  const kindTag = c.kind === 'perm' ? '授权' : c.kind === 'continue' ? '回复' : c.kind === 'plan' ? '方案' : '选择';
+  const kindTag = c.kind === 'perm' ? t('ask.kindPerm') : c.kind === 'continue' ? t('ask.kindContinue')
+    : c.kind === 'plan' ? t('ask.kindPlan') : t('ask.kindChoice');
   const head = document.createElement('div');
   head.className = 'tp-act-proj';
   head.textContent = `📂 ${c.project || '?'} · ${kindTag}`;
   card.appendChild(head);
   const q = document.createElement('div');
   q.className = 'tp-act-q';
-  q.textContent = (c.header ? '【' + c.header + '】 ' : '') + (c.question || '需要你处理');
+  q.textContent = (c.header ? '【' + c.header + '】 ' : '') + (c.question || t('ask.needHandling'));
   card.appendChild(q);
 
   const opts = document.createElement('div');
@@ -924,7 +1073,7 @@ function buildActCard(c) {
     // 授权：允许/拒绝 → HTTP 原生通道回 CC
     (c.options || []).forEach((opt) => {
       const b = document.createElement('button');
-      b.textContent = opt.label;
+      b.textContent = optLabel(opt); // R60-F9: i18nKey-aware (P1-5)
       if (opt.desc) b.title = opt.desc;
       b.addEventListener('click', (e) => { e.stopPropagation(); popPerm(c, opt.key); });
       opts.appendChild(b);
@@ -942,7 +1091,7 @@ function buildActCard(c) {
     });
     const go = document.createElement('button');
     go.className = 'tp-act-go';
-    go.textContent = '💬 去这个会话回复 →';
+    go.textContent = t('ask.goReply');
     go.addEventListener('click', (e) => { e.stopPropagation(); popGoto(c); });
     opts.appendChild(go);
   }
@@ -955,7 +1104,7 @@ function buildActCard(c) {
 // stays interactive (the popup itself doesn't close on success, but if IPC
 // fails the choice must remain answerable).
 function popPerm(choice, key) {
-  const msg = key === 'allow' ? '✅ 已允许' : key === 'deny' ? '⛔ 已拒绝' : '🔓 已记住';
+  const msg = key === 'allow' ? t('ask.allowed') : key === 'deny' ? t('ask.denied') : t('ask.remembered');
   const todoPop = document.getElementById('todo-pop');
   const buttons = todoPop ? todoPop.querySelectorAll('button') : [];
   buttons.forEach((b) => { b.disabled = true; });
@@ -1025,13 +1174,6 @@ const DSH_ICON =
   '<path d="M5 15c1.6 0 1.6-1.7 3.3-1.7S9.9 15 11.5 15s1.6-1.7 3.3-1.7S16.4 15 18 15" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>';
 const PROVIDER_ICONS = { claude: CLAUDE_ICON, codewhale: '🐋', codex: CODEX_ICON, opencode: '🧩', aider: '🛠️', dsh: DSH_ICON };
 const PROVIDER_LABELS = { claude: 'Claude', codewhale: 'CodeWhale', codex: 'Codex', opencode: 'OpenCode', aider: 'Aider', dsh: 'DSH' };
-const SESS_META = {
-  waiting: '✋ 等你授权', needsinput: '💬 等你回复',
-  working: '⚙️ 干活中', juggling: '🤹 并行子任务', sweeping: '🧹 清理上下文',
-  thinking: '💭 思考中', loafing: '🍦 摸鱼中(等下一步)', error: '😵 出错了',
-  idle: '空闲', sleeping: '💤 休息中',
-};
-const SESS_SORT = { waiting: 0, needsinput: 0, error: 1, working: 2, juggling: 2, sweeping: 2, thinking: 2, loafing: 3, idle: 4, sleeping: 5 };
 const SESSION_STATE_KEYS = {
   waiting: 'state.waiting', needsinput: 'state.needsinput', working: 'state.working',
   juggling: 'state.juggling', sweeping: 'state.sweeping', thinking: 'state.thinking',
@@ -1040,7 +1182,7 @@ const SESSION_STATE_KEYS = {
 };
 function sessionStateLabel(value) {
   const key = SESSION_STATE_KEYS[value];
-  return key ? t(key) : (SESS_META[value] || value || '');
+  return key ? t(key) : (value || '');
 }
 
 // 对齐参考项目阈值：≥90% 红(hot)、≥75% 黄(warm)、其余灰
@@ -1085,7 +1227,11 @@ function visibleSessions() {
       // Apply filter
       const provider = s.providerId || s.provider || '';
       if (slFilter === 'attention') {
-        if (s.state !== 'waiting' && s.state !== 'needsinput') return false;
+        // R60 P2-9: attention/notification rows ARE actionable — the filter
+        // only matched waiting/needsinput, so CodeWhale turn_end rows
+        // vanished from the「待处理」view.
+        const st = s.state;
+        if (st !== 'waiting' && st !== 'needsinput' && st !== 'attention' && st !== 'notification') return false;
       } else if (slFilter === 'archived') {
         if (!archivedSet.has(s.sessionId)) return false;
       } else {
@@ -1106,9 +1252,21 @@ function visibleSessions() {
       return (a.idleMs || 0) - (b.idleMs || 0);
     });
 }
+const SESS_SORT = { waiting: 0, needsinput: 0, error: 1, working: 2, juggling: 2, sweeping: 2, thinking: 2, loafing: 3, idle: 4, sleeping: 5 };
 
-function renderSessList() {
+let lastSessListSig = '';
+function renderSessList(opts) {
+  const force = !!(opts && opts.force);
   const list = visibleSessions();
+  // RV-B P1 修复（R60）：每 ~2s 快照全量重建会滚回顶部、吞掉复制 ID 的
+  // 1.1s 反馈。套用 ask 面板的 lastAskSig 同款内容签名——未变则跳过重建；
+  // 重建时保存/恢复 slRows 滚动位置。
+  const sig = [slQuery, slFilter, list.map((s) => [s.sessionId, s.state, s.badge,
+    pinnedSet.has(s.sessionId) ? 1 : 0, archivedSet.has(s.sessionId) ? 1 : 0,
+    s.project, s.op, s.reason].join('\u0001')).join('\u0002')].join('\u0003');
+  if (!force && sig === lastSessListSig) return;
+  lastSessListSig = sig;
+  const prevScrollTop = slRows ? slRows.scrollTop : 0;
   slSub.textContent = list.length ? t('sess.count', { n: list.length }) : '';
   slRows.innerHTML = '';
   if (!list.length) {
@@ -1264,6 +1422,7 @@ function renderSessList() {
     });
     slRows.appendChild(row);
   }
+  if (slRows) slRows.scrollTop = prevScrollTop;
 }
 
 function persistSessionPref(sessionId, action, enabled, previous) {
@@ -1315,561 +1474,6 @@ const travelView = window.OctoPetTravelView.create({
   // field is absent (old backend payload).
   supported: () => wanderSupportedList,
 });
-// 工具 -> 干活动作；道具 emoji 的运动变体
-const TOOL_ACT = {
-  Edit: 'type', MultiEdit: 'type', Write: 'type', NotebookEdit: 'type',
-  Read: 'read',
-  Bash: 'crank',
-  Grep: 'search', Glob: 'search',
-  WebSearch: 'web', WebFetch: 'web',
-  Task: 'summon', Agent: 'summon',
-  TodoWrite: 'check',
-};
-const ACT_CLASSES = ['act-type', 'act-read', 'act-search', 'act-crank', 'act-web', 'act-summon', 'act-check', 'act-work'];
-const PROP_MOTION = { crank: 'spin', web: 'spin', search: 'hunt', type: 'jit' };
-let actTimer = null;
-
-let state = 'idle';
-let bubbleTimer = null;
-let blinkTimer = null;
-let currentCurrency = 'USD';
-let currentFxRate = 7.2;
-let transientUntil = 0;   // 短暂状态（happy/error）持续到的时间
-let transientState = null;
-let errorDismissed = false;   // 用户已确认错误，冷却期内不重入 error
-let errorDismissedAt = 0;     // 确认时间戳
-const ERROR_DISMISS_COOLDOWN_MS = 30000; // 30s 冷却期
-let muted = false;
-let lastWaiting = 0;
-let lastBgZombie = 0; // 后台疑似僵尸数
-let radialOpen = false;
-
-const IDLE_SLEEP_MS = 6 * 60 * 1000;
-const stateEls = [pixel, mascot, cat].filter(Boolean);
-const DEBUG_STATE = null; // 调试用：强制某状态（如 'sleeping'）；正常运行设为 null
-
-// ---------- 像素小怪兽 ----------
-const PIXEL_MAP = [
-  '..##############..',
-  '..##############..',
-  '..##############..',
-  '#####OO####OO#####',
-  '#####OO####OO#####',
-  '..##############..',
-  '..##############..',
-  '..##############..',
-  '..##############..',
-  '...##.##..##.##...',
-  '...##.##..##.##...',
-];
-function buildPixel() {
-  if (!pixel) return;
-  const sprite = pixel.querySelector('.pixel-sprite');
-  const rows = PIXEL_MAP.length;
-  const cols = PIXEL_MAP[0].length;
-  const cell = 9;
-  const W = cols * cell;
-  const H = rows * cell;
-  let rects = '';
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      const c = PIXEL_MAP[y][x];
-      if (c === '.') continue;
-      const fill = c === 'O' ? '#2a1b2e' : '#c2694a';
-      rects += `<rect x="${x * cell}" y="${y * cell}" width="${cell}" height="${cell}" fill="${fill}"/>`;
-    }
-  }
-  sprite.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${rects}</svg>`;
-}
-buildPixel();
-
-// ---------- 状态机（作用于两种形象，仅当前皮肤可见） ----------
-// 前端会 setState 的全部状态词（聚合态 + 短暂态 + 情绪态）——统一取自
-// shared/states.js（pet.html 以 <script> 在 pet.js 之前加载它）。classList.remove
-// 必须覆盖此全集，漏一个就会 class 残留在皮肤元素上。
-const STATE_WORDS = (window.OctoStates && window.OctoStates.RENDER_STATE_WORDS) || [];
-function setState(s) {
-  if (state === s) return;
-  for (const el of stateEls) {
-    el.classList.remove(...STATE_WORDS);
-    el.classList.add(s);
-  }
-  state = s;
-  rlog('state', s);
-  thinkEl.classList.toggle('on', s === 'thinking');
-  sleepEl.classList.toggle('on', s === 'sleeping');
-  if (s === 'thinking' || s === 'sleeping') bubble.classList.add('hidden');
-  if (s === 'working') {
-    // 进入干活态 → 立刻挂上「持续忙碌」基线动作，不等具体 tool 事件，
-    // 任何时刻都显得在忙（具体 tool 动作会在它之上叠加，结束后回落到这里）。
-    for (const el of stateEls) el.classList.add('act-work');
-  } else {
-    clearAction(); // 离开干活态才清掉动作
-  }
-  // 注意：不要在这里 hideAsk()！面板显隐只由 refreshAsk(按是否有待答事项) 管。
-  // 之前「s!=='waiting' 就 hideAsk」会在聚合态变 working/thinking 时把 needsinput 的面板闪掉。
-  if (skin === 'mascot') updateMascotEyes(s);
-  if (isMeme()) updateCat(s);
-  // R59: overrides whose data: URL is already on the img (or whose pack
-  // asset matches the current src) need an explicit re-apply — fadeSwapImg's
-  // src guard would no-op and the pet would keep showing the last state's
-  // override after the state changed.
-  if (petExpressions && petExpressions.hasOverride(s)) reapplyCurrentOverride();
-  // R57 (upstream pet.js:2974 syncErrorRibbons)：whale 的 error GIF 没有红色
-  // 彩带，持续 error 期间补一层独立 CSS 丝带；离开 whale/error 立即清场。
-  syncErrorRibbons();
-  requestAnimationFrame(reportPetVisualBounds);
-}
-
-// 按工具播放专属动作 + 头顶道具
-function playAction(toolName, icon) {
-  if (state === 'waiting' || state === 'sleeping') return;
-  const act = runtimePolicy ? runtimePolicy.toolAction(toolName, activeProviderForPet()) : (TOOL_ACT[toolName] || 'work');
-  for (const el of stateEls) {
-    el.classList.remove(...ACT_CLASSES);
-    el.classList.add('act-' + act); // 通用 work 也有身体动作（不再只闪图标）
-  }
-  // R57 (upstream pet.js:2984)：cat / whale 的 GIF 已经表达工具动作，
-  // 不再叠外围道具 emoji（叠加会污染皮肤画面——「皮肤不正确」的根因之一）。
-  if (!isMeme() && icon) {
-    propEl.textContent = icon;
-    propEl.className = 'prop';
-    void propEl.offsetWidth; // 重启动画
-    const pm = PROP_MOTION[act];
-    propEl.className = 'prop on' + (pm ? ' ' + pm : '');
-  }
-  if (act === 'summon') {
-    sidekickEl.classList.remove('on');
-    void sidekickEl.offsetWidth;
-    sidekickEl.classList.add('on');
-  }
-  clearTimeout(actTimer);
-  actTimer = setTimeout(clearAction, 2200);
-}
-function clearAction() {
-  for (const el of stateEls) el.classList.remove(...ACT_CLASSES);
-  propEl.classList.remove('on');
-  // 具体 tool 动作结束后，仍在干活 → 回落到「持续忙碌」基线，别安静下来
-  if (state === 'working') for (const el of stateEls) el.classList.add('act-work');
-}
-
-// 短暂状态：happy/error/greet…，到点后由 applyStats 接管。
-// 到期不再干等下一个快照（周期推送最坏 ~4s，短暂态会拖尾）——
-// 定时用最近一次快照主动重算聚合态，到点即回落（R56: 重放加 force 绕过 R40.1 修订号守卫）。
-let transientTimer = null;
-function transient(s, ms, text, holdMs) {
-  if (state === 'waiting') return; // 等用户优先
-  transientState = s;
-  transientUntil = perfNow() + ms;
-  setState(s);
-  clearTimeout(transientTimer);
-  transientTimer = setTimeout(() => { if (lastStats && state === transientState) applyStats(lastStats, true); }, ms + 30); // 仅当短暂态仍生效才回落：中途被 waiting/error 等稳态接管时不踢场
-  if (text) showBubble(text, holdMs || ms);
-}
-// 高优先级稳态（waiting/needsinput/error/state 穿透）接管时清掉残留短暂态，否则会借 transientUntil 复活盖回来。
-function clearTransient() {
-  transientUntil = 0;
-  clearTimeout(transientTimer);
-  clearTimeout(sayTimer); sayTimer = null; // F3: say 接棒定时器也归此管，防它在稳态上叠 talking
-}
-
-// ---------- 声音提示（Web Audio 合成，无需音频文件） ----------
-let audioCtx = null;
-function beep(freqs, dur = 0.13, type = 'sine', gain = 0.06) {
-  if (muted) return;
-  try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    let t = audioCtx.currentTime;
-    for (const f of freqs) {
-      const o = audioCtx.createOscillator();
-      const gnode = audioCtx.createGain();
-      o.type = type;
-      o.frequency.value = f;
-      gnode.gain.setValueAtTime(0, t);
-      gnode.gain.linearRampToValueAtTime(gain, t + 0.012);
-      gnode.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.connect(gnode);
-      gnode.connect(audioCtx.destination);
-      o.start(t);
-      o.stop(t + dur);
-      t += dur * 0.92;
-    }
-  } catch {}
-}
-const SOUND = {
-  waiting: () => beep([660, 880], 0.2, 'sine', 0.08), // 上行提示音
-  done: () => beep([784, 1047], 0.15, 'triangle', 0.06), // 愉快叮咚
-  error: () => beep([220, 165], 0.2, 'sawtooth', 0.05), // 低沉
-  greet: () => beep([523, 784], 0.13, 'sine', 0.05), // 招呼
-  bigDone: () => beep([659, 784, 988, 1319], 0.13, 'triangle', 0.07), // 上行小号角
-};
-
-// 大任务完成的彩带
-function confetti() {
-  const el = curSkinEl();
-  const sr = stage.getBoundingClientRect();
-  const r = el.getBoundingClientRect();
-  const cx = r.left - sr.left + r.width / 2;
-  const cy = r.top - sr.top + r.height * 0.35;
-  const emojis = ['🎉', '✨', '⭐', '🧡', '🎊'];
-  for (let i = 0; i < 12; i++) {
-    const s = document.createElement('span');
-    s.className = 'confetti';
-    s.textContent = emojis[i % emojis.length];
-    const ang = -Math.PI / 2 + (Math.random() - 0.5) * 1.8; // 向上扇形
-    const dist = 45 + Math.random() * 70;
-    s.style.left = cx + 'px';
-    s.style.top = cy + 'px';
-    s.style.fontSize = 12 + Math.random() * 12 + 'px';
-    s.style.setProperty('--dx', Math.cos(ang) * dist + 'px');
-    s.style.setProperty('--dy', Math.sin(ang) * dist + 'px');
-    s.style.animationDelay = Math.random() * 0.12 + 's';
-    stage.appendChild(s);
-    setTimeout(() => s.remove(), 1300);
-  }
-}
-
-// ── R57 (upstream pet.js:3105-3143)：whale 错误丝带 ──────────────────────
-// whale 的 error GIF 没有包含红色彩带，因此在错误持续期间补一层独立的 CSS
-// 丝带。离开 whale/error 会立即清场，避免效果泄漏到 cat 或普通状态。
-const errorRibbonNodes = new Set();
-let errorRibbonTimer = null;
-function clearErrorRibbons() {
-  clearTimeout(errorRibbonTimer);
-  errorRibbonTimer = null;
-  for (const node of errorRibbonNodes) node.remove();
-  errorRibbonNodes.clear();
-}
-function errorRibbonBurst() {
-  // 挂在皮肤容器里而不是 stage 上：透明窗切换 left/right 锚点时，彩带会跟着
-  // 宠物一起移动，不会留在旧的窗口坐标（upstream 同款防御）。
-  const el = curSkinEl();
-  if (!el) return;
-  for (let i = 0; i < 14; i++) {
-    const ribbon = document.createElement('span');
-    ribbon.className = `confetti error-ribbon ${i % 3 === 1 ? 'ribbon-bright' : (i % 3 === 2 ? 'ribbon-deep' : '')}`;
-    const ang = -Math.PI / 2 + (Math.random() - 0.5) * 2.25;
-    const dist = 56 + Math.random() * 78;
-    ribbon.style.left = '50%';
-    ribbon.style.top = '38%';
-    ribbon.style.setProperty('--dx', Math.cos(ang) * dist + 'px');
-    ribbon.style.setProperty('--dy', Math.sin(ang) * dist + 22 + 'px');
-    ribbon.style.setProperty('--turn', (Math.random() > 0.5 ? 1 : -1) * (180 + Math.random() * 300) + 'deg');
-    ribbon.style.animationDelay = Math.random() * 0.12 + 's';
-    el.appendChild(ribbon);
-    errorRibbonNodes.add(ribbon);
-    setTimeout(() => {
-      ribbon.remove();
-      errorRibbonNodes.delete(ribbon);
-    }, 1600);
-  }
-}
-function syncErrorRibbons() {
-  clearErrorRibbons();
-  if (skin !== 'whale' || state !== 'error') return;
-  errorRibbonBurst();
-  errorRibbonTimer = setTimeout(syncErrorRibbons, 1750);
-}
-
-// R50 (2026-08-30): bubbles must not resize the native window unless the
-// content genuinely overflows. Every showBubble→fitPopup→hideBubble→
-// resetPetSize cycle used to grow/shrink the OS window (320x340 ↔ 520xN);
-// on WebView2 that relayout is the visible「状态一更新就卡顿闪一下」stutter.
-// Most bubbles fit above the pet inside the base window — grow only when
-// needed, and shrink only if THIS bubble was the one that grew it.
-let bubbleOwnsResize = false;
-function fitBubbleToViewport() {
-  const top = Math.floor(bubble.getBoundingClientRect().top);
-  const available = Math.max(0, top - 8);
-  if (bubble.scrollHeight <= available) return;
-  fitPopup(bubble);
-  bubbleOwnsResize = true;
-}
-
-function showBubble(text, holdMs = 3200, force = false) {
-  if (!force && (muted || radialOpen || askActive)) return; // 选项面板开着时不弹气泡盖住它(force=重要提示强制显示)
-  // emoji → 内联 SVG（OctoIcons 在 emoji 字符与 SVG 之间做安全替换；不可识别字符原样保留）
-  if (window.OctoIcons && window.OctoIcons.hasMappedEmoji(text)) {
-    window.OctoIcons.setTextWithIcons(bubbleText, text);
-  } else {
-    bubbleText.textContent = text;
-  }
-  bubble.classList.remove('hidden');
-  bubbleText.scrollTop = 0; // 重置滚动到顶（上次长气泡可能滚到了下边）
-  // R50: 免缩放优先 —— 气泡塞得进当前窗口就不动原生窗口；实在超屏时
-  // 由 fitPopup 按屏幕封顶，#bubble 自身 overflow-y:auto 内滚动兜底。
-  fitBubbleToViewport();
-  clearTimeout(bubbleTimer);
-  bubbleTimer = setTimeout(hideBubble, holdMs);
-}
-function hideBubble() {
-  bubble.classList.add('hidden');
-  // R50: 只有本气泡真的撑大过窗口才缩回，短气泡不再引发 resize 抖动。
-  // 若没有其它弹层占用大窗口尺寸，恢复原始尺寸（避免 pet 一直停在加大窗口里）
-  // R56: radial/chooser 打开时也不能缩窗——radial item 的绝对坐标按当前
-  // 大视口布置，中途缩窗会把菜单项裁掉/错位（叠加错位的一种）。
-  if (bubbleOwnsResize && !askActive && !sessListOpen && !todoPopOpen && !radialOpen && !providerChooserOpen) {
-    bubbleOwnsResize = false;
-    resetPetSize();
-  }
-}
-
-function scheduleBlink() {
-  clearTimeout(blinkTimer); // 防御性：确保前一个链被断开
-  blinkTimer = setTimeout(() => {
-    // 仅像素怪兽保留 class 眨眼位（cat 是 GIF 自带动效；mascot 之前的
-    // 「眨眼」是把整幅工作场景换成闭眼底图 150ms，观感是画面闪断，已移除）。
-    if (skin === 'pixel' && state !== 'sleeping' && state !== 'waiting') {
-      pixel.classList.add('blink');
-      setTimeout(() => pixel.classList.remove('blink'), 160);
-    }
-    scheduleBlink();
-  }, 2500 + Math.random() * 4000);
-}
-scheduleBlink();
-
-// 空闲小动作：闲着时偶尔东张西望 / 蹦一下，更有生命感
-let idleActionTimer = null;
-function scheduleIdleAction() {
-  clearTimeout(idleActionTimer); // 防御性：确保前一个链被断开
-  idleActionTimer = setTimeout(() => {
-    if (state === 'idle' && !radialOpen && !muted) {
-      // 只有像素怪兽有 peek 动画；mascot 的 glance CSS 指向已不存在的
-      // #teyes（img 皮肤没有 SVG 眼睛节点），cat 由 GIF 自带动效。
-      if (skin === 'pixel') {
-        pixel.classList.add('peek');
-        setTimeout(() => pixel.classList.remove('peek'), 620);
-      }
-    }
-    scheduleIdleAction();
-  }, 7000 + Math.random() * 7000);
-}
-scheduleIdleAction();
-
-const curSkinEl = () => (skin === 'pixel' ? pixel : isMeme() ? cat : mascot);
-
-// ---------- 事件 ----------
-window.pet.onEvent((ev) => {
-  if (!ev || typeof ev !== 'object') return; // R1-A#3: reject malformed payloads
-  if (!eventBelongsToThisPet(ev)) return;
-  // 你正在答面板/打字时：新的待答任务只悄悄进队列(不抢面板)，其余动画/彩带/气泡/状态变化一律不打断
-  if (isInteracting()) {
-    if ((ev.kind === 'waiting' || ev.kind === 'needsinput') && ev.choice) enqueueChoice(ev.choice);
-    return;
-  }
-  switch (ev.kind) {
-    case 'operation': {
-      // 高优先级稳态（等授权/等回复/出错/清理）不被工具事件降级成 working——
-      // 之前 error 期间其它会话干活会导致 working↔error 持续闪烁。
-      const hold = state === 'waiting' || state === 'needsinput' || state === 'error' || state === 'sweeping';
-      // transient（thinking/happy/talking…）存续期间也不盖（STATES.md：短暂态高于聚合）
-      if (!hold && perfNow() >= transientUntil) {
-        setState('working');
-        playAction(ev.tool, ev.icon);
-      }
-      showBubble(`${ev.icon || '🔧'} ${ev.detail}`);
-      break;
-    }
-    case 'say':
-      if (ev.text && ev.text.length > 2 && state !== 'waiting') {
-        const dur = Math.min(6000, Math.max(2200, ev.text.length * 80));
-        // Stop 会同批派生 turn-done(happy) + say(talking)：让庆祝先演完，
-        // talking 排在 happy 结束后接棒，气泡文本立刻显示不用等。
-        if (transientState === 'happy' && perfNow() < transientUntil) {
-          showBubble(`💬 ${ev.text}`, Math.min(4200, dur));
-          const token = ++sayToken;
-          clearTimeout(sayTimer); sayTimer = setTimeout(() => {
-            if (token === sayToken && state !== 'waiting' && state === transientState) transient(ev.emotion || 'talking', dur);
-          }, Math.max(0, transientUntil - perfNow()));
-        } else if (ev.emotion) {
-          // Claude 的话里带情绪（sorry/puzzled/excited）→ 短暂表情替代 talking
-          transient(ev.emotion, 2800, `💬 ${ev.text}`, Math.min(4200, ev.text.length * 80));
-        } else {
-          transient('talking', dur, `💬 ${ev.text}`, Math.min(4200, dur));
-        }
-      }
-      break;
-    case 'user-turn':
-      // 你的输入里带情绪（loved/sad/excited）→ 章鱼即时反应；否则像以前一样进 thinking
-      if (ev.emotion && state !== 'waiting') {
-        const tip = ev.emotion === 'loved' ? '🥰 谢谢夸奖！' : ev.emotion === 'sad' ? '😢 别生气…' : '✨ 收到！';
-        transient(ev.emotion, 2800, tip, 2600);
-      } else {
-        // 多会话时聚合里 working > thinking，直接 setState 会在下个快照被盖掉
-        // （只闪 ~150ms）。用 transient 保证「刚提交任务」的思考表情至少停留一会。
-        if (state !== 'waiting') transient('thinking', 3500);
-        showBubble(t('bubble.newTask'), 2600);
-      }
-      break;
-    case 'turn-done':
-      transient('happy', 1800, '✅ 这一轮搞定啦！', 3400);
-      SOUND.done();
-      break;
-    case 'big-done':
-      transient('happy', 2200, `🎉 大任务搞定！(${ev.ops || ''}步)`, 3800);
-      confetti();
-      SOUND.bigDone();
-      break;
-    case 'error':
-      transient('error', 2600, ev.text || '😵 出了点状况，在想办法…', 3000);
-      SOUND.error();
-      break;
-    case 'waiting':
-      clearTransient(); // 残留的 talking/thinking 短暂态不得盖过等授权
-      setState('waiting');
-      SOUND.waiting();
-      if (ev.choice && ((ev.choice.options && ev.choice.options.length) || ev.choice.allowInput)) {
-        enqueueChoice(ev.choice); // 直接弹出选项/输入
-      } else {
-        showBubble(`✋ ${ev.project || ''} 等你${ev.reason || '处理'}`, 6000);
-      }
-      break;
-    case 'needsinput':
-      // Claude 在末尾问「要不要继续」之类，等你回复 → 黄点 + 可在桌宠上继续/回复
-      if (state !== 'waiting') { clearTransient(); setState('needsinput'); }
-      SOUND.done();
-      if (ev.choice && ((ev.choice.options && ev.choice.options.length) || ev.choice.allowInput)) {
-        enqueueChoice(ev.choice);
-      } else {
-        showBubble(`💬 ${ev.project || ''} 等你回复`, 6000);
-      }
-      break;
-    case 'greet':
-      transient('greet', 2000, `👋 ${ev.project || ''} 新会话，你好！`, 2600);
-      SOUND.greet();
-      break;
-    case 'choose-provider': {
-      // P5-4 fix (R3): backend now emits to calling window only,
-      // so no frontend filter is needed.
-      openProviderChooser();
-      break;
-    }
-    case 'longcmd':
-      if (state !== 'waiting') showBubble(t('bubble.longCommand'), 3000);
-      break;
-    case 'travel':
-      if (ev.phase === 'started') transient('excited', 2200, ev.text || '🧳 出发旅行！', 3200);
-      else if (ev.phase === 'completed') transient('happy', 2600, ev.text || '📮 旅行完成！', 8000);
-      else if (ev.phase === 'failed') transient('error', 2600, ev.text || '旅行失败', 5000);
-      break;
-    case 'territory':
-      // 领地模式(main 的 territory 编排):发现别的桌宠 → 走过去顶到屏幕边上。
-      // 全程复用现成情绪态,窗口走位由主进程完成,这里只负责表情/气泡/音效。
-      switch (ev.phase) {
-        case 'spotted':
-          transient('puzzled', 2400, `👀 咦？「${ev.rival || '不明生物'}」闯进我的地盘！`, 2600);
-          SOUND.waiting();
-          break;
-        case 'march':
-          // 推挤最长十几秒,给个长时限的斗志表情,victory/defeat 到了自然接管
-          transient('excited', 16000, '🥊 走开走开！这是我的桌面！', 3200);
-          break;
-        case 'victory':
-          // R57 (upstream loot 的 lookout 姿态)：驱逐成功后望向被顶到墙边的
-          // 「战果」——cat/whale 有专属 lookout GIF（thinking-2 素材）；
-          // mascot/pixel 无 lookout 图与动画，回落 happy（RV-A1：默认皮肤
-          // 的胜利庆祝不能退化成静态底图）。
-          transient(isMeme() ? 'lookout' : 'happy', 3600, '🏆 哼！把它顶到墙边啦～', 3400);
-          confetti();
-          SOUND.bigDone();
-          break;
-        case 'defeat':
-          transient('sad', 3000, `😤 「${ev.rival || '它'}」纹丝不动…算它狠！`, 3200);
-          SOUND.error();
-          break;
-        case 'partial':
-          transient('excited', 3200, `💨 已经把「${ev.rival || '它'}」推到系统允许的最边上啦！`, 3600);
-          SOUND.done();
-          break;
-        case 'ontop':
-          // 猫爪在上定律:发现别的桌宠进程,窗口层级已被主进程抬到最上
-          transient('excited', 2600, `🐾 猫爪在上定律！「${ev.rival || '入侵者'}」不许压着我～`, 3000);
-          SOUND.greet();
-          break;
-        case 'noperm':
-          showBubble('🔒 想把入侵者顶走，但还没有「辅助功能」权限（系统设置 → 隐私与安全性 → 辅助功能）', 7000);
-          break;
-        case 'searching':
-          showBubble(t('bubble.patrolling'), 2400);
-          break;
-        case 'clear':
-          showBubble(t('bubble.patrolDone'), 2600);
-          break;
-        case 'busy':
-          showBubble(t('bubble.patrolBusy'), 2600);
-          break;
-        case 'abort':
-          // 中途撤退(用户来了/弹层打开):静默收掉 march 的长斗志表情,
-          // 立刻回落到真实聚合态,不冒气泡打扰正事。
-          clearTransient();
-          if (lastStats) applyStats(lastStats, true); // R56: 内部重放绕过修订号守卫
-          break;
-      }
-      break;
-    // W12: cancel — a permission was resolved server-side (auto-close, client
-    // disconnect, batch-clear, or user clicked). Remove the matching choice from
-    // the ask queue and hide the panel if it was the current one. This prevents
-    // the pet from staying stuck on "waiting" when the user acts in the
-    // CodeWhale terminal or presses Ctrl+C instead of clicking the pet bubble.
-    case 'cancel': {
-      if (ev.permId) {
-        // R30 (2026-07-31): capture the choice BEFORE filtering it out.
-        // The old code did filter() then find() on the filtered array,
-        // which always returned undefined — making the cancel handler
-        // a no-op and cancelled choices re-appeared from stale snapshots.
-        const cancelled = askQueue.find((c) => c.permId === ev.permId)
-          || { sessionId: ev.sessionId, permId: ev.permId };
-        // Remove from queue by permId
-        askQueue = askQueue.filter((c) => c.permId !== ev.permId);
-        answered.add(choiceKey(cancelled));
-        // If the current ask panel is showing this permId, hide it / advance
-        if (askActive && askQueue.length === 0) {
-          hideAsk();
-          // Clear the waiting state — settle back to idle/working via stats
-          if (state === 'waiting' || state === 'needsinput') {
-            setState('idle');
-            if (lastStats) applyStats(lastStats); // 不加 force：旧快照 waitingCount 仍计已取消项，强制重放会闪回 waiting（W12 依赖此拦截）
-          }
-        } else if (askActive && askQueue.length > 0) {
-          // Show the next queued choice
-          askIdx = 0;
-          showAskPanel();
-        }
-      }
-      break;
-    }
-    // R13: handle 'state' kind events (from OpenCode session.status, CodeWhale mode_change, etc.)
-    // These provide immediate state transitions without waiting for the next stats snapshot.
-    // R22 (2026-08-10): allow high-priority sticky states (waiting, needsinput,
-    // error, attention) to break through the transient suppression window.
-    // Previously, a turn-done transient (1.8s) would block the subsequent
-    // attention state event from CodeWhale turn_end, leaving the pet stuck
-    // in "happy" then falling to idle instead of showing "attention".
-    case 'state': {
-      if (ev.state && STATE_WORDS.includes(ev.state)) {
-        const hold = state === 'waiting' || state === 'needsinput' || state === 'error';
-        // Sticky high-priority states break through transients immediately.
-        const stickyHi = ev.state === 'waiting' || ev.state === 'needsinput'
-          || ev.state === 'error' || ev.state === 'attention';
-        if (!hold && (stickyHi || perfNow() >= transientUntil)) {
-          clearTransient(); setState(ev.state); // F1: 穿透稳态须清短暂态窗口，防下个快照借 transientUntil 盖回 happy/talking
-        }
-      }
-      break;
-    }
-    // R56: tray-origin feedback toasts (uninstall hooks, price refresh, …).
-    // lib.rs emits {"kind":"toast","message":…} for tray actions that have no
-    // window of their own; before this case existed those events were dead
-    // letters — clicking "卸载钩子" in the tray gave zero visible feedback.
-    case 'toast': {
-      if (ev.message) {
-        showBubble(String(ev.message), 4500, true);
-        SOUND.done();
-      }
-      break;
-    }
-  }
-});
 
 function perfNow() {
   return Date.now();
@@ -1878,7 +1482,13 @@ function perfNow() {
 // ---------- 统计 + 聚合状态 ----------
 let lastStats = null; // 最近一次快照：transient 到期时用它立即重算聚合态
 let lastStatsRevision = -1; // R40.1: monotonic revision guard — reject stale stats
-let sayToken = 0, sayTimer = null; // say 接棒 happy 的排队令牌（新事件作废旧排队）；sayTimer 由 clearTransient 统一管（F3）
+let currentCurrency = 'USD';
+let currentFxRate = 7.2;
+let lastWaiting = 0;
+let lastBgZombie = 0; // 后台疑似僵尸数
+let radialOpen = false;
+const IDLE_SLEEP_MS = 6 * 60 * 1000;
+
 // Format cost in the current currency (same logic as panel.js).
 function fmtCost(cost) {
   const n = Number(cost) || 0;
@@ -1919,7 +1529,10 @@ function applyStats(s, force) {
   // 从 stats 推送同步权威窗口位置，校正拖动缓存
   if (s.winPos && s.winPos.length === 2) {
     const [wx, wy] = s.winPos;
-    if (Number.isFinite(wx) && Number.isFinite(wy)) lastWinPos = [wx, wy];
+    if (Number.isFinite(wx) && Number.isFinite(wy)) {
+      lastWinPos = [wx, wy];
+      drag.setCachedPos(lastWinPos); // RV-A P2：双缓存同步缺口——外部权威位置更新必须回写 drag 侧，否则纯点击回旧位
+    }
   }
   lastWaiting = (s.waitingCount || 0) + (s.needsinputCount || 0); // 待处理徽标含「等你回复」
   lastBgZombie = (s.bg && s.bg.zombie) || 0;
@@ -1938,32 +1551,27 @@ function applyStats(s, force) {
   // 你正在看面板/打字 → 不再改小章鱼状态(别动来动去打断你)，安静等你答完
   if (isInteracting()) return;
 
-  // 聚合梯子，对齐 STATES.md 的优先级表：
+  // R60: the aggregate ladder is now a pure function (pet-aggregate.js).
+  // Ladder semantics identical to the 0.6.8 inline version (STATES.md §3):
   //   waiting > 短暂态 > error(8) > needsinput/notification(7) > sweeping(6)
   //   > attention(5) > juggling(4) > working(3) > thinking(2) > idle(1) > sleeping(0)
-  // 之前 working 排在 needsinput 前面，多会话时「等你回复」被干活态彻底盖住。
-  // R22 (2026-08-10): added attentionCount branch. CodeWhale turn_end and
-  // OpenCode session.idle set state="attention" — without this branch the
-  // pet appeared stuck in idle/sleeping while a session was actively waiting.
-  if (s.waitingCount > 0) {
-    setState('waiting');
-  } else if (perfNow() < transientUntil) {
-    setState(transientState);
-  } else {
-    const next = runtimePolicy.aggregateState(s, { sleepMs: IDLE_SLEEP_MS });
-    // R53: 闲逛进行中 → roam 表情（小跑 + 🐾 徽标）。优先级对齐 STATES.md：
-    // roam 与 idle 同级(1)，只在聚合结果为 idle/sleeping 时接管；
-    // waiting/needsinput/error/sweeping/attention/juggling/working/thinking
-    // 仍然优先 —— 有会话等你处理时，闲逛表情让位。
-    const ownTrip = s.travel && s.travel.active
-      && s.travel.active[window.OctoPetTravelView.ownerKeyFor(PET_AGENT)];
-    const wanderRoaming = !!(ownTrip && ownTrip.mode === 'wander'
-      && (next === 'idle' || next === 'sleeping'));
-    const dismissedError = next === 'error' && errorDismissed
-      && perfNow() - errorDismissedAt < ERROR_DISMISS_COOLDOWN_MS;
-    setState(dismissedError ? 'idle' : (wanderRoaming ? 'roam' : next));
-    if (next === 'error' && !dismissedError) errorDismissed = false;
-  }
+  // RV-C P2-1: computed ONCE — resolve() and the latch check previously each
+  // re-ran the runtimePolicy aggregate (O(n) session scan ×2 per push).
+  const ownTrip = s.travel && s.travel.active
+    && s.travel.active[window.OctoPetTravelView.ownerKeyFor(PET_AGENT)];
+  const aggregateFn = (snap) => runtimePolicy.aggregateState(snap, { sleepMs: IDLE_SLEEP_MS });
+  const aggregateNext = aggregateFn(s);
+  const next = aggregate.resolve({
+    stats: s,
+    now: perfNow(),
+    transientActive: sm.isTransientActive(),
+    transientState: sm.getTransientState(),
+    aggregate: aggregateFn,
+    ownWanderTrip: ownTrip || null,
+    errorDismissed: { dismissed: errorDismissed, at: errorDismissedAt, cooldownMs: ERROR_DISMISS_COOLDOWN_MS },
+  });
+  if (aggregateNext === 'error' && !errorDismissed) errorDismissed = false;
+  setState(next);
 }
 window.pet.onStats(applyStats);
 if (window.pet.onTravel) {
@@ -1971,14 +1579,20 @@ if (window.pet.onTravel) {
     if (!event || !eventBelongsToThisPet(event)) return;
     if (event.state) travelView.update(event.state);
     else window.pet.getTravel().then(travelView.update).catch(() => {});
+    // P1-1 (R60-2): terminal travel phases render HERE ONLY. travel.rs also
+    // emits a pet:event(kind:travel) copy of completed/failed — the old
+    // pet.js handled both channels, doubling the transient and flickering
+    // the bubble text (📮 summary ↔ bare summary). The event-router's
+    // travel arm now keeps only `started`/`cancelled`.
     if (event.phase === 'completed') {
-      transient('happy', 2600, `📮 ${event.summary || '旅行明信片已送达'}`, 8000);
-      confetti();
+      transient('happy', 2600, `📮 ${event.summary || t('bub.travelDone')}`, 8000);
+      fx.confetti();
       // R57 (R57-1e 声音覆盖)：travel 完成有彩带无音效——补 bigDone 号角，
-      // 与 big-done/territory victory 的听觉反馈对齐。
-      SOUND.bigDone();
+      // 与 big-done/territory victory 的听觉反馈对齐。RV-I P2-3：隐藏副宠窗
+      // 不出声（单窗模式）。
+      if (petMode !== 'single' || PET_AGENT !== 'pet-codex') fx.SOUND.bigDone();
     } else if (event.phase === 'failed') {
-      transient('error', 2600, `🧳 ${event.summary || '旅行失败'}`, 5000);
+      transient('error', 2600, `🧳 ${event.summary || t('bub.travelFailPlain')}`, 5000);
     } else if (event.phase === 'cancelled') {
       showBubble(t('bubble.travelCancel'), 2600, true);
     }
@@ -1986,9 +1600,13 @@ if (window.pet.onTravel) {
 }
 
 function decorateSessionDot(d, s) {
-    d.className = 'sess-dot ' + sessionDotClass(s);
-    const label = s.state === 'waiting' ? `等你${s.reason || '处理'}` : (SESS_META[s.state] || s.state);
-    d.title = `${s.project} · ${label}`;
+  d.className = 'sess-dot ' + sessionDotClass(s);
+  // R60 P2-10: localized tooltip — the old builder hardcoded `等你…` and
+  // read the zh-only SESS_META fallback, so en/ja users always got Chinese.
+  const label = s.state === 'waiting'
+    ? t('sess.waitFor', { reason: s.reason || t('bub.waitDefault') })
+    : sessionStateLabel(s.state);
+  d.title = `${s.project} · ${label}`;
 }
 
 function renderSessions(sessions) {
@@ -2081,6 +1699,7 @@ function applyConfigSnapshot(cfg) {
   const savedPosition = PET_AGENT === 'pet-codex' && petMode === 'duo' ? cfg.petPositionCodex : cfg.petPosition;
   if (savedPosition && Number.isFinite(savedPosition.x) && Number.isFinite(savedPosition.y)) {
     lastWinPos = [savedPosition.x, savedPosition.y];
+    if (drag) drag.setCachedPos(lastWinPos); // RV-A P2：同步 drag 侧缓存
   }
 }
 
@@ -2354,11 +1973,11 @@ function applySkin(s) {
   document.body.classList.toggle('skin-whale', skin === 'whale');
   // R30/R56: lazy-load meme assets when switching to cat/whale skin
   skinPacks.ensurePreloaded(skin);
-  if (skin === 'mascot') updateMascotEyes(state);
-  // updateCat no-ops (and stops its rotation timer) for non-meme skins.
-  updateCat(state);
+  // R60: frame re-resolution (mascot table + meme packs + overrides) lives
+  // in the frame-table owner.
+  frames.applyForSkin();
   // R57：换皮时同步错误丝带（离开 whale 时立即清场，防效果泄漏）。
-  syncErrorRibbons();
+  fx.syncErrorRibbons();
   requestAnimationFrame(reportPetVisualBounds);
 }
 
@@ -2393,157 +2012,13 @@ window.reportPetVisualBounds = reportPetVisualBounds;
 
 // ====================================================================
 // 拖动 + 点击（短按=会话列表 / 移动=等价上游的手动窗口拖动）
+// R60: the gesture machinery lives in pet-drag.js; pet.js owns the pet-level
+// click semantics (pure-click → error unlock / session list) via callbacks.
 // ====================================================================
-let g = null;
-let dragFrame = 0;
-let pendingDragPos = null;
-let dragMoveChain = Promise.resolve();
-
-function queueWindowMove(x, y) {
-  pendingDragPos = [Math.round(x), Math.round(y)];
-  if (dragFrame) return;
-  dragFrame = requestAnimationFrame(() => {
-    dragFrame = 0;
-    const pos = pendingDragPos;
-    pendingDragPos = null;
-    if (!pos) return;
-    dragMoveChain = dragMoveChain
-      .catch(() => {})
-      .then(() => window.pet.setWinPos(pos[0], pos[1]))
-      .catch((error) => rlog('drag', 'move failed: ' + String(error && error.message || error || 'unknown')));
-    lastWinPos = pos;
-  });
-}
-
-function flushWindowMove() {
-  if (dragFrame) {
-    cancelAnimationFrame(dragFrame);
-    dragFrame = 0;
-  }
-  const pos = pendingDragPos;
-  pendingDragPos = null;
-  if (pos) {
-    dragMoveChain = dragMoveChain
-      .catch(() => {})
-      .then(() => window.pet.setWinPos(pos[0], pos[1]))
-      .catch((error) => rlog('drag', 'move failed: ' + String(error && error.message || error || 'unknown')));
-    lastWinPos = pos;
-  }
-}
-
-function commitWindowMove() {
-  flushWindowMove();
-  dragMoveChain = dragMoveChain
-    .catch(() => {})
-    .then(() => window.pet.commitWinPos())
-    .then(([wx, wy]) => { lastWinPos = [wx, wy]; })
-    .catch((error) => rlog('drag', 'commit failed: ' + String(error && error.message || error || 'unknown')));
-}
-
-function attachDrag(el) {
-  const finishGesture = (gesture, allowClick) => {
-    if (!gesture) return;
-    if (g === gesture) g = null;
-    try { gesture.el.releasePointerCapture(gesture.pid); } catch {}
-    gesture.el.classList.remove('dragging');
-    // Bug 5 fix: 纯点击后恢复保存的坐标（防止 Windows 钳制离屏位置）
-    if (!gesture.moved && lastWinPos) {
-      window.pet.setWinPos(lastWinPos[0], lastWinPos[1]);
-    }
-    // Re-enable native hit-test ownership after the gesture. `true` means the
-    // transparent regions may ignore input again; the native guard still keeps
-    // the window interactive while the cursor is over the pet or an open HUD.
-    setMouseIgnore(true);
-    if (gesture.moved) commitWindowMove();
-    else if (allowClick) {
-      // Error state unlock: clicking pet while in error state clears the lock
-      // so other sessions can update the pet again.
-      if (state === 'error') {
-        errorDismissed = true;
-        errorDismissedAt = perfNow();
-        setState('idle');
-        showBubble('👌 收到，会话继续运行中', 3000, true);
-        return;
-      }
-      if (radialOpen) closeRadial();
-      else toggleSessList();
-    }
-  };
-
-  el.addEventListener('pointerdown', (e) => {
-    // Windows may deliver contextmenu after pointerdown while transparent
-    // regions are click-through. Claim input here so the right-click reaches
-    // the radial-menu toggle instead of the application below the pet.
-    if (e.button === 2) {
-      e.preventDefault();
-      setMouseIgnore(false);
-      // R50: toggling here (not in contextmenu) because preventDefault() on
-      // pointerdown suppresses the compatibility mouse pipeline — including
-      // contextmenu — on several WebView builds. contextmenu below is kept as
-      // a guarded fallback for builds that fire it.
-      toggleRadialFromPointer();
-      return;
-    }
-    if (e.button !== 0) return;
-    e.preventDefault();
-    // R35.1: a drag start cancels any pending radial open — the user has
-    // switched intent from "click to open HUD" to "drag the pet".
-    pendingRadialOpen = false;
-    // Bug 5 fix: 延迟关闭穿透，等确认拖动后再关闭
-    // setMouseIgnore(false) 移到 pointermove 中阈值超过后执行
-    try { el.setPointerCapture(e.pointerId); } catch {}
-    el.classList.add('dragging');
-    g = {
-      el, pid: e.pointerId, sx: e.screenX, sy: e.screenY, cx: e.screenX, cy: e.screenY, moved: false, win: lastWinPos,
-    };
-    const gesture = g;
-    window.pet.getWinPos().then(([wx, wy]) => {
-      if (g !== gesture) return;
-      gesture.win = [wx, wy];
-      lastWinPos = [wx, wy];
-      if (gesture.moved) queueWindowMove(wx + gesture.cx - gesture.sx, wy + gesture.cy - gesture.sy);
-    }).catch(() => {});
-  });
-
-  el.addEventListener('pointermove', (e) => {
-    const gesture = g;
-    if (!gesture || gesture.pid !== e.pointerId) return;
-    gesture.cx = e.screenX;
-    gesture.cy = e.screenY;
-    const dx = gesture.cx - gesture.sx;
-    const dy = gesture.cy - gesture.sy;
-    const dragThreshold = e.pointerType === 'touch' ? 10 : 4;
-    if (!gesture.moved && Math.abs(dx) + Math.abs(dy) > dragThreshold) {
-      gesture.moved = true;
-      setMouseIgnore(false);  // Bug 5 fix: 确认拖动后才关闭穿透
-      if (radialOpen) closeRadial();
-    }
-    if (gesture.moved && gesture.win) {
-      queueWindowMove(gesture.win[0] + dx, gesture.win[1] + dy);
-    }
-  });
-
-  el.addEventListener('pointerup', (e) => {
-    const gesture = g;
-    if (!gesture || gesture.pid !== e.pointerId) return;
-    finishGesture(gesture, true);
-  });
-  el.addEventListener('pointercancel', () => finishGesture(g, false));
-  el.addEventListener('lostpointercapture', () => { if (g) finishGesture(g, false); });
-  el.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setMouseIgnore(false);
-    // R50: pointerdown(button 2) already toggled on builds that suppress
-    // contextmenu; skip if that just happened, otherwise toggle here for
-    // builds that deliver contextmenu without a prior pointerdown claim.
-    if (perfNow() - rightClickHandledAt > 400) toggleRadial();
-  });
-}
-if (petAnchor) attachDrag(petAnchor);
-
+if (petAnchor) drag.attachDrag(petAnchor);
+drag.setCachedPos(lastWinPos);
 // 启动时预加载窗口位置到缓存
-window.pet.getWinPos().then(([wx, wy]) => { lastWinPos = [wx, wy]; }).catch(() => {});
+window.pet.getWinPos().then(([wx, wy]) => { lastWinPos = [wx, wy]; drag.setCachedPos(lastWinPos); }).catch(() => {});
 
 // 卡片按钮：Submit/Next、Back、Go to Terminal、Other 输入
 askSubmit.addEventListener('click', () => { const c = askQueue[askIdx]; if (c && c.kind === 'ask') elicNextOrSubmit(c); });
@@ -2637,7 +2112,7 @@ function toggleCurrency() {
     chipCost.textContent = fmtCost(lastStats.today.cost || 0);
     chipWindow.textContent = '5h ' + fmtCost(lastStats.window5h.cost || 0);
   }
-  showBubble(currentCurrency === 'CNY' ? '💴 切换为 ¥（人民币）' : '💲 切换为 $（美元）', 2000);
+  showBubble(t(currentCurrency === 'CNY' ? 'bubble.currencyCny' : 'bubble.currencyUsd'), 2000);
 }
 
 const radialMenu = window.OctoPetRadialMenu.create({
@@ -2674,11 +2149,14 @@ let pendingRadialOpen = false;
 function showRadialNow() {
   if (todoPopOpen) closeTodoPop();
   if (sessListOpen) closeSessList();
+  // RV-B P1 修复（R60）：ask 面板开着时右键曾把窗口骤缩到 320×340 裁卡，
+  // 且 radial (z20) 被 ask (z32) 盖死。与 openTodoPop 同款互斥：卡片优先。
+  if (askActive) hideAsk();
   radialMenu.build();
   radial.classList.remove('hidden');
   radialOpen = true;
   syncUiBusy();
-  bubble.classList.add('hidden');
+  bubbleApi.suppress();
 }
 
 function requestRadialViewport() {
@@ -2759,24 +2237,44 @@ if (window.pet && typeof window.pet.onWindowBlur === 'function') {
 
 // R59: expression studio overrides — subscribe to the backend table and
 // re-apply to the current state when it changes while the studio is open.
+// R60 P0-1: the rerender hook now falls back to the BASE asset when the
+// current state has no override (see pet-frame-table.js reapply()).
 petExpressions.configure({
   api: window.pet,
   log: rlog,
-  rerender: reapplyCurrentOverride,
+  rerender: () => frames.reapply(),
 });
 
 // ---------- 初始化 ----------
+// P1-2 (R60-2 audit): pet-agent-view.js sets sessionStorage
+// 'octo-duo-replace-pending' right before location.replace() realigns the
+// second pet's query. The replacement document checks the flag here and
+// suppresses the ONE-TIME boot artifacts (entrance animation + online
+// bubble + greet sound) that previously played twice per startup.
+const duoReplacePending = (() => {
+  try { return sessionStorage.getItem('octo-duo-replace-pending') === '1'; }
+  catch { return false; }
+})();
+if (duoReplacePending) {
+  try { sessionStorage.removeItem('octo-duo-replace-pending'); } catch {}
+  stage.style.animation = 'none'; // suppress the second pet-appear playback
+}
 (async () => { // R1-A#5: try/catch so getConfig/getStats rejection doesn't leave pet blank
   try {
     const cfg = await window.pet.getConfig();
     if (cfg) applyConfigSnapshot(cfg); // R40.5: unified snapshot applies providers too
     const s = await window.pet.getStats();
     if (s) applyStats(s); else if (!lastStats) setState('idle'); // 有快照按真实态亮相
-    showBubble(t('bub.online'), 3000);
+    // F11 (R60-3): a reloaded duo window must re-pull the travel snapshot —
+    // the boot sequence never did, so the second pet lost its active trip's
+    // status bar + cancel button until the next pet:travel event (up to 30
+    // minutes on long trips).
+    if (window.pet.getTravel) window.pet.getTravel().then(travelView.update).catch(() => {});
+    if (!duoReplacePending) showBubble(t('bub.online'), 3000);
   } catch (err) {
     console.error('[octopus] pet boot failed:', err);
     rlog('init', 'boot failed: ' + String(err && (err.message || err) || 'unknown'));
-    setState('idle'); showBubble('⚠️ 初始化失败，请重启', 5000);
+    setState('idle'); showBubble(t('bub.bootFail'), 5000);
   }
 })();
 
@@ -2789,7 +2287,7 @@ function setMouseIgnore(on) {
   void mouseIgnoreController.request(!!on);
 }
 window.addEventListener('mousemove', (e) => {
-  if (g) { setMouseIgnore(false); return; } // 拖动中保持可点
+  if (drag.isDragging()) { setMouseIgnore(false); return; } // 拖动中保持可点
   const el = document.elementFromPoint(e.clientX, e.clientY);
   // 命中测试权威同步悬停态：穿透切换时 pointerleave 可能漏发，会把 askHover 卡在 true，
   // 进而让 isInteracting() 永远为真、refreshAsk 永不对账（旧卡片冻结、新卡片进不来）。
@@ -2816,6 +2314,9 @@ if (visualBoundsObserver) {
 // ---------- 生命周期清理 ----------
 // renderer context may be destroyed/reloaded. beforeunload ensures
 // all intervals/timeouts are cleared, preventing orphaned timers.
+// R60: each module now owns its own timer disposal (P2-4: sayTimer and
+// errorRibbonTimer were previously missing from this list — the modules
+// make under-cleanup structurally impossible).
 window.addEventListener('beforeunload', () => {
   petRendererDisposed = true;
   geometryRevision += 1;
@@ -2834,10 +2335,11 @@ window.addEventListener('beforeunload', () => {
   // R56: pose-rotation timer ownership moved to pet-skin-packs.js; it stops
   // itself on non-meme updates, and pagehide ends the document anyway.
   if (visualBoundsObserver) visualBoundsObserver.disconnect();
-  clearTimeout(bubbleTimer); bubbleTimer = null;
-  clearTimeout(transientTimer); transientTimer = null;
-  clearTimeout(actTimer); actTimer = null;
+  // R60 module disposals:
+  sm.dispose();          // transient + act timers
+  fx.dispose();          // blink / idle / error-ribbon timers (P2-4)
+  bubbleApi.dispose();   // bubble timer
+  router.dispose();      // say takeover timer (P2-4)
+  drag.dispose();        // pending move frame + gesture
   clearTimeout(emptyWarnTimer); emptyWarnTimer = null;
-  clearTimeout(blinkTimer); blinkTimer = null;
-  clearTimeout(idleActionTimer); idleActionTimer = null;
 });

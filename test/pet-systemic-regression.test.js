@@ -33,7 +33,9 @@ assert.strictEqual(policy.aggregateState({ errorCount: 1, sessions: [
 ] }), 'error');
 
 const pet = read('frontend/renderer/pet.js');
-assert(!pet.includes("img.style.opacity = '0'"), 'image swap must not blank the current frame');
+// R60-RV-G: fadeSwapImg moved to pet-frame-table.js — guard the owner file.
+const frameTable = read('frontend/renderer/pet-frame-table.js');
+assert(!frameTable.includes("img.style.opacity = '0'"), 'image swap must not blank the current frame');
 assert(pet.includes('requestRadialViewport'), 'radial opening must request its viewport before measuring');
 assert(pet.includes('patchSessionDots'), 'session dots must use keyed patching');
 

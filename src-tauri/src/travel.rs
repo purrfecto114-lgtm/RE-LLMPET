@@ -10,7 +10,6 @@ use std::os::unix::fs::PermissionsExt;
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -89,19 +88,33 @@ pub struct TravelManager {
     path: PathBuf,
     persisted: Mutex<PersistedTravel>,
     active: Mutex<HashMap<String, ActiveTrip>>,
-    child_pid: Mutex<Option<u32>>,
-    cancel: AtomicBool,
+    /// R60-F1: child pid keyed by the owning window label. The old single
+    /// slot let a second owner's trip overwrite the first trip's pid (the
+    /// orphan) and any single trip's cleanup erased the OTHER owner's pid.
+    child_pids: Mutex<HashMap<String, u32>>,
+    /// R60-F1: pending-cancel flag keyed by owner. The old process-global
+    /// `AtomicBool` meant one pet's cancel killed BOTH duo trips, and
+    /// `start()` resetting it could swallow another owner's pending cancel.
+    cancel: Mutex<HashMap<String, bool>>,
 }
 
 impl TravelManager {
+    /// Test/compat constructor (zh default). The Runtime constructor uses
+    /// open_with_lang so persisted interruption postcards carry the ACTIVE
+    /// language (R60-RV-D P1).
+    #[cfg(test)]
     pub fn open(app_dir: &Path) -> Arc<Self> {
+        Self::open_with_lang(app_dir, "zh")
+    }
+
+    pub fn open_with_lang(app_dir: &Path, lang: &str) -> Arc<Self> {
         let path = app_dir.join("travel.json");
-        let (mut persisted, converted_official) = load_persisted(&path);
+        let (mut persisted, converted_official) = load_persisted(&path, lang);
         let recovered = if !persisted.active.is_empty() {
             let trips = std::mem::take(&mut persisted.active);
             for trip in trips.into_values() {
                 persisted.failed = persisted.failed.saturating_add(1);
-                persisted.postcards.push(interrupted_postcard(&trip));
+                persisted.postcards.push(interrupted_postcard(&trip, lang));
             }
             if persisted.postcards.len() > 100 {
                 let extra = persisted.postcards.len() - 100;
@@ -115,8 +128,8 @@ impl TravelManager {
             path,
             persisted: Mutex::new(persisted),
             active: Mutex::new(HashMap::new()),
-            child_pid: Mutex::new(None),
-            cancel: AtomicBool::new(false),
+            child_pids: Mutex::new(HashMap::new()),
+            cancel: Mutex::new(HashMap::new()),
         });
         if recovered || converted_official {
             if let Err(error) = manager.persist() {
@@ -137,15 +150,23 @@ impl TravelManager {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        let child_pid = *self.child_pid.lock().unwrap_or_else(|e| e.into_inner());
+        let child_pids = self
+            .child_pids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         // `active` is a HashMap<String, ActiveTrip> keyed by owner ("pet" /
         // "pet-codex"). Serialize it as a JSON object so the frontend can
-        // filter per-owner. For backward compat, also expose the first active
-        // trip (if any) under `activeTrip`.
-        let first_active = active.values().next().cloned();
+        // filter per-owner. For backward compat, also expose one active trip
+        // under `activeTrip`. R60-F12: the pick is DETERMINISTIC — HashMap
+        // iteration order is unspecified, so "first" must never depend on it.
+        let legacy = legacy_trip(&active);
+        let child_pid = legacy
+            .as_ref()
+            .and_then(|trip| child_pids.get(&trip.owner).copied());
         json!({
             "active": active,
-            "activeTrip": first_active,
+            "activeTrip": legacy,
             "childPid": child_pid,
             "postcards": persisted.postcards.iter().rev().take(30).cloned().collect::<Vec<_>>(),
             "growth": growth_view(&persisted),
@@ -287,6 +308,13 @@ impl TravelManager {
         let owner =
             owner.unwrap_or_else(|| owner_for_provider(provider, &runtime.config().duo_provider));
         let mut active_guard = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        // R60-F1: clear ONLY this owner's pending cancel flag, and do it while
+        // holding the active lock — a concurrent cancel_for(this owner) either
+        // lands before this reset (its kill targets the OLD pid, the worker
+        // already exited) or after it (the new trip gets cancelled cleanly).
+        // Either way the reset can never swallow ANOTHER owner's pending flag,
+        // which the old process-global `cancel.store(false)` could.
+        self.clear_cancel(owner);
         if active_guard.get(owner).is_some() {
             return Err("another trip is already running".into());
         }
@@ -302,7 +330,6 @@ impl TravelManager {
         };
         active_guard.insert(owner.to_string(), trip.clone());
         drop(active_guard);
-        self.cancel.store(false, Ordering::Release);
         if let Err(error) = self.persist() {
             self.active
                 .lock()
@@ -318,6 +345,12 @@ impl TravelManager {
                 "phase":"started",
                 "provider":provider,
                 "sessionId":trip.session_id,
+                // RV-I P2-1 (R60 review): owner routing for the started phase —
+                // when the trip's provider was degraded to the OTHER pet's
+                // pairing, provider-based routing showed the departure
+                // feedback on the wrong window. Terminal phases already
+                // carry trip.owner on the pet:travel channel.
+                "owner":trip.owner,
                 // R59: trilingual (was zh-only) — follows config.lang.
                 "text":travel_started_text(&runtime.config().lang, mode)
             }),
@@ -328,8 +361,8 @@ impl TravelManager {
         thread::spawn(move || {
             // P5-4 fix (R2): wrap run_trip in catch_unwind so a panic
             // doesn't leave the trip permanently stuck in "traveling" state.
-            // On panic, set active=None / child_pid=None, persist a failed
-            // postcard, and emit pet:travel failed.
+            // On panic, retire the trip's owner (active + pid entry), persist
+            // a failed postcard, and emit pet:travel failed.
             let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
                 manager.run_trip(app.clone(), runtime.clone(), trip.clone(), executable, cwd);
             }));
@@ -342,10 +375,13 @@ impl TravelManager {
                     "unknown panic in travel worker".into()
                 };
                 eprintln!("[octopus] travel worker panic: {msg}");
-                *manager_for_panic
-                    .child_pid
+                // R60-F1: only THIS trip's owner pid — the other owner's
+                // in-flight pid must survive the panic cleanup.
+                manager_for_panic
+                    .child_pids
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner()) = None;
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&trip.owner);
                 let _ = fs::remove_file(runtime.app_dir.join(format!(".travel-{}.out", trip.id)));
                 let _ = fs::remove_file(runtime.app_dir.join(format!(".travel-{}.err", trip.id)));
                 manager_for_panic
@@ -421,7 +457,12 @@ impl TravelManager {
                 .spawn()
                 .map_err(|error| format!("launch {}: {error}", trip.provider))?;
             let pid = child.id();
-            *self.child_pid.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
+            // R60-F1: register under the trip's owner — the second pet's trip
+            // no longer overwrites the first pet's pid.
+            self.child_pids
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(trip.owner.clone(), pid);
             let stdin_result = if delivery == PromptDelivery::Stdin {
                 child
                     .stdin
@@ -460,7 +501,7 @@ impl TravelManager {
                         return Err(format!("poll travel process: {error}"));
                     }
                 }
-                let stop_reason = if self.cancel.load(Ordering::Acquire) {
+                let stop_reason = if self.cancel_flag(&trip.owner) {
                     Some("cancelled".to_string())
                 } else if started.elapsed() >= Duration::from_millis(MAX_TRAVEL_MS) {
                     Some("travel timed out after 30 minutes".to_string())
@@ -512,7 +553,12 @@ impl TravelManager {
             let tokens = usage_tokens(&output, &trip.provider);
             Ok((final_message(&output, &runtime.config().lang), tokens))
         })();
-        *self.child_pid.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        // R60-F1: retire only this trip's owner pid; the duo partner's pid
+        // (if it is mid-trip) stays registered for its own cancel path.
+        self.child_pids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&trip.owner);
         let _ = fs::remove_file(&out_path);
         let _ = fs::remove_file(&err_path);
 
@@ -591,21 +637,42 @@ impl TravelManager {
         crate::http_server::emit_stats_now(&app, &runtime);
     }
 
-    pub fn cancel(&self) -> Result<Value, String> {
-        if self
-            .active
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_empty()
+    /// R60-F1: cancel with owner targeting. `Some(owner)` cancels only that
+    /// pet window's trip (duo: one pet's cancel never touches the other's);
+    /// `None` keeps the legacy cancel-all contract for old callers.
+    pub fn cancel_for(&self, owner: Option<&str>) -> Result<Value, String> {
+        let active_guard = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        let owners: Vec<String> = match owner {
+            Some(label) => {
+                if !active_guard.contains_key(label) {
+                    return Err("no active trip".into());
+                }
+                vec![label.to_string()]
+            }
+            None => {
+                if active_guard.is_empty() {
+                    return Err("no active trip".into());
+                }
+                active_guard.keys().cloned().collect()
+            }
+        };
+        // Set the flags while the active lock is held so a concurrent start()
+        // for the same owner (which clears its flag under the same lock)
+        // cannot race the flag back to false after we observed the trip.
         {
-            return Err("no active trip".into());
+            let mut flags = self.cancel.lock().unwrap_or_else(|e| e.into_inner());
+            for label in &owners {
+                flags.insert(label.clone(), true);
+            }
         }
-        self.cancel.store(true, Ordering::Release);
+        drop(active_guard);
         // P5-2 fix: also kill the child directly so we don't depend solely on
         // the 50 ms worker poll. This closes the 50 ms window where cancel
         // could be requested but the child keeps running until the next poll
         // tick (or forever if the app exits within that window).
-        self.kill_child_now();
+        for label in &owners {
+            self.kill_child_for(label);
+        }
         Ok(self.snapshot())
     }
 
@@ -615,15 +682,49 @@ impl TravelManager {
     /// of being orphaned. Best-effort: errors are swallowed because the app
     /// is shutting down anyway and we must not block exit.
     pub fn shutdown(&self) {
-        self.cancel.store(true, Ordering::Release);
-        self.kill_child_now();
+        // R60-F1: per-owner world — flag every ACTIVE owner and kill every
+        // REGISTERED pid. Registered pids are a superset guard: even if the
+        // active map briefly disagrees (worker mid-cleanup), no orphan child
+        // survives the app exit.
+        let owners: Vec<String> = self
+            .active
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .cloned()
+            .collect();
+        {
+            let mut flags = self.cancel.lock().unwrap_or_else(|e| e.into_inner());
+            for label in &owners {
+                flags.insert(label.clone(), true);
+            }
+        }
+        let pids: Vec<u32> = self
+            .child_pids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .copied()
+            .collect();
+        for pid in pids {
+            if let Err(error) = crate::commands::kill_process_tree(pid) {
+                eprintln!("[octopus] travel child kill failed for pid {pid}: {error}");
+            }
+        }
     }
 
-    /// Kill the tracked child process tree if one is registered. Idempotent:
-    /// safe to call when `child_pid` is `None` (no-op) and safe to call twice
-    /// (the second `kill_process_tree` gets ESRCH and is treated as success).
-    fn kill_child_now(&self) {
-        let pid = *self.child_pid.lock().unwrap_or_else(|e| e.into_inner());
+    /// Kill the tracked child process tree for one owner if a pid is
+    /// registered. Idempotent: safe to call with no pid for that owner
+    /// (no-op) and safe to call twice (the second `kill_process_tree` gets
+    /// ESRCH and is treated as success). R60-F1: scoped to the owner — the
+    /// other pet's child is not our business here.
+    fn kill_child_for(&self, owner: &str) {
+        let pid = self
+            .child_pids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(owner)
+            .copied();
         if let Some(pid) = pid {
             // Delegates to platform-specific kill (taskkill /T on Windows,
             // kill(-pgid, SIGTERM then SIGKILL) on Unix). Errors are logged
@@ -633,6 +734,25 @@ impl TravelManager {
                 eprintln!("[octopus] travel child kill failed for pid {pid}: {error}");
             }
         }
+    }
+
+    /// R60-F1: pending-cancel flag for one owner (false when never set).
+    fn cancel_flag(&self, owner: &str) -> bool {
+        self.cancel
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(owner)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// R60-F1: clear one owner's pending-cancel flag (called by start() under
+    /// the active lock; see the F1 note there).
+    fn clear_cancel(&self, owner: &str) {
+        self.cancel
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(owner.to_string(), false);
     }
 
     fn persist(&self) -> Result<(), String> {
@@ -652,7 +772,7 @@ impl TravelManager {
     }
 }
 
-fn load_persisted(path: &Path) -> (PersistedTravel, bool) {
+fn load_persisted(path: &Path, lang: &str) -> (PersistedTravel, bool) {
     // P5-6 fix (R3): fall back to the `.bak` copy when the main travel.json
     // is missing or corrupt. On Windows, `write_private_atomic` (and the
     // atomic rename in `save_cursors`-style writers) renames main → .bak
@@ -685,7 +805,7 @@ fn load_persisted(path: &Path) -> (PersistedTravel, bool) {
         || value.get("history").is_some()
         || value.get("growth").is_some();
     if looks_official {
-        return (official_travel_to_persisted(&value), true);
+        return (official_travel_to_persisted(&value, lang), true);
     }
     // Unknown/future documents must not be rewritten as an empty current file.
     (PersistedTravel::default(), false)
@@ -735,7 +855,7 @@ fn same_opened_file(before: &fs::Metadata, after: &fs::Metadata) -> bool {
     before.len() == after.len()
 }
 
-fn official_travel_to_persisted(value: &Value) -> PersistedTravel {
+fn official_travel_to_persisted(value: &Value, lang: &str) -> PersistedTravel {
     let growth = value.get("growth").unwrap_or(&Value::Null);
     let mut postcards = value
         .get("history")
@@ -749,7 +869,9 @@ fn official_travel_to_persisted(value: &Value) -> PersistedTravel {
     if let Some(active) = value.get("active").filter(|v| v.is_object()) {
         if let Some(mut interrupted) = official_trip_to_postcard(active) {
             interrupted.status = "interrupted".into();
-            interrupted.summary = "应用迁移时发现未完成旅行，已标记为中断。".into();
+            // R60-RV-D P1: was a zh-only literal persisted into postcards
+            // (en/ja users got Chinese history rows forever).
+            interrupted.summary = travel_migration_interrupted_text(lang).into();
             interrupted.completed_at = now_ms();
             postcards.insert(0, interrupted);
             interrupted_count = 1;
@@ -850,18 +972,37 @@ fn json_u64(value: Option<&Value>) -> u64 {
         .unwrap_or(0)
 }
 
-fn interrupted_postcard(trip: &ActiveTrip) -> Postcard {
+fn interrupted_postcard(trip: &ActiveTrip, lang: &str) -> Postcard {
     Postcard {
         id: trip.id.clone(),
         mode: trip.mode.clone(),
         provider: trip.provider.clone(),
         project: trip.project.clone(),
         mission: trip.mission.clone(),
-        summary: "应用重启，旅行已中断。".into(),
+        // R60-RV-D P1: trilingual (was a zh-only literal).
+        summary: travel_restart_interrupted_text(lang).into(),
         tokens: 0,
         started_at: trip.started_at,
         completed_at: now_ms(),
         status: "interrupted".into(),
+    }
+}
+
+// R60-RV-D P1: persisted postcard summaries follow config.lang (same local
+// trilingual-helper pattern as travel_started_text).
+fn travel_migration_interrupted_text(lang: &str) -> &'static str {
+    match lang {
+        "en" => "an unfinished trip from an older install was found during migration and marked as interrupted",
+        "ja" => "移行時に未完了の旅行が見つかったため、中断として記録しました",
+        _ => "应用迁移时发现未完成旅行，已标记为中断。",
+    }
+}
+
+fn travel_restart_interrupted_text(lang: &str) -> &'static str {
+    match lang {
+        "en" => "the app restarted; the trip was interrupted",
+        "ja" => "アプリ再起動により旅行は中断されました",
+        _ => "应用重启，旅行已中断。",
     }
 }
 
@@ -1336,6 +1477,27 @@ fn owner_for_provider(provider: &str, duo_provider: &str) -> &'static str {
     }
 }
 
+/// R60-F12: deterministic pick for the legacy single-trip snapshot fields
+/// (`activeTrip` / `childPid`). The active map is keyed by owner label;
+/// HashMap iteration order is unspecified, so "the first active trip" must
+/// never depend on it — with two duo trips live, `values().next()` produced
+/// a different legacy trip on every snapshot. Fixed label order: "pet" wins
+/// over "pet-codex", any other (unexpected) labels fall back to sorted
+/// order after the two known windows.
+fn legacy_trip(active: &HashMap<String, ActiveTrip>) -> Option<ActiveTrip> {
+    if active.is_empty() {
+        return None;
+    }
+    for label in ["pet", "pet-codex"] {
+        if let Some(trip) = active.get(label) {
+            return Some(trip.clone());
+        }
+    }
+    let mut labels: Vec<&String> = active.keys().collect();
+    labels.sort();
+    labels.first().and_then(|label| active.get(*label).cloned())
+}
+
 /// R59: providers with a headless wander/travel runner implemented in
 /// provider_args. Single source of truth — mirrored into the frontend via
 /// config_view's `wanderSupported` array (pet.js / pet-travel-view.js prefer
@@ -1713,7 +1875,7 @@ mod tests {
             }],
             "growth":{"totalTokens":54321,"completed":3,"failed":1,"cancelled":2}
         });
-        let persisted = official_travel_to_persisted(&value);
+        let persisted = official_travel_to_persisted(&value, "zh");
         assert_eq!(persisted.postcards.len(), 1);
         assert_eq!(persisted.postcards[0].mode, "travel");
         assert_eq!(persisted.postcards[0].tokens, 12345);
@@ -1935,7 +2097,7 @@ mod tests {
             "history": [],
             "growth":{"totalTokens":0,"completed":0,"failed":2,"cancelled":0}
         });
-        let persisted = official_travel_to_persisted(&value);
+        let persisted = official_travel_to_persisted(&value, "zh");
         assert!(persisted.active.is_empty());
         assert_eq!(persisted.failed, 3);
         assert_eq!(persisted.postcards.len(), 1);
@@ -1949,7 +2111,7 @@ mod tests {
             Uuid::new_v4()
         ));
         fs::write(&path, br#"{"futureFormat":true}"#).unwrap();
-        let (persisted, converted) = load_persisted(&path);
+        let (persisted, converted) = load_persisted(&path, "zh");
         assert!(!converted);
         assert!(persisted.postcards.is_empty());
         let _ = fs::remove_file(path);
@@ -1973,7 +2135,7 @@ mod tests {
             "active": {"id":"active","mode":"project","agent":"codex","status":"running"},
             "growth": {}
         });
-        let persisted = official_travel_to_persisted(&value);
+        let persisted = official_travel_to_persisted(&value, "zh");
         assert_eq!(persisted.postcards.len(), 100);
         assert_eq!(persisted.total_tokens, 99);
         assert_eq!(persisted.failed, 1);
@@ -1994,5 +2156,159 @@ mod tests {
         assert_eq!(owner_for_provider("codex", "claude"), "pet");
         assert_eq!(owner_for_provider("aider", "aider"), "pet-codex");
         assert_eq!(owner_for_provider("opencode", "opencode"), "pet-codex");
+    }
+
+    // ── R60-F1/F12: per-owner cancel registry + deterministic snapshot ──────
+    // Pure-logic coverage that needs no AppHandle: the maps are driven
+    // directly the same way run_trip / start / cancel_for drive them.
+
+    fn test_trip(owner: &str) -> ActiveTrip {
+        ActiveTrip {
+            id: format!("trip-{owner}"),
+            mode: "wander".into(),
+            provider: "claude".into(),
+            session_id: None,
+            project: "Web Wander".into(),
+            mission: "look around".into(),
+            started_at: 1,
+            owner: owner.into(),
+        }
+    }
+
+    fn test_manager(tag: &str) -> (Arc<TravelManager>, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "octopus-travel-f1-{tag}-{}-{}",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        (TravelManager::open(&dir), dir)
+    }
+
+    #[test]
+    fn per_owner_cancel_never_touches_the_other_owner() {
+        let (manager, dir) = test_manager("cancel");
+        {
+            let mut active = manager.active.lock().unwrap_or_else(|e| e.into_inner());
+            active.insert("pet".into(), test_trip("pet"));
+            active.insert("pet-codex".into(), test_trip("pet-codex"));
+        }
+        // One pet cancels: only ITS flag flips (the old global AtomicBool
+        // cancelled BOTH duo trips).
+        manager.cancel_for(Some("pet")).unwrap();
+        assert!(manager.cancel_flag("pet"));
+        assert!(
+            !manager.cancel_flag("pet-codex"),
+            "F1: cancelling one pet must leave the other trip running"
+        );
+        // A targeted cancel for a window WITHOUT a trip errors, even though
+        // the other pet still has one (owner-scoped "no active trip").
+        manager
+            .active
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove("pet");
+        assert!(manager.cancel_for(Some("pet")).is_err());
+        // The legacy no-arg contract still cancels every remaining owner.
+        manager.cancel_for(None).unwrap();
+        assert!(manager.cancel_flag("pet-codex"));
+        // No pids were registered → the kill path must be a safe no-op.
+        manager.kill_child_for("pet-codex");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn start_reset_clears_only_the_starting_owner_flag() {
+        let (manager, dir) = test_manager("reset");
+        {
+            let mut flags = manager.cancel.lock().unwrap_or_else(|e| e.into_inner());
+            flags.insert("pet".into(), true);
+            flags.insert("pet-codex".into(), true);
+        }
+        // start() clears its own pending flag only — a second pet's pending
+        // cancel survives the first pet's new trip (the old global
+        // cancel.store(false) swallowed it).
+        manager.clear_cancel("pet");
+        assert!(!manager.cancel_flag("pet"));
+        assert!(manager.cancel_flag("pet-codex"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn second_owner_pid_does_not_clobber_the_first() {
+        let (manager, dir) = test_manager("pid");
+        {
+            let mut pids = manager.child_pids.lock().unwrap_or_else(|e| e.into_inner());
+            pids.insert("pet".into(), 111);
+            pids.insert("pet-codex".into(), 222);
+        }
+        // One trip's cleanup retires ONLY its own owner pid (the old single
+        // slot was erased by whichever trip finished first).
+        manager
+            .child_pids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&"pet".to_string());
+        let pids = manager.child_pids.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(pids.get("pet").is_none());
+        assert_eq!(pids.get("pet-codex").copied(), Some(222));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn snapshot_legacy_fields_are_deterministic() {
+        let (manager, dir) = test_manager("snapshot");
+        {
+            let mut active = manager.active.lock().unwrap_or_else(|e| e.into_inner());
+            // Insert the SECOND window first — HashMap iteration order must
+            // not decide which trip the legacy field surfaces.
+            active.insert("pet-codex".into(), test_trip("pet-codex"));
+            active.insert("pet".into(), test_trip("pet"));
+        }
+        {
+            let mut pids = manager.child_pids.lock().unwrap_or_else(|e| e.into_inner());
+            pids.insert("pet".into(), 111);
+            pids.insert("pet-codex".into(), 222);
+        }
+        let snapshot = manager.snapshot();
+        assert_eq!(
+            snapshot["activeTrip"]["owner"].as_str(),
+            Some("pet"),
+            "F12: legacy activeTrip must deterministically pick the pet window"
+        );
+        assert_eq!(snapshot["childPid"].as_u64(), Some(111));
+        // With the primary window idle, the second window's trip becomes the
+        // deterministic legacy pick — same value on every call.
+        {
+            let mut active = manager.active.lock().unwrap_or_else(|e| e.into_inner());
+            active.remove("pet");
+        }
+        manager
+            .child_pids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove("pet");
+        let snapshot = manager.snapshot();
+        assert_eq!(snapshot["activeTrip"]["owner"].as_str(), Some("pet-codex"));
+        assert_eq!(snapshot["childPid"].as_u64(), Some(222));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn legacy_trip_prefers_pet_then_pet_codex_then_sorted() {
+        let mut active = HashMap::new();
+        assert!(legacy_trip(&active).is_none());
+        active.insert("pet-codex".into(), test_trip("pet-codex"));
+        assert_eq!(
+            legacy_trip(&active).map(|t| t.owner),
+            Some("pet-codex".into())
+        );
+        active.insert("pet".into(), test_trip("pet"));
+        assert_eq!(legacy_trip(&active).map(|t| t.owner), Some("pet".into()));
+        // Unexpected labels degrade to sorted order after the known windows.
+        let mut unexpected = HashMap::new();
+        unexpected.insert("zz".into(), test_trip("zz"));
+        unexpected.insert("aa".into(), test_trip("aa"));
+        assert_eq!(legacy_trip(&unexpected).map(|t| t.owner), Some("aa".into()));
     }
 }

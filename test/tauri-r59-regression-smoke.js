@@ -189,8 +189,12 @@ assert(fs.existsSync(path.join(root, 'frontend/renderer/expressions.js')),
   'the studio controller must exist');
 assert(fs.existsSync(path.join(root, 'frontend/renderer/pet-expressions.js')),
   'the pet-side override layer must exist');
-assert(petJs.includes('function expressionAwareSwap'),
+// R60: the swap chain moved to the focused frame-table owner module.
+const frameTable = read('frontend/renderer/pet-frame-table.js');
+assert(frameTable.includes('function expressionAwareSwap'),
   'asset swaps must be override-aware (incl. the 60s pose-rotation timer)');
+assert(read('frontend/renderer/pet.html').includes('pet-frame-table.js'),
+  'pet.html must load the frame-table owner');
 assert(petJs.includes('petExpressions.configure('),
   'the pet must subscribe to the override table');
 assert(read('frontend/renderer/pet.html').includes('pet-expressions.js'),

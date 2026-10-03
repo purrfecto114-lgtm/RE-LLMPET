@@ -18,8 +18,8 @@ const tauri = JSON.parse(read('src-tauri/tauri.conf.json'));
 const tauriLinux = JSON.parse(read('src-tauri/tauri.linux.conf.json'));
 const pinnedFixture = JSON.parse(read('test/fixtures/models-dev-api-sample.json'));
 
-assert.strictEqual(pkg.version, '0.6.8');
-assert.strictEqual(tauri.version, '0.6.8');
+assert.strictEqual(pkg.version, '0.6.9');
+assert.strictEqual(tauri.version, '0.6.9');
 assert(tauriLinux.bundle.linux.deb.depends.includes('curl'), 'Debian package must declare curl runtime dependency');
 assert(pinnedFixture.anthropic.models['claude-sample'].cost.cache_read > 0);
 
@@ -100,8 +100,10 @@ assert.match(panel, /function renderPriceInfo/);
 assert.match(panel, /lastUpdatedAt/);
 assert.match(panel, /nextCheckAt/);
 assert.match(panel, /consecutiveFailures/);
-assert.match(panel, /价格更新失败/);
-assert.match(panel, /无变化/);
+// R60-c: the error / no-change branches were hardcoded zh (价格更新失败 /
+// 无变化); they now route through i18n keys — lock the t() wiring instead.
+assert.match(panel, /t\('panel\.priceFailTail'\)/);
+assert.match(panel, /t\('panel\.priceNoChange',/);
 
 // Unit-test source covers validators, parser, backoff, wrapper shape and persisted state.
 for (const testName of [

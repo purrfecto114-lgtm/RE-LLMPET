@@ -1,5 +1,143 @@
 # Changelog
 
+
+## 0.6.9 — R60 仿照重写：pet.js 模块化 + 全量 GUI 回归根修（2026-10-03）
+
+> 用户指令（原文）：「出现了多处GUI和功能异常和回退，鉴于多伦补丁叠加，
+> 我推荐你网上查找相关用例并尝试仿照重写，注意确保没有恶意代码。联网搜索。
+> 开agents评审团。发版，可混入其他语言」
+
+> **本版本方法论** / Methodology / 方法論：针对 0.6.5→0.6.8 四轮补丁在
+> pet.js（2843 行）里的叠加，本轮没有继续打补丁，而是按「联网调研参考
+> 实现 → 仿照重写」的路线执行：四只读研究/审计代理（参考蓝图、前端审计、
+> 后端审计、供应链安全）+ 两实现代理（Rust 后端、panel i18n）+ 主协调者
+> 的模块化重写，随后全量门禁。供应链安全审计结论：**零确认恶意、零高危**
+> （唯一中风险 gh-proxy.com 定价镜像已有 schema 校验/大小上限/价格钳制缓解）。
+
+### HIGH: pet.js 组件化重写（extract a focused owner × 7）
+- 拆出 7 个单一职责模块（对齐上游 LLMPET v1.2.0 的 renderer 组织方式，
+  参考来源含 Tauri v2 官方文档/MDN stacking 规范，见 worklog R60-1）：
+  - `pet-frame-table.js`（148 行）状态→图片换帧链 + 表情覆盖层
+  - `pet-state-machine.js`（145 行）setState/transient/工具动作
+  - `pet-aggregate.js`（54 行）纯函数聚合梯子（可单测）
+  - `pet-bubble.js`（76 行）气泡显隐/视口适配
+  - `pet-fx.js`（161 行）音效/彩带/错误丝带/微动作
+  - `pet-event-router.js`（271 行）pet:event 分发表（守卫+处理函数表）
+  - `pet-drag.js`（186 行）拖拽手势→窗口移动队列
+- pet.js 2843 → 2272 行，成为组合根（DOM/几何协商/ask 面板/会话 HUD/
+  chooser/配置快照应用）。预算表新增 7 行模块预算（small by design）。
+- 移植上游 v1.2.0 的 4 项拖拽防御中缺失的 2 项：buttons 自愈（透明窗丢
+  pointerup 时手势自结束）、过期 IPC 手势身份校验已有保持显式。
+
+### P0: 自定义表情删除/停用后桌宠卡死旧图（R59 缺陷根修）
+- `reapplyCurrentOverride` 只在「当前状态有覆盖」时重放；clear/disable 事件
+  后无覆盖也无回退 → idle/sleeping 等持续态永久停留在已删除的覆盖图上，
+  而工坊 toast 宣称「已恢复默认表情」。现 `pet-frame-table.reapply()` 无
+  覆盖时回放基础资产（≤10 行修复，归 frame-table owner）。
+
+### P0: 表情工坊对 mascot/pixel 皮肤用猫 GIF 冒充「默认预览」
+- `packOf()` 对非 meme 皮肤回落 CAT 包 → 默认皮肤用户看到的每个状态
+  「默认表情」全是 cat-*.gif，误导上传决策。现仅 cat/whale 皮肤给出
+  打包资产预览，mascot/pixel 显示占位符。
+
+### HIGH: travel 终态双通道双处理（0.6.6 引入）
+- travel.rs 对 completed/failed 同一终态连发 `pet:travel` +
+  `pet:event(kind:travel)`，旧 pet.js 两个 handler 都执行
+  transient()+气泡 → 庆祝双发、气泡文本 `📮 summary`↔裸 summary 闪变、
+  短暂态时长被二次重置。事件路由器的 travel 臂现在只处理
+  started/cancelled，终态单通道（onTravel）渲染。
+
+### HIGH: 双宠 travel per-owner 收尾（R58 遗留）
+- `child_pid`/`cancel` 全局单槽 → 按窗口 label 分键；`cancel_travel` 增
+  可选 owner 参数（None=全部，兼容旧调用）；duo 模式一宠取消不再连带
+  取消另一宠、孤儿 pid 不再丢失、start 不再吞掉其它 owner 的待执行取消。
+  snapshot 的 legacy `activeTrip` 字段改为确定性选择（固定 owner 排序）。
+
+### HIGH: 宠物窗无关闭防护——Alt+F4 永久丢桌宠
+- pet/pet-codex 静态窗无 CloseRequested 处理（panel/studio 有）→ 一次
+  Alt+F4 即销毁桌宠窗且无任何恢复路径（托盘「显示宠物」也救不回）。
+  现两窗 prevent_close（常驻窗语义，与 panel 分支对称）。
+
+### P1 组（11 项）
+- choose-provider 事件进程级广播 → emit_to 定向（duo 下双 chooser 根修）
+- save_custom_expression 先删后写 → 先写 temp+rename 成功再清旧扩展名
+  （换扩展名失败时用户旧表情不再不可恢复丢失）
+- focus_pet 无条件 show → 加 duo/hidePet 判据（与 sync_pet_windows 对称）
+- set_pet_tall/set_pet_big/territory_toggle_auto 三个桥命令补 capability
+  授权（防未来接线即静默 ACL 拒绝）
+- recover_windows 漏 expression-studio → 显示器拓扑变化后工坊窗可恢复
+- claude 授权卡 duo 双窗渲染（provider:Null）→ duo+claude 时填 provider
+  分片
+- pet-codex 重载后不回拉旅行态 → boot 序列补 getTravel（F11）
+- duoProvider≠codex 时副宠窗每次启动双 boot（动画/问候/配置双跑）→
+  sessionStorage 换载旗标抑制一次性行为（P1-2）
+- attention/notification 状态点恒灰 → 补琥珀配色（头部点+HUD 同步）
+- 「待处理」过滤器漏 attention/notification 行 → 纳入（P2-9）
+- territory 事件补 provider 字段（8 处 emit）→ duo 双宠不再同跳巡逻舞
+
+### i18n 全面接线（en/ja 界面不再混语）
+- pet.js 事件路由全臂 i18n 化（bub.*/terr.*/bubble.* 既有键 + 新键），
+  约 40 处硬编码中文接入 t()
+- panel.js 39 处硬编码中文接线（14 既有键 + 38 新键×三语）；顺手修掉
+  panel.js 两处 `currentLang` ReferenceError 真 bug（诊断加载视图与进度
+  回调在 panel 窗口原本必抛异常不可达）+ applyLanguage 动态区刷新补全
+  （托盘 set_language 路径此前完全不刷新面板）
+- 后端 say 文案 i18n：process_probe 四处/territory 两处/session_resume/
+  commands 全部走 i18n.rs 三语表；授权卡 options 附 i18nKey（perm.* 六键），
+  前端 optLabel() 优先渲染本地化按钮（P1-5）
+- Rust/JS 字典平价：9 个后端键镜像 + toast.priceFail + perm 连字符键，
+  r11 平价冒烟 56 键全对齐
+
+### 代码卫生（审计 P2 清单）
+- 死代码移除：longcmd/cancel 死臂、expressions:shown/hidden 死信通道
+  （前后端双侧）、#teyes 死 CSS、SESS_META zh 表（改 sessionStateLabel）
+- 定时器清理对称化：sayTimer/errorRibbonTimer 归模块 dispose（此前
+  beforeunload 清单漏项）；各模块自带 dispose，欠清理结构性不可能
+- showBubble 守卫补全 sessListOpen/todoPopOpen（HUD 面板不再盖住气泡）
+- 托盘 toast duo 双 beep → 仅主宠窗播放音效（隐藏 pet-codex webview
+  仍处理事件但不响）
+- 文档注释修正×3（custom_expressions 冒烟引用、commands --dir 注释、
+  set_duo_provider 描述）
+
+### 门禁 / Gates / ゲート
+- npm test：85 文件全链 EXIT 0（含新增 R60 模块预算与断言迁移）
+- cargo test --lib / clippy -D warnings / fmt：见 worklog R60（本条在
+  发布时为全绿快照）
+- static-checks 22/22；SOURCE_MANIFEST 450 文件重生成
+- cargo audit：RUSTSEC-2024-0429 维持 audit.toml 显式豁免（生态锁死
+  未变，移除条件见 0.6.8 条目）
+
+### 评审团修复批次（10 位并行评审 RV-A…RV-J 后当场闭环）
+- RV-B P0（重写引入）：状态机漏接 showBubble 依赖——transient 气泡文字
+  （任务完成/问候/报错/说语/领地/旅行）曾全链不显示，一行接线恢复
+- RV-A P0（重写引入）：PIXEL_MAP/buildPixel 丢失——pixel 皮肤曾渲染空白
+- RV-A/RV-C P1（重写引入）：微动作链未启动（眨眼/peek 失效）——补回装配
+- RV-A P2：lastWinPos 双缓存单向同步缺口——外部权威位置更新后纯点击回旧位
+- RV-I P1-1：cancelTravel 未传 owner——CHANGELOG 声称的「duo 一宠取消不
+  连带」端到端落地（bridge 附 window label）
+- RV-I P1-2：授权卡双窗渲染真正根因——pendingChoices 经 filterStats 按
+  provider 分片（claude 卡归 claude 会话所在窗口）
+- RV-I P2-1：travel started 反馈按 owner 路由（provider 降级时曾弹错窗）
+- RV-I P2-3：单窗模式双音频——隐藏 pet-codex webview 曾对每个事件出声；
+  单窗仅主窗出声，双窗各自事件各自出声
+- RV-B P1×3：会话列表每 ~2s 全量重渲滚回顶/吞反馈（内容签名+滚动保持）、
+  待答卡×列表乒乓（列表开着不抢面板）、右键径向菜单裁卡（ask 互斥）
+- RV-B P1：静音误伤气泡文字——muted 只作用于音效
+- RV-C P1-2：状态点无谓重挂重启 dotPulse 动画——顺序守卫
+- RV-D/RV-F P1：travel 中断明信片持久化中文→按 config.lang 三语
+- RV-C P2-1：聚合梯子每快照算两遍→一次
+- RV-A P3：travel cancelled 双通道双气泡→彻底单通道化
+- 测试防复发锁（RV-G）：新增 tauri-r60-rewrite-smoke（showBubble 接线/
+  像素重建/微动作启动/P0-1 回退/cancelTravel owner/pendingChoices 分片/
+  死臂不复活），i18n 键存在性扫描扩到 7 个新模块
+- RV-E 安全复审：零恶意/零高危维持（D0-D3 检查单全过）
+
+### 升级须知 / Upgrade notes / アップグレード注意
+- 无数据迁移；config/schema 兼容 0.6.8
+- 卸载/重装不受影响；hooks 安装不受影响
+- 若你之前为 pet-codex 配了非 codex 搭配，首次启动的换载会少一次闪动
+  与重复问候（P1-2 修复的直接观感）
+
 ## 0.6.8 — R59 glib advisory 处置 + 双宠副宠被吞回归根修 + 闲逛任意 provider + 自定义表情工坊（2026-10-03）
 
 > 用户指令（原文）：「发现：Unsoundness in `Iterator` and

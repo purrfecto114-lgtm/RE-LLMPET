@@ -82,10 +82,20 @@ for (const lang of ['en', 'ja']) {
 // ── 4. every t() key used in source exists ───────────────────────────────────
 const SOURCES = [
   'frontend/renderer/pet.js', 'frontend/renderer/panel.js',
+  // R60-RV-G: the pet-event-router (26 keys) and the other extracted modules
+  // are now the biggest t() consumers — a typo there previously passed this
+  // scan and rendered a bare key in the bubble.
+  'frontend/renderer/pet-event-router.js',
+  'frontend/renderer/pet-bubble.js',
+  'frontend/renderer/pet-state-machine.js',
+  'frontend/renderer/pet-frame-table.js',
+  'frontend/renderer/pet-aggregate.js',
+  'frontend/renderer/pet-fx.js',
+  'frontend/renderer/pet-drag.js',
 ];
 // Only fully-qualified "group.name" literals; the concatenated families
 // (t('tool.' + x), t('lang.' + code)) are asserted member-by-member below.
-const DOTTED = /^[a-z]+\.[A-Za-z]\w*$/;
+const DOTTED = /^[a-z]+\.[A-Za-z][\w-]*$/; // R60-RV-G: tolerate hyphens (say.territory-unsupported)
 const usedKeys = new Set();
 const collect = (re, src) => {
   for (const m of src.matchAll(re)) if (DOTTED.test(m[1])) usedKeys.add(m[1]);
