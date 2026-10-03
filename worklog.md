@@ -1765,3 +1765,20 @@ Work Log:
 Stage Summary:
 - 0.6.9 = 仿照重写（7 模块 + 组合根）+ 评审团交叉验证出的 3 个重写自引入回归当场闭环 + duo 端到端补完（取消隔离/授权卡分片/声音门控）+ i18n 全面接线
 - 遗留下轮（评审团移交）：model.rs 动态文案 i18nKey 化（humanize_tool/授权 reason/ask header/suggestion）、hook_install 收据 zh~15 处、RV-H cancel-kill 竞窗加固、aria-label 机制、travel 快照 IPC 节流（RV-C P1-1）、whale 21MB 缓存驱逐、provider 元数据三表收敛
+---
+Task ID: R60-RELEASE
+Agent: main-orchestrator
+
+Work Log:
+- 提交 211b659（129 文件：7 新模块 + 22 前端 + 12 Rust + 测试迁移 + 3 项 capability/manifest）+ tag v0.6.9 推送 GitHub
+- Release 流水线 run 37143893320 五阶段全绿（validate→prepare→build×4→publish）；CI run 37143891922 同步全绿
+- 草稿迁移（0.6.5+ 惯例）：v0.6.9-draft-220 的 15 资产并行下载 + git archive Octopus-0.6.9-source.zip + 汇总 SHA256SUMS.txt → 创建正式 release 402640441（tag v0.6.9，make_latest，中/EN/JA 混排 release notes）→ 17/17 资产上传 → 草稿与 draft-220 tag 已删
+- 抽查：x64-setup.exe sha256（9945c267…c884）与 SHA256SUMS.txt 一致；latest=v0.6.9（17 资产）
+- 脚手架恢复：R60-b 清磁盘误删父级 node_modules → bun install 重装；dev server / 路由 GET 200
+- 脚手架发布页更新至 0.6.9（R60_ITEMS/alert/intro/GitHub Release 链接/layout 标题）+ agent-browser 端到端实证：标题/横幅/门禁/tab 切换/无页面错误/console 干净；eslint 全局忽略修正（workspace 渗漏 948 假错）→ bun run lint EXIT 0
+- 磁盘回收：/tmp 资产 + octopus 构建产物清理（CI 已从 tag 构建发布二进制，本地无需保留）
+
+Stage Summary:
+- https://github.com/purrfecto114-lgtm/RE-LLMPET/releases/tag/v0.6.9 正式发布：17 资产（exe/dmg/deb×2/AppImage×2/app.tar.gz/source.zip/SHA256SUMS×5/SBOM×4）
+- main=211b659=v0.6.9；门禁全绿：npm 86 文件 / static 22/22 / clippy 0 / cargo 185/185 / fmt / manifest 451 / CI+Release 流水线
+- 交付面：仿照重写 7 模块 + 评审团 10 位闭环 + duo 端到端 + i18n 全面接线；供应链零恶意零高危
