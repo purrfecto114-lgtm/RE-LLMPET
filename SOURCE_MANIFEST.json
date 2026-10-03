@@ -446,8 +446,8 @@
     "test/tauri-tray-submenu-r12-smoke.js": "d0f7ebb3a69cdcc7c9b416613444aebd088e5f1402c75ca572c2c40d997e606d",
     "test/tauri-windows-static-smoke.js": "21ba7eb171263ba7a02a8170a8689360577e4bf8f0a8450213ae2a4c7feab83b",
     "test/upstream-reconciliation-smoke.js": "568bfed41280b32345661e4ff23947614f4f3d7b3c300185dab6a4f56e0060fd",
-    "worklog.md": "1ade978e0ad990a8d12e6ed5c30d084e37ba8dcd250de0698cbbffe3a0155afa"
+    "worklog.md": "360262c0e2918f62ffc6e482c0879248b355a895f462446751ba7f4acd4076b9"
   },
-  "sha256_of_manifest": "3e2bf31f5d8c701e4e3fee314c27410d86d14f821e72ca09bd8df8d2c11f62d5",
+  "sha256_of_manifest": "a04f50f8095e0cd9dd777a928e5e62808e02daa71789047b47527550d74ec4c4",
   "source_commit": "octopus-0.5.62"
 }

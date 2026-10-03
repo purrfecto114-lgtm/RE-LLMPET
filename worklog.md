@@ -1657,3 +1657,18 @@ Work Log:
 
 Stage Summary:
 - R59 全部交付：四项用户指令根修 + 门禁全绿 + v0.6.8 发版（tag 推送 GitHub，Release 流水线见后续记录）。
+---
+Task ID: R59-FINAL
+Agent: main-orchestrator
+
+Work Log:
+- 首次推送 8b5e90c 后 Release validate 失败：amend 追加 worklog.md 改变哈希但 SOURCE_MANIFEST 未重生成——重生成 manifest 并 amend 为 6b75793，重推 main + 重打 tag v0.6.8（此为版本钉哈希门禁的正常自愈路径）。
+- Release 流水线五阶段全绿（validate→prepare→build×4→publish，run 37087734720）；CI 同步全绿（run 37087733037）。
+- 惯例迁移完成：草稿 v0.6.8-draft-219（15 资产）并行下载 + git archive 生成 Octopus-0.6.8-source.zip + 汇总 SHA256SUMS.txt → 创建正式 release（402276401，tag v0.6.8，make_latest）→ 17 资产全部上传（17/17 成功）→ 删除草稿 release 与 draft tag。
+- 抽查：本地 x64-setup.exe sha256（3ca0167b…8502）与 SHA256SUMS.txt 条目一致。
+- Dependabot：本 PAT 无 dependabot 域权限（403），alert 处置留给用户侧（GitHub → Security → Dependabot → RUSTSEC-2024-0429 按 "vulnerable_code_not_in_execute_path" dismiss 即可）；仓库曾自动尝试升 glib 的 Dependabot PR 已自行失败关闭（生态锁死），audit.toml 豁免与冒烟守卫已就位。
+- 浏览器自验说明：本交付物为 Tauri 桌面应用（无浏览器可渲染路由），以全链门禁（cargo/npm/audit/static/CI×2+Release 流水线）替代 agent-browser 验证；桌面端交互验证交由用户安装 0.6.8 资产进行。
+
+Stage Summary:
+- v0.6.8 正式发布完成：latest release 17 资产（exe/dmg/deb×2/AppImage×2/app.tar.gz/source.zip/SHA256SUMS×5/SBOM×4），main@后续 docs 提交，tag v0.6.8。
+- R59 四项用户指令全部闭环：glib advisory 可审计处置、双宠副宠被吞双根因根修、闲逛五 provider runner + 硬编码清零、表情工坊全链交付。
