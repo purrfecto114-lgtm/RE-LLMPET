@@ -98,14 +98,41 @@ function fadeSwapImg(img, newSrc) {
 function updateMascotEyes(s) {
   if (!mascotImg) return;
   const f = MASCOT_EYES[s] || 'mascot.png';
-  if (!mascotImg.getAttribute('src').endsWith(f)) fadeSwapImg(mascotImg, '../assets/' + f);
+  // R59: route through expressionAwareSwap so overrides apply to the mascot
+  // skin as well.
+  if (!mascotImg.getAttribute('src').endsWith(f)) expressionAwareSwap(mascotImg, '../assets/' + f);
 }
 const catImg = document.getElementById('cat-img');
 // R56: meme skin packs (cat/whale tables, lazy caches, pose rotation) moved to
 // pet-skin-packs.js — pet.js keeps only these thin wrappers so call sites are
 // unchanged. whale (鲸鱼女仆) is the upstream main(v1.2.0) dsh-companion skin.
 const skinPacks = window.OctoPetSkinPacks;
-skinPacks.configure({ img: catImg, swap: fadeSwapImg });
+// R59: custom expression overrides (expression studio). The swap wrapper
+// intercepts EVERY asset swap — the initial state update AND the skin packs'
+// 60s pose-rotation timer — so an override for a pooled state (working×4,
+// thinking×2 …) is not reverted by rotation a minute later. Cached overrides
+// swap immediately; uncached ones show the pack asset for one frame and swap
+// in when the data: URL arrives (guarded against a state change mid-fetch).
+// The pixel skin renders CSS/SVG with no <img> target — overrides skip it.
+const petExpressions = window.OctoPetExpressions;
+function expressionAwareSwap(img, src) {
+  const swapState = state;
+  if (petExpressions && petExpressions.hasOverride(swapState)) {
+    const cached = petExpressions.peek(swapState);
+    if (cached) return fadeSwapImg(img, cached);
+    petExpressions.resolve(swapState).then((url) => {
+      if (url && state === swapState) fadeSwapImg(img, url);
+    }).catch(() => {});
+  }
+  return fadeSwapImg(img, src);
+}
+function reapplyCurrentOverride() {
+  if (!petExpressions || skin === 'pixel') return;
+  if (!petExpressions.hasOverride(state)) return;
+  const img = skin === 'mascot' ? mascotImg : catImg;
+  if (img) expressionAwareSwap(img, img.getAttribute('src') || '');
+}
+skinPacks.configure({ img: catImg, swap: expressionAwareSwap });
 const isMeme = () => skinPacks.isMeme(skin);
 function updateCat(s) { skinPacks.update(skin, s); }
 function maybePreloadMemeAssets() {
@@ -1122,11 +1149,16 @@ function renderSessList() {
     const archiveBtn = isArchived
       ? `<button class="sl-action sl-unarchive" title="${t('sess.unarchive')}"${prefDisabled}>📥</button>`
       : `<button class="sl-action sl-archive" title="${t('sess.archive')}"${prefDisabled}>📤</button>`;
-    // R58-IMPL-C: travel-capable providers mirror travel.rs's supported
-    // set (claude/codex/codewhale) — the old ['claude','codex'] literal hid
-    // the 🧳 button on codewhale sessions even though wander supported them.
-    const travelBtn = !s.headless && window.OctoPetTravelView.WANDER_SUPPORTED.includes(s.providerId || s.provider)
-      ? `<button class="sl-action sl-travel" title="项目旅行">🧳</button>` : '';
+    // R59: travel-capable providers come from the backend config snapshot
+    // (cfg.wanderSupported — travel.rs single source, now including opencode
+    // + aider runners); the mirror is only for old payloads. The old
+    // ['claude','codex'] literal hid the 🧳 button on codewhale sessions.
+    const wanderCapable =
+      (Array.isArray(wanderSupportedList) && wanderSupportedList.length
+        ? wanderSupportedList
+        : window.OctoPetTravelView.WANDER_SUPPORTED);
+    const travelBtn = !s.headless && wanderCapable.includes(s.providerId || s.provider)
+      ? `<button class="sl-action sl-travel" title="${t('sess.travel')}">🧳</button>` : '';
     // R57 (upstream main.js:1553-1560)：会话 ID 尾 8 位一键复制，跨 agent
     // resume 协作刚需（终端里 `claude --resume <paste>` / `opencode -s <paste>`）。
     const copyBtn = s.sessionId
@@ -1181,11 +1213,14 @@ function renderSessList() {
     if (travelEl) travelEl.addEventListener('click', async (e) => {
       e.stopPropagation();
       try {
-        await window.pet.startTravel(s.sessionId || '', `探索 ${s.project || '这个项目'} 的结构、风险与值得记录的发现`);
-        showBubble(`🧳 ${s.project || '项目'}：出发旅行！`, 3200, true);
+        // R59: mission=null → the backend picks a random TRILINGUAL mission
+        // (the fixed Chinese mission text made every trip identical).
+        await window.pet.startTravel(s.sessionId || '', null);
+        showBubble(t('bubble.travelStart', { project: s.project || t('sess.travelProjectFallback') }), 3200, true);
         closeSessList();
       } catch (error) {
-        showBubble(`⚠️ 无法出发：${String(error && (error.message || error) || 'unknown')}`, 5000, true);
+        const message = String(error && (error.message || error) || 'unknown');
+        showBubble(t('bubble.travelFailDetail', { error: message }), 5000, true);
       }
     });
     // Pin/unpin
@@ -1275,6 +1310,10 @@ const travelView = window.OctoPetTravelView.create({
   // window (pet / pet-codex); wander degrades to a supported enabled provider.
   agent: PET_AGENT,
   enabledProviders: () => activeProviders,
+  // R59: backend-authoritative wander capability set from the config
+  // snapshot; pet-travel-view.js falls back to its mirror only when the
+  // field is absent (old backend payload).
+  supported: () => wanderSupportedList,
 });
 // 工具 -> 干活动作；道具 emoji 的运动变体
 const TOOL_ACT = {
@@ -1371,6 +1410,11 @@ function setState(s) {
   // 之前「s!=='waiting' 就 hideAsk」会在聚合态变 working/thinking 时把 needsinput 的面板闪掉。
   if (skin === 'mascot') updateMascotEyes(s);
   if (isMeme()) updateCat(s);
+  // R59: overrides whose data: URL is already on the img (or whose pack
+  // asset matches the current src) need an explicit re-apply — fadeSwapImg's
+  // src guard would no-op and the pet would keep showing the last state's
+  // override after the state changed.
+  if (petExpressions && petExpressions.hasOverride(s)) reapplyCurrentOverride();
   // R57 (upstream pet.js:2974 syncErrorRibbons)：whale 的 error GIF 没有红色
   // 彩带，持续 error 期间补一层独立 CSS 丝带；离开 whale/error 立即清场。
   syncErrorRibbons();
@@ -1986,8 +2030,13 @@ function applyConfigSnapshot(cfg) {
   // A missing/stale duoProvider field falls back to 'codex' (0.6.6).
   duoProvider = typeof cfg.duoProvider === 'string' && cfg.duoProvider ? cfg.duoProvider : 'codex';
   petAgentView.setDuoProvider(duoProvider);
+  // R59: second-pet URL query self-alignment lives in the identity owner
+  // module (pet-agent-view.js) — see its doc comment.
+  petAgentView.syncDuoQuery(cfg);
   if (cfg.lang) applyLanguage(cfg.lang);
   territorySupported = !!cfg.territorySupported;
+  // R59: single-source wander capability (was a drifting frontend mirror).
+  if (Array.isArray(cfg.wanderSupported)) wanderSupportedList = cfg.wanderSupported;
   // R58-IMPL-C: window identity ('pet-codex') decides which skin/position
   // fields apply — the semantic provider is config-driven, but the
   // skinCodex/petPositionCodex field names stay (data compatibility).
@@ -2567,6 +2616,10 @@ todopop.querySelectorAll('.tp-ops button').forEach((b) => {
 });
 
 let territorySupported = false; // 由 pet:config 下发(仅 macOS true)
+// R59: wander-capable provider set from the backend config snapshot
+// (cfg.wanderSupported — injected from travel.rs's single source). null =
+// old-backend payload; consumers fall back to the module mirror.
+let wanderSupportedList = null;
 
 function toggleSkin() {
   const order = ['mascot', 'pixel', 'cat', 'whale'];
@@ -2703,6 +2756,14 @@ if (window.pet && typeof window.pet.onWindowBlur === 'function') {
     dismissTransientUi('native-blur');
   });
 }
+
+// R59: expression studio overrides — subscribe to the backend table and
+// re-apply to the current state when it changes while the studio is open.
+petExpressions.configure({
+  api: window.pet,
+  log: rlog,
+  rerender: reapplyCurrentOverride,
+});
 
 // ---------- 初始化 ----------
 (async () => { // R1-A#5: try/catch so getConfig/getStats rejection doesn't leave pet blank

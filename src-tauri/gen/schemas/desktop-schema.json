@@ -201,6 +201,18 @@
           "markdownDescription": "Enables the cancel_travel command without any pre-configured scope."
         },
         {
+          "description": "Enables the clear_custom_expression command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-clear-custom-expression",
+          "markdownDescription": "Enables the clear_custom_expression command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the close_expressions command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-close-expressions",
+          "markdownDescription": "Enables the close_expressions command without any pre-configured scope."
+        },
+        {
           "description": "Enables the close_panel command without any pre-configured scope.",
           "type": "string",
           "const": "allow-close-panel",
@@ -255,6 +267,12 @@
           "markdownDescription": "Enables the get_config_state command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_custom_expressions command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-custom-expressions",
+          "markdownDescription": "Enables the get_custom_expressions command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_install_receipts command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-install-receipts",
@@ -303,6 +321,12 @@
           "markdownDescription": "Enables the launch_agent_in command without any pre-configured scope."
         },
         {
+          "description": "Enables the open_expressions command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-expressions",
+          "markdownDescription": "Enables the open_expressions command without any pre-configured scope."
+        },
+        {
           "description": "Enables the open_log command without any pre-configured scope.",
           "type": "string",
           "const": "allow-open-log",
@@ -339,6 +363,12 @@
           "markdownDescription": "Enables the quit_app command without any pre-configured scope."
         },
         {
+          "description": "Enables the read_custom_expression command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-read-custom-expression",
+          "markdownDescription": "Enables the read_custom_expression command without any pre-configured scope."
+        },
+        {
           "description": "Enables the rebuild_usage_costs command without any pre-configured scope.",
           "type": "string",
           "const": "allow-rebuild-usage-costs",
@@ -357,6 +387,12 @@
           "markdownDescription": "Enables the resume_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the save_custom_expression command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-custom-expression",
+          "markdownDescription": "Enables the save_custom_expression command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_budget command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-budget",
@@ -367,6 +403,12 @@
           "type": "string",
           "const": "allow-set-currency",
           "markdownDescription": "Enables the set_currency command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_custom_expressions_enabled command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-custom-expressions-enabled",
+          "markdownDescription": "Enables the set_custom_expressions_enabled command without any pre-configured scope."
         },
         {
           "description": "Enables the set_duo_provider command without any pre-configured scope.",
@@ -525,6 +567,18 @@
           "markdownDescription": "Denies the cancel_travel command without any pre-configured scope."
         },
         {
+          "description": "Denies the clear_custom_expression command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-clear-custom-expression",
+          "markdownDescription": "Denies the clear_custom_expression command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the close_expressions command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-close-expressions",
+          "markdownDescription": "Denies the close_expressions command without any pre-configured scope."
+        },
+        {
           "description": "Denies the close_panel command without any pre-configured scope.",
           "type": "string",
           "const": "deny-close-panel",
@@ -579,6 +633,12 @@
           "markdownDescription": "Denies the get_config_state command without any pre-configured scope."
         },
         {
+          "description": "Denies the get_custom_expressions command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-custom-expressions",
+          "markdownDescription": "Denies the get_custom_expressions command without any pre-configured scope."
+        },
+        {
           "description": "Denies the get_install_receipts command without any pre-configured scope.",
           "type": "string",
           "const": "deny-get-install-receipts",
@@ -627,6 +687,12 @@
           "markdownDescription": "Denies the launch_agent_in command without any pre-configured scope."
         },
         {
+          "description": "Denies the open_expressions command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-expressions",
+          "markdownDescription": "Denies the open_expressions command without any pre-configured scope."
+        },
+        {
           "description": "Denies the open_log command without any pre-configured scope.",
           "type": "string",
           "const": "deny-open-log",
@@ -663,6 +729,12 @@
           "markdownDescription": "Denies the quit_app command without any pre-configured scope."
         },
         {
+          "description": "Denies the read_custom_expression command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-read-custom-expression",
+          "markdownDescription": "Denies the read_custom_expression command without any pre-configured scope."
+        },
+        {
           "description": "Denies the rebuild_usage_costs command without any pre-configured scope.",
           "type": "string",
           "const": "deny-rebuild-usage-costs",
@@ -681,6 +753,12 @@
           "markdownDescription": "Denies the resume_session command without any pre-configured scope."
         },
         {
+          "description": "Denies the save_custom_expression command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-custom-expression",
+          "markdownDescription": "Denies the save_custom_expression command without any pre-configured scope."
+        },
+        {
           "description": "Denies the set_budget command without any pre-configured scope.",
           "type": "string",
           "const": "deny-set-budget",
@@ -691,6 +769,12 @@
           "type": "string",
           "const": "deny-set-currency",
           "markdownDescription": "Denies the set_currency command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_custom_expressions_enabled command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-custom-expressions-enabled",
+          "markdownDescription": "Denies the set_custom_expressions_enabled command without any pre-configured scope."
         },
         {
           "description": "Denies the set_duo_provider command without any pre-configured scope.",

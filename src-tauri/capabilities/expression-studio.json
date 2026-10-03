@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "expression-studio",
+  "description": "Least-privilege commands used by the expression studio window (custom pet expressions).",
+  "windows": [
+    "expression-studio"
+  ],
+  "permissions": [
+    "core:event:default",
+    "core:window:default",
+    "core:webview:default",
+    "allow-get-config",
+    "allow-set-language",
+    "allow-get-custom-expressions",
+    "allow-save-custom-expression",
+    "allow-clear-custom-expression",
+    "allow-set-custom-expressions-enabled",
+    "allow-read-custom-expression",
+    "allow-close-expressions"
+  ]
+}

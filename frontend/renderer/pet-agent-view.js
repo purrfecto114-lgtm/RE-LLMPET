@@ -27,6 +27,27 @@
     return duoProviderValue;
   }
 
+  // R59 (regression fix): the second-pet window aligns its OWN URL query with
+  // config.duoProvider. The query is a secondary identity source (the window
+  // label is authoritative — see currentAgent); the old Rust-side
+  // `window.eval(location.replace(...))` ran during the startup setup before
+  // the pet-codex webview finished loading its initial document, so the
+  // navigation could be dropped and its process-global guard meant it was
+  // never retried (transparency flash / "window doesn't appear" frames — the
+  // second half of the 0.6.7 "secondary pet swallowed" regression). Running
+  // the check from inside the page means the document is loaded by
+  // construction; it is a no-op whenever the query already matches.
+  function syncDuoQuery(cfg) {
+    const agent = currentAgent();
+    if (agent !== 'pet-codex') return;
+    const desired = cfg && typeof cfg.duoProvider === 'string' && cfg.duoProvider ? cfg.duoProvider : 'codex';
+    const current = new URLSearchParams(global.location.search).get('agent') || 'codex';
+    if (current !== desired) {
+      const query = desired === 'codex' ? '' : `?agent=${encodeURIComponent(desired)}`;
+      global.location.replace(`/renderer/pet.html${query}`);
+    }
+  }
+
   function currentAgent() {
     try {
       // Derive from the window label (authoritative, synchronous).
@@ -166,5 +187,5 @@
     return result;
   }
 
-  global.OctoPetAgentView = Object.freeze({ currentAgent, eventBelongs, filterStats, setDuoProvider, duoProvider });
+  global.OctoPetAgentView = Object.freeze({ currentAgent, eventBelongs, filterStats, setDuoProvider, duoProvider, syncDuoQuery });
 })(window);

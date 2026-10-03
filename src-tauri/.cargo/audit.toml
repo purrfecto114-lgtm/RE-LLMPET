@@ -1,0 +1,29 @@
+# cargo-audit configuration — R59.
+#
+# Discovery: cargo-audit reads `.cargo/audit.toml` relative to the audited
+# Cargo project; CI runs `cargo audit` with working-directory: src-tauri
+# (.github/workflows/ci.yml → "RustSec advisory scan").
+#
+# Every ignore below must carry a root cause, an ecosystem ticket, and a
+# removal condition. Advisories are never dropped silently: the CI job still
+# fails on any NEW vulnerability, and this file is reviewed every release.
+[advisories]
+ignore = [
+    # RUSTSEC-2024-0429 / GHSA-wrw7-89jp-8q8g — "Unsoundness in `Iterator`
+    # and `DoubleEndedIterator` impls for `glib::VariantStrIter`".
+    # Affected: glib >= 0.15.0, < 0.20.0 (patched in 0.20.0). Our lock has
+    # glib 0.18.5, which enters ONLY the Linux build, transitively, via
+    # tauri 2.11.5 → tao 0.35.3 / muda 0.19.3 / wry 0.55.1 → gtk 0.18 →
+    # glib 0.18. We never call VariantStrIter ourselves, and none of the
+    # pinned gtk-family crates in our graph reach it (menus are built from
+    # our definitions, never parsed back through g_variant string
+    # iteration). The advisory is informational ("unsound"), not a
+    # vulnerability.
+    # Ecosystem lock: upstream tao dev (0.37.1) and muda 0.21.0 (latest)
+    # STILL require gtk 0.18, so there is no upgrade path within the Tauri
+    # stack today.
+    # REMOVE this ignore when tao/muda move to gtk >= 0.19 / glib >= 0.20
+    # and `cargo update` lands the patched line (tracked in the R59
+    # worklog + CHANGELOG upgrade note).
+    "RUSTSEC-2024-0429",
+]

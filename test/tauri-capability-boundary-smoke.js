@@ -10,7 +10,9 @@ const json = (file) => JSON.parse(read(file));
 const permission = (command) => `allow-${command.replaceAll('_', '-')}`;
 
 const config = json('src-tauri/tauri.conf.json');
-assert.deepStrictEqual(config.app.security.capabilities, ['pet', 'panel']);
+// R59: the expression studio joins the capability roster with its own
+// least-privilege window (custom expression overrides).
+assert.deepStrictEqual(config.app.security.capabilities, ['pet', 'panel', 'expression-studio']);
 const build = read('src-tauri/build.rs');
 assert.match(build, /AppManifest::new\(\)\.commands\(COMMANDS\)/);
 
@@ -22,8 +24,10 @@ assert.deepStrictEqual([...manifestCommands].sort(), [...registered].sort(), 'AC
 
 const pet = json('src-tauri/capabilities/pet.json');
 const panel = json('src-tauri/capabilities/panel.json');
+const studio = json('src-tauri/capabilities/expression-studio.json');
 assert.deepStrictEqual(pet.windows, ['pet', 'pet-codex']);
 assert.deepStrictEqual(panel.windows, ['panel']);
+assert.deepStrictEqual(studio.windows, ['expression-studio']);
 
 const petRequired = [
   'get_config', 'get_stats', 'get_win_pos', 'set_win_pos', 'commit_win_pos', 'set_ignore_mouse',
@@ -50,6 +54,13 @@ for (const privileged of ['decide_permission', 'decide_permission_batch', 'open_
 }
 for (const configuration of ['set_providers', 'refresh_model_prices', 'set_price_auto_update']) {
   assert(!pet.permissions.includes(permission(configuration)), `pet unexpectedly exposes ${configuration}`);
+}
+// R59: the studio window is a settings surface — it must not expose the
+// privileged pet/panel surfaces (permissions, logs, process launch).
+for (const privileged of ['decide_permission', 'decide_permission_batch', 'open_log', 'quit_app',
+  'launch_agent', 'launch_agent_gui', 'set_providers', 'start_wander', 'start_travel']) {
+  assert(!studio.permissions.includes(permission(privileged)),
+    `expression-studio unexpectedly exposes ${privileged}`);
 }
 assert(!fs.existsSync(path.join(ROOT, 'src-tauri/capabilities/default.json')), 'broad shared capability must stay removed');
 

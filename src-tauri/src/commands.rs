@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, State};
@@ -33,43 +33,18 @@ fn pet_label_for_agent(app: &AppHandle, agent: Option<&str>) -> &'static str {
     }
 }
 
-/// R58-IMPL-C: keep the second-pet window's URL query in sync with the
-/// configured duo provider. The window label is the authoritative renderer
-/// identity, but the URL query stays a secondary identity source (and keeps
-/// non-Tauri deep links meaningful), so navigation keeps both in agreement.
-/// Guarded by the last applied value so toggling pet mode / repeated
-/// sync_pet_windows calls never reload the window unnecessarily. The
-/// default pairing ("codex") maps to the plain un-queried conf URL.
-fn sync_duo_provider_url(app: &AppHandle, config: &crate::model::AppConfig) {
-    static LAST_APPLIED: Mutex<Option<String>> = Mutex::new(None);
-    let provider = config.duo_provider.clone();
-    let last = LAST_APPLIED.lock().unwrap_or_else(|e| e.into_inner());
-    // Fresh start with the default pairing = the static conf URL (no agent
-    // query) — nothing to do; the label identity already resolves it.
-    if last.as_deref() == Some(provider.as_str()) || (last.is_none() && provider == "codex") {
-        return;
-    }
-    drop(last);
-    if let Some(window) = app.get_webview_window("pet-codex") {
-        // duo_provider is whitelisted to the five registry ids by
-        // sanitize()/set_duo_provider, so the query is injection-safe; the
-        // absolute path works on every Tauri scheme (tauri:// and
-        // http://tauri.localhost both serve the dist root).
-        let query = if provider == "codex" {
-            String::new()
-        } else {
-            format!("?agent={provider}")
-        };
-        let script = format!("window.location.replace('/renderer/pet.html{}')", query);
-        let _ = window.eval(&script);
-        *LAST_APPLIED.lock().unwrap_or_else(|e| e.into_inner()) = Some(provider);
-    }
-}
-
+/// R59 (regression fix): the second-pet window's URL query (`?agent=…`) used
+/// to be kept in sync from the Rust side via `window.eval(location.replace)`
+/// with a process-global LAST_APPLIED guard. Two defects: (1) during startup
+/// (`lib.rs` setup) the pet-codex webview may not have finished loading its
+/// initial document, so the eval could be dropped — and the guard was set
+/// unconditionally, so the navigation was never retried; (2) errors from
+/// `eval` were swallowed with `let _`. The URL query is a SECONDARY identity
+/// source (the window label is authoritative), so the sync now lives in the
+/// renderer itself (pet.js boot + config snapshots): the page can only run
+/// that check once its own document is loaded, which removes the race by
+/// construction. Rust only decides visibility and geometry here.
 pub(crate) fn sync_pet_windows(app: &AppHandle, config: &crate::model::AppConfig) {
-    // R58-IMPL-C: entering duo mode (or a provider change while paired)
-    // re-points the second-pet window at the configured provider.
-    sync_duo_provider_url(app, config);
     let hidden = config.mode == "hidePet";
     if let Some(window) = app.get_webview_window("pet") {
         let _ = if hidden { window.hide() } else { window.show() };
@@ -251,30 +226,60 @@ pub fn start_travel(
         app,
         state.runtime.clone(),
         session_id,
-        mission.unwrap_or_else(|| pick_travel_mission().into()),
+        mission.unwrap_or_else(|| pick_travel_mission(&state.runtime.config().lang).into()),
     )
 }
 
 /// R16: random mission picker — gives variety instead of always the same mission.
 /// User can still pass a custom mission via the API; this only fires when
 /// mission is None (default behavior).
-fn pick_travel_mission() -> &'static str {
-    let missions = [
-        "浏览项目，找出最有意思的结构、风险与下一步建议",
-        "审视这个项目的代码质量和可维护性，给出改进建议",
-        "探索这个项目的架构设计，找出亮点和潜在问题",
-    ];
+/// R19: random travel mission picker — variety for project exploration.
+/// R59: missions follow config.lang (the old banks were zh-only, and the
+/// frontend had replaced the picker with ONE fixed Chinese mission for
+/// wander — the backend variety was dead code).
+fn pick_travel_mission(lang: &str) -> &'static str {
+    let missions = match lang {
+        "en" => [
+            "Browse this project and surface the most interesting structure, risks, and a next step",
+            "Review this project's code quality and maintainability; suggest improvements",
+            "Explore the architecture of this project; call out highlights and weak spots",
+        ],
+        "ja" => [
+            "このプロジェクトを見回して、特に面白い構造・リスク・次の一歩を持ち帰る",
+            "このプロジェクトのコード品質と保守性を確認し、改善案を提案する",
+            "このプロジェクトのアーキテクチャを探索し、亮点と潜在的な問題を見つける",
+        ],
+        _ => [
+            "浏览项目，找出最有意思的结构、风险与下一步建议",
+            "审视这个项目的代码质量和可维护性，给出改进建议",
+            "探索这个项目的架构设计，找出亮点和潜在问题",
+        ],
+    };
     let idx = crate::model::now_ms() as usize % missions.len();
     missions[idx]
 }
 
 /// R16: random wander mission picker — variety for web exploration.
-fn pick_wander_mission() -> &'static str {
-    let missions = [
-        "寻找今天值得开发者关注的一个新工具或工程实践",
-        "探索网络上有趣的开发者趋势和话题，给出实用建议",
-        "发现一个值得尝试的库或框架，分析它的优缺点",
-    ];
+/// R59: trilingual; the frontend no longer sends a fixed mission, so this
+/// picker is live again (it had been dead code since R50).
+fn pick_wander_mission(lang: &str) -> &'static str {
+    let missions = match lang {
+        "en" => [
+            "Find one new tool or engineering practice developers should know about today",
+            "Explore interesting developer trends and topics on the open web; bring practical advice",
+            "Discover a library or framework worth trying; analyze its pros and cons",
+        ],
+        "ja" => [
+            "今日開発者が知っておくべき新しいツールや手法をひとつ見つける",
+            "公開ウェブで面白い開発者トレンドを探索し、実用的な提案を持ち帰る",
+            "試す価値のあるライブラリやフレームワークを見つけ、長所短所を分析する",
+        ],
+        _ => [
+            "寻找今天值得开发者关注的一个新工具或工程实践",
+            "探索网络上有趣的开发者趋势和话题，给出实用建议",
+            "发现一个值得尝试的库或框架，分析它的优缺点",
+        ],
+    };
     let idx = crate::model::now_ms() as usize % missions.len();
     missions[idx]
 }
@@ -290,7 +295,7 @@ pub fn start_wander(
     state.runtime.travel.start_wander(
         app,
         state.runtime.clone(),
-        mission.unwrap_or_else(|| pick_wander_mission().into()),
+        mission.unwrap_or_else(|| pick_wander_mission(&state.runtime.config().lang).into()),
         provider,
         // R58-IMPL-C: the initiating window label ("pet" / "pet-codex") —
         // optional for legacy callers; travel.rs falls back to the
@@ -1248,7 +1253,20 @@ pub fn commit_win_pos(
             x: logical_x,
             y: logical_y,
         });
-        if agent.as_deref() == Some("codex") {
+        // R59 (regression fix, "双宠模式下副宠物被吞"): the slot decision MUST
+        // follow the resolved window label, not the semantic agent string.
+        // R58 generalized `pet_label_for_agent` to config.duo_provider but
+        // left this literal `"codex"` comparison behind: with a free pairing
+        // (duo_provider != "codex") the SECOND pet window dragged with
+        // agent=duo_provider wrote config.pet_position (the PRIMARY slot),
+        // and the primary window (agent could literally be "codex") wrote
+        // pet_position_codex. On the next start the restore loop placed both
+        // 320x340 windows at the crossed coordinates and
+        // `pet_position_codex.is_some()` skipped the 280px anti-overlap
+        // anchor — the second pet was restored exactly on top of the first
+        // ("swallowed"). Deciding by label makes the write always match the
+        // window that was actually dragged, for every pairing.
+        if label == "pet-codex" {
             config.pet_position_codex = point;
         } else {
             config.pet_position = point;
@@ -1684,7 +1702,11 @@ fn canonicalize_path(path: &Path) -> Option<PathBuf> {
 /// Resolve through the application's inherited PATH without invoking a shell.
 /// This deliberately returns an absolute path so terminal launch never reparses
 /// renderer-controlled text as a command line.
-fn which(command: &str) -> Option<PathBuf> {
+/// R59: `pub(crate)` so travel.rs reuses the SAME discovery policy (PATH +
+/// the Windows CodeWhale install bases) for wander CLI pre-checks — the
+/// split between this resolver and travel.rs's private PATH-only scan was
+/// why launching could work while wandering claimed "CLI not found".
+pub(crate) fn which(command: &str) -> Option<PathBuf> {
     let command_path = Path::new(command);
     if command_path.components().count() > 1 && is_executable_file(command_path) {
         return canonicalize_path(command_path);

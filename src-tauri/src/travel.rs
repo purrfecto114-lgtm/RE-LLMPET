@@ -167,7 +167,14 @@ impl TravelManager {
             return Err("headless sessions cannot start travel".into());
         }
         if !is_wander_supported(&session.provider) {
-            return Err("travel currently supports Claude, Codex and CodeWhale sessions".into());
+            // R59: trilingual + the real runner set (was zh/en mixed and
+            // named only three providers). dsh sessions are the only
+            // rejection case left (observer harness, no headless runner).
+            return Err(match runtime.config().lang.as_str() {
+                "en" => "travel currently supports claude, codex, codewhale, opencode and aider sessions".into(),
+                "ja" => "旅行は現在 claude / codex / codewhale / opencode / aider のセッションに対応しています".into(),
+                _ => "旅行目前支持 claude / codex / codewhale / opencode / aider 的会话".into(),
+            });
         }
         let cwd = PathBuf::from(&session.cwd);
         if !cwd.is_dir() {
@@ -180,7 +187,8 @@ impl TravelManager {
             "travel",
             &session.provider,
             // R58-IMPL-C: project travel keeps the provider-derived owner
-            // (the session's provider decides which pet window owns it).
+            // (the session's provider decides which pet window owns it);
+            // start() resolves it against config.duo_provider (R59).
             None,
             Some(session_id),
             project,
@@ -238,7 +246,7 @@ impl TravelManager {
         // provider-derived label.
         let owner_label: String = match owner.as_deref() {
             Some(label @ ("pet" | "pet-codex")) => label.to_string(),
-            _ => owner_for_provider(&provider).to_string(),
+            _ => owner_for_provider(&provider, &runtime.config().duo_provider).to_string(),
         };
         self.start(
             app,
@@ -274,8 +282,10 @@ impl TravelManager {
         // Derive the owner (pet window label). R58-IMPL-C: an explicit owner
         // (the initiating window) wins so each pet window can run its own
         // concurrent trip and keep its feedback; None falls back to the
-        // provider-derived label for legacy callers (start_project).
-        let owner = owner.unwrap_or_else(|| owner_for_provider(provider));
+        // provider-derived label for legacy callers (start_project). R59:
+        // the fallback pairing follows config.duo_provider.
+        let owner =
+            owner.unwrap_or_else(|| owner_for_provider(provider, &runtime.config().duo_provider));
         let mut active_guard = self.active.lock().unwrap_or_else(|e| e.into_inner());
         if active_guard.get(owner).is_some() {
             return Err("another trip is already running".into());
@@ -308,7 +318,8 @@ impl TravelManager {
                 "phase":"started",
                 "provider":provider,
                 "sessionId":trip.session_id,
-                "text":if mode == "wander" { "开始闲逛网络" } else { "开始项目旅行" }
+                // R59: trilingual (was zh-only) — follows config.lang.
+                "text":travel_started_text(&runtime.config().lang, mode)
             }),
         );
 
@@ -371,7 +382,7 @@ impl TravelManager {
                 );
                 let _ = app.emit(
                     "pet:event",
-                    json!({"kind":"travel","phase":"failed","provider":trip.provider,"sessionId":trip.session_id,"text":"旅行线程内部错误"}),
+                    json!({"kind":"travel","phase":"failed","provider":trip.provider,"sessionId":trip.session_id,"text":travel_internal_error_text(&runtime.config().lang)}),
                 );
             }
         });
@@ -391,7 +402,7 @@ impl TravelManager {
         let result = (|| -> Result<(String, u64), String> {
             let stdout = private_output_file(&out_path)?;
             let stderr = private_output_file(&err_path)?;
-            let prompt = build_prompt(&trip);
+            let prompt = build_prompt(&trip, &runtime.config().lang);
             let (mut args, delivery) = provider_args(&trip);
             if delivery == PromptDelivery::Argv {
                 // CodeWhale takes the prompt as the final positional argument.
@@ -495,10 +506,11 @@ impl TravelManager {
                     &errors,
                     &output,
                     &status,
+                    &runtime.config().lang,
                 ));
             }
             let tokens = usage_tokens(&output, &trip.provider);
-            Ok((final_message(&output), tokens))
+            Ok((final_message(&output, &runtime.config().lang), tokens))
         })();
         *self.child_pid.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let _ = fs::remove_file(&out_path);
@@ -506,7 +518,11 @@ impl TravelManager {
 
         let (status, summary, tokens) = match result {
             Ok((summary, tokens)) => ("completed", summary, tokens),
-            Err(error) if error == "cancelled" => ("cancelled", "旅行已取消".into(), 0),
+            Err(error) if error == "cancelled" => (
+                "cancelled",
+                travel_cancelled_text(&runtime.config().lang).to_string(),
+                0,
+            ),
             Err(error) => ("failed", error, 0),
         };
         {
@@ -905,68 +921,109 @@ enum PromptDelivery {
 }
 
 fn provider_args(trip: &ActiveTrip) -> (Vec<String>, PromptDelivery) {
-    if trip.provider == "claude" {
-        let tools = if trip.mode == "wander" {
-            "WebSearch,WebFetch"
-        } else {
-            "Read,Glob,Grep"
-        };
-        (
-            [
-                "-p",
-                "--permission-mode",
-                "plan",
-                "--tools",
-                tools,
-                "--strict-mcp-config",
-                "--output-format",
-                "json",
-                "--max-turns",
-                "8",
-                "--no-session-persistence",
-            ]
-            .into_iter()
-            .map(str::to_string)
-            .collect(),
-            PromptDelivery::Stdin,
-        )
-    } else if trip.provider == "codewhale" {
-        // R53: CodeWhale exec surface (verified against v0.9.12 --help + a live
-        // mock-DeepSeek run): `codewhale exec --json <PROMPT>` emits one
-        // pretty-printed summary JSON object with an `output` field. There is
-        // no `--search`, no `--ephemeral`, no `--sandbox`, no
-        // `--ask-for-approval` — those are Codex-only flags. Plain `exec`
-        // (without `--auto`) is a one-shot model response with NO tool access,
-        // which is the only safe unsupervised mode CodeWhale offers (`--auto`
-        // grants auto-approved write-capable tools with no sandbox
-        // counterpart). The prompt is appended to argv by the caller.
-        (
-            vec!["exec".to_string(), "--json".to_string()],
-            PromptDelivery::Argv,
-        )
-    } else {
-        let mut args = Vec::new();
-        if trip.mode == "wander" {
-            // `--search` is a global Codex flag, so it must precede `exec`.
-            // It exposes the hosted web_search tool without granting shell
-            // network access or relaxing the read-only sandbox.
-            args.push("--search".to_string());
+    match trip.provider.as_str() {
+        "claude" => {
+            let tools = if trip.mode == "wander" {
+                "WebSearch,WebFetch"
+            } else {
+                "Read,Glob,Grep"
+            };
+            (
+                [
+                    "-p",
+                    "--permission-mode",
+                    "plan",
+                    "--tools",
+                    tools,
+                    "--strict-mcp-config",
+                    "--output-format",
+                    "json",
+                    "--max-turns",
+                    "8",
+                    "--no-session-persistence",
+                ]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+                PromptDelivery::Stdin,
+            )
         }
-        args.extend(
-            [
-                "exec",
-                "--ephemeral",
-                "--sandbox",
-                "read-only",
-                "--ask-for-approval",
-                "never",
-                "--json",
-                "-",
-            ]
-            .into_iter()
-            .map(str::to_string),
-        );
-        (args, PromptDelivery::Stdin)
+        "codewhale" => {
+            // R53: CodeWhale exec surface (verified against v0.9.12 --help + a live
+            // mock-DeepSeek run): `codewhale exec --json <PROMPT>` emits one
+            // pretty-printed summary JSON object with an `output` field. There is
+            // no `--search`, no `--ephemeral`, no `--sandbox`, no
+            // `--ask-for-approval` — those are Codex-only flags. Plain `exec`
+            // (without `--auto`) is a one-shot model response with NO tool access,
+            // which is the only safe unsupervised mode CodeWhale offers (`--auto`
+            // grants auto-approved write-capable tools with no sandbox
+            // counterpart). The prompt is appended to argv by the caller.
+            (
+                vec!["exec".to_string(), "--json".to_string()],
+                PromptDelivery::Argv,
+            )
+        }
+        "opencode" => {
+            // R59: `opencode run [message..]` is the documented non-interactive
+            // twin of the TUI (opencode.ai CLI reference + multiple CLI
+            // automation write-ups). The default (text) output prints the
+            // assistant reply, which final_message's plain-text fallback renders
+            // as the postcard. No permission-skipping flag is passed: headless
+            // tool permission prompts cannot be answered, so the run behaves as
+            // a knowledge postcard unless the user's opencode config allows
+            // read-only web tools. The prompt is appended to argv by the caller
+            // (the message is positional).
+            (vec!["run".to_string()], PromptDelivery::Argv)
+        }
+        "aider" => {
+            // R59: aider's one-shot surface is `--message "<task>"` combined
+            // with `--yes-always` (auto-approve, headless, exits after the
+            // reply — the documented CI/scheduled-job pattern). `--no-git` is
+            // required because wander runs in the home directory (aider would
+            // otherwise refuse to start outside a repo); `--no-auto-lint` and
+            // `--no-stream` keep stdout a clean reply transcript. The caller
+            // appends the flattened prompt as the final argv entry, which lands
+            // directly after `--message` as its value.
+            (
+                [
+                    "--yes-always",
+                    "--no-git",
+                    "--no-auto-lint",
+                    "--no-stream",
+                    "--message",
+                ]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+                PromptDelivery::Argv,
+            )
+        }
+        // codex (and any future runner) — the flags were verified against the
+        // codex CLI surface; see the R53 comment trail.
+        _ => {
+            let mut args = Vec::new();
+            if trip.mode == "wander" {
+                // `--search` is a global Codex flag, so it must precede `exec`.
+                // It exposes the hosted web_search tool without granting shell
+                // network access or relaxing the read-only sandbox.
+                args.push("--search".to_string());
+            }
+            args.extend(
+                [
+                    "exec",
+                    "--ephemeral",
+                    "--sandbox",
+                    "read-only",
+                    "--ask-for-approval",
+                    "never",
+                    "--json",
+                    "-",
+                ]
+                .into_iter()
+                .map(str::to_string),
+            );
+            (args, PromptDelivery::Stdin)
+        }
     }
 }
 
@@ -1089,7 +1146,13 @@ fn strip_ansi(value: &str) -> String {
 ///     lossy-converted to U+FFFD soup), drop the excerpt entirely —
 ///     mojibake in the bubble was the reported bug;
 ///   - cap the excerpt at 140 chars; the full stream goes to the app log.
-fn friendly_cli_error(provider: &str, errors: &str, output: &str, status: &ExitStatus) -> String {
+fn friendly_cli_error(
+    provider: &str,
+    errors: &str,
+    output: &str,
+    status: &ExitStatus,
+    lang: &str,
+) -> String {
     let code = status
         .code()
         .map(|c| c.to_string())
@@ -1138,39 +1201,111 @@ fn friendly_cli_error(provider: &str, errors: &str, output: &str, status: &ExitS
         excerpt.clear();
     }
     let bounded: String = excerpt.trim().chars().take(140).collect();
-    if bounded.is_empty() {
-        format!("{provider} CLI 执行失败（退出码 {code}），详见应用日志")
-    } else {
-        format!("{provider} CLI 执行失败（退出码 {code}）：{bounded}")
+    // R59: trilingual failure line (was zh-only).
+    match lang {
+        "en" => {
+            if bounded.is_empty() {
+                format!("{provider} CLI failed (exit {code}); see the app log")
+            } else {
+                format!("{provider} CLI failed (exit {code}): {bounded}")
+            }
+        }
+        "ja" => {
+            if bounded.is_empty() {
+                format!("{provider} CLI の実行に失敗しました（終了コード {code}）。アプリログを確認してください")
+            } else {
+                format!("{provider} CLI の実行に失敗しました（終了コード {code}）：{bounded}")
+            }
+        }
+        _ => {
+            if bounded.is_empty() {
+                format!("{provider} CLI 执行失败（退出码 {code}），详见应用日志")
+            } else {
+                format!("{provider} CLI 执行失败（退出码 {code}）：{bounded}")
+            }
+        }
     }
 }
 
-fn build_prompt(trip: &ActiveTrip) -> String {
-    if trip.provider == "codewhale" {
-        // R53: plain `codewhale exec` (no `--auto`) is a one-shot model
-        // response with no tools at all — the only safe unsupervised mode
-        // CodeWhale offers. The prompt must not claim tool access that does
-        // not exist; the postcard honestly reflects a knowledge-based answer.
-        return format!(
-            "You are Octopus, a desktop pet on a short breather. Answer from your own knowledge without using any tools or reading local files. Mission: {}. Reply in Chinese with a concise postcard: key points, why they matter, and one practical takeaway.",
-            trip.mission
-        );
+/// R59: trilingual travel event texts (were zh-only literals in the emit
+/// payloads). All follow config.lang.
+fn travel_started_text(lang: &str, mode: &str) -> &'static str {
+    match (lang, mode) {
+        ("en", "wander") => "starting a web wander",
+        ("en", _) => "starting a project travel",
+        ("ja", "wander") => "ウェブ散歩に出かけます",
+        ("ja", _) => "プロジェクト旅行に出かけます",
+        (_, "wander") => "开始闲逛网络",
+        (_, _) => "开始项目旅行",
     }
-    if trip.mode == "wander" {
-        let tool_boundary = if trip.provider == "claude" {
-            "Use only WebSearch/WebFetch."
-        } else {
-            "Use only the native web_search tool; do not use shell commands or local network clients."
-        };
-        format!(
-            "You are Octopus on a short web wander. {tool_boundary} Do not modify local files. Mission: {}. Return a concise postcard in Chinese with: discoveries, useful links described by title/domain, and one practical takeaway.",
-            trip.mission
-        )
-    } else {
-        format!(
-            "You are Octopus travelling through this project in strict read-only mode. Use only Read/Glob/Grep and do not modify files or run shell commands. Mission: {}. Return a concise Chinese postcard covering discoveries, important file paths, risks, and one suggested next step.",
-            trip.mission
-        )
+}
+
+fn travel_internal_error_text(lang: &str) -> &'static str {
+    match lang {
+        "en" => "internal error in the travel worker",
+        "ja" => "旅行スレッドで内部エラーが発生しました",
+        _ => "旅行线程内部错误",
+    }
+}
+
+fn travel_cancelled_text(lang: &str) -> &'static str {
+    match lang {
+        "en" => "travel cancelled",
+        "ja" => "旅行をキャンセルしました",
+        _ => "旅行已取消",
+    }
+}
+
+/// R59: the postcard language follows the app language (config.lang) —
+/// the old prompt hard-coded "Reply in Chinese" for every user. Tool
+/// boundaries stay per-provider: claude/codex have real web tools in the
+/// wander flags; codewhale/aider/opencode run without interactive tool
+/// approval, so their prompts are honest about the knowledge postcard.
+fn build_prompt(trip: &ActiveTrip, lang: &str) -> String {
+    let reply_language = match lang {
+        "en" => "English",
+        "ja" => "Japanese",
+        _ => "Chinese",
+    };
+    match trip.provider.as_str() {
+        "codewhale" | "aider" => {
+            // R53/R59: plain `codewhale exec` (no --auto) and aider's
+            // `--message` one-shot are model responses with no usable web
+            // tools in headless mode. The prompt must not claim tool access
+            // that does not exist; the postcard honestly reflects a
+            // knowledge-based answer.
+            format!(
+                "You are Octopus, a desktop pet on a short breather. Answer from your own knowledge without using any tools or reading local files. Mission: {}. Reply in {reply_language} with a concise postcard: key points, why they matter, and one practical takeaway.",
+                trip.mission
+            )
+        }
+        "opencode" => {
+            // R59: `opencode run` may expose read-only web tools depending on
+            // the user's opencode permission config (headless runs cannot
+            // approve interactive permission prompts). The prompt allows them
+            // when available but does not depend on them.
+            format!(
+                "You are Octopus, a desktop pet on a short web wander. You may use read-only web search/fetch tools only if they are permitted without interactive approval; otherwise answer from your own knowledge. Do not modify local files. Mission: {}. Return a concise postcard in {reply_language} with: discoveries, useful links described by title/domain when tools were used, and one practical takeaway.",
+                trip.mission
+            )
+        }
+        _ if trip.mode == "wander" => {
+            let tool_boundary = if trip.provider == "claude" {
+                "Use only WebSearch/WebFetch."
+            } else {
+                "Use only the native web_search tool; do not use shell commands or local network clients."
+            };
+            format!(
+                "You are Octopus on a short web wander. {tool_boundary} Do not modify local files. Mission: {}. Return a concise postcard in {reply_language} with: discoveries, useful links described by title/domain, and one practical takeaway.",
+                trip.mission
+            )
+        }
+        _ => {
+            format!(
+                "You are Octopus travelling through this project in strict read-only mode. Use only Read/Glob/Grep and do not modify files or run shell commands. Mission: {}. Return a concise {reply_language} postcard covering discoveries, important file paths, risks, and one suggested next step.",
+                trip.mission
+            )
+        }
     }
 }
 
@@ -1182,25 +1317,38 @@ fn project_name(cwd: &Path) -> String {
         .unwrap_or_else(|| cwd.to_string_lossy().chars().take(120).collect())
 }
 
-/// Map a provider to the pet window label that owns its trips. Codex runs in
-/// the "pet-codex" window (duo mode); all other providers share the "pet"
-/// window. This is the per-owner key for concurrent wandering. R58-IMPL-C:
-/// this is only the LEGACY derivation (no explicit owner supplied); wander
-/// trips now carry the initiating window label from the frontend.
-fn owner_for_provider(provider: &str) -> &'static str {
-    if provider == "codex" {
+/// Map a provider to the pet window label that owns its trips: the provider
+/// paired with the SECOND pet (config.duo_provider) runs in the
+/// "pet-codex" window; every other provider shares the "pet" window. This
+/// is the per-owner key for concurrent wandering. R58-IMPL-C made explicit
+/// owners the primary path (wander trips carry the initiating window label
+/// from the frontend); this stays as the LEGACY derivation used by
+/// start_project and owner-less callers. R59: the pairing is now
+/// config-driven — with the old code, a duo="claude" pairing still routed
+/// codex trips (and their cancel button / roam expression / postcard) to
+/// the hidden pet-codex window while the claude sessions belonging to that
+/// window were sliced to "pet", so feedback landed on the wrong pet.
+fn owner_for_provider(provider: &str, duo_provider: &str) -> &'static str {
+    if provider == duo_provider {
         "pet-codex"
     } else {
         "pet"
     }
 }
 
-/// R58-IMPL-C: providers with a headless wander/travel runner implemented in
-/// provider_args. Single source of truth for the start_project whitelist and
-/// the wander candidate order; the frontend mirrors this set (frontend's
-/// WANDER_SUPPORTED in pet-travel-view.js).
+/// R59: providers with a headless wander/travel runner implemented in
+/// provider_args. Single source of truth — mirrored into the frontend via
+/// config_view's `wanderSupported` array (pet.js / pet-travel-view.js prefer
+/// the backend value and only keep a stale fallback literal for old
+/// payloads). opencode (`opencode run`) and aider (`--message` one-shot)
+/// joined in R59 so wandering works for EVERY registry provider with an
+/// interactive CLI; dsh remains excluded (observer harness, no headless
+/// prompt surface).
+pub const WANDER_SUPPORTED_PROVIDERS: [&str; 5] =
+    ["claude", "codex", "codewhale", "opencode", "aider"];
+
 fn is_wander_supported(value: &str) -> bool {
-    matches!(value, "claude" | "codex" | "codewhale")
+    WANDER_SUPPORTED_PROVIDERS.contains(&value)
 }
 
 /// R58-IMPL-C: wander provider selection WITHOUT the historical "claude"
@@ -1214,7 +1362,7 @@ fn is_wander_supported(value: &str) -> bool {
 /// installed; `None` means no supported CLI exists and the caller surfaces a
 /// localized error.
 fn pick_wander_provider(runtime: &Runtime, requested: Option<&str>) -> Option<String> {
-    const SUPPORTED: [&str; 3] = ["claude", "codex", "codewhale"];
+    const SUPPORTED: [&str; 5] = WANDER_SUPPORTED_PROVIDERS;
     let mut order: Vec<String> = Vec::with_capacity(SUPPORTED.len() + 1);
     if let Some(value) = requested {
         if SUPPORTED.contains(&value) {
@@ -1241,13 +1389,13 @@ fn pick_wander_provider(runtime: &Runtime, requested: Option<&str>) -> Option<St
 /// the app's trilingual UI; the frontend bubble renders the raw message.
 fn wander_no_cli_message(lang: &str) -> String {
     match lang {
-        "en" => "no wander-capable CLI is installed (install claude, codex or \
-             codewhale and make sure it is in PATH)"
+        "en" => "no wander-capable CLI is installed (install claude, codex, codewhale, \
+             opencode or aider and make sure it is in PATH)"
             .into(),
-        "ja" => "ウェブ散歩できる CLI が見つかりません（claude / codex / codewhale \
-             のいずれかを PATH にインストールしてください）"
+        "ja" => "ウェブ散歩できる CLI が見つかりません（claude / codex / codewhale / \
+             opencode / aider のいずれかを PATH にインストールしてください）"
             .into(),
-        _ => "未安装可用于闲逛的 CLI（请在 PATH 中安装 claude / codex / codewhale 之一）".into(),
+        _ => "未安装可用于闲逛的 CLI（请在 PATH 中安装 claude / codex / codewhale / opencode / aider 之一）".into(),
     }
 }
 
@@ -1298,7 +1446,63 @@ fn find_executable(provider: &str) -> Result<PathBuf, String> {
             }
         }
     }
-    Err(format!("{} CLI not found in PATH", provider))
+    // R59 ("闲逛还是不可用" root cause 2): desktop apps launched from the
+    // GUI (macOS Finder/Dock, Windows Explorer) inherit a minimal PATH that
+    // lacks the user's CLI install directories — so a user with a working
+    // terminal `claude` still hit "CLI not found in PATH" and wander refused
+    // to start. Two extra discovery layers:
+    //   1. the SAME resolver the launcher/diagnostics path uses
+    //      (commands::which — PATH plus the Windows CodeWhale install bases);
+    //      previously launch worked while wander failed because the two
+    //      paths used two different discovery policies;
+    //   2. the common user-level CLI directories (npm globals, homebrew,
+    //      ~/.local/bin, ~/.opencode/bin …) that GUI launches miss.
+    if let Some(found) = crate::commands::which(provider) {
+        return Ok(found);
+    }
+    for dir in fallback_cli_dirs() {
+        for name in &names {
+            let candidate = dir.join(name);
+            if is_executable_file(&candidate) {
+                return Ok(candidate);
+            }
+        }
+    }
+    Err(format!(
+        "{provider} CLI not found in PATH or the common install directories"
+    ))
+}
+
+/// R59: user-level CLI directories that a GUI-launched process misses.
+/// Windows .cmd/.bat shims installed by npm live in %APPDATA%\npm; the
+/// standalone opencode installer uses ~/.opencode/bin; homebrew on Apple
+/// Silicon uses /opt/homebrew/bin.
+fn fallback_cli_dirs() -> Vec<PathBuf> {
+    let home = crate::model::home_dir();
+    let mut dirs = vec![
+        home.join(".local").join("bin"),
+        home.join("bin"),
+        home.join(".opencode").join("bin"),
+        home.join(".npm-global").join("bin"),
+    ];
+    #[cfg(unix)]
+    {
+        dirs.push(PathBuf::from("/opt/homebrew/bin"));
+        dirs.push(PathBuf::from("/usr/local/bin"));
+    }
+    #[cfg(windows)]
+    {
+        if let Some(appdata) = env::var_os("APPDATA") {
+            dirs.push(PathBuf::from(appdata).join("npm"));
+        }
+        if let Some(local) = env::var_os("LOCALAPPDATA") {
+            dirs.push(PathBuf::from(local).join("Programs"));
+        }
+        if let Some(profile) = env::var_os("USERPROFILE") {
+            dirs.push(PathBuf::from(profile).join(".local").join("bin"));
+        }
+    }
+    dirs
 }
 
 fn is_executable_file(path: &Path) -> bool {
@@ -1365,7 +1569,7 @@ fn json_postcard_text(value: &Value) -> Option<String> {
     }
 }
 
-fn final_message(output: &str) -> String {
+fn final_message(output: &str, lang: &str) -> String {
     let mut fallback = String::new();
     // R53: try the WHOLE output as one JSON document first. CodeWhale `exec
     // --json` emits a pretty-printed multi-line object — the previous
@@ -1393,7 +1597,11 @@ fn final_message(output: &str) -> String {
     }
     let result = clean_text(&fallback, 5000);
     if result.is_empty() {
-        "旅行完成，但 CLI 没有返回可展示的明信片。".into()
+        match lang {
+            "en" => "The trip finished, but the CLI returned no postcard to show.".into(),
+            "ja" => "旅行は終わりましたが、CLI は表示できる絵葉書を返しませんでした。".into(),
+            _ => "旅行完成，但 CLI 没有返回可展示的明信片。".into(),
+        }
     } else {
         result
     }
@@ -1521,7 +1729,7 @@ mod tests {
             "{\"type\":\"item.completed\",\"item\":{\"text\":\"first\"}}\n",
             "{\"result\":\"postcard\",\"usage\":{\"input_tokens\":100,\"output_tokens\":40}}\n"
         );
-        assert_eq!(final_message(output), "postcard");
+        assert_eq!(final_message(output, "zh"), "postcard");
         assert_eq!(usage_tokens(output, "claude"), 140);
     }
 
@@ -1552,7 +1760,7 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair[0] == "--sandbox" && pair[1] == "read-only"));
-        assert!(build_prompt(&trip).contains("native web_search"));
+        assert!(build_prompt(&trip, "zh").contains("native web_search"));
     }
 
     #[test]
@@ -1587,7 +1795,7 @@ mod tests {
             );
         }
         // The honest prompt: no tool/web claims, knowledge-based answer.
-        let prompt = build_prompt(&trip);
+        let prompt = build_prompt(&trip, "zh");
         assert!(prompt.contains("from your own knowledge"));
         assert!(!prompt.contains("web_search"));
         assert!(!prompt.contains("Read/Glob/Grep"));
@@ -1613,7 +1821,7 @@ mod tests {
   "error": null
 }"#;
         assert_eq!(
-            final_message(output),
+            final_message(output, "zh"),
             "这是一张测试明信片：发现1个链接，实用建议1条。"
         );
         assert_eq!(usage_tokens(output, "codewhale"), 46);
@@ -1623,7 +1831,7 @@ mod tests {
     fn final_message_still_parses_ndjson_streams() {
         // codex/claude line-delimited outputs keep working.
         let output = "{\"result\":\"第一回合\"}\n{\"result\":\"最终明信片\"}\n";
-        assert_eq!(final_message(output), "最终明信片");
+        assert_eq!(final_message(output, "zh"), "最终明信片");
         assert_eq!(usage_tokens(output, "codex"), 0);
         let tokens = "{\"total_tokens\":7}\n{\"total_tokens\":3}\n";
         assert_eq!(usage_tokens(tokens, "codex"), 7);
@@ -1635,7 +1843,7 @@ mod tests {
         // Shape observed on Windows: clap echoes the full invocation,
         // including the absolute .cmd shim path and every flag.
         let stderr = "error: unexpected argument '--search exec --ephemeral --sandbox read-only --ask-for-approval never --json -' found\n\nUsage: codewhale-tui [OPTIONS] [COMMAND]\n\nFor more information, try '--help'.\n";
-        let message = friendly_cli_error("codewhale", stderr, "", &status);
+        let message = friendly_cli_error("codewhale", stderr, "", &status, "zh");
         assert!(
             message.starts_with("codewhale CLI 执行失败（退出码 2）："),
             "{message}"
@@ -1656,7 +1864,7 @@ mod tests {
         // GBK console output lossy-decoded to UTF-8: dominated by U+FFFD.
         let mojibake =
             "error: \u{fffd}\u{fffd}\u{fffd}\u{fffd}\u{fffd}\u{fffd}\u{fffd}\u{fffd}\u{fffd}";
-        let message = friendly_cli_error("codewhale", mojibake, "", &status);
+        let message = friendly_cli_error("codewhale", mojibake, "", &status, "zh");
         assert_eq!(message, "codewhale CLI 执行失败（退出码 1），详见应用日志");
     }
 
@@ -1665,7 +1873,7 @@ mod tests {
         let status = exit_status(1);
         // Verified live against a mock 500 endpoint: single clean stderr line.
         let stderr = "error: Server error (500): mock upstream exploded";
-        let message = friendly_cli_error("codewhale", stderr, "", &status);
+        let message = friendly_cli_error("codewhale", stderr, "", &status, "zh");
         assert_eq!(
             message,
             "codewhale CLI 执行失败（退出码 1）：error: Server error (500): mock upstream exploded"
@@ -1676,7 +1884,7 @@ mod tests {
     fn friendly_cli_error_collapses_absolute_paths() {
         let status = exit_status(1);
         let stderr = "error: cannot run C:\\Users\\aza0\\AppData\\Roaming\\npm\\codewhale.cmd";
-        let message = friendly_cli_error("codewhale", stderr, "", &status);
+        let message = friendly_cli_error("codewhale", stderr, "", &status, "zh");
         assert!(
             !message.contains("Users"),
             "home layout must not leak: {message}"
@@ -1773,10 +1981,18 @@ mod tests {
 
     #[test]
     fn owner_for_provider_maps_codex_to_pet_codex_window() {
-        assert_eq!(owner_for_provider("codex"), "pet-codex");
-        assert_eq!(owner_for_provider("claude"), "pet");
-        assert_eq!(owner_for_provider("codewhale"), "pet");
-        assert_eq!(owner_for_provider("opencode"), "pet");
-        assert_eq!(owner_for_provider("aider"), "pet");
+        // R59: the pairing is config-driven (duo_provider), not the codex
+        // literal. Default pairing keeps the historical mapping …
+        assert_eq!(owner_for_provider("codex", "codex"), "pet-codex");
+        assert_eq!(owner_for_provider("claude", "codex"), "pet");
+        assert_eq!(owner_for_provider("codewhale", "codex"), "pet");
+        assert_eq!(owner_for_provider("opencode", "codex"), "pet");
+        assert_eq!(owner_for_provider("aider", "codex"), "pet");
+        // … and a free pairing routes the paired provider's trips (and their
+        // cancel button / roam expression / postcard) to the second window.
+        assert_eq!(owner_for_provider("claude", "claude"), "pet-codex");
+        assert_eq!(owner_for_provider("codex", "claude"), "pet");
+        assert_eq!(owner_for_provider("aider", "aider"), "pet-codex");
+        assert_eq!(owner_for_provider("opencode", "opencode"), "pet-codex");
     }
 }

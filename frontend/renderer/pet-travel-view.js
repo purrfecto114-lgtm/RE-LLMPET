@@ -9,15 +9,13 @@
 // and only fall back to `activeTrip` when the owner map is absent (older
 // backend payload).
 window.OctoPetTravelView = (() => {
-  // Wander needs a provider whose CLI can execute a headless web mission.
-  // The Rust side currently implements claude / codex / codewhale runners;
-  // opencode and aider are launched differently and are rejected there.
-  // When the pet resolves to one of those (or the neutral 'aggregate'
-  // bucket), degrade to the first ENABLED supported provider instead of
-  // failing the click. R58-IMPL-C: this mirror of travel.rs's
-  // is_wander_supported set is the frontend's fast-path degrade table; the
-  // backend re-checks (and pre-checks CLI existence) authoritatively.
-  const WANDER_SUPPORTED = ['claude', 'codex', 'codewhale'];
+  // R59: this list is now a STALE-PAYLOAD FALLBACK only. The authoritative
+  // wander-capable set travels with the backend config snapshot
+  // (cfg.wanderSupported — model.rs injects travel.rs's single source, which
+  // gained opencode + aider runners in R59); pet.js passes it in as
+  // supported(). The mirror exists so an old-backend payload (no field)
+  // still degrades sensibly. Cross-checked by the R59 smoke test.
+  const WANDER_SUPPORTED = ['claude', 'codex', 'codewhale', 'opencode', 'aider'];
 
   function ownerKeyFor(agent) {
     // R58-IMPL-C: window-identity aware — the second pet is 'pet-codex'
@@ -26,10 +24,19 @@ window.OctoPetTravelView = (() => {
     return agent === 'codex' || agent === 'pet-codex' ? 'pet-codex' : 'pet';
   }
 
-  function create({ api, bubble, close, provider, agent, enabledProviders }) {
+  function create({ api, bubble, close, provider, agent, enabledProviders, supported }) {
     const wander = document.getElementById('sl-wander');
     const status = document.getElementById('sl-travel-status');
     let state = null;
+
+    // R59: shared/i18n.js is loaded by pet.html before this module; the
+    // travel UI texts were zh-only literals (RV-8 P1 residue).
+    const t = (key, vars) =>
+      (window.OctoI18n && window.OctoI18n.t(key, vars)) || key;
+    const supportedList = () => {
+      const fromConfig = typeof supported === 'function' ? supported() : null;
+      return Array.isArray(fromConfig) && fromConfig.length ? fromConfig : WANDER_SUPPORTED;
+    };
 
     function activeTripForPet(snapshot) {
       const ownerMap = snapshot && snapshot.active;
@@ -57,21 +64,21 @@ window.OctoPetTravelView = (() => {
       const eventTripId = snapshot.tripId;
       const activeId = active && active.id;
       if (eventTripId && activeId && eventTripId !== activeId) return;
-      if (wander) wander.textContent = active ? '⏹ 取消旅行' : '🐾 闲逛';
+      if (wander) wander.textContent = active ? t('sess.cancelTravel') : t('sess.wander');
       if (!status) return;
       const badges = `${'🌿'.repeat(Number(growth.leaves) || 0)}${'⭐'.repeat(Number(growth.stars) || 0)}${'🌙'.repeat(Number(growth.moons) || 0)}${Number(growth.days) ? `☀️×${growth.days}` : ''}`;
       status.textContent = active
-        ? `🧳 ${active.project || active.mode} · ${Math.max(0, Math.floor((Date.now() - active.startedAt) / 60000))} min`
+        ? t('sess.travelStatusActive', { project: active.project || active.mode, minutes: Math.max(0, Math.floor((Date.now() - active.startedAt) / 60000)) })
         : badges
-          ? `成长 ${badges} · ${(Number(growth.totalTokens) || 0).toLocaleString()} tokens`
-          : '每 10k 旅行 token 长出一片叶子';
+          ? t('sess.travelStatusGrowth', { badges, tokens: (Number(growth.totalTokens) || 0).toLocaleString() })
+          : t('sess.travelStatusIdle');
     }
 
     async function toggle() {
       try {
         if (activeTripForPet(state)) {
           await api.cancelTravel();
-          bubble('⏹ 正在取消旅行…', 2400, true);
+          bubble(t('bubble.wanderCanceling'), 2400, true);
           return;
         }
         // R58-IMPL-C: provider() resolves this pet's own provider (the
@@ -79,20 +86,31 @@ window.OctoPetTravelView = (() => {
         // runtime-policy.resolveProvider in pet.js); the bridge attaches the
         // initiating window label as the trip owner, so degraded trips stay
         // on THIS window.
+        //
+        // R59 ("闲逛还是不可用" root cause 1): the old frontend gate threw a
+        // hard error unless one of the supported providers was also ENABLED in config — stricter than the backend,
+        // which degrades across every INSTALLED runner (enabled or not) and
+        // pre-checks CLI existence. opencode/aider-only users could never
+        // reach the backend fallback. Now the frontend only forwards the
+        // pet's own provider when it has a runner, and otherwise passes null
+        // so pick_wander_provider() decides with the full candidate ladder
+        // (requester → enabled → installed). The backend also re-checks the
+        // set from its single source, so the stale mirror above can never
+        // widen the real capability.
         let target = typeof provider === 'function' ? provider() : provider;
-        // R50: degrade unsupported/neutral resolutions to the first
-        // supported enabled provider instead of erroring out.
-        if (!target || !WANDER_SUPPORTED.includes(target)) {
-          const enabled = (typeof enabledProviders === 'function' ? enabledProviders() : null) || [];
-          target = WANDER_SUPPORTED.find((id) => enabled.includes(id)) || null;
-        }
-        if (!target) throw new Error('no wander-capable provider enabled (claude/codex/codewhale)');
-        const result = await api.startWander('在公开网络上寻找一个值得开发者今天了解的新工具、方法或趋势', target);
+        if (!target || !supportedList().includes(target)) target = null;
+        // R59: mission=null lets the backend pick a RANDOM trilingual
+        // mission (the fixed Chinese mission made every wander identical
+        // and left the backend picker as dead code).
+        const result = await api.startWander(null, target);
         update(result);
-        bubble(`🐾 出门闲逛啦（${target}），回来会带明信片！`, 3600, true);
+        const own = activeTripForPet(result);
+        const used = (own && own.provider) || target || '';
+        bubble(t('bubble.wanderStartWith', { provider: used }), 3600, true);
         close();
       } catch (error) {
-        bubble(`⚠️ 闲逛失败：${String(error && (error.message || error) || 'unknown')}`, 5000, true);
+        const message = String(error && (error.message || error) || 'unknown');
+        bubble(t('bubble.wanderFailDetail', { error: message }), 5000, true);
       }
     }
 

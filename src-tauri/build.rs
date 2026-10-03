@@ -49,6 +49,14 @@ const COMMANDS: &[&str] = &[
     "focus_session",
     // R54 (2026-09-22): explicit provider-native session resume surface.
     "resume_session",
+    // R59: expression studio (custom pet expressions).
+    "get_custom_expressions",
+    "save_custom_expression",
+    "clear_custom_expression",
+    "set_custom_expressions_enabled",
+    "read_custom_expression",
+    "open_expressions",
+    "close_expressions",
     "primary_action",
     "open_log",
     "pet_log",

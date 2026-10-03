@@ -27,9 +27,12 @@ const travel = read('src-tauri/src/travel.rs');
 assert(travel.includes('enum PromptDelivery'), 'prompt delivery mode enum missing');
 assert(travel.includes('PromptDelivery::Argv'), 'argv delivery variant missing');
 // The codex-style flag block must be gated to the codex/else branch only.
+// R59: provider_args became a match — slice the codewhale arm instead of
+// the old if/else chain.
+const codewhaleArmStart = travel.indexOf('"codewhale" => {');
 const codewhaleBranch = travel.slice(
-  travel.indexOf('trip.provider == "codewhale"'),
-  travel.indexOf('} else {', travel.indexOf('trip.provider == "codewhale"')),
+  codewhaleArmStart,
+  travel.indexOf('"opencode" => {', codewhaleArmStart),
 );
 assert(codewhaleBranch.includes('"exec".to_string()') && codewhaleBranch.includes('"--json".to_string()'),
   'codewhale branch must invoke `exec --json`');
@@ -45,7 +48,9 @@ const codewhalePrompt = travel.slice(
   travel.indexOf('fn build_prompt'),
   travel.indexOf('fn project_name'),
 );
-assert(codewhalePrompt.includes('trip.provider == "codewhale"'), 'codewhale prompt branch missing');
+// R59: build_prompt is a match with "codewhale" | "aider" sharing the
+// knowledge-only arm (lang-aware since R59).
+assert(codewhalePrompt.includes('"codewhale" | "aider"'), 'codewhale/aider knowledge prompt arm missing');
 assert(codewhalePrompt.includes('from your own knowledge'), 'codewhale prompt must claim knowledge-only');
 
 // ── 2. failure sanitization: raw stderr never becomes the bubble text ────────
@@ -185,7 +190,12 @@ for (const [state, keyframes] of [
 
 // ── 7. wander start bubble names the degraded provider (interaction feedback) ─
 const travelViewSrc = read('frontend/renderer/pet-travel-view.js');
-assert(travelViewSrc.includes('出门闲逛啦（'),
+// R59: the bubble is now i18n-driven (bubble.wanderStartWith) and still
+// names the provider that actually runs the trip (from the returned
+// snapshot's active trip, not the pre-degradation guess).
+assert(travelViewSrc.includes("t('bubble.wanderStartWith', { provider: used })"),
   'wander start bubble must name the provider actually running the trip');
+assert(travelViewSrc.includes('const used = (own && own.provider) || target || \'\';'),
+  'the provider name must come from the returned trip, not the request');
 
 console.log('pet-r53-codewhale-wander-focus-smoke: ok');

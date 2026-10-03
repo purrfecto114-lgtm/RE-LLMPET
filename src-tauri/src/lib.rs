@@ -2,6 +2,7 @@ mod codex_pricing;
 mod codex_rollout;
 mod commands;
 mod config_types;
+mod custom_expressions;
 mod diagnostic_control;
 mod diagnostic_io;
 mod dsh_watch;
@@ -30,6 +31,10 @@ mod transcript;
 mod travel;
 
 use commands::*;
+use custom_expressions::{
+    clear_custom_expression, close_expressions, get_custom_expressions, open_expressions,
+    read_custom_expression, save_custom_expression, set_custom_expressions_enabled,
+};
 use model::AppState;
 use serde_json::json;
 use session_resume::resume_session;
@@ -114,7 +119,7 @@ pub fn run() {
             // only the CSS border-radius is visible.
             #[cfg(target_os = "windows")]
             {
-                for label in ["pet", "pet-codex", "panel"] {
+                for label in ["pet", "pet-codex", "panel", "expression-studio"] {
                     if let Some(window) = app.get_webview_window(label) {
                         disable_dwm_corner_rounding(&window);
                         // Explicitly set window icon from the bundled multi-resolution
@@ -214,7 +219,27 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label() == "panel" {
+            // R59: the expression studio follows the panel lifecycle — created
+            // once, hidden between uses, native close restores the z-order
+            // toggle from open_expressions().
+            if window.label() == "expression-studio" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.set_always_on_top(false);
+                    match window.hide() {
+                        Ok(()) => {
+                            let _ = window.app_handle().emit("expressions:hidden", ());
+                        }
+                        Err(error) => {
+                            let state = window.app_handle().state::<AppState>();
+                            state.runtime.write_log(
+                                "expressions",
+                                &format!("native close hide failed: {error}"),
+                            );
+                        }
+                    }
+                }
+            } else if window.label() == "panel" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     // The panel is created once and hidden between uses. Native
                     // close requests (Alt+F4/taskbar/system menu) must follow
@@ -252,6 +277,8 @@ pub fn run() {
         })
         // R58-IMPL-C: set_duo_provider registers the duo free pairing
         // (second pet ↔ any provider) alongside set_pet_mode.
+        // R59: custom_expressions registers the expression studio surface
+        // (state override files + the studio window lifecycle).
         .invoke_handler(tauri::generate_handler![
             get_config,
             get_config_state,
@@ -301,6 +328,13 @@ pub fn run() {
             launch_agent_gui,
             focus_session,
             resume_session,
+            get_custom_expressions,
+            save_custom_expression,
+            clear_custom_expression,
+            set_custom_expressions_enabled,
+            read_custom_expression,
+            open_expressions,
+            close_expressions,
             primary_action,
             open_log,
             pet_log,

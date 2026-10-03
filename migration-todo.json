@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "LLMPET / Octopus Tauri migration",
-  "release": "0.6.7",
+  "release": "0.6.8",
   "updatedAt": "2026-08-29T00:00:00Z",
   "statusDefinitions": {
     "done": "Acceptance evidence exists and the stated verification gate passed.",
@@ -1070,7 +1070,7 @@
         "frontend/renderer/panel.html #codex-wrap + #codex-usage sections",
         "frontend/renderer/panel.css .bar-fill.codex + .stat.compact",
         "frontend/renderer/panel.js render() Codex logic + renderCodexUsage function",
-        "frontend/shared/i18n.js +4 Codex keys × 3 langs",
+        "frontend/shared/i18n.js +4 Codex keys \u00d7 3 langs",
         "test/tauri-panel-codex-r15-smoke.js (HTML + CSS + JS + i18n parity)",
         "reports/upstream-import-provenance.json i18n.js hash updated for R15"
       ],
@@ -1104,7 +1104,7 @@
         "frontend/renderer/panel.html metric-tabs + trend-controls + usage-diagnostics",
         "frontend/renderer/panel.css .metric-tabs/.mt/.trend-controls/.usage-diagnostics",
         "frontend/renderer/panel.js usageMetric/lastStats state + renderChart dual-array + renderCal metric-aware + renderDiagnostics + click handler",
-        "frontend/shared/i18n.js +11 metric/diag keys × 3 langs",
+        "frontend/shared/i18n.js +11 metric/diag keys \u00d7 3 langs",
         "test/tauri-panel-metrics-r16-smoke.js (HTML + CSS + JS + i18n parity)",
         "reports/upstream-import-provenance.json i18n.js hash updated for R16"
       ],
@@ -1122,8 +1122,8 @@
       ],
       "acceptance": [
         "cal mouseover uses t('panel.calReadout') instead of hardcoded Chinese",
-        "today-tokens uses t('panel.rounds') instead of hardcoded ' 轮'",
-        "win-reset uses t('panel.reset') instead of hardcoded ' 重置'",
+        "today-tokens uses t('panel.rounds') instead of hardcoded ' \u8f6e'",
+        "win-reset uses t('panel.reset') instead of hardcoded ' \u91cd\u7f6e'",
         "renderByModel uses t('panel.modelDetail'/'modelRounds'/'estimatedRounds'/'unknownRounds'/'total') instead of hardcoded Chinese",
         "renderProviderCost uses t('panel.rounds'/'estimatedRounds'/'unknownRounds') instead of hardcoded Chinese",
         "i18n.rs known_keys() is verified by smoke test (no longer dead code)",
@@ -1131,12 +1131,12 @@
       ],
       "evidence": [
         "frontend/renderer/panel.js 5 i18n fix locations (AUDIT-FIX comments)",
-        "frontend/shared/i18n.js +3 keys × 3 langs",
+        "frontend/shared/i18n.js +3 keys \u00d7 3 langs",
         "test/tauri-tray-i18n-r11-smoke.js +2 known_keys assertions",
         "test/tauri-panel-i18n-audit-r17-smoke.js (8 i18n calls + 7 hardcoded removals + 8 keys + no duplicates)",
         "reports/upstream-import-provenance.json i18n.js hash updated"
       ],
-      "nextAction": "Visually verify all 3 languages render correctly in the panel — especially the by-model detail line and provider-cost rows which had the most Chinese characters replaced."
+      "nextAction": "Visually verify all 3 languages render correctly in the panel \u2014 especially the by-model detail line and provider-cost rows which had the most Chinese characters replaced."
     },
     {
       "id": "R18-001",
@@ -1163,7 +1163,7 @@
         "src-tauri/src/metering.rs UsageEvent + Aggregate + parse_claude_assistant changes",
         "frontend/renderer/panel.html t-cw5 + t-cw1 dual rows",
         "frontend/renderer/panel.js render() + renderByModel 5m/1h",
-        "frontend/shared/i18n.js +2 keys × 3 langs + modelDetail upgrade",
+        "frontend/shared/i18n.js +2 keys \u00d7 3 langs + modelDetail upgrade",
         "test/tauri-metering-cw-split-r18-smoke.js",
         "cli-smoke-test.sh (downloadable CLI verification script)"
       ],
@@ -1197,7 +1197,7 @@
         "frontend/renderer/tauri-bridge.js setSessionPrefs",
         "frontend/renderer/panel.html attention + archive buttons",
         "frontend/renderer/panel.js state + renderSessList + onConfig sync",
-        "frontend/shared/i18n.js +9 sess.* keys × 3 langs",
+        "frontend/shared/i18n.js +9 sess.* keys \u00d7 3 langs",
         "test/tauri-panel-sesslist-r19-smoke.js + test/tauri-bridge-smoke.js expected list"
       ],
       "nextAction": "Compile with cargo check --locked; verify pin/archive buttons persist across panel reopens; verify attention filter shows only waiting/needsinput sessions."
@@ -1275,7 +1275,7 @@
     },
     {
       "id": "R44-0D",
-      "title": "Phase 0D: uninstall provenance + drift detection — get_install_receipts IPC + uninstall_hooks response carries priorReceipt/installedAt/backupPath/driftDetected",
+      "title": "Phase 0D: uninstall provenance + drift detection \u2014 get_install_receipts IPC + uninstall_hooks response carries priorReceipt/installedAt/backupPath/driftDetected",
       "status": "ci-verified",
       "dependencies": [],
       "acceptance": [

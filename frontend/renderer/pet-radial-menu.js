@@ -34,6 +34,9 @@ window.OctoPetRadialMenu = (() => {
     const menu = [
       { ic: 'chart', key: 'menu.panel', act: () => window.pet.openPanel() },
       { ic: 'mask', key: 'menu.skin', act: owner.toggleSkin },
+      // R59: expression studio — custom pet expressions in a dedicated
+      // settings window (label 'expression-studio').
+      { ic: 'chat', key: 'menu.expressions', act: () => window.pet.openExpressions() },
       { ic: 'hand', key: 'menu.pending', badge: true, act: () => window.pet.openPanel() },
       { ic: 'zombie', key: 'menu.background', badgeBg: true, act: () => window.pet.openPanel() },
       { ic: 'doc', key: 'menu.log', act: () => window.pet.openLog() },

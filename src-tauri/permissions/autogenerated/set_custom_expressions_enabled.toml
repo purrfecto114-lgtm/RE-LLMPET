@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-custom-expressions-enabled"
+description = "Enables the set_custom_expressions_enabled command without any pre-configured scope."
+commands.allow = ["set_custom_expressions_enabled"]
+
+[[permission]]
+identifier = "deny-set-custom-expressions-enabled"
+description = "Denies the set_custom_expressions_enabled command without any pre-configured scope."
+commands.deny = ["set_custom_expressions_enabled"]

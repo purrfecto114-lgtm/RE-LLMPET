@@ -1,0 +1,205 @@
+/* R59: expression studio — follows the panel's visual language (dark card,
+   same titlebar anatomy) so the two settings windows read as siblings. */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #101418;
+  color: #e8ecef;
+  font: 13px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+#studio {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── titlebar (mirrors panel.css) ─────────────────────────────────────── */
+#titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #232a31;
+  background: #14191e;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand .logo { font-size: 22px; }
+.brand-title { font-weight: 700; letter-spacing: 0.2px; }
+.brand-sub { font-size: 11px; color: #8b98a5; }
+
+.title-actions { display: flex; align-items: center; gap: 8px; }
+.lang-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #8b98a5;
+}
+.lang-picker select {
+  background: #1a2026;
+  color: #e8ecef;
+  border: 1px solid #2a323a;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+#close {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #2a323a;
+  border-radius: 6px;
+  background: #1a2026;
+  color: #e8ecef;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+#close:hover { background: #2a2226; border-color: #5c3a40; color: #ff9c9c; }
+#close:focus-visible, .upload:focus-visible, .remove:focus-visible,
+#enable:focus-visible, .lang-picker select:focus-visible {
+  outline: 2px solid #d29a3a;
+  outline-offset: 1px;
+}
+
+/* ── content ──────────────────────────────────────────────────────────── */
+#content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card {
+  background: #161b21;
+  border: 1px solid #232a31;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+#switch-card .switch-row { display: flex; align-items: center; }
+.switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch-track {
+  width: 34px;
+  height: 19px;
+  border-radius: 999px;
+  background: #2a323a;
+  position: relative;
+  transition: background 0.15s ease;
+  flex: none;
+}
+.switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #98a4b0;
+  transition: left 0.15s ease, background 0.15s ease;
+}
+.switch input:checked + .switch-track { background: #2f6f4f; }
+.switch input:checked + .switch-track::after { left: 17px; background: #b8e6c9; }
+.switch-label { font-weight: 600; }
+
+.hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #8b98a5;
+}
+
+.states-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.states-count { font-size: 11px; color: #8b98a5; font-weight: 400; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 10px;
+}
+
+.state {
+  background: #1a2026;
+  border: 1px solid #2a323a;
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.state.custom { border-color: #2f6f4f; }
+
+.preview {
+  width: 84px;
+  height: 84px;
+  border-radius: 6px;
+  background:
+    repeating-conic-gradient(#1d2329 0% 25%, #171c22 0% 50%) 0 0 / 16px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.preview img { max-width: 100%; max-height: 100%; image-rendering: auto; }
+.preview .placeholder { font-size: 20px; opacity: 0.45; }
+
+.state-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #c7d0d8;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.state-label { font-size: 11px; color: #8b98a5; }
+.state.custom .state-label { color: #7fc79a; }
+.state .size { font-size: 10px; color: #6d7a86; }
+
+.state-actions { display: flex; gap: 6px; }
+.upload, .remove {
+  flex: 1;
+  border: 1px solid #2a323a;
+  border-radius: 6px;
+  background: #212830;
+  color: #e8ecef;
+  font-size: 11px;
+  padding: 4px 6px;
+  cursor: pointer;
+  min-height: 26px;
+}
+.upload:hover { background: #2a323a; }
+.remove { border-color: #46302f; color: #e8a7a7; }
+.remove:hover { background: #332222; }
+.upload[disabled], .remove[disabled] { opacity: 0.5; cursor: default; }
+.upload input[type="file"] { display: none; }
+
+#foot {
+  padding: 8px 14px;
+  border-top: 1px solid #232a31;
+  background: #14191e;
+}
+.foot-note { font-size: 11px; color: #6d7a86; }
+
+/* Slim scrollbar to match the panel's dark theme. */
+#content::-webkit-scrollbar { width: 8px; }
+#content::-webkit-scrollbar-thumb { background: #2a323a; border-radius: 4px; }
+#content::-webkit-scrollbar-track { background: transparent; }

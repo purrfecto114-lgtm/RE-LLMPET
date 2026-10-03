@@ -1,5 +1,102 @@
 # Changelog
 
+## 0.6.8 — R59 glib advisory 处置 + 双宠副宠被吞回归根修 + 闲逛任意 provider + 自定义表情工坊（2026-10-03）
+
+> 用户指令（原文）：「发现：Unsoundness in `Iterator` and
+> `DoubleEndedIterator` impls for `glib::VariantStrIter` #1 需要修复，双宠
+> 模式下副宠物被吞了（回归）。添加自定义桌宠表情的功能（开一个新的设置
+> 窗口）。存在硬编码导致"闲逛功能还是不可用"」
+
+### HIGH: glib::VariantStrIter unsoundness（RUSTSEC-2024-0429 / GHSA-wrw7-89jp-8q8g）
+- 事实链：advisory 影响区间 glib >=0.15.0 <0.20.0（修复版 0.20.0）；本仓
+  Cargo.lock 锁 glib 0.18.5，仅进入 Linux 构建，传递链为
+  tauri 2.11.5 → tao 0.35.3 / muda 0.19.3 / wry 0.55.1 → gtk 0.18 →
+  glib 0.18。我们从不直接调用 VariantStrIter，图内钉住的 gtk 家族 crate
+  也未触达该 API；advisory 级别为 informational（unsound）非漏洞。
+- 生态锁死实证：上游 tao dev（0.37.1）与 muda 最新版 0.21.0 仍 require
+  gtk ^0.18 —— Tauri 栈今天不存在升级到 glib >=0.20 的路径。
+- 处置（可审计而非静默）：新增 `src-tauri/.cargo/audit.toml` 显式 ignore
+  该 advisory（含根因/生态票据/移除条件三要素）；CI RustSec 扫描继续对
+  任何**新**漏洞失败；R59 冒烟测试断言 ignore 存在且 glib 仍在 0.18 线
+  —— 一旦 tao/muda 迁移导致 `cargo update` 落到 >=0.20，测试立刻翻红
+  提醒移除 ignore。
+
+### HIGH: 双宠模式下副宠物被吞（0.6.7 回归根修）
+- 根因 1（位置槽交叉写入，坐实）：`commit_win_pos` 的窗口路由在 R58 已
+  config 化（`pet_label_for_agent`），但槽位判定仍是字面量
+  `agent == Some("codex")`。自由搭配（duoProvider ≠ codex）时：副宠窗拖
+  动 → 位置写进**主宠槽** pet_position；主宠窗拖动（此时 agent 可以恰好
+  是 codex）→ 写进**副宠槽** pet_position_codex。重启恢复 + 
+  `pet_position_codex.is_some()` 跳过 280px 防重叠锚定 → 两个 320×340
+  alwaysOnTop 窗口完全叠加 = 「副宠物被吞」。修复：槽位按**窗口 label**
+  判定（`if label == "pet-codex"`），与拖动的窗口物理一致，任意搭配下
+  成立。
+- 根因 2（启动期 URL 同步竞态）：Rust 侧 `sync_duo_provider_url` 在
+  setup 阶段对 pet-codex 窗 `eval(location.replace)`，webview 可能尚未
+  完成初始文档加载 → 导航被丢弃；且 LAST_APPLIED 无条件置位 → 永不重
+  试（透明窗闪帧/「窗口不出现」感知回归）。修复：整个 URL query 自同步
+  迁入渲染进程（pet-agent-view.js `syncDuoQuery`，页面已加载是构造性保
+  证；label 身份本就权威，query 只是从属身份源）；Rust 侧删除 eval 注
+  入与全局守卫。
+
+### HIGH: 闲逛还是不可用（硬编码根除，任意 provider 可用）
+- 根因 1（前端门比后端严）：pet-travel-view.js 在前端硬抛「无可闲逛
+  provider」——要求支持集 ∩ 已启用非空，否则到不了后端三层降级；只启
+  用 opencode/aider 的用户永远在前端被拦。修复：前端仅在**本宠 provider
+  有 runner** 时转发，否则传 null 交后端裁决（请求者 → 已启用 → 已安装
+  三层候选 + CLI 预检）。
+- 根因 2（CLI 发现两套策略）：travel.rs 的 find_executable 纯 PATH 扫
+  描，GUI 启动（Finder/双击）进程 PATH 缺用户 CLI 目录 → 装了 claude 也
+  报「未安装」。修复：PATH → 复用启动/诊断链同源解析器 commands::which
+  （含 Windows CodeWhale 安装基）→ 常见用户级目录兜底（~/.local/bin、
+  ~/bin、~/.opencode/bin、~/.npm-global/bin、/opt/homebrew/bin、
+  /usr/local/bin、%APPDATA%\npm、%LOCALAPPDATA%\Programs）。
+- 新增 runner（联网实证旗标）：**opencode**（`opencode run <prompt>` 非
+  交互面，argv 投递，默认 text 输出走明信片纯文本回退解析）与 **aider**
+  （`--message <task> --yes-always --no-git --no-auto-lint --no-stream`
+  一次性无头模式，prompt 经 argv 落在 --message 之后）。dsh 保持排除
+  （观察器无无头面）。至此六 provider 中五家有闲逛 runner。
+- 硬编码清理：`owner_for_provider` 由 codex 字面量改 config.duo_provider
+  驱动（配错窗的取消按钮/roam 表情/明信片路由修复）；WANDER_SUPPORTED
+  三处镜像收敛为 travel.rs 单一来源并经 config_view `wanderSupported`
+  下发前端；闲逛任务恢复后端随机三语任务库（前端固定中文任务已删，
+  pick_wander_mission/pick_travel_mission 按 config.lang 取库）；明信片
+  prompt / 开始/取消/失败文案 / CLI 错误文案全部三语化（原先 zh-only）。
+
+### NEW: 自定义桌宠表情（表情工坊，新设置窗口）
+- 新窗口 `expression-studio`（renderer/expressions.html，panel 同款生命
+  周期：创建一次、hide/show 复用、原生关闭=hide、alwaysOnTop 开关），
+  径向菜单「表情工坊」入口。
+- 后端 `custom_expressions.rs`：27 个渲染状态白名单（与 states.js
+  RENDER_STATE_WORDS 逐词对齐，冒烟测试防漂移）+ 存储
+  `~/.re-llmpet/expressions/<state>.<ext>` + 七个 command（get/save/
+  clear/enable/read/open/close）。安全面：状态与扩展名白名单（无路径穿
+  越）、8 MiB 上限、魔数嗅探防伪装、expressions 目录防符号链接、临时
+  文件+rename 原子写、base64 自实现（不新增依赖，含 RFC 4648 向量测
+  试）。
+- 渲染回退链：pet-expressions.js 覆盖层（data: URL 缓存 + 变更事件失
+  效 + 当前态重放）；pet.js 的 `expressionAwareSwap` 包裹**所有**资产
+  换帧（初始态 + 60s 姿态轮换计时器），覆盖态不会被轮换回滚；pixel 形
+  态无 img 目标自动跳过。未覆盖状态继续用皮肤内置表情，全局启用开关走
+  config（customExpressions 字段，事务写 + 三窗广播）。
+- 工坊交互：每状态卡片（预览=覆盖图或当前皮肤默认图、状态名、文件大
+  小、替换/移除）、上传中禁用 + 成功/失败三语 toast、语言切换器、启用
+  开关（失败回滚）。CSP 已放行 img-src data:，零新协议面。
+
+### 其他
+- 冒烟测试：新增 `test/tauri-r59-regression-smoke.js`（advisory ignore
+  存在性 + glib 线别 + duo 槽位 + wander 全链 + 表情工坊全接线）；
+  r58/r53/桥接/能力边界/预算测试同步更新；预算重校
+  pet.js 2850 / commands.rs 3810 / pet-expressions.js 160 /
+  expressions.js 330（新模块小预算可审）。
+
+**升级须知**：无需迁移（schema 仍为 2，未知字段保留）。若此前因双宠位
+置交叉写入保存过错误布局，升级后**拖动一次两只宠物**即写入正确槽位自
+愈。Linux 构建的 glib advisory 处置理由见 `src-tauri/.cargo/audit.toml`
+注释。
+
+# Changelog
+
 ## 0.6.7 — R58 归档 GUI 根修 + OpenCode 子代理谱系 + 价格兼容匹配 + 闲逛自由搭配 + 卸载清扫 + 冷启动会话发现（2026-10-02）
 
 > 用户指令（原文）：「下载，加载superpowers skills完成以下任务……额外的

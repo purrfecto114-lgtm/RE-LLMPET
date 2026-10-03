@@ -71,6 +71,11 @@ const expected = [
   // 2026-08-29 config-driven default agent: the pet window no longer relies
   // on a hardcoded ?agent= query, so the bridge exposes the configured default.
   'defaultAgent',
+  // R59: expression studio (custom pet expressions) + lifecycle events.
+  'onExpressionsChanged', 'onExpressionsShown', 'onExpressionsHidden',
+  'getCustomExpressions', 'saveCustomExpression', 'clearCustomExpression',
+  'setCustomExpressionsEnabled', 'readCustomExpression',
+  'openExpressions', 'closeExpressions',
 ].sort();
 assert(api && typeof api === 'object');
 assert(Object.isFrozen(api), 'compatibility API must be frozen');

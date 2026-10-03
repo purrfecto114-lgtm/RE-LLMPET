@@ -44,6 +44,9 @@
     "allow-get-travel",
     "allow-start-travel",
     "allow-start-wander",
-    "allow-cancel-travel"
+    "allow-cancel-travel",
+    "allow-get-custom-expressions",
+    "allow-read-custom-expression",
+    "allow-open-expressions"
   ]
 }

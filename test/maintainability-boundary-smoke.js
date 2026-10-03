@@ -125,7 +125,18 @@ for (const [name, source, maxLines] of [
   // R58 review fixes: +10 audited lines — cross-window archive convergence
   // in applyConfigSnapshot (renderSessions + conditional renderSessList/
   // fitPopup after another window archives a session). Audited 2783.
-  ["frontend/renderer/pet.js", pet, 2790],
+  // R59: duo URL self-sync moved to pet-agent-view.js (-16); wander
+  // capability snapshot wiring (+9) and the expression override hooks
+  // (wrapper + re-apply + configure, +22) audited at 2843.
+  ["frontend/renderer/pet.js", pet, 2850],
+  // R59: focused owner for the custom-expression override layer (snapshot
+  // cache + data-URL resolution + change invalidation). Small by design.
+  ["frontend/renderer/pet-expressions.js",
+    read('frontend/renderer/pet-expressions.js'), 160],
+  // R59: expression studio controller (grid, upload/remove/toggle flows,
+  // localized toasts). Small by design.
+  ["frontend/renderer/expressions.js",
+    read('frontend/renderer/expressions.js'), 330],
   ['frontend/renderer/panel.js', panel, 1760],
   // R51 (2026-08-30): cargo fmt with the 2024 style edition re-wrapped this
   // file (same statements, more lines): 3360 -> 3572 with zero logic growth.
@@ -145,7 +156,9 @@ for (const [name, source, maxLines] of [
   // funnel through this command; previously zero feedback). Audited 3757.
   // R58 review fixes: +18 audited lines — tray uninstall_hooks now returns
   // the CleanupResult and runs the residue sweep on the bulk path. 3772.
-  ['src-tauri/src/commands.rs', commands, 3780],
+  // R59: trilingual mission pickers (pick_*_mission took a lang param) +
+  // the wander lang threading — audited 3794.
+  ['src-tauri/src/commands.rs', commands, 3810],
   // R58 (2026-10-02): the headless uninstall pipeline + shell/backup residue
   // sweep moved here from hook_install.rs (2679 > 2330 guard) — same
   // extraction pattern as plugin_sources.rs in R54.

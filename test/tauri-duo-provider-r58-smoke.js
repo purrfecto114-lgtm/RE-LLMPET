@@ -76,12 +76,24 @@ assert(commands.includes('fn pet_label_for_agent(app: &AppHandle, agent: Option<
   'pet_label_for_agent must be config-aware (semantic provider from config.duo_provider)');
 assert(commands.includes('state.runtime.duo_provider()'),
   'pet_label_for_agent must read the pairing without a full config clone');
-assert(commands.includes('fn sync_duo_provider_url('),
-  'second-pet window URL sync helper missing');
-assert(commands.includes("window.location.replace('/renderer/pet.html"),
-  'URL sync must navigate the pet-codex window to the paired provider');
-assert(commands.includes('sync_duo_provider_url(app, config);'),
-  'sync_pet_windows must run the URL sync (covers set_pet_mode/set_duo_provider/startup/tray)');
+// R59: the URL query sync moved from the Rust side (startup eval race, see
+// commands.rs sync_pet_windows doc) into the renderer itself.
+assert(!commands.includes('fn sync_duo_provider_url('),
+  'R59: the startup eval-based URL sync helper must be gone (race source)');
+const petJsR59 = read('frontend/renderer/pet.js');
+const agentViewR59 = read('frontend/renderer/pet-agent-view.js');
+assert(agentViewR59.includes('function syncDuoQuery(cfg)'),
+  'R59: the second-pet window must align its own URL query (pet-agent-view.js)');
+assert(agentViewR59.includes("current !== desired"),
+  'R59: the query sync must be a no-op when already aligned (no reload loop)');
+assert(petJsR59.includes('petAgentView.syncDuoQuery(cfg);'),
+  'R59: applyConfigSnapshot must run the query sync');
+// R59 regression ("secondary pet swallowed"): commit_win_pos decides the
+// config slot by window LABEL, not the semantic agent string.
+assert(commands.includes('if label == "pet-codex" {'),
+  'R59: commit_win_pos must write pet_position_codex by window label');
+assert(!commands.includes('agent.as_deref() == Some("codex")'),
+  'R59: no literal codex slot comparison may remain in commit_win_pos');
 
 // ── 4. registration surface: build.rs + capabilities + lib.rs ───────────────
 const buildRs = read('src-tauri/build.rs');
@@ -212,8 +224,10 @@ assert(petJs.includes("PET_AGENT === 'pet-codex' && petMode === 'duo' ? cfg.petP
   'position selection must use the window identity');
 assert(petJs.includes('runtimePolicy.resolveProvider(curSessions, activeProviders, PET_AGENT, duoProvider)'),
   'wander provider resolution must account for the pairing');
-assert(petJs.includes('window.OctoPetTravelView.WANDER_SUPPORTED.includes(s.providerId || s.provider)'),
-  'the project-travel button must use the travel supported set (codewhale included)');
+// R59: the button set is now backend-driven (cfg.wanderSupported) with the
+// module mirror only as an old-payload fallback.
+assert(petJs.includes('wanderCapable.includes(s.providerId || s.provider)'),
+  'the project-travel button must use the wander-capable set (backend snapshot)');
 
 const panelHtml = read('frontend/renderer/panel.html');
 assert(panelHtml.includes('id="duo-provider"'), 'panel second-pet selector missing');

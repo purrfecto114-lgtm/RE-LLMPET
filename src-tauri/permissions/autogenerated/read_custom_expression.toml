@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-read-custom-expression"
+description = "Enables the read_custom_expression command without any pre-configured scope."
+commands.allow = ["read_custom_expression"]
+
+[[permission]]
+identifier = "deny-read-custom-expression"
+description = "Denies the read_custom_expression command without any pre-configured scope."
+commands.deny = ["read_custom_expression"]

@@ -62,6 +62,12 @@ pub struct AppConfig {
     pub pet_position_codex: Option<Point>,
     pub budget5h: f64,
     pub muted: bool,
+    /// R59: master switch for user-custom expression overrides (the
+    /// expression studio). `None` = field absent in a pre-R59 config →
+    /// disabled; the override files themselves live in
+    /// `<app_dir>/expressions/` (see custom_expressions.rs).
+    #[serde(default)]
+    pub custom_expressions: Option<bool>,
     pub reply_bubbles: bool,
     pub reply_bubble_chars: usize,
     pub perm_hook: bool,
@@ -116,6 +122,7 @@ impl Default for AppConfig {
             pet_position_codex: None,
             budget5h: 10.0,
             muted: false,
+            custom_expressions: None,
             reply_bubbles: true,
             reply_bubble_chars: 800,
             perm_hook: true,
@@ -766,6 +773,15 @@ impl Runtime {
             object.insert(
                 "territorySupported".into(),
                 json!(cfg!(target_os = "macos")),
+            );
+            // R59: single source of truth for the wander-capable provider
+            // set — pet.js / pet-travel-view.js read this from the config
+            // snapshot instead of maintaining a third frontend mirror that
+            // drifted from travel.rs (the frontend mirror still rejected
+            // opencode/aider even after the backend gained runners).
+            object.insert(
+                "wanderSupported".into(),
+                json!(crate::travel::WANDER_SUPPORTED_PROVIDERS),
             );
             object.insert("officialMigration".into(), self.migration_report.clone());
             object.insert(

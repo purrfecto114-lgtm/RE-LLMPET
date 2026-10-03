@@ -220,6 +220,10 @@ function currentPetAgent() {
     onWindowBlur: (cb) => subscribe('pet:window-blur', cb),
     onPanelShown: (cb) => subscribe('panel:shown', cb),
     onPanelHidden: (cb) => subscribe('panel:hidden', cb),
+    // R59: expression studio lifecycle + override table changes.
+    onExpressionsChanged: (cb) => subscribe('expressions:changed', cb),
+    onExpressionsShown: (cb) => subscribe('expressions:shown', cb),
+    onExpressionsHidden: (cb) => subscribe('expressions:hidden', cb),
 
     getConfig: () => call('get_config').then((cfg) => {
       cachedConfig = cfg || null;
@@ -264,6 +268,18 @@ function currentPetAgent() {
     // window even when the backend degrades the provider.
     startWander: (mission, provider) => call('start_wander', { mission, provider, owner: currentOwnerLabel() }),
     cancelTravel: () => call('cancel_travel'),
+    // R59: expression studio (custom pet expressions). save() posts the
+    // picked file's bytes as base64; read() returns a data: URL (the CSP
+    // already allows img-src data:).
+    getCustomExpressions: () => call('get_custom_expressions'),
+    saveCustomExpression: (state, dataBase64, ext) =>
+      call('save_custom_expression', { stateName: state, dataBase64, ext }),
+    clearCustomExpression: (state) => call('clear_custom_expression', { stateName: state }),
+    setCustomExpressionsEnabled: (enabled) =>
+      call('set_custom_expressions_enabled', { enabled }),
+    readCustomExpression: (state) => call('read_custom_expression', { stateName: state }),
+    openExpressions: () => send('open_expressions'),
+    closeExpressions: () => send('close_expressions'),
     quit: () => send('quit_app'),
     getWinPos: () => call('get_win_pos', { agent: currentPetAgent() }).then((pos) => {
       if (Array.isArray(pos)) return pos;
